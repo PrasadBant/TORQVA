@@ -172,7 +172,7 @@ def test_strict_firmware_refuses_motor_commands_until_both_commissioning_decisio
         assert a[0]["status"] == "REJECTED" and a[0]["reason"] == "LIMITS_NOT_APPROVED"
     finally:
         d.close()
-    d = strict_ready("--approved", "--secured")
+    d = strict_ready("--approved", "--secured", "--session")
     try:
         assert acks(d.cmd("SET_SPEED", 1500))[0]["reason"] == "ESTOP_INPUT_NOT_VERIFIED"
     finally:
@@ -180,12 +180,12 @@ def test_strict_firmware_refuses_motor_commands_until_both_commissioning_decisio
 
 
 def test_strict_firmware_start_requires_an_active_watchdog_and_then_runs_with_every_interlock_verified():
-    d = strict_ready("--approved", "--estop-wired", "--secured", "--no-wdt")
+    d = strict_ready("--approved", "--estop-wired", "--secured", "--session", "--no-wdt")
     try:
         assert acks(d.cmd("START", 30))[0]["reason"] == "WATCHDOG_NOT_ACTIVE"
     finally:
         d.close()
-    d = strict_ready("--approved", "--estop-wired", "--secured")
+    d = strict_ready("--approved", "--estop-wired", "--secured", "--session")
     try:
         a = acks(d.cmd("START", 30))
         assert a[0]["status"] == "ACCEPTED"
@@ -198,7 +198,7 @@ def test_strict_firmware_start_requires_an_active_watchdog_and_then_runs_with_ev
 
 
 def test_strict_firmware_never_blocks_stop_and_never_restarts_after_a_fault():
-    d = strict_ready("--approved", "--estop-wired", "--secured")
+    d = strict_ready("--approved", "--estop-wired", "--secured", "--session")
     try:
         d.cmd("START", 30)
         for _ in range(2):
@@ -214,5 +214,27 @@ def test_strict_firmware_never_blocks_stop_and_never_restarts_after_a_fault():
         assert st["state"] == "EMERGENCY_STOP" and [f for f in frames if f["t"] == "fast"][-1]["duty"] == 0.0     # no auto-recovery
         assert acks(d.cmd("START", 30))[0]["status"] == "REJECTED"
         assert acks(d.cmd("STOP"))[0]["status"] == "ACCEPTED"
+    finally:
+        d.close()
+
+
+def test_strict_firmware_refuses_motion_without_a_live_authenticated_session_even_when_everything_else_is_declared():
+    d = strict_ready("--approved", "--estop-wired", "--secured")                        # transport declared, but no session was established
+    try:
+        assert acks(d.cmd("START", 30))[0]["reason"] == "NO_SECURE_SESSION"
+    finally:
+        d.close()
+    d = strict_ready("--approved", "--estop-wired", "--session")                        # a session without a declared secured transport is not enough either
+    try:
+        assert acks(d.cmd("START", 30))[0]["reason"] == "TRANSPORT_NOT_SECURED"
+    finally:
+        d.close()
+
+
+def test_every_firmware_acknowledgement_carries_the_device_identity():
+    d = Fw(True, "--strict")
+    try:
+        a = acks(d.cmd("START", 30)) + acks(d.cmd("HEARTBEAT")) + acks(d.cmd("STOP"))
+        assert a and all(x["dev"] == "FITL-1" for x in a)
     finally:
         d.close()

@@ -1,5 +1,8 @@
 # Hardware Wiring & Physical Bench Safety Specification (Phase 6)
 
+> **Note:** the pin map below comes from the quarantined legacy sketch (`esp32/firmware/README_LEGACY_UNSAFE.md`). It is not an approved or verified wiring contract, and the supported firmware is `esp32/torqva_fw`.
+
+
 ## 1. Physical Bench Safety Procedure
 
 > [!CAUTION]

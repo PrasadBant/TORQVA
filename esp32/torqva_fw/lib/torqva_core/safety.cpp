@@ -16,6 +16,7 @@ const char* trip_reason_name(TripReason r) {
         case TripReason::HEARTBEAT_LOST: return "HEARTBEAT_LOST";
         case TripReason::SENSOR_INVALID: return "SENSOR_INVALID";
         case TripReason::EXTERNAL_ESTOP: return "EXTERNAL_ESTOP";
+        case TripReason::RESET_FAULT: return "RESET_FAULT";
     }
     return "UNKNOWN";
 }

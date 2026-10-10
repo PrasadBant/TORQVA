@@ -24,7 +24,8 @@ const char* cmd_type_name(CmdType t);
 const char* ack_status_name(AckStatus s);
 
 // Encoders return the number of bytes written (excluding NUL), or 0 if the buffer was too small.
-size_t encode_ack(char* buf, size_t n, const Ack& a);
+// dev: optional device identity echoed as "dev" so the receiver can bind the acknowledgement to ONE device (nullptr or "" omits it).
+size_t encode_ack(char* buf, size_t n, const Ack& a, const char* dev = nullptr);
 
 enum SignalBits : uint8_t {
     Q_CURRENT = 1 << 0, Q_VOLTAGE = 1 << 1, Q_HOUSING = 1 << 2,

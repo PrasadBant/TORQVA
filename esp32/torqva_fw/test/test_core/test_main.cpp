@@ -5,6 +5,7 @@
 #include "commands.h"
 #include "testexec.h"
 #include "interlock.h"
+#include "estop.h"
 
 using namespace torqva;
 
@@ -156,7 +157,7 @@ void test_non_finite_non_critical_signal_does_not_trip_and_cannot_mask_a_real_li
 // ---------------- Start interlock (pure logic) ----------------
 static StartInterlockInputs all_ok() {
     StartInterlockInputs i = {};
-    i.initialized = i.limits_approved = i.transport_secured = i.estop_input_wired = i.watchdog_active = true;
+    i.initialized = i.limits_approved = i.transport_secured = i.session_active = i.estop_input_wired = i.watchdog_active = true;
     i.estop_active = false; i.safety_state = SafetyState::OK;
     i.required_sensors_valid = i.telemetry_fresh = i.link_ok = true;
     return i;
@@ -169,6 +170,7 @@ void test_interlock_blocks_each_unverified_condition_with_its_own_reason() {
     i = all_ok(); i.initialized = false;            TEST_ASSERT_EQUAL_STRING("NOT_INITIALIZED", start_interlock_reason(i));
     i = all_ok(); i.limits_approved = false;        TEST_ASSERT_EQUAL_STRING("LIMITS_NOT_APPROVED", start_interlock_reason(i));
     i = all_ok(); i.transport_secured = false;     TEST_ASSERT_EQUAL_STRING("TRANSPORT_NOT_SECURED", start_interlock_reason(i));
+    i = all_ok(); i.session_active = false;        TEST_ASSERT_EQUAL_STRING("NO_SECURE_SESSION", start_interlock_reason(i));
     i = all_ok(); i.estop_input_wired = false;      TEST_ASSERT_EQUAL_STRING("ESTOP_INPUT_NOT_VERIFIED", start_interlock_reason(i));
     i = all_ok(); i.estop_active = true;            TEST_ASSERT_EQUAL_STRING("ESTOP_ACTIVE", start_interlock_reason(i));
     i = all_ok(); i.watchdog_active = false;        TEST_ASSERT_EQUAL_STRING("WATCHDOG_NOT_ACTIVE", start_interlock_reason(i));
@@ -179,6 +181,47 @@ void test_interlock_blocks_each_unverified_condition_with_its_own_reason() {
     i = all_ok(); i.link_ok = false;                TEST_ASSERT_EQUAL_STRING("NO_HEARTBEAT", start_interlock_reason(i));
     StartInterlockInputs z = {};                    // an all-zero (unverified) input must never permit a start
     TEST_ASSERT_NOT_NULL(start_interlock_reason(z));
+}
+
+// ---------------- Abstract E-stop input (no pin, no polarity: electrical behaviour is NOT tested here) ----------------
+static EstopConfig estop_cfg(bool configured = true, bool active_low = true, uint32_t deb = 50) { EstopConfig c = {configured, active_low, deb}; return c; }
+void test_estop_input_is_unknown_until_configured_and_never_released_when_unconfigured() {
+    EstopInput e(estop_cfg(false));
+    for (uint32_t t = 0; t < 5000; t += 10) e.update(t, true, true);
+    TEST_ASSERT_EQUAL(EstopState::UNKNOWN, e.state()); TEST_ASSERT_TRUE(e.blocks_operation());
+    EstopInput z(estop_cfg(true, true, 0));                       // a zero debounce is an invalid configuration
+    z.update(0, true, true); z.update(100, true, true);
+    TEST_ASSERT_EQUAL(EstopState::UNKNOWN, z.state());
+}
+void test_estop_input_starts_unknown_asserts_immediately_and_releases_only_after_the_debounce() {
+    EstopInput e(estop_cfg(true, /*active_low*/ true, 50));
+    TEST_ASSERT_EQUAL(EstopState::UNKNOWN, e.state());
+    e.update(0, true, true);                                      // released level, debounce not yet elapsed
+    TEST_ASSERT_TRUE(e.blocks_operation());
+    e.update(49, true, true); TEST_ASSERT_TRUE(e.blocks_operation());
+    e.update(50, true, true); TEST_ASSERT_EQUAL(EstopState::RELEASED, e.state()); TEST_ASSERT_FALSE(e.blocks_operation());
+    e.update(60, true, false);                                    // active-low line pulled low: asserted at once, no debounce
+    TEST_ASSERT_EQUAL(EstopState::ASSERTED, e.state());
+    e.update(70, true, true); e.update(100, true, true);          // glitch-free release must again wait the full debounce
+    TEST_ASSERT_TRUE(e.blocks_operation());
+    e.update(120, true, true); TEST_ASSERT_EQUAL(EstopState::RELEASED, e.state());
+}
+void test_estop_input_treats_an_unreadable_sample_as_asserted_and_a_glitch_restarts_the_debounce() {
+    EstopInput e(estop_cfg(true, false, 100));                    // active-high polarity
+    e.update(0, true, false); e.update(100, true, false); TEST_ASSERT_EQUAL(EstopState::RELEASED, e.state());
+    e.update(110, false, false);                                  // read failure / circuit fault
+    TEST_ASSERT_EQUAL(EstopState::ASSERTED, e.state());
+    e.update(120, true, false); e.update(180, true, true);        // released, then a glitch back to asserted
+    e.update(190, true, false); e.update(280, true, false);
+    TEST_ASSERT_TRUE(e.blocks_operation());                       // only 90 ms since the glitch
+    e.update(290, true, false); TEST_ASSERT_EQUAL(EstopState::RELEASED, e.state());
+}
+void test_estop_input_debounce_is_wrap_safe() {
+    EstopInput e(estop_cfg(true, true, 50));
+    e.update(0xFFFFFFE0u, true, true); TEST_ASSERT_TRUE(e.blocks_operation());
+    e.update(0x00000010u, true, true);                            // 48 ms later across the wrap
+    TEST_ASSERT_TRUE(e.blocks_operation());
+    e.update(0x00000012u, true, true); TEST_ASSERT_EQUAL(EstopState::RELEASED, e.state());
 }
 
 // ---------------- Fault mask: every cause is preserved ----------------
@@ -537,6 +580,10 @@ int main(int, char**) {
     RUN_TEST(test_interlock_permits_only_when_everything_is_verified);
     RUN_TEST(test_interlock_blocks_each_unverified_condition_with_its_own_reason);
     RUN_TEST(test_fault_mask_keeps_every_simultaneous_cause_while_reason_keeps_the_first);
+    RUN_TEST(test_estop_input_is_unknown_until_configured_and_never_released_when_unconfigured);
+    RUN_TEST(test_estop_input_starts_unknown_asserts_immediately_and_releases_only_after_the_debounce);
+    RUN_TEST(test_estop_input_treats_an_unreadable_sample_as_asserted_and_a_glitch_restarts_the_debounce);
+    RUN_TEST(test_estop_input_debounce_is_wrap_safe);
     RUN_TEST(test_non_finite_critical_signal_is_invalid_and_trips_after_500ms);
     RUN_TEST(test_non_finite_non_critical_signal_does_not_trip_and_cannot_mask_a_real_limit);
     RUN_TEST(test_heartbeat_enforced_only_in_hardware_mode);

@@ -90,7 +90,7 @@ static std::string start_reason(Rig& r) {
     const size_t p = a.find("\"reason\":\"");
     return p == std::string::npos ? "" : a.substr(p + 10, a.find('"', p + 10) - (p + 10));
 }
-static void ready(Rig& r) { r.dev.set_watchdog_active(true); r.run(300); r.send("HEARTBEAT"); r.last_hb_t = r.t; }   // a few control cycles, then an authorised heartbeat
+static void ready(Rig& r) { r.dev.set_watchdog_active(true); r.dev.set_secure_session(true); r.run(300); r.send("HEARTBEAT"); r.last_hb_t = r.t; }   // a few control cycles, then an authorised heartbeat
 
 void test_strict_start_refused_until_limits_approved() {
     Rig r(true, sim_limits(), false, /*approved*/ false, /*wired*/ true, /*secured*/ true); ready(r);
@@ -106,17 +106,17 @@ void test_strict_start_refused_until_an_estop_input_is_declared_wired() {
 }
 
 void test_strict_start_refused_while_the_watchdog_is_not_active() {
-    Rig r(true, sim_limits(), false, true, true, /*secured*/ true); r.run(300);       // watchdog NOT reported active
+    Rig r(true, sim_limits(), false, true, true, /*secured*/ true); r.dev.set_secure_session(true); r.run(300);       // watchdog NOT reported active
     TEST_ASSERT_EQUAL_STRING("WATCHDOG_NOT_ACTIVE", start_reason(r).c_str());
 }
 
 void test_strict_start_refused_before_the_first_control_cycle() {
-    Rig r(true, sim_limits(), false, true, true, /*secured*/ true); r.dev.set_watchdog_active(true);
+    Rig r(true, sim_limits(), false, true, true, /*secured*/ true); r.dev.set_watchdog_active(true); r.dev.set_secure_session(true);
     TEST_ASSERT_EQUAL_STRING("NOT_INITIALIZED", start_reason(r).c_str());
 }
 
 void test_strict_start_refused_without_an_authorised_heartbeat() {
-    Rig r(true, sim_limits(), false, true, true, /*secured*/ true); r.dev.set_watchdog_active(true);
+    Rig r(true, sim_limits(), false, true, true, /*secured*/ true); r.dev.set_watchdog_active(true); r.dev.set_secure_session(true);
     r.auto_hb = false; r.run(300);
     TEST_ASSERT_EQUAL_STRING("NO_HEARTBEAT", start_reason(r).c_str());
 }
@@ -127,7 +127,7 @@ void test_strict_start_refused_on_stale_telemetry_and_wrap_safe() {
     TEST_ASSERT_EQUAL_STRING("TELEMETRY_STALE", start_reason(r).c_str());
     // millis() rollover: a snapshot taken just before the wrap and a start request just after it is fresh; 600 ms later is stale.
     Device d(sim_limits(), sim_cfg(true, false, true, true, true));
-    d.set_watchdog_active(true);
+    d.set_watchdog_active(true); d.set_secure_session(true);
     HalIn in = {};
     in.now_ms = 0xFFFFFFF0u; in.current_valid = in.voltage_valid = in.housing_valid = in.rpm_valid = true;
     in.voltage_v = 24.0f; in.housing_c = 30.0f;
@@ -213,7 +213,7 @@ void test_asserted_estop_input_inhibits_start() {
 
 void test_power_up_state_is_off_and_never_starts_by_itself() {
     Rig r(true, sim_limits(), false, true, true, true);                // everything permitted, but nobody asked for motion
-    r.dev.set_watchdog_active(true);
+    r.dev.set_watchdog_active(true); r.dev.set_secure_session(true);
     r.run(5000);
     TEST_ASSERT_FALSE(r.act.driver_enable);
     TEST_ASSERT_FALSE(r.act.relay_on);
@@ -264,19 +264,75 @@ void test_replayed_commands_are_not_executed_twice_and_old_sequence_numbers_are_
     TEST_ASSERT_FALSE(r.act.driver_enable);
 }
 
-void test_known_limitation_a_replay_after_a_reboot_is_not_stopped_by_the_protocol_but_by_the_commissioning_interlock() {
+void test_a_captured_command_replayed_after_a_reboot_cannot_start_the_motor_because_a_reboot_has_no_session() {
     const char* hb = "{\"id\":1,\"type\":\"HEARTBEAT\",\"p\":0,\"p2\":0,\"p3\":0,\"ttl\":5000,\"age\":0,\"seq\":1,\"k\":\"sim-key\"}";
     const char* start = "{\"id\":2,\"type\":\"START\",\"p\":30,\"p2\":0,\"p3\":0,\"ttl\":5000,\"age\":0,\"seq\":2,\"k\":\"sim-key\"}";
-    Rig first(true, sim_limits(), false, true, true, /*secured*/ false); first.dev.set_watchdog_active(true);
-    first.run(300); raw(first, hb);
-    Rig rebooted(true, sim_limits(), false, true, true, false); rebooted.dev.set_watchdog_active(true);   // a fresh Device = a power cycle: sequence memory is gone
+    Rig first(true, sim_limits(), false, true, true, /*secured*/ true); first.dev.set_watchdog_active(true); first.dev.set_secure_session(true);
+    first.run(300); raw(first, hb); raw(first, start); first.run(1500);
+    TEST_ASSERT_TRUE(first.act.driver_enable);                       // inside an authenticated session the start works
+    Rig rebooted(true, sim_limits(), false, true, true, true); rebooted.dev.set_watchdog_active(true);    // a fresh Device = a power cycle: sequence memory AND session are gone
     rebooted.run(300); rebooted.out.clear();
     raw(rebooted, hb);
-    TEST_ASSERT_TRUE(rebooted.has("\"status\":\"ACCEPTED\""));        // the captured heartbeat IS accepted again: the protocol has no boot nonce or MAC
+    TEST_ASSERT_TRUE(rebooted.has("\"status\":\"ACCEPTED\""));      // the captured heartbeat is still accepted: the application protocol alone has no boot nonce or MAC
     rebooted.out.clear(); raw(rebooted, start);
-    TEST_ASSERT_TRUE(rebooted.has("TRANSPORT_NOT_SECURED"));          // ... which is exactly why motion stays refused until a secured transport is declared
+    TEST_ASSERT_TRUE(rebooted.has("NO_SECURE_SESSION"));            // ... but motion needs a fresh authenticated session, which a replay cannot create
     rebooted.run(500);
     TEST_ASSERT_FALSE(rebooted.act.driver_enable);
+}
+
+void test_losing_the_secure_session_stops_a_running_motor_and_blocks_restart() {
+    Rig r(true, sim_limits(), false, true, true, true); ready(r);
+    r.send("START", 30); r.run(2000);
+    TEST_ASSERT_TRUE(r.act.driver_enable);
+    r.dev.set_secure_session(false);                                  // link dropped / session expired / revoked
+    r.run(50);
+    TEST_ASSERT_FALSE(r.act.driver_enable);
+    TEST_ASSERT_EQUAL(DriveMode::IDLE, r.dev.drive().mode());
+    TEST_ASSERT_EQUAL_STRING("NO_SECURE_SESSION", start_reason(r).c_str());
+    r.dev.set_secure_session(true); r.run(100);                       // a NEW session does not resume the old motion
+    TEST_ASSERT_FALSE(r.act.driver_enable);
+}
+
+void test_a_session_cannot_be_inherited_a_fresh_device_never_has_one() {
+    Device d(sim_limits(), sim_cfg(true, false, true, true, true));
+    TEST_ASSERT_FALSE(d.secure_session());
+}
+
+void test_stop_works_without_a_session_and_without_authentication() {
+    Rig r(true, sim_limits(), false, true, true, true); ready(r);
+    r.send("START", 30); r.run(1500);
+    TEST_ASSERT_TRUE(r.act.driver_enable);
+    r.dev.set_secure_session(false);                                  // no session
+    r.dev.on_line("{\"id\":777,\"type\":\"STOP\",\"p\":0,\"p2\":0,\"p3\":0,\"ttl\":1000,\"age\":0,\"seq\":0,\"k\":\"\"}", r.t);      // and no key
+    r.run(50);
+    TEST_ASSERT_FALSE(r.act.driver_enable);
+}
+
+void test_a_boot_fault_latches_until_an_intentional_reset_and_never_restarts_the_motor() {
+    Rig r(true, sim_limits(), false, true, true, true);
+    r.dev.latch_boot_fault(TripReason::RESET_FAULT);                  // what main.cpp does after a watchdog / brown-out / panic reset
+    ready(r);
+    TEST_ASSERT_EQUAL(SafetyState::EMERGENCY_STOP, r.dev.safety().state());
+    TEST_ASSERT_EQUAL_STRING("ESTOP_LATCHED", start_reason(r).c_str());
+    r.run(3000);
+    TEST_ASSERT_EQUAL(SafetyState::EMERGENCY_STOP, r.dev.safety().state());   // normal readings do not clear it
+    TEST_ASSERT_TRUE(r.has("RESET_FAULT"));                           // and it is visible in the status frames
+    r.send("RESET_ESTOP"); r.button = true; r.run(300); r.button = false;
+    TEST_ASSERT_EQUAL(SafetyState::OK, r.dev.safety().state());
+    r.run(2000);
+    TEST_ASSERT_FALSE(r.act.driver_enable);                           // no automatic restart
+}
+
+void test_acknowledgements_carry_the_device_id_when_configured() {
+    DeviceConfig c = sim_cfg(true, true); c.device_id = "MOTOR-RIG-01";
+    Device d(sim_limits(), c);
+    d.on_line("{\"id\":5,\"type\":\"HEARTBEAT\",\"p\":0,\"p2\":0,\"p3\":0,\"ttl\":5000,\"age\":0,\"seq\":1,\"k\":\"sim-key\"}", 0);
+    char b[256]; TEST_ASSERT_TRUE(d.pop_line(b, sizeof(b)));
+    TEST_ASSERT_NOT_NULL(strstr(b, "\"dev\":\"MOTOR-RIG-01\""));
+    Device e(sim_limits(), sim_cfg(true, true));                      // no id configured: the field is omitted (older contract)
+    e.on_line("{\"id\":5,\"type\":\"HEARTBEAT\",\"p\":0,\"p2\":0,\"p3\":0,\"ttl\":5000,\"age\":0,\"seq\":1,\"k\":\"sim-key\"}", 0);
+    TEST_ASSERT_TRUE(e.pop_line(b, sizeof(b)));
+    TEST_ASSERT_NULL(strstr(b, "\"dev\""));
 }
 
 // ---------- protocol ----------
@@ -619,6 +675,11 @@ int main(int, char**) {
     RUN_TEST(test_stop_takes_effect_even_when_the_telemetry_queue_is_full_and_never_drained);
     RUN_TEST(test_unauthenticated_malformed_oversized_and_stale_commands_are_rejected);
     RUN_TEST(test_replayed_commands_are_not_executed_twice_and_old_sequence_numbers_are_refused);
-    RUN_TEST(test_known_limitation_a_replay_after_a_reboot_is_not_stopped_by_the_protocol_but_by_the_commissioning_interlock);
+    RUN_TEST(test_a_captured_command_replayed_after_a_reboot_cannot_start_the_motor_because_a_reboot_has_no_session);
+    RUN_TEST(test_losing_the_secure_session_stops_a_running_motor_and_blocks_restart);
+    RUN_TEST(test_a_session_cannot_be_inherited_a_fresh_device_never_has_one);
+    RUN_TEST(test_stop_works_without_a_session_and_without_authentication);
+    RUN_TEST(test_a_boot_fault_latches_until_an_intentional_reset_and_never_restarts_the_motor);
+    RUN_TEST(test_acknowledgements_carry_the_device_id_when_configured);
     return UNITY_END();
 }

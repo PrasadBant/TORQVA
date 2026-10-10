@@ -25,6 +25,7 @@ struct DeviceConfig {
     // independent E-stop input is wired and declared. Only host simulation (SimPlant / fitl / tests) sets relaxed_interlocks.
     bool limits_approved;
     bool estop_input_wired;
+    const char* device_id;       // optional identity echoed in every acknowledgement ("dev"); the backend can require it. NOT a secret and NOT authentication by itself
     bool transport_secured;      // declared by the deployment; the serial/TCP protocol itself has a plaintext shared key and no challenge, so this stays false until a secured channel exists
     bool relaxed_interlocks;
 };
@@ -66,6 +67,12 @@ public:
     const TestExecutor& tests() const { return tests_; }
     // The platform tells the device whether the task watchdog is actually registered for the control task (strict mode refuses to start otherwise).
     void set_watchdog_active(bool v) { watchdog_active_ = v; }
+    // The transport layer calls this ONLY after an authenticated handshake succeeded, and with false on any loss/expiry of that session. Losing a session while the
+    // motor is energised stops it (like a STOP), so a dropped or hijacked link cannot leave motion running. Never true after construction (a reboot has no session).
+    void set_secure_session(bool v);
+    bool secure_session() const { return session_active_; }
+    // Latch a fault detected before the control loop starts (reset reason). Cleared only by the normal intentional reset (authorised RESET_ESTOP + local button).
+    void latch_boot_fault(TripReason r) { safety_.latch_external(r); }
     // Whether a motor-energising command would currently be permitted, and if not why (static string). Same logic the command path uses.
     const char* start_blocked_reason(uint32_t now_ms) const;
     // Only for host-side simulation/commissioning code, not reachable over the wire.
@@ -86,7 +93,7 @@ private:
     CommandValidator validator_;
     TestExecutor tests_;
 
-    HalIn last_in_; bool have_in_; bool watchdog_active_;
+    HalIn last_in_; bool have_in_; bool watchdog_active_; bool session_active_;
     uint32_t last_step_ms_; bool stepped_;
     uint32_t last_hb_ms_; bool hb_seen_;
     uint32_t seq_;

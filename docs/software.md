@@ -81,3 +81,5 @@ npm run dev
 cd frontend
 npm test
 ```
+
+> **Firmware status:** the supported firmware is `esp32/torqva_fw`; motor commands are refused by default (commissioning interlocks, no secured transport yet). See `docs/TORQVA_HARDWARE_READINESS.md` for the current blockers. Physical operation is prohibited until they are closed.

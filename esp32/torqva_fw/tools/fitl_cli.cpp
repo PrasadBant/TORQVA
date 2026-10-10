@@ -21,13 +21,14 @@ static void drain(Device& d) {
 }
 
 int main(int argc, char** argv) {
-    bool control = true, strict = false, approved = false, estop_wired = false, secured = false, wdt = true;
+    bool control = true, strict = false, approved = false, estop_wired = false, secured = false, session = false, wdt = true;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--no-control") == 0) control = false;
         else if (strcmp(argv[i], "--strict") == 0) strict = true;
         else if (strcmp(argv[i], "--approved") == 0) approved = true;
         else if (strcmp(argv[i], "--estop-wired") == 0) estop_wired = true;
         else if (strcmp(argv[i], "--secured") == 0) secured = true;
+        else if (strcmp(argv[i], "--session") == 0) session = true;
         else if (strcmp(argv[i], "--no-wdt") == 0) wdt = false;
     }
 
@@ -39,9 +40,10 @@ int main(int argc, char** argv) {
     strcpy(c.key, "sim-key");
     c.control_enabled = control; c.kp = 0.01f; c.ki = 0.03f;
     // Strict mode (--strict) exercises the real start interlocks; --approved / --estop-wired declare the two human commissioning decisions.
-    c.relaxed_interlocks = !strict; c.limits_approved = approved; c.estop_input_wired = estop_wired; c.transport_secured = secured;
+    c.relaxed_interlocks = !strict; c.limits_approved = approved; c.estop_input_wired = estop_wired; c.transport_secured = secured; c.device_id = "FITL-1";
     Device dev(l, c);
     dev.set_watchdog_active(wdt);
+    dev.set_secure_session(session);
     SimPlant plant;
     HalOut act = {false, 0.0f, false};
     uint32_t now = 0;

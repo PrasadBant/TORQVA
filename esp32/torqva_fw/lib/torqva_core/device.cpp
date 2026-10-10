@@ -12,7 +12,7 @@ static const uint32_t kFreshMs = 250;
 
 Device::Device(const Limits& l, const DeviceConfig& c)
     : cfg_(c), lim_(l), safety_(l), drive_(l, c.kp, c.ki), validator_(l), tests_(l),
-      last_in_(), have_in_(false), watchdog_active_(false), last_step_ms_(0), stepped_(false), last_hb_ms_(0), hb_seen_(false), seq_(0),
+      last_in_(), have_in_(false), watchdog_active_(false), session_active_(false), last_step_ms_(0), stepped_(false), last_hb_ms_(0), hb_seen_(false), seq_(0),
       last_fast_ms_(0), last_slow_ms_(0), last_status_ms_(0),
       last_state_(SafetyState::OK), last_reason_(TripReason::NONE),
       test_cmd_id_(0), test_cmd_valid_(false), reset_cmd_id_(0), reset_pending_(false),
@@ -42,7 +42,7 @@ void Device::queue_line(const char* s, size_t len) {
 
 void Device::queue_ack(const Ack& a) {
     char b[kLine];
-    queue_line(b, encode_ack(b, sizeof(b), a));
+    queue_line(b, encode_ack(b, sizeof(b), a, cfg_.device_id));
 }
 
 bool Device::pop_line(char* buf, size_t n) {
@@ -91,11 +91,17 @@ void Device::on_line(const char* line, uint32_t now_ms) {
     }
 }
 
+void Device::set_secure_session(bool v) {
+    if (session_active_ && !v) { drive_.stop(); tests_.abort("SESSION_LOST"); }      // fail safe: no session, no motion
+    session_active_ = v;
+}
+
 const char* Device::start_blocked_reason(uint32_t now_ms) const {
     StartInterlockInputs s;
     s.initialized = have_in_;
     s.limits_approved = cfg_.limits_approved;
     s.transport_secured = cfg_.transport_secured;
+    s.session_active = session_active_;
     s.estop_input_wired = cfg_.estop_input_wired;
     s.estop_active = have_in_ && last_in_.external_estop;
     s.watchdog_active = watchdog_active_;

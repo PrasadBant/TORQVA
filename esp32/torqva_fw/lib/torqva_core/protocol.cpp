@@ -111,8 +111,13 @@ const char* parse_command(const char* line, ParsedCommand* out) {
     return nullptr;
 }
 
-size_t encode_ack(char* buf, size_t n, const Ack& a) {
-    int w = snprintf(buf, n, "{\"t\":\"ack\",\"id\":%lu,\"status\":\"%s\",\"reason\":\"%s\"}",
+size_t encode_ack(char* buf, size_t n, const Ack& a, const char* dev) {
+    int w;
+    if (dev && dev[0])
+        w = snprintf(buf, n, "{\"t\":\"ack\",\"id\":%lu,\"status\":\"%s\",\"reason\":\"%s\",\"dev\":\"%s\"}",
+                     (unsigned long)a.id, ack_status_name(a.status), a.reason ? a.reason : "", dev);
+    else
+        w = snprintf(buf, n, "{\"t\":\"ack\",\"id\":%lu,\"status\":\"%s\",\"reason\":\"%s\"}",
                      (unsigned long)a.id, ack_status_name(a.status), a.reason ? a.reason : "");
     return (w > 0 && (size_t)w < n) ? (size_t)w : 0;
 }

@@ -11,6 +11,7 @@
 #include <DallasTemperature.h>
 #include <Adafruit_INA219.h>
 #include <esp_task_wdt.h>
+#include <esp_system.h>
 #include "config_pins.h"
 #include "device.h"
 
@@ -236,6 +237,15 @@ void setup() {
     // max_rpm and vib_rms_stop_g stay 0 (= not commissioned) until a human sets them.
     g_dev = new Device(default_limits(), cfg);
     g_mu = xSemaphoreCreateMutex();
+    // A restart caused by a watchdog, brown-out or panic is a FAULT: latch it so the motor cannot be started again until a person performs the intentional reset
+    // (authorised RESET_ESTOP + local button). Ordinary power-on, software, USB and external resets do not latch. The session is never set here: no secured
+    // transport is implemented, so Device::set_secure_session() is never called with true and motor commands stay refused (NO_SECURE_SESSION).
+    switch (esp_reset_reason()) {
+        case ESP_RST_TASK_WDT: case ESP_RST_INT_WDT: case ESP_RST_WDT: case ESP_RST_BROWNOUT: case ESP_RST_PANIC:
+            g_dev->latch_boot_fault(TripReason::RESET_FAULT);
+            break;
+        default: break;
+    }
     // Task watchdog (Arduino-ESP32 2.x / IDF 4.4 API). Panic = reset on expiry. The control task registers itself in control_task().
     g_wdt_init_ok = (esp_task_wdt_init(TORQVA_WDT_TIMEOUT_S, true) == ESP_OK);
     if (!g_wdt_init_ok) Serial.println("{\"t\":\"warn\",\"msg\":\"task watchdog init failed: motor commands stay refused\"}");

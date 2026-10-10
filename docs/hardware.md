@@ -1,5 +1,8 @@
 # Hardware Specification & Pinout Guide
 
+> **Note:** the pin map below comes from the quarantined legacy sketch (`esp32/firmware/README_LEGACY_UNSAFE.md`). It is not an approved or verified wiring contract, and the supported firmware is `esp32/torqva_fw`.
+
+
 ## 1. Overview
 The Smart DC Motor Monitoring and Predictive Maintenance System utilizes an **ESP32-S3** microcontroller paired with industrial-grade sensors and a high-current **BTS7960 DC Motor Driver** for an RS-775 24V DC Motor.
 

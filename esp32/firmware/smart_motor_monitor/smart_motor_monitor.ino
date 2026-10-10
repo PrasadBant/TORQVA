@@ -170,6 +170,14 @@ int inaSamples   = 0;
 // =====================================================
 
 void setMotorState(bool turnOn) {
+#ifndef TORQVA_LEGACY_ENABLE_MOTOR
+    // Quarantine: compiling this sketch (TORQVA_LEGACY_UNSAFE_ACKNOWLEDGED) does NOT enable actuation. Turning the motor ON additionally needs
+    // -DTORQVA_LEGACY_ENABLE_MOTOR, which nothing in this repository defines. Turning it OFF is always allowed.
+    if (turnOn) {
+        Serial.println("[MOTOR] MOTOR_ON REFUSED: legacy actuation path is quarantined (see esp32/firmware/README_LEGACY_UNSAFE.md)");
+        return;
+    }
+#endif
     if (turnOn) {
         pinMode(PIN_R_EN, OUTPUT);
         pinMode(PIN_L_EN, OUTPUT);

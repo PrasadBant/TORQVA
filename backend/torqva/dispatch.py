@@ -47,8 +47,10 @@ class CommandRecord:
 
 class CommandDispatcher:
     def __init__(self, send_line: Callable[[str], None], key: str, ack_timeout_s: float = 2.0,
-                 max_resends: int = 2, default_ttl_ms: int = 5000):
+                 max_resends: int = 2, default_ttl_ms: int = 5000, device_id: Optional[str] = None):
         self._send = send_line
+        self._device_id = device_id          # when set, an acknowledgement must carry the same "dev" or it is ignored (physical use; simulation leaves it None)
+        self.rejected_acks = 0
         self._key = key
         self._ack_timeout = ack_timeout_s
         self._max_resends = max_resends
@@ -90,6 +92,9 @@ class CommandDispatcher:
         return rec
 
     def on_ack(self, ack: dict, now: float) -> Optional[CommandRecord]:
+        if self._device_id is not None and ack.get("dev") != self._device_id:
+            self.rejected_acks += 1
+            return None                      # wrong or missing device identity: never applied to any command
         try:
             cid = ack.get("id", -1)
             if isinstance(cid, bool) or not isinstance(cid, (int, float, str)):

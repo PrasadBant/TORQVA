@@ -233,3 +233,8 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 
 * Traceability table (property -> production function -> test) in `docs/TORQVA_HARDWARE_READINESS.md`. New `TRANSPORT_NOT_SECURED` interlock (default build refuses motor commands: plaintext shared key, no nonce, replay possible across a reboot). 7 more native tests (88 total), legacy sketch `#error` quarantine + README + doc warnings + 9 static tests, fail-closed config checks, USB TX timeout so a stalled host cannot block STOP parsing.
 * Classification: software tested, ESP32-S3 compile verified, hardware NOT validated, physical operation prohibited until blockers are closed.
+
+## Session 14 - Phase 15A: hardware-readiness closure (software only)
+
+* Session gate (`NO_SECURE_SESSION`: a reboot has no session, so a replayed command cannot start the motor; session loss stops motion), ack device-id binding, reset-reason fault latch (`RESET_FAULT`), abstract E-stop input logic (not wired: no pin/polarity exists), second legacy-sketch gate (`TORQVA_LEGACY_ENABLE_MOTOR`). No TLS was implemented (no transport exists); the design, provisioning needs, E-stop contract, reset/brown-out analysis and the supervised on-target watchdog test plan are in `docs/TORQVA_HARDWARE_READINESS.md`.
+* Results: native 97/97, FITL contract+conformance 18/18, ESP32-S3 compile OK (compile only), backend 480 passed, frontend 67 passed + build OK. Hardware NOT validated; physical operation prohibited.
