@@ -300,6 +300,14 @@ void test_cmd_sequence_and_duplicate_idempotent() {
     TEST_ASSERT_EQUAL_UINT32(1, dup.id);
 }
 
+void test_cmd_duplicate_flagged_so_it_is_not_reexecuted() {
+    CommandValidator v(default_limits());
+    v.validate(cmd(1, CmdType::START, 1, 20), ctx_hw());
+    TEST_ASSERT_FALSE(v.last_was_duplicate());
+    v.validate(cmd(1, CmdType::START, 2, 60), ctx_hw());
+    TEST_ASSERT_TRUE(v.last_was_duplicate());
+}
+
 void test_cmd_unauthorized_rejected_but_stop_always_accepted() {
     CommandValidator v(default_limits());
     Command c = cmd(1, CmdType::START, 1, 20); c.authorized = false;
@@ -467,6 +475,7 @@ int main(int, char**) {
     RUN_TEST(test_cmd_start_duty_range);
     RUN_TEST(test_cmd_expired_and_bad_ttl);
     RUN_TEST(test_cmd_sequence_and_duplicate_idempotent);
+    RUN_TEST(test_cmd_duplicate_flagged_so_it_is_not_reexecuted);
     RUN_TEST(test_cmd_unauthorized_rejected_but_stop_always_accepted);
     RUN_TEST(test_cmd_estop_latched_only_allows_heartbeat_reset);
     RUN_TEST(test_cmd_rejected_command_does_not_advance_sequence);

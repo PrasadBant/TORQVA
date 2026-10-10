@@ -40,3 +40,6 @@ Thumbs.db
 
 # Temporary Scratch Files
 scratch/
+
+# TORQVA
+esp32/torqva_fw/.pio/

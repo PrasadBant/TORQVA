@@ -1,0 +1,159 @@
+"""Incident lifecycle state machine (backend-authoritative). Table-driven: unknown (state, event) pairs raise."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Dict, List, Tuple
+
+
+class S(str, Enum):
+    NORMAL = "NORMAL"
+    UNFAMILIAR_OPERATING_POINT = "UNFAMILIAR_OPERATING_POINT"
+    SENSOR_UNRELIABLE = "SENSOR_UNRELIABLE"
+    ANOMALY_SUSPECTED = "ANOMALY_SUSPECTED"
+    INVESTIGATING = "INVESTIGATING"
+    GATE_EVALUATION = "GATE_EVALUATION"
+    ACTION_EVALUATION = "ACTION_EVALUATION"
+    AWAITING_MORE_DATA = "AWAITING_MORE_DATA"
+    DIAGNOSTIC_PROPOSED = "DIAGNOSTIC_PROPOSED"
+    DIAGNOSTIC_RUNNING = "DIAGNOSTIC_RUNNING"
+    DIAGNOSTIC_ABORTED = "DIAGNOSTIC_ABORTED"
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
+    COMMAND_SENT = "COMMAND_SENT"
+    AWAITING_ACK = "AWAITING_ACK"
+    COMMAND_FAILED = "COMMAND_FAILED"
+    VERIFYING_RECOVERY = "VERIFYING_RECOVERY"
+    RECOVERED = "RECOVERED"
+    UNRESOLVED = "UNRESOLVED"
+    INCONCLUSIVE = "INCONCLUSIVE"
+    HUMAN_INSPECTION_REQUIRED = "HUMAN_INSPECTION_REQUIRED"
+    EMERGENCY_STOP = "EMERGENCY_STOP"
+    CLOSED = "CLOSED"
+
+
+class E(str, Enum):
+    SCORE_HIGH = "SCORE_HIGH"
+    BIN_UNLEARNED = "BIN_UNLEARNED"
+    QUALITY_FAIL = "QUALITY_FAIL"
+    QUALITY_RESTORED = "QUALITY_RESTORED"
+    NOT_CONFIRMED = "NOT_CONFIRMED"
+    PERSISTS = "PERSISTS"
+    HYPOTHESES_RANKED = "HYPOTHESES_RANKED"
+    GATE_ACT = "GATE_ACT"
+    GATE_MORE_DATA = "GATE_MORE_DATA"
+    GATE_TEST = "GATE_TEST"
+    GATE_STOP = "GATE_STOP"
+    GATE_ESCALATE = "GATE_ESCALATE"
+    MORE_DATA_READY = "MORE_DATA_READY"
+    TEST_APPROVED = "TEST_APPROVED"
+    TEST_REJECTED = "TEST_REJECTED"
+    TEST_COMPLETED = "TEST_COMPLETED"
+    TEST_ABORTED = "TEST_ABORTED"
+    ACTION_INCONCLUSIVE = "ACTION_INCONCLUSIVE"
+    ACTION_PROPOSED = "ACTION_PROPOSED"
+    APPROVED = "APPROVED"
+    REJECTED_OR_EXPIRED = "REJECTED_OR_EXPIRED"
+    DISPATCHED = "DISPATCHED"
+    ACK_OK = "ACK_OK"
+    ACK_FAIL = "ACK_FAIL"
+    REC_RECOVERED = "REC_RECOVERED"
+    REC_UNRESOLVED = "REC_UNRESOLVED"
+    REC_INCONCLUSIVE = "REC_INCONCLUSIVE"
+    REC_HUMAN = "REC_HUMAN"
+    CLOSE = "CLOSE"
+    DEVICE_ESTOP = "DEVICE_ESTOP"
+    MANDATORY_STOP = "MANDATORY_STOP"
+    ESTOP_RESET = "ESTOP_RESET"
+
+
+# (from, event) -> to.  "ANY" transitions (QUALITY_FAIL, DEVICE_ESTOP) are handled in fire().
+T: Dict[Tuple[S, E], S] = {
+    (S.NORMAL, E.SCORE_HIGH): S.ANOMALY_SUSPECTED,
+    (S.NORMAL, E.BIN_UNLEARNED): S.UNFAMILIAR_OPERATING_POINT,
+    (S.UNFAMILIAR_OPERATING_POINT, E.SCORE_HIGH): S.ANOMALY_SUSPECTED,
+    (S.SENSOR_UNRELIABLE, E.QUALITY_RESTORED): S.NORMAL,
+    (S.ANOMALY_SUSPECTED, E.NOT_CONFIRMED): S.NORMAL,
+    (S.ANOMALY_SUSPECTED, E.PERSISTS): S.INVESTIGATING,
+    (S.INVESTIGATING, E.HYPOTHESES_RANKED): S.GATE_EVALUATION,
+    (S.GATE_EVALUATION, E.GATE_ACT): S.ACTION_EVALUATION,
+    (S.GATE_EVALUATION, E.GATE_MORE_DATA): S.AWAITING_MORE_DATA,
+    (S.AWAITING_MORE_DATA, E.MORE_DATA_READY): S.GATE_EVALUATION,
+    (S.GATE_EVALUATION, E.GATE_TEST): S.DIAGNOSTIC_PROPOSED,
+    (S.GATE_EVALUATION, E.GATE_STOP): S.COMMAND_SENT,
+    (S.GATE_EVALUATION, E.GATE_ESCALATE): S.HUMAN_INSPECTION_REQUIRED,
+    (S.DIAGNOSTIC_PROPOSED, E.TEST_APPROVED): S.DIAGNOSTIC_RUNNING,
+    (S.DIAGNOSTIC_PROPOSED, E.TEST_REJECTED): S.GATE_EVALUATION,
+    (S.DIAGNOSTIC_RUNNING, E.TEST_COMPLETED): S.INVESTIGATING,
+    (S.DIAGNOSTIC_RUNNING, E.TEST_ABORTED): S.DIAGNOSTIC_ABORTED,
+    (S.DIAGNOSTIC_ABORTED, E.MORE_DATA_READY): S.GATE_EVALUATION,
+    (S.ACTION_EVALUATION, E.ACTION_INCONCLUSIVE): S.GATE_EVALUATION,
+    (S.ACTION_EVALUATION, E.ACTION_PROPOSED): S.AWAITING_APPROVAL,
+    (S.AWAITING_APPROVAL, E.APPROVED): S.COMMAND_SENT,
+    (S.AWAITING_APPROVAL, E.REJECTED_OR_EXPIRED): S.ACTION_EVALUATION,
+    (S.COMMAND_SENT, E.DISPATCHED): S.AWAITING_ACK,
+    (S.AWAITING_ACK, E.ACK_OK): S.VERIFYING_RECOVERY,
+    (S.AWAITING_ACK, E.ACK_FAIL): S.COMMAND_FAILED,
+    (S.COMMAND_FAILED, E.MORE_DATA_READY): S.GATE_EVALUATION,
+    (S.VERIFYING_RECOVERY, E.REC_RECOVERED): S.RECOVERED,
+    (S.VERIFYING_RECOVERY, E.REC_UNRESOLVED): S.UNRESOLVED,
+    (S.VERIFYING_RECOVERY, E.REC_INCONCLUSIVE): S.INCONCLUSIVE,
+    (S.VERIFYING_RECOVERY, E.REC_HUMAN): S.HUMAN_INSPECTION_REQUIRED,
+    (S.RECOVERED, E.CLOSE): S.CLOSED,
+    (S.UNRESOLVED, E.CLOSE): S.CLOSED,
+    (S.INCONCLUSIVE, E.CLOSE): S.CLOSED,
+    (S.HUMAN_INSPECTION_REQUIRED, E.CLOSE): S.CLOSED,
+    (S.EMERGENCY_STOP, E.ESTOP_RESET): S.HUMAN_INSPECTION_REQUIRED,
+}
+
+
+_PRE_COMMAND = {S.NORMAL, S.UNFAMILIAR_OPERATING_POINT, S.SENSOR_UNRELIABLE, S.ANOMALY_SUSPECTED, S.INVESTIGATING,
+                S.GATE_EVALUATION, S.ACTION_EVALUATION, S.AWAITING_MORE_DATA, S.DIAGNOSTIC_PROPOSED,
+                S.DIAGNOSTIC_RUNNING, S.DIAGNOSTIC_ABORTED, S.AWAITING_APPROVAL, S.COMMAND_FAILED}
+
+
+class IllegalTransition(Exception):
+    pass
+
+
+@dataclass
+class Incident:
+    id: str
+    state: S = S.NORMAL
+    data_requests: int = 0
+    tests_run: int = 0
+    max_data_requests: int = 3
+    max_tests: int = 2
+    history: List[Tuple[S, E, S]] = field(default_factory=list)
+
+    def _go(self, ev: E, to: S) -> S:
+        self.history.append((self.state, ev, to))
+        self.state = to
+        return to
+
+    def fire(self, ev: E) -> S:
+        # Hard-stop events apply from any state, including terminal ones.
+        if ev == E.DEVICE_ESTOP:
+            return self._go(ev, S.EMERGENCY_STOP)
+        # A mandatory stop jumps straight to the stop command from any pre-command state; nothing delays it.
+        if ev == E.MANDATORY_STOP and self.state in _PRE_COMMAND:
+            return self._go(ev, S.COMMAND_SENT)
+        if self.state == S.CLOSED:
+            raise IllegalTransition(f"{self.id}: CLOSED is terminal (event {ev.value})")
+        if ev == E.QUALITY_FAIL and self.state != S.EMERGENCY_STOP:
+            return self._go(ev, S.SENSOR_UNRELIABLE)
+
+        # Loop guards: exhausting data requests or tests escalates instead of looping forever.
+        if self.state == S.GATE_EVALUATION:
+            if ev == E.GATE_MORE_DATA and self.data_requests >= self.max_data_requests:
+                return self._go(ev, S.HUMAN_INSPECTION_REQUIRED)
+            if ev == E.GATE_TEST and self.tests_run >= self.max_tests:
+                return self._go(ev, S.HUMAN_INSPECTION_REQUIRED)
+            if ev == E.GATE_MORE_DATA:
+                self.data_requests += 1
+            if ev == E.GATE_TEST:
+                self.tests_run += 1
+
+        to = T.get((self.state, ev))
+        if to is None:
+            raise IllegalTransition(f"{self.id}: {self.state.value} --{ev.value}--> not allowed")
+        return self._go(ev, to)

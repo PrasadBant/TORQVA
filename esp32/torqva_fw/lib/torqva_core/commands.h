@@ -38,11 +38,13 @@ struct CommandContext {
 
 class CommandValidator {
 public:
-    explicit CommandValidator(const Limits& l) : lim_(l), last_seq_(0), seq_seen_(false), cache_n_(0), cache_head_(0) {}
+    explicit CommandValidator(const Limits& l) : lim_(l), last_seq_(0), seq_seen_(false), cache_n_(0), cache_head_(0), duplicate_(false) {}
     void set_limits(const Limits& l) { lim_ = l; }
     // Duplicate id -> the ORIGINAL ack (idempotent). STOP bypasses seq/TTL checks: it is never refused for staleness.
     Ack validate(const Command& c, const CommandContext& ctx);
     // Record the final result of a command (e.g. COMPLETED/ABORTED) so duplicates return it.
+    // True if the most recent validate() call was a replay of an already-seen id (must NOT be re-executed).
+    bool last_was_duplicate() const { return duplicate_; }
     void update_cached(uint32_t id, AckStatus s, const char* reason);
 
 private:
@@ -53,6 +55,7 @@ private:
     uint32_t last_seq_; bool seq_seen_;
     Entry cache_[kCache];
     int cache_n_, cache_head_;
+    bool duplicate_;
 };
 
 }  // namespace torqva

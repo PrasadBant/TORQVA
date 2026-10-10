@@ -16,8 +16,9 @@ void CommandValidator::update_cached(uint32_t id, AckStatus s, const char* reaso
 }
 
 Ack CommandValidator::validate(const Command& c, const CommandContext& ctx) {
+    duplicate_ = false;
     for (int i = 0; i < cache_n_; i++)
-        if (cache_[i].used && cache_[i].ack.id == c.id) return cache_[i].ack;
+        if (cache_[i].used && cache_[i].ack.id == c.id) { duplicate_ = true; return cache_[i].ack; }
 
     auto rej = [&](const char* why) { Ack a = {c.id, AckStatus::REJECTED, why}; return remember(a); };
     Ack ok = {c.id, AckStatus::ACCEPTED, "OK"};
