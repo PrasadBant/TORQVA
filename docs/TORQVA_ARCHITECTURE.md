@@ -65,7 +65,9 @@ New package `backend/torqva/`, alongside (not replacing) the existing `main.py`,
 | `provenance` | `MEASURED | DERIVED | PREDICTED | SIMULATED | HUMAN_CONFIRMED` enum; sim/real separation enforced at ingestion |
 | `ingestion` | Parse frames, dedupe by `seq`, staleness, quality flags |
 | `opstate` | Operating-point bins, steady-state detection, device-state mirror |
-| `detection` (C1) | Per-bin robust Gaussian baselines (Mahalanobis, percentile thresholds), drift guard, versioned |
+| `detection` (C1) | Per-bin robust Gaussian baselines (Mahalanobis, percentile thresholds), drift guard, versioned. **The control; unchanged.** |
+| `c1_robust` (C1, Phase 8, opt-in) | `AdaptiveBaselineDetector` (bit-identical to `detection` unless a session reference is set), a validated / versioned / reversible `ReferenceRegistry` (per-session vibration gain + noise from a *human-attested* healthy warm-up; trained bins are never modified), and `assess_session` → HEALTHY / FAULT / **UNFAMILIAR**. Enabled by `PipelineConfig.adaptive_warmup_s > 0` plus `Orchestrator.attest_healthy_warmup()`; default off. The Safety Supervisor is untouched and a mandatory-stop condition still opens an incident while a warm-up is pending |
+| `c1_study` | Phase 8 experiment harness (`python -m torqva.c1_study validate` / `final`): session-level splits, held-out regimes, per-session records |
 | `hypotheses` | Prior × likelihood posterior over {imbalance, looseness, overload, cooling, supply, sensor fault} |
 | `gate` (C3) | Ordered verdict rules; logs inputs |
 | `diagnostics` (C4) | Test library + information-gain selection; execution through supervisor |

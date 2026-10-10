@@ -1,0 +1,200 @@
+{
+  "stage": "validation",
+  "train_seeds": [
+    0,
+    9001,
+    9002,
+    9003
+  ],
+  "val_seeds_healthy": [
+    9101,
+    9102,
+    9103,
+    9104,
+    9105,
+    9106
+  ],
+  "val_seeds_fault": [
+    9101,
+    9102,
+    9103,
+    9104
+  ],
+  "val_conditions": [
+    "baseline",
+    "noise_x1.5",
+    "gain_pm10",
+    "noise_x1.75",
+    "gain_pm15"
+  ],
+  "rule": "feasible = val_false_fault <= 0.05 AND val_recall_sev_ge_0.3 >= control_4session(1.000) - 0.05; choose lowest val_false_fault, then highest val recall, then the smallest parameter; no feasible setting => candidate is NOT selected (retain control)",
+  "control_val": {
+    "control_1session": {
+      "val_false_fault": 0.4666666666666667,
+      "val_unfamiliar": 0.0,
+      "val_recall_sev_ge_0.3": 1.0,
+      "val_recall_all": 0.9805555555555555
+    },
+    "control_4session": {
+      "val_false_fault": 0.3111111111111111,
+      "val_unfamiliar": 0.0,
+      "val_recall_sev_ge_0.3": 1.0,
+      "val_recall_all": 0.9712962962962963
+    }
+  },
+  "sweep": [
+    {
+      "candidate": "A_robust",
+      "param": {
+        "rel_floor": 0.03
+      },
+      "val_false_fault": 0.3111111111111111,
+      "val_unfamiliar": 0.0,
+      "val_recall_sev_ge_0.3": 1.0,
+      "val_recall_all": 0.9712962962962963
+    },
+    {
+      "candidate": "A_robust",
+      "param": {
+        "rel_floor": 0.05
+      },
+      "val_false_fault": 0.26666666666666666,
+      "val_unfamiliar": 0.0,
+      "val_recall_sev_ge_0.3": 0.9930555555555556,
+      "val_recall_all": 0.9564814814814815
+    },
+    {
+      "candidate": "A_robust",
+      "param": {
+        "rel_floor": 0.08
+      },
+      "val_false_fault": 0.3,
+      "val_unfamiliar": 0.0,
+      "val_recall_sev_ge_0.3": 0.9694444444444444,
+      "val_recall_all": 0.9407407407407408
+    },
+    {
+      "candidate": "A_robust",
+      "param": {
+        "rel_floor": 0.12
+      },
+      "val_false_fault": 0.28888888888888886,
+      "val_unfamiliar": 0.0,
+      "val_recall_sev_ge_0.3": 0.9361111111111111,
+      "val_recall_all": 0.9194444444444444
+    },
+    {
+      "candidate": "A_robust",
+      "param": {
+        "rel_floor": 0.2
+      },
+      "val_false_fault": 0.3,
+      "val_unfamiliar": 0.0,
+      "val_recall_sev_ge_0.3": 0.9208333333333333,
+      "val_recall_all": 0.8962962962962963
+    },
+    {
+      "candidate": "B_reference",
+      "param": {
+        "coh_tol": 0.06
+      },
+      "val_false_fault": 0.011111111111111112,
+      "val_unfamiliar": 0.0,
+      "val_recall_sev_ge_0.3": 1.0,
+      "val_recall_all": 0.9444444444444444
+    },
+    {
+      "candidate": "C_regime",
+      "param": {
+        "coh_tol": 0.06
+      },
+      "val_false_fault": 0.1,
+      "val_unfamiliar": 0.2111111111111111,
+      "val_recall_sev_ge_0.3": 1.0,
+      "val_recall_all": 0.9546296296296296
+    },
+    {
+      "candidate": "B+C",
+      "param": {
+        "coh_tol": 0.06
+      },
+      "val_false_fault": 0.011111111111111112,
+      "val_unfamiliar": 0.0,
+      "val_recall_sev_ge_0.3": 1.0,
+      "val_recall_all": 0.9444444444444444
+    },
+    {
+      "candidate": "B_reference",
+      "param": {
+        "coh_tol": 0.1
+      },
+      "val_false_fault": 0.0,
+      "val_unfamiliar": 0.0,
+      "val_recall_sev_ge_0.3": 1.0,
+      "val_recall_all": 0.9444444444444444
+    },
+    {
+      "candidate": "C_regime",
+      "param": {
+        "coh_tol": 0.1
+      },
+      "val_false_fault": 0.03333333333333333,
+      "val_unfamiliar": 0.2777777777777778,
+      "val_recall_sev_ge_0.3": 1.0,
+      "val_recall_all": 0.9462962962962963
+    },
+    {
+      "candidate": "B+C",
+      "param": {
+        "coh_tol": 0.1
+      },
+      "val_false_fault": 0.0,
+      "val_unfamiliar": 0.0,
+      "val_recall_sev_ge_0.3": 1.0,
+      "val_recall_all": 0.9444444444444444
+    },
+    {
+      "candidate": "B_reference",
+      "param": {
+        "coh_tol": 0.15
+      },
+      "val_false_fault": 0.0,
+      "val_unfamiliar": 0.0,
+      "val_recall_sev_ge_0.3": 1.0,
+      "val_recall_all": 0.9444444444444444
+    },
+    {
+      "candidate": "C_regime",
+      "param": {
+        "coh_tol": 0.15
+      },
+      "val_false_fault": 0.0,
+      "val_unfamiliar": 0.3111111111111111,
+      "val_recall_sev_ge_0.3": 1.0,
+      "val_recall_all": 0.9444444444444444
+    },
+    {
+      "candidate": "B+C",
+      "param": {
+        "coh_tol": 0.15
+      },
+      "val_false_fault": 0.0,
+      "val_unfamiliar": 0.0,
+      "val_recall_sev_ge_0.3": 1.0,
+      "val_recall_all": 0.9444444444444444
+    }
+  ],
+  "selected": {
+    "A_robust": null,
+    "B_reference": {
+      "coh_tol": 0.1
+    },
+    "C_regime": {
+      "coh_tol": 0.15
+    },
+    "B+C": {
+      "coh_tol": 0.1
+    },
+    "A+B+C": null
+  }
+}

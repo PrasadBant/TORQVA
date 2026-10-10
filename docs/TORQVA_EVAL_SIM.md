@@ -95,3 +95,93 @@ Safety/robustness paths (stale telemetry, invalid commands, sensor failure, comm
 
 ## Decision
 These results do **not** justify autonomous physical intervention, and none is enabled: the simulation auto-approval is a simulation-only setting, and hardware mode always requires explicit human approval through the deterministic Safety Supervisor (unchanged and tested).
+
+
+---
+
+# Phase 8 — C1 under distribution shift (`docs/eval/c1_phase8_*`)
+
+**Simulation only. No measured data, no physical motor operated, nothing flashed.** The simulator is uncalibrated and easier than reality (faults are detected in the first window; median detection delay is 0 s, p90 ≤ 4.8 s). Reproduce (fixed seeds, deterministic):
+```
+cd backend
+python -m torqva.c1_study validate     # tunes on validation sessions/regimes ONLY, writes docs/eval/c1_phase8_selection.json (~30 s)
+python -m torqva.c1_study final        # one run on held-out test sessions/regimes with the frozen selection (~100 s)
+```
+Outputs: `c1_phase8_selection.json` (hyper-parameter sweep + frozen choice), `c1_phase8_final.json` (per-regime metrics with 95 % Wilson intervals), `c1_phase8_sessions.jsonl.gz` (all 5,280 test sessions: id, seed, speed, simulator/regime configuration, ground truth, model version, per-variant verdict / flags / delay).
+
+## 1. Reproduction of the weakness, and root cause
+Unchanged C1, re-run: baseline 0 %, noisy 100 %, session_shift 55.6 %, hard 100 % of healthy sessions flagged — identical to run 2 (the full `torqva.evaluation` JSON is byte-identical before and after this phase). One-factor diagnosis on healthy runs (`python docs/eval/diag_c1_factors.py` from the repo root, window false-alarm rate of the shipped detector):
+
+| Healthy factor | Window false alarms | | Healthy factor | Window false alarms |
+|---|---|---|---|---|
+| none | 0.4 % | | current offset ±0.03 A | 4–7 % |
+| noise ×1.5 / ×2 / ×3 | 12 % / 44 % / 86 % | | supply offset ±0.25 V | 0.7 % |
+| vibration gain 0.9 / 1.1 / 1.25 | 11 % / 15 % / 96 % | | ambient 18 / 26 / 30 °C | 0.4 % |
+
+**Root cause.** The baseline is fitted on **one** healthy session, and its per-feature scales equal that session's own measurement noise (≈5 % on every vibration channel, scale floor 3 %). A 10 % vibration-gain shift is therefore ≈2σ on five correlated channels at once, and doubled noise doubles every z (Mahalanobis ×4) against a threshold fixed from a single noise level. Speed bins, temperature and supply offsets are **not** the cause. Secondary finding (not fixed): the "steady" gate admits the last seconds of the speed-up ramp, which inflates the trained scales of duty / voltage / power (voltage scale 0.71 V vs ≈0.03 V real noise), so supply-voltage faults at ≤ 0.1 severity are nearly invisible (recall 0.67 pooled, identical for every variant).
+
+## 2. Protocol
+* **Training (baseline regime only).** Shipped control = 1 session (seed 0). Candidates and a second control (`control_4session`, same code) use 4 pooled sessions (seeds 0, 9001–9003). No candidate sees a shifted training session.
+* **Validation (all tuning).** Seeds 9101–9106 (healthy) / 9101–9104 (faults); regimes baseline, noise ×1.5, noise ×1.75, gain ±10 %, gain ±15 %.
+* **Final test (untouched until `final`).** Seeds 9201–9212 (healthy: 12 seeds × 3 speeds 1350/1650/1950 = **36 sessions per regime**, none a training setpoint) and 9201–9206 (faults: 6 fault types × severities 0.1/0.3/0.6 × 6 seeds × 3 speeds = **324 per regime**). Disjoint from train, validation and every earlier evaluation seed (asserted by a test). 15 of the 16 test regimes (all but the fresh-seed baseline) never appear in validation; `final` refuses to run without the frozen selection file.
+* **Session** = 60 s trusted healthy warm-up + 40 s observation, fault injected at the start of the observation. **FAULT** = ≥ 8 anomalous steady windows (the existing rule). Candidate C adds **UNFAMILIAR** (escalate for more evidence). Cooling failure is excluded (needs ≥ 300 s of thermal history); combined (multi-)faults are not supported by the simulator; both are untested.
+* Seeds 9301–9309 were used only for the one-factor diagnosis and the post-hoc residual analysis; no candidate was tuned on them.
+
+## 3. Candidates (the control stays unchanged in `detection.py`)
+| | What | Why it was worth testing |
+|---|---|---|
+| **A** `RobustBaselineDetector` | median/MAD location + scale, winsorised covariance, relative scale floor swept over {0.03, 0.05, 0.08, 0.12, 0.20} | cheapest fix if the problem were outliers / under-estimated scale |
+| **B** session reference (`ReferenceRegistry`) | from a **trusted healthy warm-up**, estimate a common-mode vibration gain and per-feature noise inflation; immutable `SessionReference`; trained bins never modified | the dominant healthy shifts are common-mode across the vibration channels, faults are channel-selective (1× vs 2×/3×/HF) |
+| **C** `assess_session` | HEALTHY / FAULT / **UNFAMILIAR**: a flagged session is UNFAMILIAR only if a gain + noise model estimated from the session explains the flags, or the speed is outside the trained bins, or the shift is not explainable (drifting / out of envelope); channel-selective deviation stays FAULT | separates an unfamiliar regime from a confirmed fault without needing a trusted warm-up |
+
+Adaptation safeguards (B): trusted attestation required (no update from untrusted observations, an open incident, or a cooldown); invalid / short / unfamiliar-region warm-up rejected; vibration channels must agree (≤ coh_tol) or the proposal is rejected as "looks like a fault"; gain within [0.70, 1.40], noise ≤ 3.5×, warm-up stationary; the candidate must regard its own warm-up as healthy (≤ 5 % flagged) **and** must still flag a synthetic 1.6× 1x-amplitude fault (≥ 70 %); every proposal / accept / reject / rollback is logged (forwarded to the audit store inside the pipeline); rollback returns to the last known-good reference or to the unadapted trained baseline. A fault present in a wrongly attested warm-up was **not** absorbed (rejected at coherence, and independently by the self-check / envelope gates when coherence is disabled — mutation-checked).
+
+## 4. Validation outcome (selection rule fixed in advance, written into the file)
+Feasible = validation false-FAULT ≤ 5 % and recall(severity ≥ 0.3) ≥ control − 0.05. Control: **47 % (1 session) / 31 % (4 sessions)** false-FAULT on the validation shifts. **A: no feasible setting** (best 27 %; larger floors cost recall, 0.92 at floor 0.20). **B: 0 %** at coh_tol 0.10, recall(sev ≥ 0.3) 1.00. **C alone: 3 %**, 28 % escalated. **B+C: 0 %**, recall 1.00 → **selected (coh_tol = 0.10)**. A+B+C not selected (A infeasible).
+
+## 5. Held-out test results (healthy sessions, n = 36 per regime unless noted)
+**False-FAULT rate** on healthy sessions (95 % Wilson CI for the end columns); B+C also shows escalated (U) vs accepted-healthy (H) counts.
+
+| Regime | shipped control | control (4 sess.) | A robust | B ref only | C only | **B+C** (U / H) |
+|---|---|---|---|---|---|---|
+| baseline | 0 % [0–9] | 0 | 0 | 0 | 0 | **0** (0 / 36) |
+| noise ×2 | **100 %** [90–100] | 100 | 100 | 31 | 11 | **0 % [0–9]** (11 / 25) |
+| noise ×3 (stress) | 100 | 100 | 100 | 100 | 22 | **22 % [11–38]** (28 / 0) |
+| gain ×1.25 | 100 | 100 | 100 | 0 | 0 | **0** (0 / 36) |
+| gain ×0.80 | 100 | 100 | 100 | 0 | 0 | **0** (0 / 36) |
+| session_shift | **69 %** [53–82] | 67 | 67 | 28 | 14 | **14 % [6–28]** (5 / 26) |
+| hard_shift (session_shift + noise ×2) | 100 | 100 | 100 | 78 | 36 | **36 % [22–52]** (15 / 8) |
+| gradual gain drift | 72 | 75 | 75 | 72 | 0 | **0** (26 / 10) |
+| abrupt gain step after warm-up | 100 | 100 | 100 | 100 | 0 | **0** (36 / 0) |
+| ambient 30 °C / 14 °C; speed step +150 rpm | 0 | 0 | 0 | 0 | 0 | **0** (0 / 36 each) |
+| unseen speed 2400 / 600 rpm (n = 12 each) | 0 (**silently "healthy"**) | | | | | **0** (**12 / 0**, escalated) |
+| sensor bias 0.004 g (a sensor anomaly; not claimed healthy) | 100 | | | | | 100 (never accepted healthy) |
+| fault in a wrongly attested warm-up (healthy rows) | 0 | | | | | 0 |
+
+(Non-B+C columns list the false-FAULT percentage only. By-speed splits, score/threshold quantiles and all CIs are in the JSON.)
+
+**Fault recall** (FAULT verdict; escalated sessions are not silent misses), control vs B+C, pooled over 6 fault types (n = 108 per severity per regime). The control's 1.00 under shift is **vacuous**: it alarms on healthy runs too.
+
+| Regime | sev 0.1 | sev 0.3 | sev 0.6 |
+|---|---|---|---|
+| baseline | 0.83 / 0.83 | 1.00 / 1.00 | 1.00 / 1.00 |
+| noise ×2 | 1.00 / 0.83 (+5 % escalated) | 1.00 / 1.00 | 1.00 / 1.00 |
+| gain ×1.25 | 1.00 / 0.83 | 1.00 / 1.00 | 1.00 / 1.00 |
+| session_shift | 0.95 / 0.87 | 1.00 / 1.00 | 1.00 / 1.00 |
+| hard_shift | 1.00 / 0.92 | 1.00 / 1.00 | 1.00 / 1.00 |
+| gradual drift | 1.00 / 0.67 (+33 % escalated) | 1.00 / 0.83 (+17 %) | 1.00 / 0.83 (+17 %) |
+| unseen speeds | 0.00, 100 % silent miss / 0.00, 100 % escalated | same | same |
+
+In the shift-free baseline regime B+C and the control make **identical** decisions on every fault type (imbalance, looseness, overload, both sensor-fault styles: 1.00; supply voltage 0.67 for both). Under shift, recall at severity ≥ 0.3 is unchanged (1.00) except gradual drift (0.83; the remainder escalated, none silent); severity-0.1 recall is no worse than the shift-free 0.83 in the noise / gain regimes. Median detection delay is 0 s for both (p90 ≤ 4.8 s).
+
+## 6. Verdict against the acceptance criteria
+* **Met.** The weakness was reproduced; candidates were compared with the unchanged control on session-separated held-out regimes; the test set was untouched during selection; the false-FAULT rate falls from 100 % to 0 % (noise ×2, gain ±20–25 %), 69 % → 14 % (session_shift) and 72 / 100 % → 0 % (drift / step, as escalations or accepted-healthy); unseen speeds are now explicit (the control silently called all 240 sessions at 600/2400 rpm healthy, including 216 real faults); adaptation is trusted-only, validated, versioned, audited, reversible, and did not absorb a hidden fault; recall at severity ≥ 0.3 is unchanged.
+* **Not met / limits (kept visible).**
+  1. **hard_shift: 36 % false FAULT**, session_shift 14 %. Post-hoc one-factor check on unused dev seeds: the residual comes from a healthy **current offset ≳ 0.06 A** (session_shift draws σ = 0.03 A), which is deliberately *not* adapted because the overload fault lives in that channel; at ±0.03 A and for supply / ambient shifts all 24 healthy runs were clean. Absorbing it would hide mild overload — a trade-off for a human decision, not made here.
+  2. **Noise ×3 is outside the envelope** (22 % false FAULT, the rest escalated).
+  3. **Mild (severity 0.1) faults pay for it:** recall 0.67–0.92 under shift vs 0.83 shift-free, and some become escalations instead of detections.
+  4. **Robust statistics (A) and 4-session training did not help** under held-out shift; they address an outlier problem that is not the problem.
+  5. Escalation is not free: 11–36 of 36 healthy noisy / drifting / stepped sessions are escalated instead of accepted — the system asks for evidence rather than guessing.
+  6. The design assumption (healthy sensor shifts are common-mode, faults are channel-selective) is untested outside the simulator; a real sensor-gain fault is by construction indistinguishable from a healthy gain shift and is escalated, not diagnosed.
+  7. Warm-up attestation is a human act; an unhealthy warm-up that is also coherent across channels and inside the envelope could be absorbed (floor: a 1.6× 1x-amplitude fault must still be flagged).
+* **Decision.** B+C is integrated **opt-in** (default off, bit-identical behaviour) and is not claimed for hardware. No physical-hardware validation is claimed.

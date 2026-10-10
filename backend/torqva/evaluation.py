@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from .c1_robust import AdaptiveBaselineDetector
 from .detection import BaselineDetector, ThermalTracker
 from .diagnostics import DiagnosticsModel, run_test_on_sim
 from .dispatch import CommandRecord
@@ -42,7 +43,7 @@ CFG = {"bin_width": 300, "percentile": 99.5, "severities": SEVERITIES, "test_spe
 
 # ------------------------------------------------------------------ model building (TRAIN sessions only)
 def build_models():
-    det, tt = BaselineDetector(), ThermalTracker()
+    det, tt = AdaptiveBaselineDetector(), ThermalTracker()      # bit-identical to BaselineDetector until a session reference is set
     sim = MotorSim(0)
     data = []
     for sp in SPEEDS_LEARNED:

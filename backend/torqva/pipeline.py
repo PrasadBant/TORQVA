@@ -7,11 +7,12 @@ One simulated second per `step()`. The orchestrator never sends anything to the 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
+from .c1_robust import AdaptiveBaselineDetector, CoherenceConfig, ReferenceConfig, ReferenceRegistry, assess_session
 from .detection import BaselineDetector, ThermalTracker
 from .diagnostics import DiagnosticsModel, obs_t1, obs_t3, obs_t4
 from .dispatch import CommandDispatcher, CommandRecord
@@ -43,6 +44,10 @@ class PipelineConfig:
     allowed_tests: Sequence[str] = ("T1", "T3")
     use_ground_truth_labels: bool = False        # lab mode: FaultInjection record supplies the label
     max_cmd_failures: int = 3
+    # Phase 8 (opt-in, simulation-validated only): after this many steady windows AND an explicit operator attestation that the
+    # warm-up was healthy, propose a validated, reversible per-session reference. 0 = off (original behaviour).
+    adaptive_warmup_s: int = 0
+    reference_coh_tol: float = 0.10
 
 
 class Orchestrator:
@@ -78,6 +83,9 @@ class Orchestrator:
         self.last_comparison = None
         self.last_status = "OK"
         self.tt.reset(device.sim.housing)
+        self.refs = ReferenceRegistry(audit=lambda e: self._log("c1_reference", **e))
+        self._warmup_attested = False
+        self._ref_attempted = False
 
     # ---------------- persistence (all records are scoped by session: ids restart per run) ----------------
     def _put(self, kind: str, id, body: Dict, provenance: str, ts: Optional[float] = None) -> None:
@@ -207,7 +215,11 @@ class Orchestrator:
             self.tt.reset(w.housing)
         self.tt.update(w)
         sc = self.det.score(w)
+        if self._warmup_pending():
+            # Attested healthy warm-up (opt-in): scores are not yet evidence. Hard limits are NOT affected: see _advance_incident.
+            sc = replace(sc, anomalous=False, status="TRANSIENT")
         self.buf.append(w)
+        self._maybe_propose_reference()
         self.scores.append(sc)
         if sc.status != "TRANSIENT":
             self.last_status = sc.status
@@ -219,6 +231,45 @@ class Orchestrator:
             self.clear_run += 1
             if self.clear_run >= self.cfg.clear_windows:
                 self.anom_run = 0
+
+    # ---------------- Phase 8: session reference (opt-in) ----------------
+    def attest_healthy_warmup(self, by: str = "operator") -> None:
+        """Human attestation that the motor is healthy during the warm-up. Without it no reference is ever proposed."""
+        self._warmup_attested = True
+        self._log("c1_warmup_attested", by=by)
+
+    def _warmup_pending(self) -> bool:
+        # Bounded: if no steady warm-up materialises within 3x the requested length the attempt is abandoned (see below), so score-based
+        # detection can never stay suppressed indefinitely.
+        return bool(self.cfg.adaptive_warmup_s and self._warmup_attested and not self._ref_attempted
+                    and isinstance(self.det, AdaptiveBaselineDetector))
+
+    def _maybe_propose_reference(self) -> None:
+        n = self.cfg.adaptive_warmup_s
+        if not n or self._ref_attempted or not isinstance(self.det, AdaptiveBaselineDetector) or not self._warmup_attested:
+            return
+        steady = [x for x in self.buf if self.det.steady(x)]
+        if len(steady) < n:
+            if len(self.buf) >= 3 * n:
+                self._ref_attempted = True               # abandon: scoring resumes unadapted
+                self._log("c1_reference", event="abandoned", version=None, reason="no_steady_warmup_within_limit", metrics={})
+            return
+        self._ref_attempted = True                       # one attempt per session: never retried inside an incident
+        self.refs.propose(self.det, steady[-n:], trusted=True, incident_open=self.inc is not None,
+                          in_cooldown=self.cmd is not None, cfg=ReferenceConfig(coh_tol=self.cfg.reference_coh_tol))
+        self.det.reference = self.refs.active
+
+    def rollback_reference(self) -> None:
+        """Return to the last known-good reference, or to the unadapted trained baseline."""
+        self.refs.rollback()
+        self.det.reference = self.refs.active
+
+    def regime_assessment(self, last_n: int = 40):
+        """HEALTHY / FAULT / UNFAMILIAR verdict over the most recent windows (None if the detector is the plain control)."""
+        if not isinstance(self.det, AdaptiveBaselineDetector) or not self.buf:
+            return None
+        return assess_session(self.det, self.buf[-last_n:], ref=self.det.reference, regime_aware=True,
+                              cfg=CoherenceConfig(coh_tol=self.cfg.reference_coh_tol))
 
     # ---------------- incident handling ----------------
     def _new_incident(self) -> None:
@@ -235,7 +286,9 @@ class Orchestrator:
 
     def _advance_incident(self) -> None:
         if self.inc is None:
-            if self.anom_run >= 1 and not self.dev.estop:
+            # While a warm-up is pending the score trigger is off; a mandatory-stop condition must still open an incident at once.
+            hard = self._warmup_pending() and bool(mandatory_stop_reasons(self._ctx(), self.sup.limits))
+            if (self.anom_run >= 1 or hard) and not self.dev.estop:
                 self._new_incident()
                 self._fire(E.SCORE_HIGH)
             elif self.dev.estop:

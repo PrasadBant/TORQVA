@@ -12,13 +12,14 @@ Direction (latest human instruction): **software first, hardware last.** Do not 
 | 5 UI/UX | **Browser-inspected, defects fixed, Lab added.** First slice done at `/#/torqva` (legacy dashboard remains the default): sign-in, persistent SIMULATION banner on every view, provenance badges, Overview (scenario control, STOP, device state), Live (speed, anomaly score ÷ threshold with gaps, thermal/vibration), Investigation (posterior bars, gate verdict + inputs, test result, state history), Decisions (C2 table labelled *Intervention Outcome Prediction (unvalidated)*, supervisor decisions, approve/reject gated by role, commands with device-ack status), Recovery (criteria pass/fail, observed vs predicted), Learning & Evaluation (reads the latest EvaluationRun), Audit (admin). Lab screen built (Session 3 §3). **Not built:** Motors list, commissioning wizard, Cases/Timeline, model registry/promotion/rollback screen, System Health, Settings, WebSocket push (UI polls), light theme, mobile/keyboard/contrast audit beyond basics, Playwright e2e |
 | 6 Research validation | **Done for simulation, now including six held-out regimes** (`docs/TORQVA_EVAL_SIM.md`, runs 1 and 2); real/measured section empty by design |
 | 7 End-to-end software acceptance | **Done in simulation** (`tests/test_torqva_e2e.py`, 11 tests incl. failure paths). Gaps listed below |
-| 8 Hardware integration | **Not started, deliberately last** |
+| 8 (per the latest instruction) C1 robustness under distribution shift | **Done in simulation, opt-in, not claimed for hardware** — see "Session 4 — Phase 8" below. Selected candidate B+C (trusted-warm-up session reference + explicit UNFAMILIAR verdict); `hard_shift` 36 % and `session_shift` 14 % false FAULT remain |
+| Hardware integration (formerly numbered 8) | **Not started, deliberately last**; the human decides its number now that Phase 8 was reassigned |
 
 ## Test / build results (actually run, this session)
 | Check | Command | Result |
 |---|---|---|
 | Firmware host tests | `cd esp32/torqva_fw && pio test -e native` | **65 / 65 passed** (41 core logic, 24 protocol + device-with-sim-plant) |
-| Backend | `cd backend && python -m pytest -q` | **254 passed, 2 failed** (the same 2 pre-existing `[trio]` failures: `ModuleNotFoundError: No module named 'trio'`) |
+| Backend | `cd backend && python -m pytest -q` | **282 passed, 2 failed** after Phase 8 (254 → 282: +28 in `tests/test_torqva_c1_robust.py`). The 2 failures are the same pre-existing `[trio]` ones in `test_tcp_server.py` (`ModuleNotFoundError: No module named 'trio'`, i.e. an uninstalled optional anyio backend, not application logic); they failed identically before my changes |
 | Frontend | `cd frontend && npm test` and `npm run build` | **43 / 43 passed** (24 legacy + 14 TORQVA + 5 Lab); production build succeeds |
 | Live server smoke | uvicorn `main:app` with `TORQVA_TOKENS` set, curl | no token 401; viewer start 403; legacy `/api/motor` without token 401; operator-started simulation ended `RECOVERED` (SIMULATED); status reports the unvalidated-C2 label |
 | Simulation evaluation | `cd backend && python -m torqva.evaluation` | runs in ~5 s; results in `docs/TORQVA_EVAL_SIM.md` |
@@ -66,7 +67,24 @@ Direction (latest human instruction): **software first, hardware last.** Do not 
 - **Limitations the study exposed (not fixed):** C1 flags 100 % of healthy runs in the noisy and hard regimes (56 % under session shift); C2 interval coverage falls to 74–76 % mean / 17 % worst cell in those regimes and the C2 trust check correctly refuses; temperature calibration had no effect (T = 1) because the validation set had no look-alike fault; T1 signatures fitted on one sensor-fault style do not transfer to another.
 - Autonomy: **none enabled.** Hardware mode still requires explicit human approval for every motion command; simulation auto-approval is a simulation-only setting.
 
+## Session 4 — Phase 8: robust C1 under distribution shift (simulation only)
+Nothing was flashed, the motor was never operated, wiring and firmware are untouched (`git diff` shows no `esp32/` change). Full methodology, per-regime tables and limitations: `docs/TORQVA_EVAL_SIM.md` (Phase 8 section).
+
+- **Root cause:** the C1 baseline is fitted on a single healthy session whose per-feature scales equal that session's own noise; common-mode vibration-gain shifts (±10 %) and noise (×1.5–×2) are multiple σ on five correlated channels. Not speed bins, temperature or supply. A secondary finding (not fixed): the "steady" gate admits the end of the speed-up ramp, inflating the trained duty/voltage/power scales, which hides supply-voltage faults ≤ 0.1 severity.
+- **What was built:** `backend/torqva/c1_robust.py` (candidates A/B/C, versioned & reversible reference registry), `backend/torqva/c1_study.py` (reproducible experiments: 3+2 validation and 16 test regimes, session-level splits, per-session records), 28 new tests, opt-in pipeline hooks (`PipelineConfig.adaptive_warmup_s`, `Orchestrator.attest_healthy_warmup / rollback_reference / regime_assessment`). `evaluation.build_models` now builds the bit-identical `AdaptiveBaselineDetector` (output of `torqva.evaluation` is byte-identical before/after).
+- **Result (held-out, simulation):** control false FAULT 100 % at noise ×2 / gain ×1.25 / ×0.8 → **0 %** with B+C; session_shift 69 % → **14 %**; hard_shift 100 % → **36 %**; drift / step → 0 % false FAULT (escalated); unseen speeds (control silently healthy) → explicit UNFAMILIAR. Recall at severity ≥ 0.3 unchanged (1.00; 0.83 under gradual drift, remainder escalated); severity 0.1 costs up to ~0.15. Robust statistics (A) and 4-session training did not help.
+- **Safety:** Safety Supervisor unchanged; with an attested warm-up pending, score-based incident opening is deferred but a mandatory-stop condition still opens an incident immediately (tested). Default configuration is exactly the old behaviour.
+- **Unresolved risks:** (1) residual false FAULT from healthy current offsets ≳ 0.06 A (deliberately not adapted — overload shares the channel; human decision); (2) noise ×3 outside the envelope; (3) the common-mode-vs-channel-selective assumption and the whole result are simulator-only; (4) escalation burden (11–36 of 36 healthy sessions in noisy/drift regimes); (5) attestation is a human act — no UI/API route for it yet, and a wrongly attested, channel-coherent faulty warm-up remains an unresolved contamination risk (a pending warm-up is capped at 3x its length, then scoring resumes unadapted); (6) mild-fault recall cost; (7) ESP32-S3 compile still unverified.
+
 ### Commands run this session
+| Purpose | Command |
+|---|---|
+| Phase 8 validation / final | `cd backend && python -m torqva.c1_study validate` · `python -m torqva.c1_study final` |
+| Phase 8 tests | `cd backend && python -m pytest tests/test_torqva_c1_robust.py -q` (28 passed) |
+| Regression | `cd backend && python -m pytest -q` (282 passed, 2 pre-existing `trio` failures) · `cd frontend && npm test` (43/43) · `npm run build` (ok) · `cd esp32/torqva_fw && python -m platformio test -e native` (65/65) · `python -m torqva.evaluation` (unchanged output) |
+| Lint / type check | none configured in the repository (not run) |
+
+### Commands run (session 3)
 | Purpose | Command |
 |---|---|
 | Backend tests | `cd backend && python -m pytest -q` |
@@ -121,7 +139,7 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 
 ## Next steps (in order)
 1. Finish the ESP32-S3 compile (toolchain + framework download on a working connection; `python -m platformio run -e esp32s3`; fix any errors; compile only).
-2. Make C1 robust to noise and session shift (per-session baseline adaptation with the drift guard; noisier/mixed-regime commissioning data) and re-run `torqva.evaluation`; target a healthy false-incident rate under 5 % in `noisy` and `session_shift` without losing detection.
+2. ~~Make C1 robust to noise and session shift~~ **Partly done (Phase 8, simulation):** noise ×2 and gain shifts now 0 % false FAULT; session_shift 14 % and hard_shift 36 % still above the 5 % target (cause: healthy current offsets, see Session 4). Next for C1: decide whether to adapt the current/duty offset (needs a rule that keeps mild overload detectable), fix the ramp-tail scale inflation in training ("steady" gate), and re-validate with measured data.
 3. Broaden the C4 signature library across sensor-fault styles and re-measure the looseness-vs-sensor pair; add a multi-speed (T2 sweep) test.
 4. Lab: commissioning wizard (speed-bin coverage, sweeping inside each bin), session-comparison view, export of session records.
 5. WebSocket push + serial bridge; token expiry; model-registry/rollback screen; System Health.
