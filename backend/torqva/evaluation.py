@@ -42,7 +42,7 @@ CFG = {"bin_width": 300, "percentile": 99.5, "severities": SEVERITIES, "test_spe
 
 
 # ------------------------------------------------------------------ model building (TRAIN sessions only)
-def build_models():
+def build_models(c2_variant: str = "control"):
     det, tt = AdaptiveBaselineDetector(), ThermalTracker()      # bit-identical to BaselineDetector until a session reference is set
     sim = MotorSim(0)
     data = []
@@ -76,6 +76,11 @@ def build_models():
     cal = [c for h in HYPS for sev in (0.3, 0.6, 0.9) for seed in (11, 12) for sp in (1200, 1800)
            for c in action_cases(h, sev, seed, sp, det, tt, hm)]
     pred.calibrate(cal)
+    if c2_variant == "noise_aware":                        # opt-in (Phase 10): same point predictions, noise-aware intervals + support status
+        from .c2_robust import build_noise_aware
+        pred = build_noise_aware(pred, det, tt, hm)
+    elif c2_variant != "control":
+        raise ValueError(f"unknown c2_variant {c2_variant!r}")
     import copy as _copy
     hm_uncal = _copy.deepcopy(hm); hm_uncal.use_ood = False; hm_uncal.temp = 1.0       # the pre-change policy
     val = validation_cases(det, tt)

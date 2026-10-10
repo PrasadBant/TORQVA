@@ -38,6 +38,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5 }) {
   const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [evalState, setEvalState] = useState({ run: null, error: null });
+  const [c2c4, setC2c4] = useState({ data: null, error: null });
   const [audit, setAudit] = useState({ rows: [], error: null });
   const alive = useRef(true);
 
@@ -55,9 +56,10 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5 }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [status, telemetry, incidents, decisions, predictions, commands, outcomes, cases, log] = await Promise.all([
-        api.status(), api.telemetry(300), api.incidents(), api.decisions(), api.predictions(), api.commands(), api.outcomes(), api.cases(), api.log()]);
-      if (alive.current) { setD({ status, telemetry, incidents, decisions, predictions, commands, outcomes, cases, log }); setError(null); }
+      const [status, telemetry, incidents, decisions, predictions, commands, outcomes, cases, log, predictionChecks] = await Promise.all([
+        api.status(), api.telemetry(300), api.incidents(), api.decisions(), api.predictions(), api.commands(), api.outcomes(), api.cases(), api.log(),
+        api.predictionChecks().catch(() => [])]);       // a secondary panel must never break the polling loop (older backends lack the route)
+      if (alive.current) { setD({ status, telemetry, incidents, decisions, predictions, commands, outcomes, cases, log, predictionChecks }); setError(null); }
     } catch (e) {
       if (!alive.current) return;
       if (e instanceof ApiError && e.status === 401) { setToken(''); setUser(null); } else setError(e);
@@ -76,7 +78,10 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5 }) {
 
   useEffect(() => {
     if (!user) return;
-    if (view === 'evaluation') api.evaluation().then((r) => setEvalState({ run: r, error: null })).catch((e) => setEvalState({ run: null, error: e }));
+    if (view === 'evaluation') {
+      api.evaluation().then((r) => setEvalState({ run: r, error: null })).catch((e) => setEvalState({ run: null, error: e }));
+      api.evaluationC2C4().then((r) => setC2c4({ data: r, error: null })).catch((e) => setC2c4({ data: null, error: e }));
+    }
     if (view === 'audit' && user.role === 'admin') api.audit().then((rows) => setAudit({ rows, error: null })).catch((e) => setAudit({ rows: [], error: e }));
   }, [view, user]);
 
@@ -93,7 +98,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5 }) {
   const mode = d.status?.mode || 'SIMULATION';
   const dev = d.status?.device;
   const Body = { overview: Overview, live: Live, investigation: Investigation, decisions: Decisions, recovery: Recovery, evaluation: Evaluation, audit: Audit, lab: Lab, attestation: Attestation }[view];
-  const props = { d, role: user.role, actions, running, setRunning, busy, error, evalRun: evalState.run, evalError: evalState.error, rows: audit.rows };
+  const props = { d, role: user.role, actions, running, setRunning, busy, error, evalRun: evalState.run, evalError: evalState.error, c2c4: c2c4.data, c2c4Error: c2c4.error, rows: audit.rows };
   return (
     <div className="tq-shell">
       <SimulationBanner mode={mode} />

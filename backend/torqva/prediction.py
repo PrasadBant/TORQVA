@@ -25,6 +25,19 @@ NOISE_FLOOR = {"rpm": 3.0, "vib_rms": 0.006, "current": 0.04, "housing": 0.15}
 OPERATIONAL_COST = {"CONTINUE_MONITORING": 0.0, "REDUCE_SPEED": 0.3, "STOP": 1.0}
 
 
+def estimate_noise(ws: Sequence[Window], n: int = 40, min_windows: int = 12) -> Optional[Dict[str, float]]:
+    """Per-signal measurement-noise scale from window-to-window differences of the last `n` windows (robust: MAD of the first differences,
+    insensitive to constant offsets and slow trends). None if there are too few windows."""
+    w = list(ws)[-n:]
+    if len(w) < min_windows:
+        return None
+    out = {}
+    for s in SIGNALS:
+        d = np.diff(np.array([getattr(x, s) for x in w], dtype=float))
+        out[s] = float(1.4826 * np.median(np.abs(d - np.median(d))) / np.sqrt(2.0))
+    return out
+
+
 @dataclass
 class StateSummary:
     rpm: float
@@ -33,13 +46,15 @@ class StateSummary:
     housing: float
     ambient: float
     vib_rms: float
+    noise: Optional[Dict[str, float]] = None      # estimated measurement noise per signal (used only by the noise-aware predictor)
+    n_state: int = 10                             # windows averaged into rpm/current/housing/vib_rms
 
     @staticmethod
     def from_windows(ws: Sequence[Window], n: int = 10) -> "StateSummary":
         w = list(ws)[-n:]
         m = lambda f: float(np.mean([f(x) for x in w]))
         return StateSummary(m(lambda x: x.rpm), w[-1].setpoint, m(lambda x: x.current), m(lambda x: x.housing),
-                            w[-1].ambient, m(lambda x: x.vib_rms))
+                            w[-1].ambient, m(lambda x: x.vib_rms), estimate_noise(ws), len(w))
 
 
 @dataclass
@@ -53,6 +68,10 @@ class Prediction:
     risk: float                            # P(crossing a warn limit within horizon)
     risk_by_signal: Dict[str, float]
     provenance: str = "PREDICTED"
+    # Phase 10: explicit support status. "supported" is the only status that may drive a decision; the baseline predictor always says so.
+    status: str = "supported"                # supported | unsupported | insufficiently_validated
+    status_reasons: List[str] = field(default_factory=list)
+    interval_method: str = "split_conformal_floor"
 
 
 @dataclass
@@ -210,7 +229,8 @@ class InterventionPredictor:
         # risk first (rounded so noise-level differences fall through to cost), then operational cost
         return sorted(preds, key=lambda p: (round(p.risk, 2), OPERATIONAL_COST[p.action]))
 
-    def trust(self, post: Posterior, op_familiar: bool, min_mean_cov: float = 0.8, min_cell_cov: float = 0.5) -> TrustResult:
+    def trust(self, post: Posterior, op_familiar: bool, min_mean_cov: float = 0.8, min_cell_cov: float = 0.5,
+              st: Optional[StateSummary] = None) -> TrustResult:
         """Is it reasonable to let C2's ranking drive a decision? Conservative: any failed check -> not trusted."""
         reasons = []
         if not self.calibrated:

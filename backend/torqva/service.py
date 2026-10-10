@@ -5,6 +5,7 @@ Every datum served from here is provenance SIMULATED; the API adds that tag and 
 from __future__ import annotations
 
 import copy
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -23,7 +24,8 @@ from . import lab as _lab
 
 
 class SimulationService:
-    def __init__(self, store: Optional[Store] = None):
+    def __init__(self, store: Optional[Store] = None, c2_variant: Optional[str] = None):
+        self.c2_variant = c2_variant or os.environ.get("TORQVA_C2_VARIANT", "control")      # default: the shipped C2; "noise_aware" is opt-in
         self.store = store or Store()
         self.attestation = AttestationService(self.store)
         self._models = None
@@ -34,7 +36,7 @@ class SimulationService:
 
     def _ensure_models(self):
         if self._models is None:
-            self._models = build_models()
+            self._models = build_models(self.c2_variant)
         return self._models
 
     # ---------------- lifecycle ----------------
@@ -89,7 +91,7 @@ class SimulationService:
                                   "rationale": o.pending.rationale} if o.pending else None),
             "last_window": ({"t": w.t, "rpm": w.rpm, "duty": w.duty, "voltage": w.voltage, "current": w.current,
                              "housing": w.housing, "vib_rms": w.vib_rms, "valid": w.valid} if w else None),
-            "models": {"c2_validated_by_intervention_experiments": o.pred.validated_by_experiments,
+            "models": {"c2_variant": self.c2_variant, "c2_validated_by_intervention_experiments": o.pred.validated_by_experiments,
                        "c2_label": "Intervention Outcome Prediction (unvalidated)"
                        if not o.pred.validated_by_experiments else "Counterfactual (validated)"},
             "closed_incidents": len(o.incidents_done),

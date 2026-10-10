@@ -86,6 +86,8 @@ class Orchestrator:
         self.refs = ReferenceRegistry(audit=lambda e: self._log("c1_reference", **e))
         self._warmup_attested = False
         self._ref_attempted = False
+        self._pred_choice = None                         # Phase 10: the chosen-candidate Prediction, for the prediction_check record
+        self._predicted_at: Optional[float] = None
         self._hold_until: Optional[float] = None         # Phase 9: operator-declared, time-bounded supervised warm-up
         self.hold_info: Optional[Dict] = None
 
@@ -356,6 +358,7 @@ class Orchestrator:
         self.inc = Incident(f"INC-{len(self.incidents_done) + len(self.dismissed) + 1:03d}")
         self.cmd = None; self.post = None; self.post_override = False; self.cmd_failures = 0
         self.test_running = None; self.assessment = None
+        self._pred_choice = None; self._predicted_at = None
         self._log("incident_opened")
 
     def _close(self) -> None:
@@ -441,7 +444,7 @@ class Orchestrator:
         ctx = self._ctx()
         st = self._state_summary()
         cont = self.pred.predict(self.post, st, "CONTINUE_MONITORING")
-        trust = self.pred.trust(self.post, op_familiar=self.last_status in ("OK", "INTERPOLATED", "FROZEN"))
+        trust = self.pred.trust(self.post, op_familiar=self.last_status in ("OK", "INTERPOLATED", "FROZEN"), st=st)
         best = None
         allowed = []
         for t in self.cfg.allowed_tests:
@@ -498,9 +501,19 @@ class Orchestrator:
             self._put("prediction", f"{self.now:.0f}-{p.action}", {
                 "action": p.action, "target_rpm": p.target_rpm, "risk": p.risk, "risk_by_signal": p.risk_by_signal,
                 "mean_at_30_60_120": {s: [float(p.mean[s][i - 1]) for i in (30, 60, 120)] for s in p.mean},
+                "lo_at_30_60_120": {s: [float(p.lo[s][i - 1]) for i in (30, 60, 120)] for s in p.lo},
+                "hi_at_30_60_120": {s: [float(p.hi[s][i - 1]) for i in (30, 60, 120)] for s in p.hi},
                 "lo_120": {s: float(p.lo[s][-1]) for s in p.lo}, "hi_120": {s: float(p.hi[s][-1]) for s in p.hi},
+                "status": p.status, "status_reasons": p.status_reasons, "interval_method": p.interval_method, "predicted_at": self.now,
+                "interval_meaning": "90 % interval for a single future 1 s measurement under comparable simulated conditions; not a guarantee, not a measurement",
                 "validated_by_experiments": self.pred.validated_by_experiments}, "PREDICTED", self.now)
+        bad = [p for p in ranked if p.status == "unsupported"]
+        if bad:                                           # never act on a prediction that declares its own conditions unsupported
+            self._log("c2_unsupported", reasons=sorted({r for p in bad for r in p.status_reasons}))
+            self._fire(E.ACTION_INCONCLUSIVE)
+            return
         choice = next((p for p in ranked if p.action != "CONTINUE_MONITORING"), None)
+        self._pred_choice, self._predicted_at = choice, self.now
         self._log("c2_ranking", ranking=[(p.action, round(p.risk, 3)) for p in ranked], chosen=choice.action if choice else None)
         if choice is None:
             self._fire(E.ACTION_INCONCLUSIVE)
@@ -597,6 +610,25 @@ class Orchestrator:
         if self.inc and self.inc.state == S.HUMAN_INSPECTION_REQUIRED:
             self._fire(E.CLOSE); self._close()
 
+    def _record_prediction_check(self, cmd, executed: bool) -> None:
+        """Predicted vs observed, stored SEPARATELY from the prediction and from the recovery outcome. A comparison exists only for an action
+        that was executed (acknowledged by the device): blocked, rejected or aborted commands never produce one. Observed values are
+        simulated telemetry, not measurements; the prediction is not validated and the comparison is not a recovery verdict."""
+        pc, t0 = self._pred_choice, self._predicted_at
+        if pc is None or t0 is None:
+            return
+        base = {"incident": self.inc.id, "action": pc.action, "predicted_at": t0, "interval_method": pc.interval_method, "status": pc.status,
+                "status_reasons": pc.status_reasons, "validated_by_experiments": self.pred.validated_by_experiments,
+                "prediction_provenance": "PREDICTED", "observation_provenance": "SIMULATED", "recovery_verdict": False}
+        if not executed or cmd is None or cmd.action.value != pc.action:
+            self._put("prediction_check", self.inc.id, {**base, "comparison": "none", "reason": "command_not_executed_or_different_action", "rows": []},
+                      Provenance.SIMULATED.value, self.now)
+            return
+        rows = _prediction_check_rows(pc, t0, self.buf)
+        self._put("prediction_check", self.inc.id, {**base, "comparison": "available" if rows else "no_horizon_reached", "rows": rows,
+                  "horizons_reached": sorted({r["horizon_s"] for r in rows}),
+                  "covered_fraction": (sum(r["covered"] for r in rows) / len(rows)) if rows else None}, Provenance.SIMULATED.value, self.now)
+
     # ---------------- outcome + learning dataset ----------------
     def _record_outcome(self, a: RecoveryAssessment) -> None:
         cmd = self.cmd
@@ -606,6 +638,7 @@ class Orchestrator:
                "command_executed": executed, "action": cmd.action.value if cmd else None,
                "predicted_top": self.last_comparison[0].action if self.last_comparison else None}
         self._put("outcome", self.inc.id, out, Provenance.SIMULATED.value, self.now)
+        self._record_prediction_check(cmd, executed)
         if self.post is None or a.outcome not in (RecoveryOutcome.RECOVERED, RecoveryOutcome.UNRESOLVED):
             return
         zs = self._evidence()
@@ -618,6 +651,21 @@ class Orchestrator:
         self.cases.append(case)
         self._put("case", case.id, {"label": label.value, "label_source": src.value, "outcome": a.outcome.value,
                        "executed": executed}, Provenance.SIMULATED.value, self.now)
+
+
+PRED_CHECK_SIGNALS = ("rpm", "vib_rms", "current", "housing")
+
+
+def _prediction_check_rows(pc, t0: float, buf) -> List[Dict]:
+    rows = []
+    for h in (30, 60, 120):
+        w = next((x for x in buf if abs(x.t - (t0 + h)) <= 0.5 and x.valid), None)
+        if w is None:
+            continue
+        for s in PRED_CHECK_SIGNALS:
+            y, lo, hi = float(getattr(w, s)), float(pc.lo[s][h - 1]), float(pc.hi[s][h - 1])
+            rows.append({"signal": s, "horizon_s": h, "observed": y, "predicted": float(pc.mean[s][h - 1]), "lo": lo, "hi": hi, "covered": bool(lo <= y <= hi)})
+    return rows
 
 
 def _tracker_copy(tt: ThermalTracker) -> ThermalTracker:

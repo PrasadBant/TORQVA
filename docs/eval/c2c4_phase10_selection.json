@@ -1,0 +1,652 @@
+{
+ "stage": "validation",
+ "seeds": {
+  "cal": [
+   9601,
+   9602,
+   9603,
+   9604,
+   9605,
+   9606
+  ],
+  "val": [
+   9701,
+   9702,
+   9703
+  ],
+  "c4_val": [
+   9911,
+   9912,
+   9913,
+   9914,
+   9915,
+   9916,
+   9917,
+   9918
+  ]
+ },
+ "n_cal_cases": 216,
+ "c2_val": {
+  "control": {
+   "baseline": {
+    "n": 2592,
+    "coverage": 0.8831,
+    "mean_width_norm": 1.7566,
+    "interval_score_norm": 3.035,
+    "mae_model": 0.3974,
+    "trusted_frac": 1.0
+   },
+   "noise_x1.5": {
+    "n": 2592,
+    "coverage": 0.8573,
+    "mean_width_norm": 1.7566,
+    "interval_score_norm": 3.5651,
+    "mae_model": 0.5834,
+    "trusted_frac": 1.0
+   },
+   "session_shift": {
+    "n": 2592,
+    "coverage": 0.8843,
+    "mean_width_norm": 1.7566,
+    "interval_score_norm": 3.0406,
+    "mae_model": 0.3972,
+    "trusted_frac": 1.0
+   }
+  },
+  "control_recal": {
+   "baseline": {
+    "n": 2592,
+    "coverage": 0.8773,
+    "mean_width_norm": 1.6316,
+    "interval_score_norm": 3.084,
+    "mae_model": 0.3974,
+    "trusted_frac": 1.0
+   },
+   "noise_x1.5": {
+    "n": 2592,
+    "coverage": 0.8403,
+    "mean_width_norm": 1.6316,
+    "interval_score_norm": 3.6395,
+    "mae_model": 0.5834,
+    "trusted_frac": 1.0
+   },
+   "session_shift": {
+    "n": 2592,
+    "coverage": 0.8773,
+    "mean_width_norm": 1.6316,
+    "interval_score_norm": 3.0895,
+    "mae_model": 0.3972,
+    "trusted_frac": 1.0
+   }
+  },
+  "persistence_conformal": {
+   "baseline": {
+    "n": 2592,
+    "coverage": 0.7832,
+    "mean_width_norm": 73.5353,
+    "interval_score_norm": 117.8158,
+    "mae_model": 190.0277,
+    "trusted_frac": 1.0
+   },
+   "noise_x1.5": {
+    "n": 2592,
+    "coverage": 0.7685,
+    "mean_width_norm": 73.5379,
+    "interval_score_norm": 118.2583,
+    "mae_model": 190.0749,
+    "trusted_frac": 1.0
+   },
+   "session_shift": {
+    "n": 2592,
+    "coverage": 0.7824,
+    "mean_width_norm": 73.5263,
+    "interval_score_norm": 117.7298,
+    "mae_model": 190.025,
+    "trusted_frac": 1.0
+   }
+  },
+  "noise_aware": {
+   "baseline": {
+    "n": 2592,
+    "coverage": 0.9329,
+    "mean_width_norm": 1.8907,
+    "interval_score_norm": 2.5284,
+    "mae_model": 0.3974,
+    "trusted_frac": 1.0
+   },
+   "noise_x1.5": {
+    "n": 2592,
+    "coverage": 0.9174,
+    "mean_width_norm": 2.1618,
+    "interval_score_norm": 2.9481,
+    "mae_model": 0.5834,
+    "trusted_frac": 1.0
+   },
+   "session_shift": {
+    "n": 2592,
+    "coverage": 0.9336,
+    "mean_width_norm": 1.8915,
+    "interval_score_norm": 2.5259,
+    "mae_model": 0.3972,
+    "trusted_frac": 0.9861
+   }
+  }
+ },
+ "c2_selection": {
+  "rule": "adopt noise_aware iff (worst per-regime VALIDATION coverage >= control_recal's) AND (mean normalised interval score <= control_recal's) AND (baseline-regime trusted fraction >= control_recal's - 0.05: a predictor that abstains everywhere is not an improvement); else keep the control",
+  "baseline_trusted_frac": {
+   "control_recal": 1.0,
+   "noise_aware": 1.0
+  },
+  "worst_regime_coverage": {
+   "control_recal": 0.8402777777777778,
+   "noise_aware": 0.9174382716049383
+  },
+  "mean_interval_score": {
+   "control_recal": 3.2709960980748125,
+   "noise_aware": 2.667440897088978
+  },
+  "adopt_noise_aware": true
+ },
+ "c4_val": {
+  "baseline(stuck)": {
+   "control": {
+    "n": 96,
+    "accuracy_after": 1.0,
+    "accuracy_ci95": [
+     0.9615,
+     1.0
+    ],
+    "accuracy_no_test": 0.5,
+    "improved": 1.0,
+    "unchanged": 0.0,
+    "worsened": 0.0,
+    "inconclusive": 0.16666666666666666,
+    "out_of_distribution": 0.16666666666666666,
+    "confident_wrong": 0.0
+   },
+   "style_aware": {
+    "n": 96,
+    "accuracy_after": 1.0,
+    "accuracy_ci95": [
+     0.9615,
+     1.0
+    ],
+    "accuracy_no_test": 0.5,
+    "improved": 1.0,
+    "unchanged": 0.0,
+    "worsened": 0.0,
+    "inconclusive": 0.08333333333333333,
+    "out_of_distribution": 0.08333333333333333,
+    "confident_wrong": 0.0
+   }
+  },
+  "confusable_sensor(noisy-harmonics)": {
+   "control": {
+    "n": 96,
+    "accuracy_after": 0.5,
+    "accuracy_ci95": [
+     0.4019,
+     0.5981
+    ],
+    "accuracy_no_test": 0.5,
+    "improved": 0.5,
+    "unchanged": 0.0,
+    "worsened": 0.5,
+    "inconclusive": 0.4791666666666667,
+    "out_of_distribution": 0.4791666666666667,
+    "confident_wrong": 0.020833333333333332
+   },
+   "style_aware": {
+    "n": 96,
+    "accuracy_after": 1.0,
+    "accuracy_ci95": [
+     0.9615,
+     1.0
+    ],
+    "accuracy_no_test": 0.5,
+    "improved": 1.0,
+    "unchanged": 0.0,
+    "worsened": 0.0,
+    "inconclusive": 0.0,
+    "out_of_distribution": 0.0,
+    "confident_wrong": 0.0
+   }
+  }
+ },
+ "c4_selection": {
+  "rule": "adopt style_aware iff, on VALIDATION looseness-vs-sensor T1 cases in both the stuck and noisy-harmonics regimes, accuracy >= control - 0.02, strictly better in the noisy-harmonics regime, and confident-wrong rate <= control + 0.02",
+  "adopt_style_aware": true
+ },
+ "c4_v2_val": {
+  "realistic": {
+   "baseline(stuck)": {
+    "control": {
+     "n": 48,
+     "accuracy_after": 1.0,
+     "accuracy_ci95": [
+      0.9259,
+      1.0
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.08333333333333333,
+     "unchanged": 0.9166666666666666,
+     "worsened": 0.0,
+     "inconclusive": 0.14583333333333334,
+     "out_of_distribution": 0.14583333333333334,
+     "confident_wrong": 0.0,
+     "no_test_top1": 0.9375,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.0
+    },
+    "control_guarded": {
+     "n": 48,
+     "accuracy_after": 1.0,
+     "accuracy_ci95": [
+      0.9259,
+      1.0
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.08333333333333333,
+     "unchanged": 0.9166666666666666,
+     "worsened": 0.0,
+     "inconclusive": 0.14583333333333334,
+     "out_of_distribution": 0.14583333333333334,
+     "confident_wrong": 0.0,
+     "no_test_top1": 0.9375,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.0
+    },
+    "style_aware": {
+     "n": 48,
+     "accuracy_after": 1.0,
+     "accuracy_ci95": [
+      0.9259,
+      1.0
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.08333333333333333,
+     "unchanged": 0.9166666666666666,
+     "worsened": 0.0,
+     "inconclusive": 0.1875,
+     "out_of_distribution": 0.1875,
+     "confident_wrong": 0.0,
+     "no_test_top1": 0.9375,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.0
+    },
+    "style_aware_guarded": {
+     "n": 48,
+     "accuracy_after": 1.0,
+     "accuracy_ci95": [
+      0.9259,
+      1.0
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.08333333333333333,
+     "unchanged": 0.9166666666666666,
+     "worsened": 0.0,
+     "inconclusive": 0.1875,
+     "out_of_distribution": 0.1875,
+     "confident_wrong": 0.0,
+     "no_test_top1": 0.9375,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.0
+    }
+   },
+   "confusable_sensor(noisy-harmonics)": {
+    "control": {
+     "n": 48,
+     "accuracy_after": 0.5,
+     "accuracy_ci95": [
+      0.3639,
+      0.6361
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.0,
+     "unchanged": 1.0,
+     "worsened": 0.0,
+     "inconclusive": 0.5,
+     "out_of_distribution": 0.5,
+     "confident_wrong": 0.0,
+     "no_test_top1": 0.5,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.0
+    },
+    "control_guarded": {
+     "n": 48,
+     "accuracy_after": 0.5,
+     "accuracy_ci95": [
+      0.3639,
+      0.6361
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.0,
+     "unchanged": 1.0,
+     "worsened": 0.0,
+     "inconclusive": 0.5,
+     "out_of_distribution": 0.5,
+     "confident_wrong": 0.0,
+     "no_test_top1": 0.5,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.0
+    },
+    "style_aware": {
+     "n": 48,
+     "accuracy_after": 0.9583333333333334,
+     "accuracy_ci95": [
+      0.8602,
+      0.9885
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.4791666666666667,
+     "unchanged": 0.5208333333333334,
+     "worsened": 0.0,
+     "inconclusive": 0.041666666666666664,
+     "out_of_distribution": 0.041666666666666664,
+     "confident_wrong": 0.041666666666666664,
+     "no_test_top1": 0.5,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.0
+    },
+    "style_aware_guarded": {
+     "n": 48,
+     "accuracy_after": 0.9583333333333334,
+     "accuracy_ci95": [
+      0.8602,
+      0.9885
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.4791666666666667,
+     "unchanged": 0.5208333333333334,
+     "worsened": 0.0,
+     "inconclusive": 0.08333333333333333,
+     "out_of_distribution": 0.041666666666666664,
+     "confident_wrong": 0.0,
+     "no_test_top1": 0.5,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.041666666666666664
+    }
+   },
+   "noisy x1.5": {
+    "control": {
+     "n": 48,
+     "accuracy_after": 1.0,
+     "accuracy_ci95": [
+      0.9259,
+      1.0
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.08333333333333333,
+     "unchanged": 0.9166666666666666,
+     "worsened": 0.0,
+     "inconclusive": 0.14583333333333334,
+     "out_of_distribution": 0.14583333333333334,
+     "confident_wrong": 0.0,
+     "no_test_top1": 0.9375,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.0
+    },
+    "control_guarded": {
+     "n": 48,
+     "accuracy_after": 1.0,
+     "accuracy_ci95": [
+      0.9259,
+      1.0
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.08333333333333333,
+     "unchanged": 0.9166666666666666,
+     "worsened": 0.0,
+     "inconclusive": 0.14583333333333334,
+     "out_of_distribution": 0.14583333333333334,
+     "confident_wrong": 0.0,
+     "no_test_top1": 0.9375,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.0
+    },
+    "style_aware": {
+     "n": 48,
+     "accuracy_after": 1.0,
+     "accuracy_ci95": [
+      0.9259,
+      1.0
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.08333333333333333,
+     "unchanged": 0.9166666666666666,
+     "worsened": 0.0,
+     "inconclusive": 0.1875,
+     "out_of_distribution": 0.1875,
+     "confident_wrong": 0.0,
+     "no_test_top1": 0.9375,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.0
+    },
+    "style_aware_guarded": {
+     "n": 48,
+     "accuracy_after": 1.0,
+     "accuracy_ci95": [
+      0.9259,
+      1.0
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.08333333333333333,
+     "unchanged": 0.9166666666666666,
+     "worsened": 0.0,
+     "inconclusive": 0.1875,
+     "out_of_distribution": 0.1875,
+     "confident_wrong": 0.0,
+     "no_test_top1": 0.9375,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.0
+    }
+   },
+   "noisy-harmonics x1.5": {
+    "control": {
+     "n": 48,
+     "accuracy_after": 0.5,
+     "accuracy_ci95": [
+      0.3639,
+      0.6361
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.0,
+     "unchanged": 1.0,
+     "worsened": 0.0,
+     "inconclusive": 0.5,
+     "out_of_distribution": 0.5,
+     "confident_wrong": 0.0,
+     "no_test_top1": 0.5,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.0
+    },
+    "control_guarded": {
+     "n": 48,
+     "accuracy_after": 0.5,
+     "accuracy_ci95": [
+      0.3639,
+      0.6361
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.0,
+     "unchanged": 1.0,
+     "worsened": 0.0,
+     "inconclusive": 0.5,
+     "out_of_distribution": 0.5,
+     "confident_wrong": 0.0,
+     "no_test_top1": 0.5,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.0
+    },
+    "style_aware": {
+     "n": 48,
+     "accuracy_after": 0.9583333333333334,
+     "accuracy_ci95": [
+      0.8602,
+      0.9885
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.4583333333333333,
+     "unchanged": 0.5416666666666666,
+     "worsened": 0.0,
+     "inconclusive": 0.041666666666666664,
+     "out_of_distribution": 0.041666666666666664,
+     "confident_wrong": 0.041666666666666664,
+     "no_test_top1": 0.5,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.0
+    },
+    "style_aware_guarded": {
+     "n": 48,
+     "accuracy_after": 0.9583333333333334,
+     "accuracy_ci95": [
+      0.8602,
+      0.9885
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.4583333333333333,
+     "unchanged": 0.5416666666666666,
+     "worsened": 0.0,
+     "inconclusive": 0.08333333333333333,
+     "out_of_distribution": 0.041666666666666664,
+     "confident_wrong": 0.0,
+     "no_test_top1": 0.5,
+     "flagged_sessions": 48,
+     "conflict_rate": 0.041666666666666664
+    }
+   }
+  },
+  "pair": {
+   "baseline(stuck)": {
+    "control": {
+     "n": 96,
+     "accuracy_after": 1.0,
+     "accuracy_ci95": [
+      0.9615,
+      1.0
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 1.0,
+     "unchanged": 0.0,
+     "worsened": 0.0,
+     "inconclusive": 0.16666666666666666,
+     "out_of_distribution": 0.16666666666666666,
+     "confident_wrong": 0.0
+    },
+    "control_guarded": {
+     "n": 96,
+     "accuracy_after": 1.0,
+     "accuracy_ci95": [
+      0.9615,
+      1.0
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 1.0,
+     "unchanged": 0.0,
+     "worsened": 0.0,
+     "inconclusive": 0.16666666666666666,
+     "out_of_distribution": 0.16666666666666666,
+     "confident_wrong": 0.0
+    },
+    "style_aware": {
+     "n": 96,
+     "accuracy_after": 1.0,
+     "accuracy_ci95": [
+      0.9615,
+      1.0
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 1.0,
+     "unchanged": 0.0,
+     "worsened": 0.0,
+     "inconclusive": 0.08333333333333333,
+     "out_of_distribution": 0.08333333333333333,
+     "confident_wrong": 0.0
+    },
+    "style_aware_guarded": {
+     "n": 96,
+     "accuracy_after": 1.0,
+     "accuracy_ci95": [
+      0.9615,
+      1.0
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 1.0,
+     "unchanged": 0.0,
+     "worsened": 0.0,
+     "inconclusive": 0.08333333333333333,
+     "out_of_distribution": 0.08333333333333333,
+     "confident_wrong": 0.0
+    }
+   },
+   "confusable_sensor(noisy-harmonics)": {
+    "control": {
+     "n": 96,
+     "accuracy_after": 0.5,
+     "accuracy_ci95": [
+      0.4019,
+      0.5981
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.5,
+     "unchanged": 0.0,
+     "worsened": 0.5,
+     "inconclusive": 0.4791666666666667,
+     "out_of_distribution": 0.4791666666666667,
+     "confident_wrong": 0.020833333333333332
+    },
+    "control_guarded": {
+     "n": 96,
+     "accuracy_after": 0.5,
+     "accuracy_ci95": [
+      0.4019,
+      0.5981
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 0.5,
+     "unchanged": 0.0,
+     "worsened": 0.5,
+     "inconclusive": 0.4791666666666667,
+     "out_of_distribution": 0.4791666666666667,
+     "confident_wrong": 0.020833333333333332
+    },
+    "style_aware": {
+     "n": 96,
+     "accuracy_after": 1.0,
+     "accuracy_ci95": [
+      0.9615,
+      1.0
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 1.0,
+     "unchanged": 0.0,
+     "worsened": 0.0,
+     "inconclusive": 0.0,
+     "out_of_distribution": 0.0,
+     "confident_wrong": 0.0
+    },
+    "style_aware_guarded": {
+     "n": 96,
+     "accuracy_after": 1.0,
+     "accuracy_ci95": [
+      0.9615,
+      1.0
+     ],
+     "accuracy_no_test": 0.5,
+     "improved": 1.0,
+     "unchanged": 0.0,
+     "worsened": 0.0,
+     "inconclusive": 0.0,
+     "out_of_distribution": 0.0,
+     "confident_wrong": 0.0
+    }
+   }
+  }
+ },
+ "c4_v2_selection": {
+  "rule": "adopt style_aware_guarded iff on VALIDATION (realistic flagged sessions in 4 regimes + clean pairs): accuracy_after >= no-test top-1 - 0.02, confident-wrong <= 0.02 in every regime, and clean-pair accuracy >= control - 0.02",
+  "adopt_style_aware_guarded": true,
+  "note": "v2 was designed after the v1 TEST run showed confident-wrong results in the hard regime; its final evaluation therefore uses NEW seeds (C4_TEST2) and its regimes are no longer untouched"
+ }
+}

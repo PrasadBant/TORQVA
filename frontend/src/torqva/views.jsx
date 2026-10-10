@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ReferenceLine, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Play, Pause, StopCircle, Check, X } from 'lucide-react';
 import { Card, Empty, ErrorBox, Pill, PosteriorBars, ProvBadge, fmt, stateTone } from './components.jsx';
+import { C2C4Validation, DiagnosticTests, PredictionChecks, StatusPill } from './c2c4.jsx';
 
 const FAULTS = ['imbalance', 'looseness', 'overload', 'cooling_failure', 'supply_voltage', 'sensor_fault'];
 const lastOf = (log, kind) => [...(log || [])].reverse().find((l) => l.kind === kind);
@@ -173,15 +174,18 @@ export function Decisions({ d, role, actions, error }) {
         <p className="tq-label-unvalidated"><Pill tone="warn">{s.models?.c2_label || 'Intervention Outcome Prediction (unvalidated)'}</Pill>
           <span className="tq-muted"> Not yet validated against repeated physical experiments. A prediction is never evidence of recovery.</span></p>
         {!preds.length ? <Empty>No predictions yet.</Empty> : (
-          <table className="tq-table"><thead><tr><th scope="col">Action</th><th scope="col">Risk of crossing a limit</th>
+          <table className="tq-table"><thead><tr><th scope="col">Action</th><th scope="col">Status</th><th scope="col">Risk of crossing a limit</th>
             <th scope="col">Speed @120 s</th><th scope="col">Vibration @120 s (90% interval)</th><th scope="col">Housing @120 s (90% interval)</th></tr></thead>
             <tbody>{preds.map((p) => (<tr key={p.action}>
-              <td>{p.action.replaceAll('_', ' ')}</td><td className="tq-num">{fmt(p.risk * 100, 0)}%</td>
+              <td>{p.action.replaceAll('_', ' ')}</td><td><StatusPill status={p.status} />{p.status_reasons?.length > 0 && <span className="tq-muted"> {p.status_reasons.join(', ').replaceAll('_', ' ')}</span>}</td><td className="tq-num">{fmt(p.risk * 100, 0)}%</td>
               <td className="tq-num">{fmt(p.mean_at_30_60_120.rpm[2], 0)} rpm</td>
               <td className="tq-num">{fmt(p.mean_at_30_60_120.vib_rms[2], 3)} g ({fmt(p.lo_120.vib_rms, 3)}–{fmt(p.hi_120.vib_rms, 3)})</td>
               <td className="tq-num">{fmt(p.mean_at_30_60_120.housing[2], 1)} °C ({fmt(p.lo_120.housing, 1)}–{fmt(p.hi_120.housing, 1)})</td></tr>))}</tbody></table>
         )}
       </Card>
+
+      <PredictionChecks checks={d.predictionChecks || []} />
+      <DiagnosticTests log={d.log || []} />
 
       <Card title="Awaiting your decision" id="c-appr">
         {!pend ? <Empty>No action is waiting for approval.</Empty> : (
@@ -245,11 +249,11 @@ export function Recovery({ d }) {
 }
 
 /* ------------------------------------------------------------------ Evaluation / Learning */
-export function Evaluation({ d, evalRun, evalError }) {
+export function Evaluation({ d, evalRun, evalError, c2c4, c2c4Error }) {
   const r = evalRun?.run;
   const cases = d.cases || [];
   return (
-    <div className="tq-grid">
+    <div className="tq-grid tq-grid-wide">
       <Card title="Evaluation run" id="c-eval" right={<ProvBadge kind="SIMULATED" />}>
         {evalError && !r && <Empty>No evaluation run available ({String(evalError.message)}).</Empty>}
         {r && (
@@ -260,12 +264,14 @@ export function Evaluation({ d, evalRun, evalError }) {
               <tr><th scope="row">C1 healthy window false-alarm rate</th><td className="tq-num">{fmt(r.c1.healthy.c1.window_false_alarm_rate * 100, 2)}%</td></tr>
               <tr><th scope="row">Hypothesis top-1 accuracy (random {fmt(r.hypotheses.random_baseline * 100, 0)}%)</th><td className="tq-num">{fmt(r.hypotheses.top1_accuracy * 100, 1)}%</td></tr>
               <tr><th scope="row">False-confident hypothesis rate</th><td className="tq-num">{fmt(r.hypotheses.false_confident_rate * 100, 1)}%</td></tr>
-              <tr><th scope="row">C2 interval coverage (target {fmt(r.c2.coverage_target * 100, 0)}%) mean / worst</th><td className="tq-num">{fmt(r.c2.coverage_mean * 100, 0)}% / {fmt(r.c2.coverage_min * 100, 0)}%</td></tr>
+              <tr><th scope="row">C2 coverage as measured in this run (target {fmt(r.c2.coverage_target * 100, 0)}%) mean / worst</th><td className="tq-num">{fmt(r.c2.coverage_mean * 100, 0)}% / {fmt(r.c2.coverage_min * 100, 0)}%</td></tr>
               <tr><th scope="row">C2 validated by intervention experiments</th><td>{r.c2.validated_by_intervention_experiments ? 'yes' : 'no'}</td></tr>
               <tr><th scope="row">False recovery declarations</th><td className="tq-num">{r.c5.FALSE_RECOVERY_DECLARATIONS} of {r.c5.cases} cases</td></tr>
             </tbody></table>
+            <p className="tq-muted">This run measured the conformal quantile only. The Phase 10 table measures the intervals the predictor actually returns, which cover less.</p>
           </>)}
       </Card>
+      <C2C4Validation data={c2c4} error={c2c4Error} />
       <Card title="Learning dataset" id="c-learn">
         {!cases.length ? <Empty>No eligible cases recorded in this run. Blocked, rejected or aborted actions never count.</Empty> : (
           <ul className="tq-list">{cases.map((c) => (<li key={c.label + c.outcome + c.session}><strong>{c.label}</strong> · {c.outcome} · label source {c.label_source} · executed {String(c.executed)} <ProvBadge kind="SIMULATED" /></li>))}</ul>)}

@@ -191,3 +191,93 @@ In the shift-free baseline regime B+C and the control make **identical** decisio
 
 # Phase 9 note (no change to the evaluation methodology)
 Phase 9 (healthy-session attestation, `TORQVA_ARCHITECTURE.md` section 5) adds a workflow, not a new evaluation: the Phase 8 results, seeds, splits and frozen selection above are unchanged, and the attestation code cannot import the final-test seeds. The "hold-out" validation inside the workflow checks a candidate reference on the last 25 % of the *same recorded warm-up*; it is a per-recording sanity check and says nothing about detection performance. No new performance claim is made, and nothing here is hardware evidence.
+
+
+---
+
+# Phase 10 — C2 interval quality and C4 diagnostic-test value (`docs/eval/c2c4_phase10_*`)
+
+**Simulation only. No measured data, no physical motor operated, nothing flashed.** The simulator is uncalibrated and its fault models are structurally consistent with the predictors, so the absolute numbers are optimistic. Reproduce (fixed seeds, deterministic; re-running reproduces every JSON file byte-for-byte):
+```
+cd backend
+python -m torqva.c2c4_study validate        # all selection, on VALIDATION seeds/regimes only      (~12 s) -> c2c4_phase10_selection.json
+python -m torqva.c2c4_study final           # one run on held-out TEST seeds/regimes, frozen choice (~70 s) -> c2c4_phase10_final.json (+ _predictions.jsonl.gz)
+python -m torqva.c2c4_study final-c4-v2     # C4 v2 on FRESH seeds, designed after the v1 test run      (~12 s) -> c2c4_phase10_c4_v2_final.json
+```
+
+## 1. What a C2 prediction is (and is not)
+A prediction is the **expected simulated outcome** of an action (rpm, vibration, current, housing temperature at 30 / 60 / 120 s) with a **90 % interval for a single future 1 s measurement under comparable simulated conditions**. It is *not* the exact counterfactual of one physical run, it is not a measurement, and it is never evidence of recovery (C5 needs fresh telemetry). In simulation the three candidate actions can be rolled out from *identical* starting conditions by forking the simulator; a real motor cannot be forked, so on hardware only matched-condition experiments are possible. The specification for every action (preconditions, outputs, horizon, interval meaning, unsupported conditions, how the observation is recorded) is `PREDICTION_TARGETS` in `c2_robust.py` and is served at `/api/torqva/evaluation/c2c4`.
+
+## 2. Baseline reproduced, and what it hid
+The shipped evaluation reproduces exactly (88.1 % mean / 58.3 % worst-cell coverage; per-regime values as in run 2; the whole `torqva.evaluation` output is byte-identical). Evaluating the intervals that `predict()` **actually returns** (the shipped `evaluate_coverage` ignores the hypothesis-spread term and the lower clip at 0) gives lower numbers on the same kind of data:
+
+| shipped C2, returned intervals | coverage (95 % CI) | worst cell |
+|---|---|---|
+| baseline | 86.3 % [85.7–86.9] | 36 % (`CONTINUE/rpm/60`, n = 324) |
+| noise ×2 | 74.6 % [73.8–75.3] | 17 % |
+| noise ×3 | 66.3 % | 11 % |
+
+**Root cause of the bad cells.** (a) The interval half-width is floored at 3.0 rpm = 1.5σ of the rpm sensor, which cannot reach 90 % even for pure noise (≈ 87 %), and the floor ignores the actual noise level, so coverage collapses under noise. (b) The lower bound is clipped at 0, but *measured* rpm near 0 carries ±2 rpm of noise and reads below 0, so about half of all post-STOP rpm measurements fall outside the returned interval. (c) With 72 calibration cases the pooled quantile is noisy. Point-prediction error is not the issue (MAE 0.48 rpm-scale units vs 179 for persistence).
+
+## 3. Protocol
+Session = seed. **Calibration** (fits conformal quantiles): 216 baseline-regime cases (seeds 9601–9606). **Validation** (all selection): seeds 9701–9703, regimes baseline / noise ×1.5 / session_shift. **Test** (used once): seeds 9801–9806 × speeds 1350/1650/1950 × severities 0.3/0.6/0.9 × 6 fault classes = 324 cases (3 actions × 4 signals × 3 horizons = 11 664 scored intervals per regime) in eight regimes, five of which never appear in validation (noise ×2 as 'noisy', confusable_sensor, intermittent, hard, noise ×3) plus an unfamiliar-speed regime (2400 rpm, above every trained bin). All split seeds are disjoint from each other and from every earlier phase (asserted by a test); no data-generating call in a selection function may take a test seed or regime (tested). Variants: **control** (shipped, shipped calibration); **control_recal** (same code, re-calibrated on the 216 cases — separates "more calibration data" from "better method"); **persistence_conformal** (simple statistical baseline: future = present, conformal intervals); **noise_aware** (candidate).
+
+**Candidate (`NoiseAwarePredictor`).** Same fitted grey-box means, so accuracy is identical by construction. Intervals: `half² = q_raw² + z²·max(σ̂² − σ_nom², 0)·(1 + 1/n) + spread²`, floored at the 90 % half-width of the sensor noise alone (`z·σ̂·√(1 + 1/n)`, z = 1.645). `q_raw` is the split-conformal residual quantile with **no hard-coded floor**; `σ̂` is the measurement noise estimated per case from the pre-action windows (robust MAD of first differences; vibration noise is multiplicative, so it is judged relative to the vibration level); `σ_nom` is the calibration-time level. With `σ̂ = σ_nom` it behaves like the control. The lower bound is clipped at 0 only for signals whose *measurement* cannot be negative (vibration rms, current). Each prediction carries an explicit status: **supported**, **unsupported** (motor not running / already stopped, no real speed reduction, hypothesis evidence out-of-distribution, noise > 3.5× the calibration level) or **insufficiently validated** (uncalibrated, noise level unknown, a calibration cell with < 30 cases). No constants were tuned on validation or test data.
+
+Two defects were found and fixed *during validation* (kept here deliberately): the first version abstained on 100 % of cases because the vibration noise model was not level-aware (a high-vibration fault looked like "3.5× noise"), and the first coverage run showed a 17 % cell because the 0-clip excluded negative rpm readings. The selection rule (written before the test) was strengthened after the first defect: *adopt iff worst per-regime validation coverage ≥ control_recal's, mean interval score ≤ control_recal's, and baseline abstention not worse by > 5 points* (a predictor that abstains everywhere is not an improvement).
+
+## 4. C2 held-out test results (11 664 intervals per regime; 95 % Wilson CI)
+| Regime | control | control_recal | persistence | **noise_aware** | width control → candidate | candidate abstains |
+|---|---|---|---|---|---|---|
+| baseline | 86.3 % | 87.6 % | 80.7 % | **91.4 %** [90.9–91.9] | 1.76 → 1.92 | 0 % |
+| noise ×2 | 74.6 % | 73.4 % | 73.8 % | **89.3 %** [88.7–89.8] | 1.76 → 2.55 | 9 % |
+| session_shift | 85.9 % | 87.2 % | 80.1 % | **91.3 %** [90.8–91.8] | 1.76 → 1.96 | 29 % |
+| confusable_sensor | 85.4 % | 86.5 % | 80.8 % | **91.5 %** [91.0–92.0] | 1.76 → 2.02 | 0 % |
+| intermittent | 83.7 % | 84.6 % | 79.4 % | **90.6 %** [90.0–91.1] | 1.76 → 2.29 | 33 % |
+| hard | 71.9 % | 70.2 % | 72.7 % | **88.6 %** [88.0–89.2] | 1.76 → 2.85 | 74 % |
+| noise ×3 | 66.3 % | 64.9 % | 70.1 % | **88.7 %** [88.1–89.3] | 1.76 → 3.29 | 90 % |
+| unfamiliar speed 2400 | 82.6 % | 83.3 % | 57.0 % | **87.6 %** [86.5–88.6] | 2.09 → 2.39 | 100 % (control also 100 %) |
+
+(Width = mean interval width in units of twice the nominal sensor-noise floor of each signal; **sharpness is reported next to coverage**, and the candidate is 9–87 % wider because it must be.) The candidate's coverage *among the cases it does not abstain on* is 91.4 / 89.6 / 91.0 / 91.5 / 90.3 / 89.4 / 87.4 %. Normalised interval score (lower is better): baseline 2.94 → 2.57, noise ×2 4.82 → 3.47. Worst cell: baseline 36 % → 78 %, noise ×2 17 % → 53 %. **Accuracy is unchanged** (identical point predictions: MAE 0.484 baseline / 0.945 noise ×2 against 179 for persistence). The persistence baseline shows why a statistical baseline is not enough: its intervals are ~40× wider and still under-cover.
+
+By slice (baseline, control → candidate): CONTINUE 85 → 89 %, REDUCE_SPEED 88 → 91 %, STOP 86 → 94 %; rpm 71 → 92 %, vibration 88 → 94 %, current 97 → 93 %, **housing 90 → 86 %**; imbalance 86 → 94 %, looseness 84 → 95 %, cooling 91 → 93 %, supply 91 → 95 %, sensor 87 → 92 %, **overload 78 → 79 %**; severity 0.3 / 0.6 / 0.9: 89 / 87 / 83 → 93 / 92 / 89 %. Full tables are in the JSON.
+
+**Decision.** `noise_aware` is clearly better on coverage, worst-cell coverage and interval score in every regime at unchanged accuracy, at the cost of wider intervals and abstention outside the calibrated range (which is the intended behaviour: it declines instead of claiming 90 % it cannot deliver). It is integrated **opt-in** (`TORQVA_C2_VARIANT=noise_aware`; the shipped predictor stays the default) and is **not validated on hardware**.
+
+**Gaps that remain (not hidden):** the 90 % target is met only marginally and only at baseline-like regimes (88.6–91.5 %); **overload coverage is 79 %** (model error, not noise: a pooled conformal quantile gives no conditional coverage per fault class); housing coverage fell to 86 % (the data-driven floor is tighter than the control's fixed one); coverage in `hard` / noise ×3 is ≈ 89 % only because the candidate abstains on most of those cases; a further 29–33 % abstention in session_shift / intermittent comes from out-of-distribution hypothesis evidence (the control ignores that signal).
+
+## 5. C4 diagnostic tests (specification: `TEST_SPECS`; library finding)
+Each test has a specification (which hypotheses it separates, evidence, permitted conditions, abort conditions, inconclusive conditions, effect on confidence). **Finding:** T1 *can* separate mechanical looseness from a faulty vibration channel (harmonic speed-exponent ≈ 1.05 vs ≈ 0.1), but the shipped signature library holds one sensor-fault style (stuck), so outcomes from another style fall outside every learned signature. Candidate `StyleAwareDiagnosticsModel`: one signature component per fault style (stuck + noisy-harmonics for the sensor fault), scored as a mixture. The intermittent style is **held out**.
+
+**Clean pairwise discrimination** (50/50 prior, T1, looseness vs sensor fault, n = 144 per cell; no-test accuracy = 50 %):
+
+| Regime | shipped library | style-aware |
+|---|---|---|
+| baseline (stuck) | 100 % | 100 % |
+| noisy-harmonics sensor | **50 %** [42–58] (50 % inconclusive; half the results *worsen* P(truth)) | **100 %** [97–100] |
+| intermittent (held-out style) | 60 % (68 % inconclusive) | 69 % (64 % inconclusive) |
+| noise ×2 / session_shift | 100 % / 100 % | 100 % / 100 % |
+| hard | 41 % | 86 % (4.9 % confident-wrong) |
+
+Other pairs (control): T1 imbalance vs looseness 93 %; T3 overload vs cooling 99 %; T4 overload vs cooling 85 % with 17 % inconclusive; the 45-cell separation matrix shows T3/T4 cannot separate most other pairs (outcomes flagged out-of-distribution, i.e. inconclusive — never forced).
+
+**Realistic setting** (pre-test posterior from C1 evidence in flagged sessions, then T1; the C1 evidence is so peaked that a single test often cannot overturn it) — this is where the clean picture breaks:
+
+| Regime (test seeds, v1) | no test | shipped after | style-aware after | style-aware confident-wrong |
+|---|---|---|---|---|
+| confusable (noisy-harmonics) | 50 % | 50 % (50 % inconclusive) | 94 % | **5.6 %** |
+| hard | 3 % | 33 % (78 % inconclusive, 0 % confident-wrong) | 53 % | **36.1 %** |
+
+The style-aware model trades abstention for **confident errors** in the hard regime. My VALIDATION rule only looked at clean pairs and therefore selected it; the test exposed the gap. **C4 v2** adds a *conflict guard* (`ConflictGuard`, `Posterior.conflict`, one added clause in the C3 gate): if the test evidence alone confidently names a different hypothesis than the prior-driven top, the result is `conflicted` (never confident, never ACT). v2 was designed after seeing the v1 test, so it is validated on VALIDATION data (realistic flagged sessions in four regimes: confident-wrong 4.2 % → 0 %) and evaluated on **fresh seeds** (9941–9952; n = 48 flagged sessions per regime; the regimes themselves are no longer untouched):
+
+| Regime (fresh seeds) | no test | shipped after | style-aware after | style-aware **guarded**: after / conflict / confident-wrong |
+|---|---|---|---|---|
+| baseline / noise ×2 / session_shift | 92–94 % | 98 % | 100 % | 100 % / ≤ 2 % / 0 % |
+| confusable (noisy-harmonics) | 50 % | 50 % (48 % inconclusive) | 83 % (**16.7 % confident-wrong**) | 83 % / 17 % / **0 %** |
+| intermittent (held-out style) | 77 % | **54 %** (29 % worsened, 81 % inconclusive) | 56 % (29 % worsened) | 56 % / 29 % / 4.2 % |
+| hard | 0 % | 23 % (90 % inconclusive, 2 % confident-wrong) | 31 % (**35.4 %**) | 31 % / 44 % / **18.8 %** |
+
+**Decision.** The style-aware library removes the real blind spot (looseness vs a noisy-harmonics sensor fault: 50 % → 83–100 % depending on setting) and the guard removes the confident errors there, but **residual confident-wrong in the hard regime is 18.8 % (shipped: 2 %)** and a speed-step test **worsens** the top-1 decision in the held-out intermittent style for every variant (29 %). Therefore the style-aware model is **not made the default**; it stays an opt-in experimental module. The shipped C4 remains the default. The guard clause in the gate is kept (it only ever makes the gate more conservative; shipped posteriors never set it). Recommended next step: calibrate the test-likelihood temperature on shifted regimes (the same fix Phase 6 applied to the hypothesis model) and cover more fault styles, then re-validate.
+
+## 6. Limitations
+Simulation only; the simulator is uncalibrated and the fault models are self-consistent with the predictors. No C2 variant is validated by Intervention Outcome Experiments. Matched-condition (forked) rollouts are a simulator property. Coverage is marginal over fault classes, not conditional (overload 79 %). Fault styles are a handful of simulator modes, not real sensor-failure physics. The v1 test seeds and regimes have been looked at; v2 numbers measure generalisation over seeds only. A prediction check that happens to be inside its interval does not validate the model, and abstention rates describe the simulator's regimes.

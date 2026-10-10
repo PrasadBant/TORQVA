@@ -110,14 +110,45 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
 
     @r.get("/evaluation/latest")
     def evaluation_latest(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
-        """Newest EvaluationRun JSON from docs/eval (read-only artifact). SIMULATED unless it says otherwise."""
+        """Newest EvaluationRun JSON from docs/eval (read-only artifact). Only files whose schema is EvaluationRun/* qualify: other study
+        artifacts in the same folder (c1_phase8_*.json, c2c4_phase10_*.json) are NOT evaluation runs. SIMULATED unless it says otherwise."""
         import json
         from pathlib import Path
         d = Path(__file__).resolve().parents[2] / "docs" / "eval"
-        files = sorted(d.glob("*.json"), key=lambda f: f.stat().st_mtime) if d.exists() else []
-        if not files:
-            raise HTTPException(404, "no evaluation run found")
-        return {"file": files[-1].name, "run": json.loads(files[-1].read_text())}
+        files = sorted(d.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True) if d.exists() else []
+        for f in files:
+            try:
+                run = json.loads(f.read_text())
+            except Exception:
+                continue
+            if str(run.get("schema", "")).startswith("EvaluationRun"):
+                return {"file": f.name, "run": run}
+        raise HTTPException(404, "no evaluation run found")
+
+    @r.get("/evaluation/c2c4")
+    def evaluation_c2c4(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        """Phase 10 C2/C4 study summary (condensed), prediction targets and test specifications. Simulation only."""
+        import json
+        from pathlib import Path
+        d = Path(__file__).resolve().parents[2] / "docs" / "eval"
+        f = d / "c2c4_phase10_final.json"
+        if not f.exists():
+            raise HTTPException(404, "no C2/C4 study result found (run python -m torqva.c2c4_study final)")
+        full = json.loads(f.read_text())
+        keep = ("n", "coverage", "coverage_ci95", "mean_width_norm", "interval_score_norm", "trusted_frac", "mae_model")
+        c2 = {}
+        for variant, v in full["c2"].items():
+            c2[variant] = {rg: {**{k: e["overall"].get(k) for k in keep}, "worst_cell_coverage": e["worst_cell_coverage"]}
+                           for rg, e in v["by_regime"].items()}
+        v2 = d / "c2c4_phase10_c4_v2_final.json"
+        return {"schema": full["schema"], "data_provenance": full["data_provenance"], "WARNING": full["WARNING"], "c2": c2,
+                "c4_realistic_v1": full["c4"]["realistic_T1"],
+                "c4_realistic_v2": json.loads(v2.read_text())["realistic_T1"] if v2.exists() else None,
+                "prediction_targets": full["prediction_targets"], "test_specs": full["test_specs"],
+                "limitations": ["Simulation only: the simulator is uncalibrated and its fault models are structurally consistent with the predictors.",
+                                "Predictions are expected outcomes under matched simulated conditions, not counterfactuals of one physical run and not measurements.",
+                                "No C2 variant is validated by Intervention Outcome Experiments on hardware.",
+                                "The noise-aware C2 variant and the style-aware C4 library are opt-in; the shipped models remain the default."]}
 
     @r.get("/status")
     def get_status(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
@@ -146,6 +177,11 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
     @r.get("/commands")
     def commands(p: Principal = Depends(need(Role.VIEWER))):
         return [c for c in _list("command")]
+
+    @r.get("/prediction-checks")
+    def prediction_checks(p: Principal = Depends(need(Role.VIEWER))):
+        """Predicted-vs-observed records of the CURRENT simulation session (observations are simulated telemetry, never a recovery verdict)."""
+        return _list("prediction_check")
 
     @r.get("/outcomes")
     def outcomes(p: Principal = Depends(need(Role.VIEWER))):
