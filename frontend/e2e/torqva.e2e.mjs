@@ -28,7 +28,7 @@ check('Run/STOP disabled before any simulation', await page.isDisabled('button:h
 // ---- scenario with human approval
 await page.check('text=Require human approval');
 await page.click('button:has-text("Start new simulation")');
-await page.waitForSelector('button:has-text("Run"):not([disabled])', { timeout: 5000 }).catch(() => {});
+await page.waitForSelector('button:has-text("Run"):not([disabled])', { timeout: 60000 }).catch(() => {});   // first start builds the models (several seconds on a fresh backend)
 check('Run enabled right after start (sim time 0)', await page.isEnabled('button:has-text("Run")'));
 check('STOP enabled right after start', await page.isEnabled('button[aria-label="Stop motor (coast)"]'));
 await page.click('button:has-text("Run")');
