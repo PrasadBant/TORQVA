@@ -248,3 +248,8 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 
 * `serial_bridge.py` (backend-owned port, validated parser, bounded model/history, command lifecycle, hub), `device_routes.py` (REST + read-only WebSocket), firmware status frame extended (proto, dev, blk, fm), frontend Device / Motor Control pages, Live Monitor source switch, device card, dynamic banner. STOP is the only sendable device command; START/speed stay blocked with reasons. No real port was opened.
 * Results: backend 569 passed (47 new), frontend 78 passed + build OK, native 101/101, ESP32-S3 compile OK, Chrome E2E all five suites 0 failures (app 53/53). Hardware NOT validated.
+
+## Session 17 - COM7 access-denied investigation
+
+* Root cause (evidence): not TORQVA. With the backend stopped, a minimal pyserial open of COM7 failed identically; `SERIALCOMM` maps `\Device\Serial2` to COM7 and a read-only handle scan showed the Arduino IDE helper `serial-monitor.exe` (PID 34684, child of the arduino-cli daemon) holding it. Driver status was OK (`CM_PROB_NONE`). Operator action: quit the Arduino IDE (or disconnect its Serial Monitor), then reconnect from the Device page.
+* TORQVA fixes found while auditing: connect requests are serialised (a concurrent second request used to be able to overwrite the first one's state), open errors are classified from the exact error text with recovery steps (no false "port in use"), handshake timeout/invalid diagnostics, backend shutdown releases the port, 409 for repeated connects. Tests: 22 new backend, 2 frontend. Handshake with the real board NOT verified (the port could not be opened).

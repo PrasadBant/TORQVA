@@ -165,4 +165,27 @@ describe('device pages', () => {
     await open('Device', { role: 'operator' });
     expect(await screen.findByText(/requires the admin role/)).toBeInTheDocument();
   });
+
+  it('shows the exact classified serial error with recovery steps, and a connected WebSocket never implies a USB connection', async () => {
+    const err = { code: 'ACCESS_DENIED', message: 'Windows refused to open the port (access denied).', detail: "could not open port 'COM7': PermissionError(13, 'Access is denied.', None, 5)",
+      recovery: ['Close the Arduino IDE Serial Monitor (or quit the Arduino IDE), then press Connect again.', 'Re-plug the USB cable.'] };
+    await open('Device', { snap: { ...DISCONNECTED, connection: 'ERROR', error: err, last_error: err.message } });
+    await waitFor(() => expect(FakeSocket.last).not.toBeNull());
+    act(() => FakeSocket.last.emit({ type: 'snapshot', data: { ...DISCONNECTED, connection: 'ERROR', error: err }, commands: [] }));   // the socket is up
+    const box = await screen.findByTestId('device-error');
+    expect(within(box).getByText(/Windows refused to open the port/)).toBeInTheDocument();
+    expect(within(box).getByText('ACCESS_DENIED')).toBeInTheDocument();
+    expect(within(box).getByText(/PermissionError\(13/)).toBeInTheDocument();
+    expect(within(box).getByText(/Close the Arduino IDE Serial Monitor/)).toBeInTheDocument();
+    expect(screen.getAllByText('ERROR').length).toBeGreaterThan(0);
+    expect(screen.getByText(/WebSocket only; says nothing about USB/)).toBeInTheDocument();
+    expect(screen.queryByText('PHYSICAL DEVICE')).toBeNull();
+    expect(screen.getAllByText('SIMULATION').length).toBeGreaterThan(0);
+  });
+
+  it('while the port is open but the handshake is pending the page says so and shows no physical device', async () => {
+    await open('Device', { snap: { ...DISCONNECTED, connection: 'CONNECTING' } });
+    expect(await screen.findByTestId('device-connecting')).toHaveTextContent(/waiting for the device handshake/);
+    expect(screen.queryByText('PHYSICAL DEVICE')).toBeNull();
+  });
 });

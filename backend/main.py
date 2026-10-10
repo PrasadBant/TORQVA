@@ -240,6 +240,19 @@ async def handle_tcp_telemetry(payload_dict: Dict[str, Any], client_ip: str):
     await ws_manager.broadcast("health", health.model_dump())
 
 
+_torqva_service = None
+
+
+def shutdown_torqva_bridge(reason: str = "backend shutdown") -> None:
+    """Close the USB serial port (if one is open) so the OS releases it when the backend stops. The bridge never opens a port by itself."""
+    svc = _torqva_service
+    if svc is not None:
+        try:
+            svc.bridge.disconnect(reason)
+        except Exception as e:                                   # shutdown must never raise
+            logger.warning(f"serial bridge shutdown: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initializes persistent baseline calibration, TCP server, and background watchdogs."""
@@ -264,6 +277,7 @@ async def lifespan(app: FastAPI):
     monitor_task = asyncio.create_task(connection_monitor_loop())
     cleanup_task = asyncio.create_task(retention_cleanup_loop())
     yield
+    shutdown_torqva_bridge()
     tcp_task.cancel()
     monitor_task.cancel()
     cleanup_task.cancel()
@@ -300,7 +314,8 @@ try:
     except Exception as _e:          # malformed config must never open the API
         logger.error(f"TORQVA_TOKENS invalid ({_e}); TORQVA API stays disabled")
         _torqva_auth = _TokenAuth([])
-    app.include_router(_torqva_router(_SimService(), _torqva_auth))
+    _torqva_service = _SimService()
+    app.include_router(_torqva_router(_torqva_service, _torqva_auth))
     from torqva.api import install_error_handlers as _install_handlers
     _install_handlers(app)
     if not os.environ.get("TORQVA_DEVICE_KEY"):

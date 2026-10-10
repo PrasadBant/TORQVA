@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from .auth import Principal, TokenAuth
 from .schemas import Role
-from .serial_bridge import SerialTransport, TransportError
+from .serial_bridge import ERROR_HELP, SerialTransport, TransportError, possible_port_holders
 
 _PORT = re.compile(r"^(COM[0-9]{1,3}|/dev/(tty|cu)[A-Za-z0-9._-]{1,40})$")
 WS_AUTH_TIMEOUT_S = 5.0
@@ -72,8 +72,13 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         audit(p, "device_connect", port=body.port, baud=body.baud)
         try:
             bridge.connect(SerialTransport(body.port, body.baud))
+        except RuntimeError as e:                                  # an attempt is in progress, or the port is already owned: never a second open
+            raise HTTPException(409, str(e))
         except TransportError as e:
-            raise HTTPException(502, str(e))
+            summary = ERROR_HELP.get(e.code, (str(e), []))[0]
+            holders = possible_port_holders() if e.code == "ACCESS_DENIED" else []
+            hint = f" Possible holders running (hint only, not proof): {', '.join(holders)}." if holders else ""
+            raise HTTPException(502, f"{e.code}: {summary} [{e.detail}]{hint}")
         return {"state": "CONNECTING", "note": "waiting for a valid status frame (protocol 1) before the device is shown as connected"}
 
     @r.post("/device/disconnect")

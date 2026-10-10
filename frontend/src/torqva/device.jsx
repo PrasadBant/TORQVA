@@ -108,14 +108,20 @@ export function DevicePage({ stream, role }) {
             <dl className="tq-kv">
               <dt>Mode</dt><dd>{o.label}</dd>
               <dt>USB state</dt><dd><ConnPill snap={snap} /></dd>
-              <dt>Live updates (WebSocket)</dt><dd>{ws === 'open' ? <Pill tone="ok">connected</Pill> : <Pill tone="warn">{ws === 'idle' ? 'off' : ws}</Pill>}</dd>
+              <dt>Live updates (WebSocket only; says nothing about USB)</dt><dd>{ws === 'open' ? <Pill tone="ok">connected</Pill> : <Pill tone="warn">{ws === 'idle' ? 'off' : ws}</Pill>}</dd>
               <dt>Last message</dt><dd className="tq-num">{ago(snap?.last_rx_unix)}</dd>
               <dt>Device id</dt><dd>{snap?.device_id || '—'} {snap?.identity && snap.identity !== 'unknown' && <span className="tq-chip">{snap.identity}</span>}</dd>
               <dt>Firmware / protocol</dt><dd>{snap?.firmware || '—'} · wire protocol {snap?.wire_protocol ?? '—'}</dd>
               <dt>Firmware mode</dt><dd>{snap?.firmware_mode || '—'}</dd>
             </dl>
             {!snap?.handshake && <p className="tq-callout">No device handshake. The application is in <strong>SIMULATION</strong>; physical-device telemetry is unavailable and physical motor controls are disabled.</p>}
-            {snap?.last_error && <p className="tq-callout crit" role="alert">{snap.last_error}</p>}
+            {snap?.connection === 'CONNECTING' && !snap?.error && <p className="tq-callout" data-testid="device-connecting">Port opened, waiting for the device handshake (a valid TORQVA status frame). Until then nothing is shown as a physical device.</p>}
+            {snap?.error && (
+              <div className="tq-callout crit" role="alert" data-testid="device-error">
+                <strong>{snap.error.message}</strong> <span className="tq-chip">{snap.error.code}</span>
+                <p className="tq-muted">Technical detail: {snap.error.detail}</p>
+                {Array.isArray(snap.error.recovery) && snap.error.recovery.length > 0 && <ol>{snap.error.recovery.map((r) => <li key={r}>{r}</li>)}</ol>}
+              </div>)}
             <ErrorBox error={error} />
             <p className="tq-muted">Trust boundary: {snap?.usb_trust_boundary || 'USB serial is unauthenticated; it is treated as inside the host computer\'s physical trust boundary.'}</p>
           </Card>

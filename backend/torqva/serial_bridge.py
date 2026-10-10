@@ -17,8 +17,11 @@ from __future__ import annotations
 
 import collections
 import json
+import logging
 import math
 import os
+import re
+import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
@@ -28,7 +31,9 @@ from typing import Any, Callable, Deque, Dict, List, Optional
 from .schemas import ActionType, Connection, DecisionVerdict, DeviceSafetyState, Mode, ProposalSource, ProposedAction, Role
 from .supervisor import ApprovedAction, SafetySupervisor, SupervisorContext, SupervisorLimits
 
+log = logging.getLogger("torqva.serial")
 MAX_LINE = 512
+HANDSHAKE_TIMEOUT_S = 5.0                   # port open but no valid status frame for this long -> HANDSHAKE_TIMEOUT diagnostic (no disconnect, no retry loop)
 WIRE_PROTOCOL = 1
 Q_BITS = {"current": 1, "voltage": 2, "housing": 4, "ambient": 8, "rpm": 16, "vibration": 32}
 HISTORY_SAMPLES = 3600                       # 10 Hz -> 6 minutes; bounded memory
@@ -141,6 +146,9 @@ class DeviceModel:
     history: Deque[Dict[str, Any]] = field(default_factory=lambda: collections.deque(maxlen=HISTORY_SAMPLES))
     counters: Dict[str, int] = field(default_factory=lambda: {"frames": 0, "malformed": 0, "duplicates": 0, "gaps": 0, "missing": 0, "restarts": 0, "unknown_type": 0, "unsupported_protocol": 0})
     last_error: str = ""
+    last_error_code: str = ""
+    last_error_detail: str = ""
+    connecting_since: Optional[float] = None
 
     def reset_session(self) -> None:
         self.status, self.identity, self.last_seq, self.last_rx, self.last_fast_rx, self.last_rx_wall = None, "unknown", None, None, None, None
@@ -216,7 +224,13 @@ class DeviceModel:
                 "label": "PHYSICAL DEVICE" if physical else ("DEVICE (FIRMWARE SIMULATION MODE)" if handshake else "SIMULATION"),
                 "firmware": st.get("fw"), "wire_protocol": st.get("proto"), "firmware_mode": mode, "safety_state": st.get("state"), "trip_reason": st.get("reason"), "fault_mask": st.get("fm"),
                 "drive": st.get("drive"), "control_enabled_in_firmware": None if not st else bool(st.get("ctl")), "start_blocked_reason": st.get("blk"),
-                "telemetry_fresh": fr["fresh"], "telemetry_age_s": fr["age_s"], "last_rx_unix": self.last_rx_wall, "values": vals, "counters": dict(self.counters), "last_error": self.last_error}
+                "telemetry_fresh": fr["fresh"], "telemetry_age_s": fr["age_s"], "last_rx_unix": self.last_rx_wall, "values": vals, "counters": dict(self.counters), "last_error": self.last_error, "error": self.error_info()}
+
+    def error_info(self) -> Optional[Dict[str, Any]]:
+        if not self.last_error_code:
+            return None
+        summary, steps = ERROR_HELP.get(self.last_error_code, (self.last_error, []))
+        return {"code": self.last_error_code, "message": summary, "detail": self.last_error_detail or self.last_error, "recovery": list(steps)}
 
     def history_series(self, signal: str, seconds: float, wall_now: float) -> List[List[Any]]:
         if signal not in ("rpm", "current", "voltage", "power", "duty", "housing"):
@@ -268,7 +282,61 @@ class PhysicalControlPolicy:
 
 # --------------------------------------------------------------------------------------------------------------- transports
 class TransportError(Exception):
-    pass
+    """A serial-layer failure with a classified code taken from the REAL underlying error text (never guessed)."""
+
+    def __init__(self, message: str, code: str = "TRANSPORT_ERROR", detail: str = ""):
+        super().__init__(message)
+        self.code, self.detail = code, detail or message
+
+
+# code -> (operator-facing summary, recovery steps). Only the codes actually established by the underlying error are ever reported.
+ERROR_HELP: Dict[str, Any] = {
+    "ACCESS_DENIED": ("Windows refused to open the port (access denied).",
+                      ["Windows denies access when ANOTHER program already has the port open or the account lacks permission; it does not say which program.",
+                       "Close the Arduino IDE Serial Monitor (or quit the Arduino IDE), PlatformIO/VS Code serial monitors, PuTTY/Tera Term and any other terminal, then press Connect again.",
+                       "If it still fails, unplug and re-plug the USB cable (this releases stale handles) and retry. Do not terminate processes you do not recognise."]),
+    "PORT_NOT_FOUND": ("The port does not exist (any more).", ["Check the cable and that the board is powered; re-plug it, refresh the port list and select the current port (the number can change)."]),
+    "DEVICE_ERROR": ("Windows reports the USB serial device is not functioning.", ["Re-plug the cable, try another USB port/cable, and check Device Manager for a driver problem on the device."]),
+    "OPEN_TIMEOUT": ("Opening the port timed out.", ["Re-plug the cable and retry; check the driver in Device Manager."]),
+    "OPEN_FAILED": ("The port could not be opened.", ["See the technical detail below; re-plug the device and retry."]),
+    "DEVICE_DISAPPEARED": ("The device stopped responding or was unplugged.", ["Check the cable and power, then reconnect from this page. Nothing is replayed after reconnecting."]),
+    "HANDSHAKE_TIMEOUT": ("The port is open but no valid TORQVA status frame has arrived.",
+                          ["The attached firmware may not be TORQVA firmware (wire protocol 1), the board may be in bootloader mode, or opening the port reset the board: wait a few seconds.",
+                           "Nothing is flashed or sent by TORQVA. If the board runs different firmware, that is a human decision."]),
+    "HANDSHAKE_INVALID": ("The device sent data, but it is not valid TORQVA wire protocol 1.", ["Check which firmware is running and its protocol version; TORQVA never treats an invalid handshake as a physical device."]),
+    "IDENTITY_MISMATCH": ("The device identity does not match the expected id.", ["Connect the intended device or correct the expected id."]),
+    "CONNECT_IN_PROGRESS": ("A connection attempt is already in progress.", ["Wait for it to finish."]),
+}
+
+
+def classify_open_error(exc: BaseException) -> "tuple[str, str]":
+    """(code, detail) from the exact exception text. pyserial wraps the Windows error in a SerialException whose message embeds repr(WinError)."""
+    t = f"{type(exc).__name__}: {exc}"
+    low = t.lower()
+    if isinstance(exc, PermissionError) or "permissionerror(13" in low or "access is denied" in low or re.search(r"winerror 5", low) or ", 5)" in low and "permissionerror" in low:
+        return "ACCESS_DENIED", t
+    if isinstance(exc, FileNotFoundError) or "filenotfounderror(2" in low or "cannot find the file specified" in low or re.search(r"winerror 2", low) or "no such file" in low:
+        return "PORT_NOT_FOUND", t
+    if "not functioning" in low or re.search(r"winerror 31", low) or "oserror(22" in low:
+        return "DEVICE_ERROR", t
+    if "semaphore timeout" in low or re.search(r"winerror 121", low) or "timed out" in low:
+        return "OPEN_TIMEOUT", t
+    return "OPEN_FAILED", t
+
+
+_HOLDER_WATCHLIST = ("arduino ide.exe", "serial-monitor.exe", "serial-discovery.exe", "putty.exe", "ttermpro.exe", "mobaxterm.exe", "realterm.exe", "termite.exe", "esptool.exe", "platformio.exe", "pio.exe")
+
+
+def possible_port_holders() -> List[str]:
+    """HINT ONLY (Windows): running programs that commonly keep a serial port open. This is not proof of ownership; it never kills anything."""
+    if os.name != "nt":
+        return []
+    try:
+        out = subprocess.run(["tasklist", "/fo", "csv", "/nh"], capture_output=True, text=True, timeout=5).stdout
+    except Exception:
+        return []
+    found = sorted({line.split('","')[0].strip('"') for line in out.splitlines() if line.split('","')[0].strip('"').lower() in _HOLDER_WATCHLIST})
+    return found
 
 
 class Transport:
@@ -296,7 +364,8 @@ class SerialTransport(Transport):
             self._s = serial.Serial(self.port, self.baud, timeout=0.2, write_timeout=1.0, bytesize=8, parity="N", stopbits=1, exclusive=True) if os.name != "nt" else \
                 serial.Serial(self.port, self.baud, timeout=0.2, write_timeout=1.0, bytesize=8, parity="N", stopbits=1)
         except Exception as e:
-            raise TransportError(f"cannot open {self.port}: {e}") from e
+            code, detail = classify_open_error(e)
+            raise TransportError(f"cannot open {self.port}: {e}", code, detail) from e
 
     def read_line(self, timeout: float) -> Optional[bytes]:
         if self._s is None:
@@ -317,7 +386,7 @@ class SerialTransport(Transport):
             try:
                 chunk = self._s.read(max(1, min(256, self._s.in_waiting or 1)))
             except Exception as e:
-                raise TransportError(f"read failed: {e}") from e
+                raise TransportError(f"read failed: {e}", "DEVICE_DISAPPEARED", f"{type(e).__name__}: {e}") from e
             if chunk:
                 self._buf += chunk
 
@@ -327,7 +396,7 @@ class SerialTransport(Transport):
         try:
             self._s.write(data); self._s.flush()
         except Exception as e:
-            raise TransportError(f"write failed: {e}") from e
+            raise TransportError(f"write failed: {e}", "DEVICE_DISAPPEARED", f"{type(e).__name__}: {e}") from e
 
     def close(self) -> None:
         s, self._s = self._s, None
@@ -457,6 +526,8 @@ class DeviceBridge:
         self._supervisor = SafetySupervisor(SupervisorLimits())
         self.command_key = os.environ.get("TORQVA_FW_COMMAND_KEY", "")      # the firmware's shared key; never in the repository; absent = non-STOP commands cannot be built
         self._stale_reported = False
+        self._connect_lock = threading.Lock()                  # serialises connect/disconnect: no overlapping opens, no leaked handles
+        self._connecting = False
 
     # ---- connection ownership
     @property
@@ -467,19 +538,33 @@ class DeviceBridge:
         with self._lock:
             if self._transport is not None:
                 raise RuntimeError("a serial connection is already open: disconnect first (one owner per port)")
-            self.model.reset_session()
-            self.model.conn, self.model.last_error = Conn.CONNECTING, ""
+            if self._connecting:
+                raise RuntimeError("a connection attempt is already in progress")
+            self._connecting = True                            # claimed BEFORE the (slow) open, so a concurrent request cannot open the port a second time
         try:
-            transport.open()
-        except TransportError as e:
+            with self._connect_lock:
+                with self._lock:
+                    self.model.reset_session()
+                    self.model.conn, self.model.last_error, self.model.last_error_code, self.model.last_error_detail = Conn.CONNECTING, "", "", ""
+                    self.model.connecting_since = self._clock()
+                try:
+                    transport.open()
+                except TransportError as e:
+                    with self._lock:
+                        self.model.conn, self.model.last_error = Conn.ERROR, str(e)
+                        self.model.last_error_code, self.model.last_error_detail = e.code, e.detail
+                        self.model.connecting_since = None
+                    log.warning("serial open failed: code=%s detail=%s", e.code, e.detail)
+                    self.hub.publish("connection_error", {"error": str(e), "code": e.code})
+                    raise
+                with self._lock:
+                    self._transport = transport
+                    self._stop_evt.clear()
+                    self._stale_reported = False
+        finally:
             with self._lock:
-                self.model.conn, self.model.last_error = Conn.ERROR, str(e)
-            self.hub.publish("connection_error", {"error": str(e)})
-            raise
-        with self._lock:
-            self._transport = transport
-            self._stop_evt.clear()
-            self._stale_reported = False
+                self._connecting = False
+        log.info("serial port opened (%s); waiting for the device handshake", type(transport).__name__)
         self._thread = threading.Thread(target=self._reader, name="torqva-serial-reader", daemon=True)
         self._thread.start()
         self.hub.publish("device_connecting", {})
@@ -514,8 +599,9 @@ class DeviceBridge:
                     line = tr.read_line(0.2)
                 except TransportError as e:
                     with self._lock:
-                        self.model.last_error = str(e)
-                    self.hub.publish("connection_error", {"error": str(e)})
+                        self.model.last_error, self.model.last_error_code, self.model.last_error_detail = str(e), e.code, e.detail
+                    log.warning("serial read failed: code=%s detail=%s", e.code, e.detail)
+                    self.hub.publish("connection_error", {"error": str(e), "code": e.code})
                     self._teardown("transport error")
                     return
                 now = self._clock()
@@ -548,9 +634,11 @@ class DeviceBridge:
             if f["t"] == "status":
                 if m.identity == "mismatch":
                     m.conn, m.last_error = Conn.ERROR, f"device identity mismatch (expected {m.expected_device_id}, got {f['dev']})"
+                    m.last_error_code, m.last_error_detail = "IDENTITY_MISMATCH", m.last_error
                 else:
                     if m.conn in (Conn.CONNECTING, Conn.STALE):
                         m.conn = Conn.CONNECTED
+                        m.last_error, m.last_error_code, m.last_error_detail = "", "", ""
                         self._stale_reported = False
             elif f["t"] == "fast" and m.conn == Conn.STALE:
                 m.conn = Conn.CONNECTED
@@ -586,6 +674,14 @@ class DeviceBridge:
 
     def _housekeeping(self, now: float) -> None:
         with self._lock:
+            m = self.model
+            if m.conn == Conn.CONNECTING and m.connecting_since is not None and not m.last_error_code and now - m.connecting_since > HANDSHAKE_TIMEOUT_S:
+                invalid = m.counters["malformed"] > 0
+                m.last_error_code = "HANDSHAKE_INVALID" if invalid else "HANDSHAKE_TIMEOUT"
+                m.last_error = ERROR_HELP[m.last_error_code][0]
+                m.last_error_detail = f"{m.counters['malformed']} invalid frame(s), {m.counters['unsupported_protocol']} unsupported-protocol status frame(s), none valid"
+                log.warning("serial handshake not completed: %s", m.last_error_detail)
+                self.hub.publish("connection_error", {"error": m.last_error, "code": m.last_error_code})
             fr = self.model.freshness(now)
             if self.model.conn == Conn.CONNECTED and not fr["fresh"] and self.model.last_fast_rx is not None and not self._stale_reported:
                 self.model.conn = Conn.STALE
