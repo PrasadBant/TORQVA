@@ -87,7 +87,7 @@ def test_invalid_sensors_are_none_never_zero_and_vibration_is_unavailable():
     assert s["values"]["voltage"]["value"] is None
     assert s["values"]["power"]["value"] is None                                  # derived from an invalid input -> invalid
     assert s["values"]["current"]["value"] == 1.5
-    assert s["values"]["vibration"] == {"value": None, "valid": False, "stale": False, "origin": "unavailable", "note": "the firmware does not measure vibration or acceleration yet"}
+    assert s["values"]["vibration"] == {"value": None, "valid": False, "stale": False, "origin": "unavailable", "note": "the firmware does not compute vibration RMS"}
     assert m.history[-1]["rpm"] is None                                           # a gap in the chart, not a zero
 
 

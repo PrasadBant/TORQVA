@@ -5,6 +5,7 @@ namespace torqva {
 
 static const uint32_t kFastPeriodMs = 100;
 static const uint32_t kSlowPeriodMs = 1000;
+static const uint32_t kAccelPeriodMs = 200;
 static const uint32_t kStatusPeriodMs = 1000;
 static const uint32_t kResetWindowMs = 10000;
 // A sensor snapshot older than this is stale for start purposes. ASSUMPTION: the control loop runs at >= 100 Hz, so 250 ms is 25 missed cycles. Review during commissioning.
@@ -13,7 +14,7 @@ static const uint32_t kFreshMs = 250;
 Device::Device(const Limits& l, const DeviceConfig& c)
     : cfg_(c), lim_(l), safety_(l), drive_(l, c.kp, c.ki), validator_(l), tests_(l),
       last_in_(), have_in_(false), watchdog_active_(false), session_active_(false), session_sid_(), last_step_ms_(0), stepped_(false), last_hb_ms_(0), hb_seen_(false), seq_(0),
-      last_fast_ms_(0), last_slow_ms_(0), last_status_ms_(0),
+      last_fast_ms_(0), last_slow_ms_(0), last_status_ms_(0), last_accel_ms_(0),
       last_state_(SafetyState::OK), last_reason_(TripReason::NONE),
       test_cmd_id_(0), test_cmd_valid_(false), reset_cmd_id_(0), reset_pending_(false),
       reset_deadline_ms_(0), last_out_(), last_dt_s_(0.01f),
@@ -98,6 +99,21 @@ void Device::on_line(const char* line, uint32_t now_ms) {
         validator_.update_cached(done.id, done.status, done.reason);
         queue_ack(done);
     }
+}
+
+void Device::display_info(DisplayInfo* d, uint32_t now_ms) const {
+    (void)now_ms;
+    d->have_data = have_in_;
+    d->rpm = last_in_.rpm; d->rpm_valid = have_in_ && last_in_.rpm_valid && finite_f(last_in_.rpm);
+    d->current_a = last_in_.current_a; d->current_valid = have_in_ && last_in_.current_valid && finite_f(last_in_.current_a);
+    d->voltage_v = last_in_.voltage_v; d->voltage_valid = have_in_ && last_in_.voltage_valid && finite_f(last_in_.voltage_v);
+    d->housing_c = last_in_.housing_c; d->housing_valid = have_in_ && last_in_.housing_valid && finite_f(last_in_.housing_c);
+    d->acc_mag_g = last_in_.acc_mag_g; d->acc_valid = have_in_ && last_in_.acc_valid && finite_f(last_in_.acc_mag_g);
+    d->state = safety_.state(); d->reason = safety_.reason();
+    const char* blk = cfg_.relaxed_interlocks ? "" : start_blocked_reason(now_ms);
+    d->start_block = blk ? blk : "";
+    const DriveMode m = drive_.mode();
+    d->drive = m == DriveMode::IDLE ? "IDLE" : (m == DriveMode::OPEN_LOOP ? "OPEN_LOOP" : "CLOSED_LOOP");
 }
 
 void Device::set_secure_session(bool v) {
@@ -262,6 +278,12 @@ void Device::emit_frames(const HalIn& in) {
         FastFrame f = {seq_++, in.now_ms, in.rpm, drive_.target_rpm(), last_out_.duty_pct,
                        in.voltage_v, in.current_a, in.voltage_v * in.current_a, q};
         queue_line(b, encode_fast(b, sizeof(b), f));
+    }
+    if (cfg_.accel_supported && (uint32_t)(in.now_ms - last_accel_ms_) >= kAccelPeriodMs) {
+        last_accel_ms_ = in.now_ms;
+        const bool ok = in.acc_valid && finite_f(in.acc_x_g) && finite_f(in.acc_y_g) && finite_f(in.acc_z_g) && finite_f(in.acc_mag_g);
+        AccelFrame f = {seq_++, in.now_ms, ok, ok ? in.acc_x_g : 0.0f, ok ? in.acc_y_g : 0.0f, ok ? in.acc_z_g : 0.0f, ok ? in.acc_mag_g : 0.0f};
+        queue_line(b, encode_accel(b, sizeof(b), f));
     }
     if ((uint32_t)(in.now_ms - last_slow_ms_) >= kSlowPeriodMs) {
         last_slow_ms_ = in.now_ms;

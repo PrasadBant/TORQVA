@@ -131,6 +131,16 @@ size_t encode_ack(char* buf, size_t n, const Ack& a, const char* dev, const char
     return (w > 0 && (size_t)w < n - used) ? used + (size_t)w : 0;
 }
 
+size_t encode_accel(char* buf, size_t n, const AccelFrame& f) {
+    int w;
+    if (f.ok)
+        w = snprintf(buf, n, "{\"t\":\"accel\",\"seq\":%lu,\"ts\":%lu,\"ok\":1,\"ax\":%.3f,\"ay\":%.3f,\"az\":%.3f,\"mag\":%.3f}",
+                     (unsigned long)f.seq, (unsigned long)f.ts_ms, f.x_g, f.y_g, f.z_g, f.mag_g);
+    else
+        w = snprintf(buf, n, "{\"t\":\"accel\",\"seq\":%lu,\"ts\":%lu,\"ok\":0}", (unsigned long)f.seq, (unsigned long)f.ts_ms);
+    return (w > 0 && (size_t)w < n) ? (size_t)w : 0;
+}
+
 size_t encode_fast(char* buf, size_t n, const FastFrame& f) {
     int w = snprintf(buf, n,
         "{\"t\":\"fast\",\"seq\":%lu,\"ts\":%lu,\"rpm\":%.1f,\"sp\":%.1f,\"duty\":%.1f,"

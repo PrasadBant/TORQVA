@@ -26,6 +26,7 @@ struct DeviceConfig {
     bool limits_approved;
     bool estop_input_wired;
     const char* device_id;       // optional identity echoed in every acknowledgement ("dev"); the backend can require it. NOT a secret and NOT authentication by itself
+    bool accel_supported;        // an ADXL345 is read by this build: "accel" frames are emitted (ok=0 when the reading is invalid). False in host simulation: no frames, nothing invented
     bool transport_secured;      // declared by the deployment; the serial/TCP protocol itself has a plaintext shared key and no challenge, so this stays false until a secured channel exists
     bool relaxed_interlocks;
 };
@@ -40,6 +41,8 @@ struct HalIn {
     float rpm;        bool rpm_valid;
     bool  pulse_recent;
     float vib_rms_g;  bool vib_valid;
+    float acc_x_g, acc_y_g, acc_z_g, acc_mag_g;   // raw acceleration per axis and total magnitude (gravity included; NOT vibration RMS)
+    bool  acc_valid;
     bool  button_pressed;        // local acknowledge button, level
     bool  external_estop;        // sensed E-stop / relay feedback if wired
 };
@@ -74,6 +77,13 @@ public:
     // Begin a session bound to a session id issued by the authenticated transport (up to 32 chars, non-empty). Every non-STOP command must then carry the same "sid";
     // commands for an earlier session id are rejected (WRONG_SESSION). Replaces any previous session. The transport calls this only after its handshake.
     bool begin_session(const char* sid);
+    // Snapshot for the local display (OLED): last sensor values, validity and safety state. Read-only; never used for any decision.
+    struct DisplayInfo {
+        float rpm, current_a, voltage_v, housing_c, acc_mag_g;
+        bool rpm_valid, current_valid, voltage_valid, housing_valid, acc_valid, have_data;
+        SafetyState state; TripReason reason; const char* start_block; const char* drive;
+    };
+    void display_info(DisplayInfo* d, uint32_t now_ms) const;
     // Latch a fault detected before the control loop starts (reset reason). Cleared only by the normal intentional reset (authorised RESET_ESTOP + local button).
     void latch_boot_fault(TripReason r) { safety_.latch_external(r); }
     // Whether a motor-energising command would currently be permitted, and if not why (static string). Same logic the command path uses.
@@ -100,7 +110,7 @@ private:
     uint32_t last_step_ms_; bool stepped_;
     uint32_t last_hb_ms_; bool hb_seen_;
     uint32_t seq_;
-    uint32_t last_fast_ms_, last_slow_ms_, last_status_ms_;
+    uint32_t last_fast_ms_, last_slow_ms_, last_status_ms_, last_accel_ms_;
     SafetyState last_state_; TripReason last_reason_;
     uint32_t test_cmd_id_; bool test_cmd_valid_;
     uint32_t reset_cmd_id_; bool reset_pending_; uint32_t reset_deadline_ms_;

@@ -261,3 +261,7 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 ## Session 19 - firmware pin map reconciled with the legacy wiring reference
 
 * One authoritative pinmap.h (RPWM 38, LPWM 39, R_EN 18, L_EN 21, ADXL 16/17 and OLED 4/5 reserved, INA 7/8, DS18B20 6, Hall 9, LEDs 10-13, buzzer 14); relay, reset button and E-stop unconfigured (not invented); PWM failure latches OUTPUT_INIT_FAULT. Native 107/107, backend 608 passed, both ESP32-S3 environments compile. Wiring and board still UNVERIFIED; nothing flashed.
+
+## Session 20 - ADXL345, OLED and annunciators, Device-page states, pre-flash checkpoint
+
+* ADXL345 raw acceleration (accel frames; total magnitude includes gravity, not vibration RMS), OLED status display, LEDs/buzzer; backend accel parsing, per-sensor status, state labels, aggregated error events; Device page updates. Native 112, backend 617, frontend 82, both ESP32-S3 targets compile. Board identity/wiring unconfirmed; nothing flashed; waiting for authorisation (see Phase 20 checkpoint).

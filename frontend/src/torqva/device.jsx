@@ -8,7 +8,7 @@ import { PageHead, Tabs } from './pages.jsx';
 const title = (s) => String(s ?? '').replaceAll('_', ' ');
 const defaultWs = (import.meta.env && import.meta.env.MODE === 'test') ? null : (url) => new WebSocket(url);
 const canOperate = (role) => role === 'operator' || role === 'admin';
-const SIGNALS = [['rpm', 'Speed', 'rpm', 0], ['current', 'Current', 'A', 2], ['voltage', 'Voltage', 'V', 2], ['power', 'Power', 'W', 1], ['housing', 'Housing temperature', '°C', 1], ['duty', 'Drive duty (command)', '%', 1]];
+const SIGNALS = [['rpm', 'Speed', 'rpm', 0], ['acceleration', 'Total acceleration (incl. gravity)', 'g', 3], ['current', 'Current', 'A', 2], ['voltage', 'Voltage', 'V', 2], ['power', 'Power', 'W', 1], ['housing', 'Housing temperature', '°C', 1], ['duty', 'Drive duty (command)', '%', 1]];
 const RANGES = [[60, 'Last 60 s'], [180, 'Last 3 min'], [360, 'Last 6 min']];
 const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
 
@@ -22,7 +22,12 @@ export function useDeviceStream(enabled, wsFactory = defaultWs, pollMs = 3000) {
   const [error, setError] = useState(null);
   const alive = useRef(true);
 
-  const pushEvent = useCallback((e) => setEvents((x) => [{ ...e, k: `${e.ts}-${Math.random()}` }, ...x].slice(0, 40)), []);
+  // Repeated identical events (for example protocol errors from a board that sends non-TORQVA text) are merged into one row with a count, never listed thousands of times.
+  const pushEvent = useCallback((e) => setEvents((x) => {
+    const n = typeof e.data?.count === 'number' ? e.data.count : 1;
+    if (x.length && x[0].name === e.name && x[0].data?.code === e.data?.code) return [{ ...x[0], ts: e.ts, total: (x[0].total || 1) + n }, ...x.slice(1)];
+    return [{ ...e, total: n, k: `${e.ts}-${Math.random()}` }, ...x].slice(0, 40);
+  }), []);
   const refresh = useCallback(async () => {
     try {
       const [s, c] = await Promise.all([api.deviceStatus(), api.deviceCommands()]);
@@ -106,7 +111,9 @@ export function DevicePage({ stream, role }) {
         <div className="tq-stack">
           <Card title="Connection" id="c-devconn">
             <dl className="tq-kv">
+              <dt>State</dt><dd data-testid="state-label"><strong>{snap?.state_label || 'DISCONNECTED'}</strong></dd>
               <dt>Mode</dt><dd>{o.label}</dd>
+              <dt>Port</dt><dd>{snap?.port || '—'}</dd>
               <dt>USB state</dt><dd><ConnPill snap={snap} /></dd>
               <dt>Live updates (WebSocket only; says nothing about USB)</dt><dd>{ws === 'open' ? <Pill tone="ok">connected</Pill> : <Pill tone="warn">{ws === 'idle' ? 'off' : ws}</Pill>}</dd>
               <dt>Last message</dt><dd className="tq-num">{ago(snap?.last_rx_unix)}</dd>
@@ -127,6 +134,12 @@ export function DevicePage({ stream, role }) {
               </div>)}
             <ErrorBox error={error} />
             <p className="tq-muted">Trust boundary: {snap?.usb_trust_boundary || 'USB serial is unauthenticated; it is treated as inside the host computer\'s physical trust boundary.'}</p>
+          </Card>
+          <Card title="Sensors" id="c-devsens">
+            {!snap?.sensor_status ? <Empty>No device data.</Empty> : (
+              <table className="tq-table"><caption className="tq-sr">Sensor availability</caption><thead><tr><th scope="col">Sensor</th><th scope="col">Status</th></tr></thead>
+                <tbody>{Object.entries(snap.sensor_status).map(([k, v]) => (<tr key={k}><td>{title(k)}</td><td><Pill tone={v === 'valid' ? 'ok' : v === 'unavailable' ? 'off' : 'warn'}>{v}</Pill></td></tr>))}</tbody></table>)}
+            <p className="tq-muted">unavailable = this firmware does not report it or no frame has arrived; invalid/stale readings are never shown as numbers.</p>
           </Card>
           <Card title="Counters" id="c-devcnt">
             {!snap?.counters ? <Empty>No data.</Empty> : (
@@ -159,7 +172,7 @@ export function DevicePage({ stream, role }) {
           </Card>
           <Card title="Recent device events" id="c-devev">
             {!events.length ? <Empty>No events yet.</Empty> : (
-              <ul className="tq-feed">{events.slice(0, 12).map((e) => (<li key={e.k}><Pill tone={/error|disconnected|fault|timed|unknown|rejected/.test(e.name) ? 'crit' : 'info'}>{title(e.name)}</Pill><span className="tq-muted">{JSON.stringify(e.data).slice(0, 90)}</span></li>))}</ul>)}
+              <ul className="tq-feed">{events.slice(0, 12).map((e) => (<li key={e.k}><Pill tone={/error|disconnected|fault|timed|unknown|rejected/.test(e.name) ? 'crit' : 'info'}>{title(e.name)}{e.total > 1 ? ` ×${e.total}` : ''}</Pill><span className="tq-muted">{JSON.stringify(e.data).slice(0, 90)}</span></li>))}</ul>)}
           </Card>
         </div>
       </div>
@@ -198,8 +211,12 @@ export function DeviceLive({ stream }) {
               {v && missing && <div className="tq-muted" style={{ fontSize: 12 }}>invalid sensor reading</div>}
             </div>);
         })}
-        <div className="tq-kpi tq-unavailable"><div className="tq-kpi-label"><span>Vibration / acceleration</span></div><div className="tq-kpi-value tq-num">UNAVAILABLE</div>
-          <div className="tq-muted" style={{ fontSize: 12 }}>the firmware does not measure it yet</div></div>
+        {(() => { const a = snap?.values?.acceleration; const ok = a && a.valid && a.value != null; return (
+          <div className={`tq-kpi ${!ok || a.stale ? 'tq-unavailable' : ''}`}><div className="tq-kpi-label"><span>Total acceleration</span>{ok ? <ProvBadge kind={o.physical ? 'MEASURED' : 'SIMULATED'} /> : null}</div>
+            <div className="tq-kpi-value tq-num">{ok ? fmt(a.value, 3) : 'UNAVAILABLE'}{ok && <span className="tq-kpi-unit">g</span>}</div>
+            <div className="tq-muted" style={{ fontSize: 12 }}>{ok ? 'includes gravity; raw per-axis values; NOT vibration RMS' : (a && a.origin !== 'unavailable' ? 'invalid sensor reading' : 'no accelerometer data')}</div></div>); })()}
+        <div className="tq-kpi tq-unavailable"><div className="tq-kpi-label"><span>Vibration RMS</span></div><div className="tq-kpi-value tq-num">UNAVAILABLE</div>
+          <div className="tq-muted" style={{ fontSize: 12 }}>the firmware does not compute it</div></div>
       </div>
       <Card title="History" id="c-devhist" right={<><label className="tq-inline">Signal <select value={signal} onChange={(e) => setSignal(e.target.value)}>{SIGNALS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></label>
         <label className="tq-inline">Range <select value={seconds} onChange={(e) => setSeconds(Number(e.target.value))}>{RANGES.map(([s, n]) => <option key={s} value={s}>{n}</option>)}</select></label></>}>

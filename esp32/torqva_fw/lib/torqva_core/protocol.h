@@ -63,6 +63,14 @@ struct StatusFrame {
 
 static const unsigned kWireProtocol = 1;
 
+// Raw acceleration (g) per axis plus the magnitude of the TOTAL acceleration vector (gravity included, NOT vibration RMS). ok=false: no numbers are sent.
+struct AccelFrame {
+    uint32_t seq, ts_ms;
+    bool ok;
+    float x_g, y_g, z_g, mag_g;
+};
+
+size_t encode_accel(char* buf, size_t n, const AccelFrame& f);
 size_t encode_fast(char* buf, size_t n, const FastFrame& f);
 size_t encode_slow(char* buf, size_t n, const SlowFrame& f);
 size_t encode_status(char* buf, size_t n, const StatusFrame& f);

@@ -33,6 +33,7 @@ from .supervisor import ApprovedAction, SafetySupervisor, SupervisorContext, Sup
 
 log = logging.getLogger("torqva.serial")
 MAX_LINE = 512
+ERROR_EVENT_INTERVAL_S = 2.0                # repeated protocol errors are aggregated into one event per code per interval
 HANDSHAKE_TIMEOUT_S = 5.0                   # port open but no valid status frame for this long -> HANDSHAKE_TIMEOUT diagnostic (no disconnect, no retry loop)
 WIRE_PROTOCOL = 1
 Q_BITS = {"current": 1, "voltage": 2, "housing": 4, "ambient": 8, "rpm": 16, "vibration": 32}
@@ -106,6 +107,16 @@ def parse_frame(line: "bytes | str") -> Dict[str, Any]:
                 "v": _num(o, "v", -1, 60), "i": _num(o, "i", -50, 50), "p": _num(o, "p", -3000, 3000), "q": _uint(o, "q", 63)}
     if t == "slow":
         return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "housing": _num(o, "housing", -60, 200), "ambient": _num(o, "ambient", -60, 200), "q": _uint(o, "q", 63)}
+    if t == "accel":
+        ok = o.get("ok")
+        if ok not in (0, 1) or isinstance(ok, bool):
+            raise FrameError("BAD_FIELD", "ok")
+        base = {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "ok": ok}
+        if ok == 1:
+            base.update({"ax": _num(o, "ax", -20, 20), "ay": _num(o, "ay", -20, 20), "az": _num(o, "az", -20, 20), "mag": _num(o, "mag", 0, 35)})
+        elif any(k in o for k in ("ax", "ay", "az", "mag")):
+            raise FrameError("BAD_FIELD", "numbers on an invalid accel frame")      # an invalid reading carries no numbers
+        return base
     if t == "status":
         if o.get("proto") != WIRE_PROTOCOL:
             raise FrameError("UNSUPPORTED_PROTOCOL", str(o.get("proto"))[:12])
@@ -157,11 +168,15 @@ class DeviceModel:
     last_error_code: str = ""
     last_error_detail: str = ""
     connecting_since: Optional[float] = None
+    port: Optional[str] = None
+    accel: Optional[Dict[str, Any]] = None                                               # latest acceleration frame: raw axes (g) + TOTAL magnitude (gravity included, not vibration)
+    accel_history: Deque[Any] = field(default_factory=lambda: collections.deque(maxlen=1800))
     samples: Deque[str] = field(default_factory=lambda: collections.deque(maxlen=5))     # the last few REJECTED lines, escaped and truncated (diagnostic only)
 
     def reset_session(self) -> None:
         self.status, self.identity, self.last_seq, self.last_rx, self.last_fast_rx, self.last_rx_wall = None, "unknown", None, None, None, None
         self.values = {}
+        self.accel = None
         self.samples.clear()
 
     def _set(self, name: str, value: Optional[float], valid: bool, ts: int, now: float) -> None:
@@ -199,6 +214,11 @@ class DeviceModel:
             self.values["setpoint"] = {"value": f["sp"], "valid": True, "device_ts_ms": ts, "received_at": now, "origin": "device_command_state"}
             self.history.append({"t": wall, "device_ts_ms": ts, **{k: (self.values[k]["value"]) for k in ("rpm", "current", "voltage", "power", "duty")},
                                  "housing": (self.values.get("housing") or {}).get("value")})
+        elif f["t"] == "accel":
+            ok = f["ok"] == 1
+            self.accel = {"valid": ok, "x_g": f.get("ax") if ok else None, "y_g": f.get("ay") if ok else None, "z_g": f.get("az") if ok else None,
+                          "magnitude_g": f.get("mag") if ok else None, "received_at": now, "device_ts_ms": f["ts"]}
+            self.accel_history.append((wall, f.get("mag") if ok else None))
         elif f["t"] == "slow":
             self._set("housing", f["housing"], bool(q & Q_BITS["housing"]), f["ts"], now)
             self._set("ambient", f["ambient"], bool(q & Q_BITS["ambient"]), f["ts"], now)
@@ -224,7 +244,11 @@ class DeviceModel:
         for k in ("rpm", "current", "voltage", "power", "housing", "ambient", "duty", "setpoint"):
             v = self.values.get(k)
             vals[k] = None if v is None else {"value": v["value"], "valid": v["valid"], "stale": not fr["fresh"] if k not in ("housing", "ambient") else (now - v["received_at"] > 5.0), "origin": v["origin"]}
-        vals["vibration"] = {"value": None, "valid": False, "stale": False, "origin": "unavailable", "note": "the firmware does not measure vibration or acceleration yet"}
+        vals["vibration"] = {"value": None, "valid": False, "stale": False, "origin": "unavailable", "note": "the firmware does not compute vibration RMS"}
+        a = self.accel
+        vals["acceleration"] = ({"value": None, "valid": False, "stale": False, "origin": "unavailable", "note": "no accelerometer frames received"} if a is None else
+                                {"value": a["magnitude_g"], "x_g": a["x_g"], "y_g": a["y_g"], "z_g": a["z_g"], "valid": a["valid"], "stale": now - a["received_at"] > 2.0,
+                                 "origin": "device_measurement", "note": "total acceleration magnitude INCLUDING gravity (about 1 g at rest); raw per-axis values in g; NOT vibration RMS"})
         st = self.status or {}
         mode = st.get("mode")
         handshake = self.conn in (Conn.CONNECTED, Conn.STALE) and self.status is not None
@@ -234,7 +258,34 @@ class DeviceModel:
                 "label": "PHYSICAL DEVICE" if physical else ("DEVICE (FIRMWARE SIMULATION MODE)" if handshake else "SIMULATION"),
                 "firmware": st.get("fw"), "wire_protocol": st.get("proto"), "firmware_mode": mode, "safety_state": st.get("state"), "trip_reason": st.get("reason"), "fault_mask": st.get("fm"),
                 "drive": st.get("drive"), "control_enabled_in_firmware": None if not st else bool(st.get("ctl")), "start_blocked_reason": st.get("blk"),
-                "telemetry_fresh": fr["fresh"], "telemetry_age_s": fr["age_s"], "last_rx_unix": self.last_rx_wall, "values": vals, "counters": dict(self.counters), "last_error": self.last_error, "error": self.error_info()}
+                "telemetry_fresh": fr["fresh"], "telemetry_age_s": fr["age_s"], "last_rx_unix": self.last_rx_wall, "values": vals, "counters": dict(self.counters), "last_error": self.last_error, "error": self.error_info(),
+                "port": self.port, "state_label": self.state_label(handshake, physical), "sensor_status": self.sensor_status(now)}
+
+    def state_label(self, handshake: bool, physical: bool) -> str:
+        c = self.conn
+        if c == Conn.DISCONNECTED:
+            return "DISCONNECTED"
+        if c == Conn.ERROR:
+            return "CONNECTION ERROR"
+        if c == Conn.STALE:
+            return "TELEMETRY STALE"
+        if c == Conn.CONNECTING:
+            if self.last_error_code == "HANDSHAKE_INVALID":
+                return "HANDSHAKE INVALID"
+            return "PORT OPEN - WAITING FOR HANDSHAKE" + (" (receiving non-TORQVA data)" if self.counters["malformed"] and not handshake else "")
+        return "PHYSICAL DEVICE CONNECTED" if physical else "DEVICE CONNECTED (FIRMWARE SIMULATION MODE)"
+
+    def sensor_status(self, now: float) -> Dict[str, str]:
+        """valid | invalid | stale | unavailable per sensor (unavailable = this firmware does not report it, or no frame yet)."""
+        out: Dict[str, str] = {}
+        for k in ("rpm", "current", "voltage", "power", "housing", "ambient"):
+            v = self.values.get(k)
+            old = v is not None and now - v["received_at"] > (5.0 if k in ("housing", "ambient") else STALE_AFTER_S)
+            out[k] = "unavailable" if v is None else ("stale" if old else ("valid" if v["valid"] else "invalid"))
+        a = self.accel
+        out["acceleration"] = "unavailable" if a is None else ("stale" if now - a["received_at"] > 2.0 else ("valid" if a["valid"] else "invalid"))
+        out["vibration_rms"] = "unavailable"
+        return out
 
     def error_info(self) -> Optional[Dict[str, Any]]:
         if not self.last_error_code:
@@ -248,6 +299,8 @@ class DeviceModel:
         return {"code": self.last_error_code, "message": summary, "detail": self.last_error_detail or self.last_error, "recovery": steps}
 
     def history_series(self, signal: str, seconds: float, wall_now: float) -> List[List[Any]]:
+        if signal == "acceleration":
+            return [[t, m] for t, m in self.accel_history if t >= wall_now - seconds]       # total magnitude (g, gravity included); None = invalid
         if signal not in ("rpm", "current", "voltage", "power", "duty", "housing"):
             raise ValueError("unsupported signal")
         lo = wall_now - seconds
@@ -543,6 +596,7 @@ class DeviceBridge:
         self._stale_reported = False
         self._connect_lock = threading.Lock()                  # serialises connect/disconnect: no overlapping opens, no leaked handles
         self._connecting = False
+        self._err_state: Dict[str, Any] = {}
 
     # ---- connection ownership
     @property
@@ -562,6 +616,7 @@ class DeviceBridge:
                     self.model.reset_session()
                     self.model.conn, self.model.last_error, self.model.last_error_code, self.model.last_error_detail = Conn.CONNECTING, "", "", ""
                     self.model.connecting_since = self._clock()
+                    self.model.port = getattr(transport, "port", None)
                 try:
                     transport.open()
                 except TransportError as e:
@@ -639,7 +694,7 @@ class DeviceBridge:
                     self.model.last_error = "unsupported firmware protocol version"
                 elif e.code == "UNKNOWN_TYPE":
                     self.model.counters["unknown_type"] += 1
-            self.hub.publish("protocol_error", {"code": e.code})
+            self._protocol_error(e.code)
             return
         if f["t"] == "ack":
             self._on_ack(f)
@@ -680,6 +735,30 @@ class DeviceBridge:
         elif f["t"] == "slow":
             pass
 
+    def _protocol_error(self, code: str, now: Optional[float] = None) -> None:
+        """Aggregate repeated protocol errors: one event per code per ERROR_EVENT_INTERVAL_S carrying the count since the last event (the counters keep the exact totals)."""
+        now = self._clock() if now is None else now
+        with self._lock:
+            last, pending = self._err_state.get(code, (None, 0))
+            pending += 1
+            if last is None or now - last >= ERROR_EVENT_INTERVAL_S:
+                self._err_state[code] = (now, 0)
+                emit = pending
+            else:
+                self._err_state[code] = (last, pending)
+                return
+        self.hub.publish("protocol_error", {"code": code, "count": emit})
+
+    def _flush_protocol_errors(self, now: float) -> None:
+        out = []
+        with self._lock:
+            for code, (last, pending) in list(self._err_state.items()):
+                if pending and last is not None and now - last >= ERROR_EVENT_INTERVAL_S:
+                    self._err_state[code] = (now, 0)
+                    out.append((code, pending))
+        for code, n in out:
+            self.hub.publish("protocol_error", {"code": code, "count": n})
+
     def _on_device_restart(self) -> None:
         with self._lock:
             for rec in self.commands.values():
@@ -689,6 +768,7 @@ class DeviceBridge:
         self.hub.publish("device_restarted", {})
 
     def _housekeeping(self, now: float) -> None:
+        self._flush_protocol_errors(now)
         with self._lock:
             m = self.model
             if m.conn == Conn.CONNECTING and m.connecting_since is not None and not m.last_error_code and now - m.connecting_since > HANDSHAKE_TIMEOUT_S:

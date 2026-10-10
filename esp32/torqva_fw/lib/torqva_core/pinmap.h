@@ -14,10 +14,10 @@ namespace torqva_pins {
 
 constexpr int UNCONFIGURED = -1;
 
-// OLED SH1106, software I2C (reserved; NOT driven by this firmware: no display support yet)
+// OLED SH1106, software I2C (driven by src/main.cpp when TORQVA_OLED=1: annunciation only)
 constexpr int OLED_SCL = 5;
 constexpr int OLED_SDA = 4;
-// ADXL345 accelerometer, I2C bus 0 (reserved; NOT read by this firmware: no accelerometer support yet; total acceleration would not be vibration RMS)
+// ADXL345 accelerometer, I2C bus 0 (read by src/main.cpp: RAW acceleration; the total magnitude includes gravity and is not vibration RMS)
 constexpr int ADXL_SDA = 16;
 constexpr int ADXL_SCL = 17;
 // INA219 current/voltage sensor, separate I2C bus (TwoWire 1)

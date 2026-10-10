@@ -12,6 +12,13 @@
 #include <Adafruit_INA219.h>
 #include <esp_task_wdt.h>
 #include <esp_system.h>
+#include "adxl345.h"
+#ifndef TORQVA_OLED
+#define TORQVA_OLED 1          // local SH1106 status display on the software-I2C pins 4/5 (annunciation only; never a decision input)
+#endif
+#if TORQVA_OLED
+#include <U8g2lib.h>
+#endif
 #include "config_pins.h"
 #include "device.h"
 
@@ -47,6 +54,8 @@ using namespace torqva;
 #ifndef TORQVA_WDT_TIMEOUT_S
 #define TORQVA_WDT_TIMEOUT_S 2
 #endif
+// Raw acceleration older than this is not valid. ASSUMPTION: read at 10 Hz; 1 s tolerates a few missed reads.
+#define TORQVA_ACCEL_STALE_MS 1000u
 // A sensor reading older than this is not valid. ASSUMPTION: DS18B20 is read every 1 s, the INA219 every cycle; 3 s tolerates two lost conversions.
 #define TORQVA_TEMP_STALE_MS 3000u
 #define TORQVA_INA219_ADDR 0x40            // Adafruit default address; change if the A0/A1 straps differ
@@ -118,7 +127,7 @@ static void indicators(const HalIn& in, const HalOut& o, bool latched) {
     digitalWrite(LED_MOTOR, o.driver_enable ? HIGH : LOW);
     digitalWrite(LED_TEMP, in.housing_valid ? HIGH : LOW);
     digitalWrite(LED_INA, (in.current_valid && in.voltage_valid) ? HIGH : LOW);
-    digitalWrite(LED_ACCEL, LOW);
+    digitalWrite(LED_ACCEL, in.acc_valid ? HIGH : LOW);
     static uint32_t last_toggle = 0; static bool beep = false;
     if (latched) {                                          // a latched safety fault beeps (300 ms) until the intentional reset
         if ((uint32_t)(millis() - last_toggle) >= 300) { last_toggle = millis(); beep = !beep; digitalWrite(BUZZER, beep ? HIGH : LOW); }
@@ -181,6 +190,71 @@ static bool ina_alive(uint32_t now) {
     return alive;
 }
 
+// ---------- ADXL345 (I2C bus 0 on GPIO 16/17). Raw acceleration only: the magnitude includes gravity and is NOT vibration RMS. ----------
+static bool g_adxl_ok = false;                    // the sensor answered with the right device id at start-up
+static AccelSample g_acc = {0, 0, 0, 0, false};
+static uint32_t g_acc_ms = 0, g_acc_last_try = 0;
+
+static bool adxl_read(uint8_t reg, uint8_t* buf, uint8_t n) {
+    Wire.beginTransmission(ADXL345_I2C_ADDR);
+    Wire.write(reg);
+    if (Wire.endTransmission(false) != 0) return false;
+    if (Wire.requestFrom((int)ADXL345_I2C_ADDR, (int)n) != n) return false;
+    for (uint8_t i = 0; i < n; i++) buf[i] = (uint8_t)Wire.read();
+    return true;
+}
+
+static bool adxl_write(uint8_t reg, uint8_t v) {
+    Wire.beginTransmission(ADXL345_I2C_ADDR);
+    Wire.write(reg); Wire.write(v);
+    return Wire.endTransmission() == 0;
+}
+
+static bool adxl_begin() {
+    uint8_t id = 0;
+    if (!adxl_read(ADXL345_REG_DEVID, &id, 1) || !adxl345_devid_ok(id)) return false;
+    return adxl_write(ADXL345_REG_POWER_CTL, ADXL345_POWER_MEASURE) && adxl_write(ADXL345_REG_DATA_FORMAT, ADXL345_FORMAT_FULL_RES_16G);
+}
+
+static void read_accel(HalIn& in) {
+    const uint32_t now = in.now_ms;
+    if (g_adxl_ok && (uint32_t)(now - g_acc_last_try) >= 100) {        // 10 Hz; a failed read invalidates the sample, it never leaves a stale value valid
+        g_acc_last_try = now;
+        uint8_t id = 0, raw[6];
+        if (adxl_read(ADXL345_REG_DEVID, &id, 1) && adxl345_devid_ok(id) && adxl_read(ADXL345_REG_DATAX0, raw, 6)) {
+            g_acc = adxl345_decode(raw);
+            if (g_acc.valid) g_acc_ms = now;
+        } else {
+            g_acc.valid = false;
+        }
+    }
+    const bool fresh = g_acc.valid && (uint32_t)(now - g_acc_ms) < TORQVA_ACCEL_STALE_MS;
+    in.acc_valid = fresh;
+    in.acc_x_g = fresh ? g_acc.x_g : 0.0f; in.acc_y_g = fresh ? g_acc.y_g : 0.0f; in.acc_z_g = fresh ? g_acc.z_g : 0.0f; in.acc_mag_g = fresh ? g_acc.mag_g : 0.0f;   // zeros only when acc_valid is false: never shown
+}
+
+#if TORQVA_OLED
+// ---------- OLED (software I2C, GPIO 4/5). Runs in the communications task, never in the control task: a software-I2C frame takes tens of ms. ----------
+static U8G2_SH1106_128X64_NONAME_F_SW_I2C g_oled(U8G2_R0, torqva_pins::OLED_SCL, torqva_pins::OLED_SDA, U8X8_PIN_NONE);
+static void oled_draw(const Device::DisplayInfo& d) {
+    char l[40];
+    g_oled.clearBuffer();
+    g_oled.setFont(u8g2_font_5x8_tf);
+    snprintf(l, sizeof(l), "TORQVA %s", d.state == SafetyState::EMERGENCY_STOP ? "FAULT LATCHED" : (d.state == SafetyState::WARN ? "WARNING" : "OK")); g_oled.drawStr(0, 8, l);
+    snprintf(l, sizeof(l), "Reason: %s", trip_reason_name(d.reason)); g_oled.drawStr(0, 17, l);
+    snprintf(l, sizeof(l), "Drive: %s  Motion: %s", d.drive, d.start_block[0] ? "LOCKED" : "no lock"); g_oled.drawStr(0, 26, l);
+    if (d.rpm_valid) snprintf(l, sizeof(l), "RPM: %.0f", d.rpm); else snprintf(l, sizeof(l), "RPM: n/a");
+    g_oled.drawStr(0, 35, l);
+    if (d.housing_valid) snprintf(l, sizeof(l), "Housing: %.1f C", d.housing_c); else snprintf(l, sizeof(l), "Housing: n/a");
+    g_oled.drawStr(0, 44, l);
+    if (d.current_valid && d.voltage_valid) snprintf(l, sizeof(l), "%.2f A  %.1f V", d.current_a, d.voltage_v); else snprintf(l, sizeof(l), "I/V: n/a");
+    g_oled.drawStr(0, 53, l);
+    if (d.acc_valid) snprintf(l, sizeof(l), "|a| %.2f g (total)", d.acc_mag_g); else snprintf(l, sizeof(l), "Accel: n/a");
+    g_oled.drawStr(0, 62, l);
+    g_oled.sendBuffer();
+}
+#endif
+
 static void read_inputs(HalIn& in) {
     in.now_ms = millis();
     if (g_ina_ok && ina_alive(in.now_ms)) {
@@ -198,7 +272,8 @@ static void read_inputs(HalIn& in) {
     in.housing_c = g_housing;  in.housing_valid = g_housing_ok && (uint32_t)(in.now_ms - g_housing_ms) < TORQVA_TEMP_STALE_MS;
     in.ambient_c = g_ambient;  in.ambient_valid = g_ambient_ok && (uint32_t)(in.now_ms - g_ambient_ms) < TORQVA_TEMP_STALE_MS;
     read_rpm(in);
-    in.vib_rms_g = 0; in.vib_valid = false;            // ADXL345 SPI/FIFO task not implemented yet
+    in.vib_rms_g = 0; in.vib_valid = false;            // vibration RMS is NOT implemented: the raw acceleration below is a different quantity
+    read_accel(in);
     // No reset button is documented (UNCONFIGURED): it reads as never pressed, so a latched trip cannot be reset by software; only a power cycle clears it.
     in.button_pressed = (torqva_pins::LOCAL_RESET_BUTTON != torqva_pins::UNCONFIGURED) && digitalRead(torqva_pins::LOCAL_RESET_BUTTON) == LOW;
     in.external_estop = false;                         // no E-stop feedback wired in this pin map
@@ -244,7 +319,10 @@ void setup() {
     g_pwm_ok = pwm_begin();
     pwm_write(0);
 
-    Wire1.begin(torqva_pins::INA_SDA, torqva_pins::INA_SCL);          // INA219 bus. The ADXL345 bus (GPIO 16/17) and the OLED (4/5) are reserved and not started.
+    Wire1.begin(torqva_pins::INA_SDA, torqva_pins::INA_SCL);          // INA219 bus
+    Wire.begin(torqva_pins::ADXL_SDA, torqva_pins::ADXL_SCL);         // ADXL345 bus (separate from the INA219 bus)
+    Wire.setTimeOut(20);
+    g_adxl_ok = adxl_begin();                                          // false if the sensor is absent or answers with a wrong id: accel frames then report ok=0
     g_ina_ok = g_ina.begin(&Wire1);
     if (g_ina_ok) g_ina.setCalibration_32V_2A();
     g_ds.begin();
@@ -265,6 +343,7 @@ void setup() {
 #endif
     cfg.kp = 0.01f; cfg.ki = 0.03f;                    // placeholders: tune during commissioning
     cfg.device_id = TORQVA_DEVICE_ID;
+    cfg.accel_supported = true;                        // this build reads the ADXL345 (frames report ok=0 when it is absent or invalid)
     cfg.limits_approved = (TORQVA_LIMITS_APPROVED != 0);
     cfg.estop_input_wired = (TORQVA_ESTOP_INPUT_WIRED != 0);
     cfg.transport_secured = (TORQVA_TRANSPORT_SECURED != 0);
@@ -309,6 +388,17 @@ void loop() {
             if (n < sizeof(line) - 1) line[n++] = c; else { n = 0; discarding = true; }   // overlong line: drop it AND its remainder
         }
     }
+#if TORQVA_OLED
+    static uint32_t last_oled = 0; static bool oled_started = false;
+    if (!oled_started) { g_oled.begin(); oled_started = true; }
+    if ((uint32_t)(millis() - last_oled) >= 500) {
+        last_oled = millis();
+        Device::DisplayInfo di;
+        bool ok = false;
+        if (xSemaphoreTake(g_mu, pdMS_TO_TICKS(5)) == pdTRUE) { g_dev->display_info(&di, millis()); xSemaphoreGive(g_mu); ok = true; }
+        if (ok) oled_draw(di);
+    }
+#endif
     char out[320];
     for (int i = 0; i < 8; i++) {
         bool got;

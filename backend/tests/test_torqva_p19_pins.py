@@ -41,12 +41,20 @@ def test_main_cpp_uses_named_pins_only_and_no_other_file_defines_a_gpio():
             assert not re.search(r"\bGPIO\s*\d|constexpr int \w+ = \d+;", f.read_text()) or f.name in ("estop.h",), f.name
 
 
-def test_reserved_pins_are_not_driven_by_this_firmware():
+def test_adxl345_and_oled_use_only_their_documented_pins_and_the_ina219_bus_is_separate():
+    assert "Wire.begin(torqva_pins::ADXL_SDA, torqva_pins::ADXL_SCL)" in MAIN and "Wire1.begin(torqva_pins::INA_SDA, torqva_pins::INA_SCL)" in MAIN
+    assert "torqva_pins::OLED_SCL, torqva_pins::OLED_SDA" in MAIN
     outputs = MAIN[MAIN.index("static void outputs_off()"):MAIN.index("static bool pwm_begin()")]
-    for reserved in ("OLED_SCL", "OLED_SDA", "ADXL_SDA", "ADXL_SCL"):
-        assert reserved not in MAIN.replace("(reserved", ""), reserved            # only named in comments: never configured, never driven
-    for driven in ("R_EN", "L_EN", "RPWM", "LPWM", "LED_MOTOR", "BUZZER"):
+    for pin in ("ADXL_SDA", "ADXL_SCL", "OLED_SDA", "OLED_SCL", "INA_SDA", "INA_SCL"):
+        assert pin not in outputs, pin                                       # bus pins are never driven as plain outputs
+    for driven in ("R_EN", "L_EN", "RPWM", "LPWM", "LED_MOTOR", "LED_ACCEL", "BUZZER"):
         assert f"out_low({driven})" in outputs, driven
+
+
+def test_raw_acceleration_is_never_labelled_vibration_in_the_firmware():
+    adxl = (FW / "lib" / "torqva_core" / "adxl345.h").read_text() + MAIN
+    assert "NOT vibration RMS" in adxl or "not vibration RMS" in adxl
+    assert "in.vib_valid = false" in MAIN                                   # vibration RMS stays unimplemented/invalid
 
 
 def test_pwm_failure_keeps_the_driver_disabled_and_is_latched():

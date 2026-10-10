@@ -7,6 +7,7 @@
 #include "interlock.h"
 #include "estop.h"
 #include "pinmap.h"
+#include "adxl345.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -184,6 +185,25 @@ void test_interlock_blocks_each_unverified_condition_with_its_own_reason() {
     i = all_ok(); i.link_ok = false;                TEST_ASSERT_EQUAL_STRING("NO_HEARTBEAT", start_interlock_reason(i));
     StartInterlockInputs z = {};                    // an all-zero (unverified) input must never permit a start
     TEST_ASSERT_NOT_NULL(start_interlock_reason(z));
+}
+
+// ---------------- ADXL345 decoding (raw acceleration; total magnitude includes gravity and is not vibration RMS) ----------------
+void test_adxl345_decodes_raw_bytes_to_g_and_reports_gravity_in_the_magnitude() {
+    const uint8_t at_rest[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x01};      // z = 256 LSB = 0.998 g, x = y = 0
+    AccelSample s = adxl345_decode(at_rest);
+    TEST_ASSERT_TRUE(s.valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, s.x_g); TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, s.y_g);
+    TEST_ASSERT_FLOAT_WITHIN(0.002f, 0.9984f, s.z_g);
+    TEST_ASSERT_FLOAT_WITHIN(0.002f, 0.9984f, s.mag_g);                     // about 1 g at rest: gravity, not vibration
+    const uint8_t neg[6] = {0x00, 0xFF, 0x00, 0x00, 0x00, 0x00};            // x = -256 LSB
+    TEST_ASSERT_FLOAT_WITHIN(0.002f, -0.9984f, adxl345_decode(neg).x_g);
+}
+void test_adxl345_implausible_data_is_invalid_and_zeros_are_not_presented_as_a_reading() {
+    const uint8_t huge[6] = {0xFF, 0x7F, 0x00, 0x00, 0x00, 0x00};           // +32767 LSB = 127 g: beyond the configured +-16 g range
+    AccelSample s = adxl345_decode(huge);
+    TEST_ASSERT_FALSE(s.valid);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, s.mag_g);                                 // numbers of an invalid sample are zeroed and must never be shown (valid=false)
+    TEST_ASSERT_TRUE(adxl345_devid_ok(0xE5)); TEST_ASSERT_FALSE(adxl345_devid_ok(0x00)); TEST_ASSERT_FALSE(adxl345_devid_ok(0xFF));   // a floating bus reads 0x00 / 0xFF
 }
 
 // ---------------- Pin map: the table the production firmware compiles against (lib/torqva_core/pinmap.h) ----------------
@@ -634,6 +654,8 @@ int main(int, char**) {
     RUN_TEST(test_interlock_permits_only_when_everything_is_verified);
     RUN_TEST(test_interlock_blocks_each_unverified_condition_with_its_own_reason);
     RUN_TEST(test_fault_mask_keeps_every_simultaneous_cause_while_reason_keeps_the_first);
+    RUN_TEST(test_adxl345_decodes_raw_bytes_to_g_and_reports_gravity_in_the_magnitude);
+    RUN_TEST(test_adxl345_implausible_data_is_invalid_and_zeros_are_not_presented_as_a_reading);
     RUN_TEST(test_pinmap_matches_the_documented_wiring_reference);
     RUN_TEST(test_pinmap_has_no_duplicate_gpio_ownership);
     RUN_TEST(test_pinmap_every_required_peripheral_is_assigned_and_only_undocumented_interfaces_are_unconfigured);

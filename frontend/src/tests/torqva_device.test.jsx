@@ -79,7 +79,7 @@ describe('device pages', () => {
     expect(await screen.findByText(/measurements reported by the connected ESP32-S3/)).toBeInTheDocument();
     expect(screen.getByText('1200')).toBeInTheDocument();
     expect(screen.getAllByText('UNAVAILABLE').length).toBeGreaterThanOrEqual(3);          // voltage, power, vibration
-    expect(screen.getByText(/does not measure it yet/)).toBeInTheDocument();
+    expect(screen.getByText(/does not compute it/)).toBeInTheDocument();
   });
 
   it('stale telemetry is flagged and never presented as live', async () => {
@@ -187,5 +187,28 @@ describe('device pages', () => {
     await open('Device', { snap: { ...DISCONNECTED, connection: 'CONNECTING' } });
     expect(await screen.findByTestId('device-connecting')).toHaveTextContent(/waiting for the device handshake/);
     expect(screen.queryByText('PHYSICAL DEVICE')).toBeNull();
+  });
+
+  it('shows the explicit state label, the selected port, per-sensor availability and total acceleration that is not called vibration', async () => {
+    const snap = { ...SNAP, state_label: 'PHYSICAL DEVICE CONNECTED', port: 'COM7',
+      sensor_status: { rpm: 'valid', current: 'valid', voltage: 'invalid', power: 'invalid', housing: 'valid', ambient: 'unavailable', acceleration: 'valid', vibration_rms: 'unavailable' },
+      values: { ...VALUES, acceleration: { value: 0.99, valid: true, stale: false, origin: 'device_measurement', x_g: 0, y_g: 0, z_g: 0.99 } } };
+    await open('Device', { snap });
+    expect(await screen.findByTestId('state-label')).toHaveTextContent('PHYSICAL DEVICE CONNECTED');
+    expect(screen.getByText('COM7')).toBeInTheDocument();
+    const table = screen.getByRole('table', { name: 'Sensor availability' });
+    expect(within(table).getAllByText('unavailable').length).toBe(2);                    // ambient and vibration RMS
+    expect(within(table).getAllByText('invalid').length).toBe(2);                         // voltage and power
+    fireEvent.click(screen.getByRole('button', { name: /^Live Monitor/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Physical device' }));
+    expect((await screen.findAllByText('0.990')).length).toBeGreaterThan(0);
+    expect(screen.getByText(/NOT vibration RMS/)).toBeInTheDocument();
+  });
+
+  it('merges repeated identical device events into one row with a count', async () => {
+    await open('Device', { snap: DISCONNECTED });
+    await waitFor(() => expect(FakeSocket.last).not.toBeNull());
+    act(() => { for (let i = 0; i < 30; i++) FakeSocket.last.emit({ type: 'event', name: 'protocol_error', ts: i, data: { code: 'MALFORMED', count: 1 } }); });
+    expect(await screen.findByText(/Protocol error ×30/i)).toBeInTheDocument();
   });
 });

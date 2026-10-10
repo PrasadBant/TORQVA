@@ -338,6 +338,55 @@ void test_an_output_initialisation_fault_latches_blocks_start_and_is_reported() 
     TEST_ASSERT_FALSE(r.act.driver_enable);                           // and the reset never restarts the motor
 }
 
+static std::vector<std::string> run_with_accel(bool supported, bool valid, float mag) {
+    DeviceConfig c = sim_cfg(true, true); c.accel_supported = supported;
+    Device d(sim_limits(), c);
+    SimPlant plant; HalOut act = {false, 0, false}; std::vector<std::string> out;
+    for (int i = 0; i < 150; i++) {
+        HalIn in = plant.step(10, act, false);
+        in.acc_valid = valid; in.acc_x_g = 0.01f; in.acc_y_g = -0.02f; in.acc_z_g = 0.99f; in.acc_mag_g = mag;
+        act = d.step(in);
+        char b[320]; while (d.pop_line(b, sizeof(b))) out.push_back(b);
+    }
+    return out;
+}
+
+void test_accel_frames_carry_raw_axes_and_a_total_magnitude_only_when_valid() {
+    std::vector<std::string> out = run_with_accel(true, true, 0.99f);
+    int n = 0;
+    for (size_t i = 0; i < out.size(); i++) if (out[i].find("\"t\":\"accel\"") != std::string::npos) {
+        n++;
+        TEST_ASSERT_NOT_NULL(strstr(out[i].c_str(), "\"ok\":1")); TEST_ASSERT_NOT_NULL(strstr(out[i].c_str(), "\"ax\":0.010"));
+        TEST_ASSERT_NOT_NULL(strstr(out[i].c_str(), "\"mag\":0.990")); TEST_ASSERT_NULL(strstr(out[i].c_str(), "vib"));      // never labelled as vibration
+        TEST_ASSERT_TRUE(out[i].size() < 288);
+    }
+    TEST_ASSERT_TRUE(n >= 6);                                          // ~5 Hz for 1.5 s
+}
+
+void test_invalid_or_non_finite_accelerometer_data_sends_ok_zero_without_numbers_and_unsupported_builds_send_nothing() {
+    std::vector<std::string> bad = run_with_accel(true, false, 0.0f), nan_ = run_with_accel(true, true, NAN), none = run_with_accel(false, true, 0.99f);
+    for (size_t k = 0; k < 2; k++) {
+        const std::vector<std::string>& v = k == 0 ? bad : nan_;
+        int n = 0;
+        for (size_t i = 0; i < v.size(); i++) if (v[i].find("\"t\":\"accel\"") != std::string::npos) {
+            n++; TEST_ASSERT_NOT_NULL(strstr(v[i].c_str(), "\"ok\":0")); TEST_ASSERT_NULL(strstr(v[i].c_str(), "\"mag\"")); TEST_ASSERT_NULL(strstr(v[i].c_str(), "\"ax\""));
+        }
+        TEST_ASSERT_TRUE(n >= 6);
+    }
+    for (size_t i = 0; i < none.size(); i++) TEST_ASSERT_NULL(strstr(none[i].c_str(), "\"t\":\"accel\""));      // a build without the sensor invents nothing
+}
+
+void test_display_info_reflects_validity_and_the_safety_state_without_inventing_values() {
+    Device d(sim_limits(), sim_cfg(true, false, false, false, false));
+    Device::DisplayInfo di;
+    d.display_info(&di, 0);
+    TEST_ASSERT_FALSE(di.have_data); TEST_ASSERT_FALSE(di.rpm_valid); TEST_ASSERT_FALSE(di.acc_valid);
+    HalIn in = {}; in.now_ms = 10; in.housing_c = 31.0f; in.housing_valid = true; in.rpm_valid = false; in.acc_valid = true; in.acc_mag_g = NAN;
+    d.step(in); d.display_info(&di, 10);
+    TEST_ASSERT_TRUE(di.have_data); TEST_ASSERT_TRUE(di.housing_valid); TEST_ASSERT_FALSE(di.rpm_valid); TEST_ASSERT_FALSE(di.acc_valid);       // NaN magnitude is not valid
+    TEST_ASSERT_TRUE(strlen(di.start_block) > 0);                      // strict: motion is locked, and the display says so
+}
+
 void test_acknowledgements_carry_the_device_id_when_configured() {
     DeviceConfig c = sim_cfg(true, true); c.device_id = "MOTOR-RIG-01";
     Device d(sim_limits(), c);
@@ -767,6 +816,9 @@ int main(int, char**) {
     RUN_TEST(test_stop_works_without_a_session_and_without_authentication);
     RUN_TEST(test_a_boot_fault_latches_until_an_intentional_reset_and_never_restarts_the_motor);
     RUN_TEST(test_an_output_initialisation_fault_latches_blocks_start_and_is_reported);
+    RUN_TEST(test_accel_frames_carry_raw_axes_and_a_total_magnitude_only_when_valid);
+    RUN_TEST(test_invalid_or_non_finite_accelerometer_data_sends_ok_zero_without_numbers_and_unsupported_builds_send_nothing);
+    RUN_TEST(test_display_info_reflects_validity_and_the_safety_state_without_inventing_values);
     RUN_TEST(test_acknowledgements_carry_the_device_id_when_configured);
     RUN_TEST(test_status_frame_reports_protocol_identity_interlock_reason_and_fault_mask);
     RUN_TEST(test_commands_must_carry_the_live_session_id_and_old_session_ids_are_rejected);

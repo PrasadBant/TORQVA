@@ -21,7 +21,7 @@ HalIn SimPlant::step(uint32_t dt_ms, const HalOut& act, bool button) {
 
     housing_ += (p_.heat_per_a2_cps * cur * cur - p_.cool_per_s * (housing_ - p_.ambient_c)) * dt;
 
-    HalIn in;
+    HalIn in = {};          // zero-initialised: no accelerometer reading is invented
     in.now_ms = now_ms_;
     in.current_a = faults.current_sensor_dead ? 0.0f : cur;  in.current_valid = !faults.current_sensor_dead;
     in.voltage_v = volt;  in.voltage_valid = true;
