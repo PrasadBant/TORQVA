@@ -12,7 +12,7 @@ static const uint32_t kFreshMs = 250;
 
 Device::Device(const Limits& l, const DeviceConfig& c)
     : cfg_(c), lim_(l), safety_(l), drive_(l, c.kp, c.ki), validator_(l), tests_(l),
-      last_in_(), have_in_(false), watchdog_active_(false), session_active_(false), last_step_ms_(0), stepped_(false), last_hb_ms_(0), hb_seen_(false), seq_(0),
+      last_in_(), have_in_(false), watchdog_active_(false), session_active_(false), session_sid_(), last_step_ms_(0), stepped_(false), last_hb_ms_(0), hb_seen_(false), seq_(0),
       last_fast_ms_(0), last_slow_ms_(0), last_status_ms_(0),
       last_state_(SafetyState::OK), last_reason_(TripReason::NONE),
       test_cmd_id_(0), test_cmd_valid_(false), reset_cmd_id_(0), reset_pending_(false),
@@ -42,7 +42,7 @@ void Device::queue_line(const char* s, size_t len) {
 
 void Device::queue_ack(const Ack& a) {
     char b[kLine];
-    queue_line(b, encode_ack(b, sizeof(b), a, cfg_.device_id));
+    queue_line(b, encode_ack(b, sizeof(b), a, cfg_.device_id, session_sid_));
 }
 
 bool Device::pop_line(char* buf, size_t n) {
@@ -73,6 +73,15 @@ void Device::on_line(const char* line, uint32_t now_ms) {
     }
     pc.cmd.authorized = (pc.key[0] != 0) && (strncmp(pc.key, cfg_.key, sizeof(cfg_.key)) == 0);
 
+    // Session binding (strict mode): every command except STOP must belong to the live authenticated session. A command captured in an earlier session, or sent
+    // before a session exists (for example right after a reboot), is rejected before it reaches the validator. STOP is never refused.
+    if (!cfg_.relaxed_interlocks && pc.cmd.type != CmdType::STOP) {
+        const char* why = nullptr;
+        if (!session_active_) why = "NO_SECURE_SESSION";
+        else if (session_sid_[0] && strcmp(pc.sid, session_sid_) != 0) why = "WRONG_SESSION";
+        if (why) { Ack a = {pc.cmd.id, AckStatus::REJECTED, why}; queue_ack(a); return; }
+    }
+
     Ack ack = validator_.validate(pc.cmd, ctx());
     if (ack.status == AckStatus::ACCEPTED && !validator_.last_was_duplicate()) {
         // Execution may still refuse (e.g. test envelope). Then the ONLY ack sent is the final REJECTED one.
@@ -92,8 +101,16 @@ void Device::on_line(const char* line, uint32_t now_ms) {
 }
 
 void Device::set_secure_session(bool v) {
-    if (session_active_ && !v) { drive_.stop(); tests_.abort("SESSION_LOST"); }      // fail safe: no session, no motion
+    if (session_active_ && !v) { drive_.stop(); tests_.abort("SESSION_LOST"); session_sid_[0] = 0; }      // fail safe: no session, no motion
     session_active_ = v;
+}
+
+bool Device::begin_session(const char* sid) {
+    if (!sid || !sid[0] || strlen(sid) > 32) return false;
+    if (session_active_) { drive_.stop(); tests_.abort("SESSION_REPLACED"); }       // a new session never inherits motion from the old one
+    strncpy(session_sid_, sid, sizeof(session_sid_) - 1); session_sid_[sizeof(session_sid_) - 1] = 0;
+    session_active_ = true;
+    return true;
 }
 
 const char* Device::start_blocked_reason(uint32_t now_ms) const {

@@ -83,3 +83,5 @@ npm test
 ```
 
 > **Firmware status:** the supported firmware is `esp32/torqva_fw`; motor commands are refused by default (commissioning interlocks, no secured transport yet). See `docs/TORQVA_HARDWARE_READINESS.md` for the current blockers. Physical operation is prohibited until they are closed.
+
+> **Device transport:** a secure transport foundation exists in the backend (`backend/torqva/device_transport.py`, protocol `tqv1`) and is tested with a Python device stand-in. No firmware network client exists and nothing is wired into live dispatch; see `docs/TORQVA_HARDWARE_READINESS.md` (Phase 15B).

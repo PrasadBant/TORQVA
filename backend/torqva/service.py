@@ -34,6 +34,7 @@ class SimulationService:
         self.scenario: Dict[str, Any] = {}
         self.running = False
         self._n = 0
+        self.gateway = None            # Optional[DeviceGateway]: set only when a device transport is configured (none is, today)
         # Serialises every state change and every read of the live orchestrator (HTTP handlers run in a thread pool). The lock is taken per simulated
         # second inside step(), never for a whole multi-second step, so a STOP is never queued behind a long run.
         self.lock = threading.RLock()

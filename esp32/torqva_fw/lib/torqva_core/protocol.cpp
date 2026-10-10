@@ -107,19 +107,28 @@ const char* parse_command(const char* line, ParsedCommand* out) {
     out->cmd.param3 = get_num(s, "p3", &d) ? (float)d : 0.0f;
     out->cmd.age_ms = (get_num(s, "age", &d) && d >= 0 && d < 4294967295.0) ? (uint32_t)d : 0;
     if (!get_str(s, "k", out->key, sizeof(out->key))) out->key[0] = 0;
+    if (!get_str(s, "sid", out->sid, sizeof(out->sid))) out->sid[0] = 0;
     out->cmd.authorized = false;   // set by the device after key comparison, never by the sender
     return nullptr;
 }
 
-size_t encode_ack(char* buf, size_t n, const Ack& a, const char* dev) {
-    int w;
-    if (dev && dev[0])
-        w = snprintf(buf, n, "{\"t\":\"ack\",\"id\":%lu,\"status\":\"%s\",\"reason\":\"%s\",\"dev\":\"%s\"}",
-                     (unsigned long)a.id, ack_status_name(a.status), a.reason ? a.reason : "", dev);
-    else
-        w = snprintf(buf, n, "{\"t\":\"ack\",\"id\":%lu,\"status\":\"%s\",\"reason\":\"%s\"}",
+size_t encode_ack(char* buf, size_t n, const Ack& a, const char* dev, const char* sid) {
+    int w = snprintf(buf, n, "{\"t\":\"ack\",\"id\":%lu,\"status\":\"%s\",\"reason\":\"%s\"",
                      (unsigned long)a.id, ack_status_name(a.status), a.reason ? a.reason : "");
-    return (w > 0 && (size_t)w < n) ? (size_t)w : 0;
+    if (w <= 0 || (size_t)w >= n) return 0;
+    size_t used = (size_t)w;
+    if (dev && dev[0]) {                      // device identity and session id, when known, bind the acknowledgement to ONE device and ONE session
+        w = snprintf(buf + used, n - used, ",\"dev\":\"%s\"", dev);
+        if (w <= 0 || (size_t)w >= n - used) return 0;
+        used += (size_t)w;
+    }
+    if (sid && sid[0]) {
+        w = snprintf(buf + used, n - used, ",\"sid\":\"%s\"", sid);
+        if (w <= 0 || (size_t)w >= n - used) return 0;
+        used += (size_t)w;
+    }
+    w = snprintf(buf + used, n - used, "}");
+    return (w > 0 && (size_t)w < n - used) ? used + (size_t)w : 0;
 }
 
 size_t encode_fast(char* buf, size_t n, const FastFrame& f) {

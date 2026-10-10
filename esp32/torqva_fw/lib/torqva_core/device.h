@@ -71,6 +71,9 @@ public:
     // motor is energised stops it (like a STOP), so a dropped or hijacked link cannot leave motion running. Never true after construction (a reboot has no session).
     void set_secure_session(bool v);
     bool secure_session() const { return session_active_; }
+    // Begin a session bound to a session id issued by the authenticated transport (up to 32 chars, non-empty). Every non-STOP command must then carry the same "sid";
+    // commands for an earlier session id are rejected (WRONG_SESSION). Replaces any previous session. The transport calls this only after its handshake.
+    bool begin_session(const char* sid);
     // Latch a fault detected before the control loop starts (reset reason). Cleared only by the normal intentional reset (authorised RESET_ESTOP + local button).
     void latch_boot_fault(TripReason r) { safety_.latch_external(r); }
     // Whether a motor-energising command would currently be permitted, and if not why (static string). Same logic the command path uses.
@@ -93,7 +96,7 @@ private:
     CommandValidator validator_;
     TestExecutor tests_;
 
-    HalIn last_in_; bool have_in_; bool watchdog_active_; bool session_active_;
+    HalIn last_in_; bool have_in_; bool watchdog_active_; bool session_active_; char session_sid_[33];
     uint32_t last_step_ms_; bool stepped_;
     uint32_t last_hb_ms_; bool hb_seen_;
     uint32_t seq_;

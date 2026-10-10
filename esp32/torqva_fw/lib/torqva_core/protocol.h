@@ -15,6 +15,7 @@ namespace torqva {
 struct ParsedCommand {
     Command cmd;
     char key[32];
+    char sid[33];     // session id the command claims to belong to ("" if absent); checked against the live session by Device::on_line
 };
 
 // Returns nullptr on success, else a static error string. Never reads past the NUL terminator.
@@ -25,7 +26,7 @@ const char* ack_status_name(AckStatus s);
 
 // Encoders return the number of bytes written (excluding NUL), or 0 if the buffer was too small.
 // dev: optional device identity echoed as "dev" so the receiver can bind the acknowledgement to ONE device (nullptr or "" omits it).
-size_t encode_ack(char* buf, size_t n, const Ack& a, const char* dev = nullptr);
+size_t encode_ack(char* buf, size_t n, const Ack& a, const char* dev = nullptr, const char* sid = nullptr);
 
 enum SignalBits : uint8_t {
     Q_CURRENT = 1 << 0, Q_VOLTAGE = 1 << 1, Q_HOUSING = 1 << 2,

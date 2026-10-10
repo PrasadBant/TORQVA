@@ -238,3 +238,8 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 
 * Session gate (`NO_SECURE_SESSION`: a reboot has no session, so a replayed command cannot start the motor; session loss stops motion), ack device-id binding, reset-reason fault latch (`RESET_FAULT`), abstract E-stop input logic (not wired: no pin/polarity exists), second legacy-sketch gate (`TORQVA_LEGACY_ENABLE_MOTOR`). No TLS was implemented (no transport exists); the design, provisioning needs, E-stop contract, reset/brown-out analysis and the supervised on-target watchdog test plan are in `docs/TORQVA_HARDWARE_READINESS.md`.
 * Results: native 97/97, FITL contract+conformance 18/18, ESP32-S3 compile OK (compile only), backend 480 passed, frontend 67 passed + build OK. Hardware NOT validated; physical operation prohibited.
+
+## Session 15 - Phase 15B: secure device transport foundation (software only)
+
+* New `device_protocol.py` (tqv1), `device_transport.py` (mTLS server with CRL, certificate pinning and identity binding; session/command lifecycle; gateway that accepts only supervisor-approved actions; mock link), `GET /api/torqva/devices` (UNAVAILABLE today), firmware session-id binding (`begin_session`, `WRONG_SESSION`, `NO_SECURE_SESSION`, acks echo dev+sid). Installed ESP32 framework has mbedTLS 2.28.7 = TLS 1.2 max: policy default is TLS 1.2 + ECDHE/AEAD only, TLS 1.3 selectable. No firmware TLS client exists; nothing is wired into live dispatch.
+* Results: backend 522 passed (41 new transport tests with real TLS handshakes, mutation-checked), frontend 67 + build OK, native 100/100, real-core contract 19/19, ESP32-S3 compile OK (compile only). Hardware NOT validated; physical operation prohibited.

@@ -212,3 +212,60 @@ Verified: not part of any PlatformIO environment or script; `docs/software.md` a
 
 ### Blockers that remain (all outside software)
 1. A secured transport (TLS 1.3 mutual auth or equivalent) with per-device provisioning, rotation and revocation, plus a firmware-to-backend frame adapter. 2. An independent hardware E-stop and its wiring contract. 3. Default-off hardware on the driver-enable and relay nets across reset/brown-out. 4. Approved current/voltage/temperature/overspeed limits from verified ratings (the 5 A supply value is an assumption). 5. Approval of the watchdog timeout and an executed on-target test (plan D). 6. A decision to retire or port the legacy sketch. **Physical operation remains prohibited.**
+
+## Phase 15B - secure device transport foundation (software only; nothing flashed, no hardware operated)
+
+**Status: `SOFTWARE IMPLEMENTED` (backend transport, protocol, gateway, device-side session binding) and `SOFTWARE TESTED`. The firmware has NO network/TLS client: `ON-TARGET BEHAVIOR UNVERIFIED`, `HARDWARE NOT VALIDATED`, `PHYSICAL OPERATION PROHIBITED WHILE BLOCKERS REMAIN`.**
+
+### Audit result (what exists)
+* Backend: no device transport existed (simulation uses the in-process `SimDevice`). Firmware: JSON lines over USB-CDC serial only; no WiFi/TLS client code, no TLS library in `lib_deps`. The physical medium and topology (serial bridge vs WiFi/TCP) are **not selected by the responsible engineer**, so none is hard-wired: the implementation is a transport-independent protocol, a gateway, a real TLS server and a mock link.
+* **TLS version check (verified in the installed framework):** `framework-arduinoespressif32 4.20017` (Arduino-ESP32 2.0.17) bundles **mbedTLS 2.28.7, which supports TLS 1.2 at most**. TLS 1.3 is therefore *not* available on the current device framework. Decision for review: the policy default is **TLS 1.2 with ECDHE + AEAD suites only** (forward secrecy, no CBC, no static RSA/DH key exchange), mutual authentication, CRL checking and a restricted cipher list; `TlsPolicy(require_tls13=True)` is the target once the device framework supports it (for example an ESP-IDF 5.x based core with mbedTLS 3.x). There is no silent downgrade: the minimum version is explicit configuration and a TLS 1.2-only client is refused when TLS 1.3 is required (tested).
+
+### Protocol `tqv1` (`backend/torqva/device_protocol.py`, one JSON object per message, UTF-8, <= 2048 bytes)
+| Type | Direction | Fields (all validated) |
+|---|---|---|
+| `hello` | device -> server | `v, t, dev, fw` (first message after the TLS handshake) |
+| `session` | server -> device | `v, t, dev, sid` (`sid` = 128-bit random hex, issued only after identity checks pass) |
+| `tel` | device -> server | `v, t, dev, sid, n, ts, rpm, duty, v_bus, i_a, housing_c, q` (finite, range-checked) |
+| `fault` | device -> server | `v, t, dev, sid, n, code` |
+| `cmd` | server -> device | `v, t, dev, sid, cid, n, ty, p, p2, p3, ttl_ms` (`ty` in HEARTBEAT, SET_SPEED, STOP, START, RUN_TEST, ABORT_TEST, RESET_ESTOP) |
+| `ack` | device -> server | `v, t, dev, sid, cid, st, reason` (`st`: `received`, `executed`, `rejected`, `aborted`) |
+| `bye` | either | `v, t, dev, sid` |
+Rules: unknown/missing version, unknown type or command, malformed JSON, oversize, NaN/Infinity, out-of-range numbers and invalid identifiers all raise `ProtocolError` and the connection is closed (fail closed). `n` is strictly increasing per direction within a session (replay/out-of-order -> violation); `cid` is unique per session; `sid` changes every session.
+
+### Authentication (real, tested with real handshakes)
+`device_transport.build_server_context` + `TlsDeviceServer` (stdlib `ssl`/OpenSSL 3.0.18): `CERT_REQUIRED` (a client without a valid certificate cannot complete the handshake), CA-validated client certificates, CRL check (`VERIFY_CRL_CHECK_LEAF`), no compression/renegotiation. **Fail closed configuration:** missing certificate/key/CA, no CRL (`require_crl`), or a development CA presented to a production policy -> `SecurityConfigError`, the server does not start. **Identity binding:** after the handshake the device sends `hello`; the registry authorises only if the device is registered, not revoked, the certificate **CN equals the device id**, and the certificate's SHA-256 is **pinned** for that device. A handshake or `hello` that fails any check yields no session. Authentication timeout: a connection that does not introduce itself within `handshake_timeout_s` is dropped.
+
+### Session freshness, replay and command semantics
+* A fresh random `sid` per connection; a new connection **supersedes** the old session (its pending commands become `LINK_LOST`). Nothing from an earlier session or from before a reboot is valid later (a reboot is a new session; counters may restart at 1 because the `sid` differs). No persistent counters are used, so there is no flash-wear/interrupted-write/rollback exposure.
+* Every actionable command is bound to one device and one session. The gateway never retries or re-sends: one write per dispatch, no automatic replay after reconnect (tested: after reconnect only the new command arrives).
+* States: `SENT` (written, not known received) -> `RECEIVED` (device acknowledged receipt, **not** execution) -> `EXECUTED` / `REJECTED` / `ABORTED`; `LINK_LOST` (session ended, outcome unknown) and `EXPIRED` (ttl without ack) are final and never re-sent. Final states never change: duplicate or late acks are counted and ignored; an ack with the wrong device or session, or for a command the session never sent, is a protocol violation that closes the connection and cannot alter any record. `EXECUTED` is a device report, **not verified recovery** (C5 verifies from observed data).
+* A disconnected or idle device (`idle_timeout_s`) has no fresh session; `device_state()` then reports `healthy: None`, never healthy. Telemetry carries provenance `DEVICE_TELEMETRY_TLS` or `DEVICE_TELEMETRY_MOCK`.
+* **Device side (C++, native-tested):** `Device::begin_session(sid)`; in strict mode every non-STOP command must carry the live `sid` (`WRONG_SESSION`), and before any session every non-STOP command is refused (`NO_SECURE_SESSION`), so a captured heartbeat or start replayed after a reboot or into a new session is rejected. Beginning a new session stops any running motion. Acks echo `dev` and `sid`. STOP needs no session.
+
+### Backend integration and authority chain
+`DeviceGateway.dispatch()` accepts only supervisor-minted `ApprovedAction` objects (`PermissionError` otherwise); the AI, LLM, prediction code and frontend cannot reach it. It refuses unknown/revoked devices and devices without a fresh authenticated session. **Real TLS link + physical device additionally requires `PhysicalControlPolicy.commissioning_approved`** (default False; nothing in the repository sets it; STOP is exempt because it can only make things safer). A `MockLink` is never physical, even when it claims a physical device id, and simulated devices work without credentials. The supervisor's `hardware_control_enabled` stays untouched. `GET /api/torqva/devices` returns `physical_transport: "UNAVAILABLE"` today (no transport is configured) and, if a gateway is attached, per-device state with `link_kind`, `physical`, and `healthy: null` unless fresh telemetry exists.
+
+### Credential lifecycle (design + what is tested)
+Per-device client certificate (CN = device id) issued by an offline CA; pinned in the registry; rotation = pin the new certificate, connect with it, then retire the old pin (`rotate`, `retire_all_but`; tested); revocation = CRL entry plus `DeviceGateway.revoke()` which closes the live session immediately (tested); expired certificates fail the handshake (tested); revocation information unavailable -> server refuses to start. Test credentials are generated in memory per test run by `backend/tests/pki_helper.py`, carry the marker `TORQVA-TEST`, and a production policy refuses a CA with that marker; no key or certificate is stored in Git. **Open:** on-device key storage (flash encryption, secure boot), key injection/provisioning procedure, certificate lifetime and CRL distribution, and the device-side TLS client (see below).
+
+### Implemented vs mock vs not implemented
+| Component | Status |
+|---|---|
+| Protocol, validation, gateway, registry, mTLS server, CRL/pinning/identity binding | **Implemented, tested with real TLS handshakes** |
+| Python device stand-in used by the tests (`PythonMockDevice`), `MockLink` | **Mock** (not firmware, not a physical transport) |
+| Firmware session binding (`begin_session`, `sid` checks, ack binding) | Implemented and native-tested; **never called by `main.cpp`** (no transport) |
+| Firmware TLS client / WiFi or serial bridge, device key storage, firmware-side frame decoder for `tqv1` | **Not implemented** (needs the transport/topology decision, a target and a peer) |
+| Backend wiring of the gateway into the pipeline/dispatcher for live use | **Not implemented** (only the read-only `/devices` status and the gateway API); simulation still uses `SimDevice` |
+
+### Tests and results (this phase)
+`backend/tests/test_torqva_p15b_transport.py`: 41 tests (protocol validation 25; TLS: valid mutual handshake, no client certificate, certificate from another CA, expired certificate, CRL-revoked certificate, server certificate not trusted by the client, unknown/mismatched/unpinned identity, rotation, runtime revocation, TLS version and cipher policy, authentication timeout, command lifecycle, protocol violations (replayed counter, wrong session, wrong device, unknown command id, malformed, oversize, bad version), old-session traffic and no replay after reconnect, device reboot and server restart, idle expiry, STOP vs commissioning, mock-link rules, supervisor-only dispatch, expiry without resend, fail-closed security configuration, `/devices` honesty). Mutation checks: removing the CRL flag, the session check, the certificate pinning or `CERT_REQUIRED` each fails a test. Native firmware: 100/100 (3 new session-binding tests); real-core contract tests 19/19. Full regression: backend 522 passed, frontend 67 passed + build OK, firmware native 100/100, ESP32-S3 default build compiles (compile only), control-enabled build with the placeholder key still fails by design.
+
+### Not covered by any test here (need the real device transport)
+Tampered TLS records (handled by the TLS stack, not our code), device-side TLS client behaviour, on-device certificate storage, WiFi/serial link loss, real latency/timeouts.
+
+### Commands run (Phase 15B)
+`python -m pytest -q` (backend), `npx vitest run` and `npm run build` (frontend), `python -m platformio test -e native` (esp32/torqva_fw), `python -m platformio run -e esp32s3` (compile only), `pytest backend/tests/test_torqva_p14_contract.py test_torqva_conformance.py` - results in `docs/TORQVA_PROGRESS.md` Session 15.
+
+### Blockers that remain (independent of this phase)
+Independent hardware E-stop and wiring contract; default-off hardware on driver-enable/relay nets across reset; approved current/voltage/temperature/overspeed limits; approved watchdog timeout and an executed on-target test; the device TLS client, key provisioning and storage, and a decision on the transport medium; retiring or porting the legacy sketch. **Physical operation remains prohibited.**

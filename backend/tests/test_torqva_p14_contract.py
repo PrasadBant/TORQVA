@@ -31,9 +31,12 @@ class Fw:
                 return [json.loads(x) for x in out]
             out.append(l)
 
-    def cmd(self, typ, p=0, p2=0, p3=0, ttl=5000):
+    def cmd(self, typ, p=0, p2=0, p3=0, ttl=5000, sid=None):
         self.n += 1
-        return self.io(json.dumps({"id": self.n, "type": typ, "p": p, "p2": p2, "p3": p3, "ttl": ttl, "age": 0, "seq": self.n, "k": KEY}, separators=(",", ":")))
+        m = {"id": self.n, "type": typ, "p": p, "p2": p2, "p3": p3, "ttl": ttl, "age": 0, "seq": self.n, "k": KEY}
+        if sid is not None:
+            m["sid"] = sid
+        return self.io(json.dumps(m, separators=(",", ":")))
 
     def tick(self, ms, **flags):
         return self.io(json.dumps({"tick": ms, **flags}, separators=(",", ":")))
@@ -166,7 +169,7 @@ def strict_ready(*flags):
 
 
 def test_strict_firmware_refuses_motor_commands_until_both_commissioning_decisions_are_declared():
-    d = strict_ready()                                                                  # nothing approved, nothing wired
+    d = strict_ready("--session")                                                       # nothing approved, nothing wired
     try:
         a = acks(d.cmd("START", 30))
         assert a[0]["status"] == "REJECTED" and a[0]["reason"] == "LIMITS_NOT_APPROVED"
@@ -236,5 +239,21 @@ def test_every_firmware_acknowledgement_carries_the_device_identity():
     try:
         a = acks(d.cmd("START", 30)) + acks(d.cmd("HEARTBEAT")) + acks(d.cmd("STOP"))
         assert a and all(x["dev"] == "FITL-1" for x in a)
+    finally:
+        d.close()
+
+
+def test_session_bound_commands_on_the_real_core_old_and_missing_session_ids_are_rejected_and_acks_echo_the_session():
+    d = Fw(True, "--strict", "--approved", "--estop-wired", "--secured", "--sid", "sess-A")
+    try:
+        d.cmd("HEARTBEAT", sid="sess-A")
+        for _ in range(2):
+            d.tick(500); d.cmd("HEARTBEAT", sid="sess-A")
+        for bad in (None, "sess-OLD"):
+            a = acks(d.cmd("START", 30, sid=bad))[0]
+            assert a["status"] == "REJECTED" and a["reason"] == "WRONG_SESSION" and a["sid"] == "sess-A" and a["dev"] == "FITL-1"
+        ok = acks(d.cmd("START", 30, sid="sess-A"))[0]
+        assert ok["status"] == "ACCEPTED" and ok["sid"] == "sess-A"
+        assert acks(d.cmd("STOP"))[0]["status"] == "ACCEPTED"                                 # STOP needs no session id
     finally:
         d.close()

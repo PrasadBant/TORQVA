@@ -273,9 +273,9 @@ void test_a_captured_command_replayed_after_a_reboot_cannot_start_the_motor_beca
     Rig rebooted(true, sim_limits(), false, true, true, true); rebooted.dev.set_watchdog_active(true);    // a fresh Device = a power cycle: sequence memory AND session are gone
     rebooted.run(300); rebooted.out.clear();
     raw(rebooted, hb);
-    TEST_ASSERT_TRUE(rebooted.has("\"status\":\"ACCEPTED\""));      // the captured heartbeat is still accepted: the application protocol alone has no boot nonce or MAC
+    TEST_ASSERT_TRUE(rebooted.has("NO_SECURE_SESSION"));            // before any session exists even a captured heartbeat is refused (strict mode)
     rebooted.out.clear(); raw(rebooted, start);
-    TEST_ASSERT_TRUE(rebooted.has("NO_SECURE_SESSION"));            // ... but motion needs a fresh authenticated session, which a replay cannot create
+    TEST_ASSERT_TRUE(rebooted.has("NO_SECURE_SESSION"));            // and so is the captured START: motion needs a fresh authenticated session, which a replay cannot create
     rebooted.run(500);
     TEST_ASSERT_FALSE(rebooted.act.driver_enable);
 }
@@ -333,6 +333,62 @@ void test_acknowledgements_carry_the_device_id_when_configured() {
     e.on_line("{\"id\":5,\"type\":\"HEARTBEAT\",\"p\":0,\"p2\":0,\"p3\":0,\"ttl\":5000,\"age\":0,\"seq\":1,\"k\":\"sim-key\"}", 0);
     TEST_ASSERT_TRUE(e.pop_line(b, sizeof(b)));
     TEST_ASSERT_NULL(strstr(b, "\"dev\""));
+}
+
+static std::string cmd_line(const char* type, unsigned id, unsigned seq, const char* sid, float p = 0) {
+    char b[300];
+    if (sid) snprintf(b, sizeof(b), "{\"id\":%u,\"type\":\"%s\",\"p\":%g,\"p2\":0,\"p3\":0,\"ttl\":5000,\"age\":0,\"seq\":%u,\"k\":\"sim-key\",\"sid\":\"%s\"}", id, type, p, seq, sid);
+    else snprintf(b, sizeof(b), "{\"id\":%u,\"type\":\"%s\",\"p\":%g,\"p2\":0,\"p3\":0,\"ttl\":5000,\"age\":0,\"seq\":%u,\"k\":\"sim-key\"}", id, type, p, seq);
+    return b;
+}
+
+void test_commands_must_carry_the_live_session_id_and_old_session_ids_are_rejected() {
+    Rig r(true, sim_limits(), false, true, true, true); r.dev.set_watchdog_active(true);
+    TEST_ASSERT_TRUE(r.dev.begin_session("sess-A"));
+    r.auto_hb = false; r.run(300);
+    raw(r, cmd_line("HEARTBEAT", 1, 1, "sess-A").c_str());
+    TEST_ASSERT_FALSE(r.has("WRONG_SESSION"));
+    r.out.clear();
+    raw(r, cmd_line("START", 2, 2, nullptr, 30).c_str());              // no session id at all
+    raw(r, cmd_line("START", 3, 3, "sess-B", 30).c_str());             // some other session's id
+    TEST_ASSERT_EQUAL(2, r.count("WRONG_SESSION"));
+    r.run(300);
+    TEST_ASSERT_FALSE(r.act.driver_enable);
+    r.out.clear();
+    raw(r, cmd_line("START", 4, 4, "sess-A", 30).c_str());             // the live session id: accepted
+    TEST_ASSERT_TRUE(r.has("\"status\":\"ACCEPTED\""));
+    TEST_ASSERT_TRUE(r.has("\"sid\":\"sess-A\""));                     // acknowledgements echo the session id so the backend can bind them
+    r.run(1500);
+    TEST_ASSERT_TRUE(r.act.driver_enable);
+}
+
+void test_a_new_session_replaces_the_old_one_stops_motion_and_makes_old_commands_invalid() {
+    Rig r(true, sim_limits(), false, true, true, true); r.dev.set_watchdog_active(true);
+    r.dev.begin_session("sess-A"); r.auto_hb = false; r.run(300);
+    raw(r, cmd_line("HEARTBEAT", 1, 1, "sess-A").c_str());
+    raw(r, cmd_line("START", 2, 2, "sess-A", 30).c_str());
+    r.run(1500);
+    TEST_ASSERT_TRUE(r.act.driver_enable);
+    r.dev.begin_session("sess-B"); r.run(50);                         // reconnect: new session id
+    TEST_ASSERT_FALSE(r.act.driver_enable);                           // nothing carries over
+    r.out.clear();
+    raw(r, cmd_line("START", 3, 3, "sess-A", 30).c_str());            // a pending/captured command of the OLD session
+    TEST_ASSERT_TRUE(r.has("WRONG_SESSION"));
+    r.run(300);
+    TEST_ASSERT_FALSE(r.act.driver_enable);
+}
+
+void test_stop_needs_no_session_id_and_session_ids_are_validated() {
+    Rig r(true, sim_limits(), false, true, true, true);
+    TEST_ASSERT_FALSE(r.dev.begin_session(""));
+    TEST_ASSERT_FALSE(r.dev.begin_session("0123456789012345678901234567890123456789"));     // longer than 32
+    TEST_ASSERT_FALSE(r.dev.secure_session());
+    r.dev.set_watchdog_active(true); r.dev.begin_session("sess-A"); r.auto_hb = false; r.run(300);
+    raw(r, cmd_line("HEARTBEAT", 1, 1, "sess-A").c_str());
+    raw(r, cmd_line("START", 2, 2, "sess-A", 30).c_str()); r.run(1500);
+    TEST_ASSERT_TRUE(r.act.driver_enable);
+    raw(r, "{\"id\":9,\"type\":\"STOP\",\"ttl\":1000,\"seq\":0,\"k\":\"\"}"); r.run(50);       // no sid, no key
+    TEST_ASSERT_FALSE(r.act.driver_enable);
 }
 
 // ---------- protocol ----------
@@ -681,5 +737,8 @@ int main(int, char**) {
     RUN_TEST(test_stop_works_without_a_session_and_without_authentication);
     RUN_TEST(test_a_boot_fault_latches_until_an_intentional_reset_and_never_restarts_the_motor);
     RUN_TEST(test_acknowledgements_carry_the_device_id_when_configured);
+    RUN_TEST(test_commands_must_carry_the_live_session_id_and_old_session_ids_are_rejected);
+    RUN_TEST(test_a_new_session_replaces_the_old_one_stops_motion_and_makes_old_commands_invalid);
+    RUN_TEST(test_stop_needs_no_session_id_and_session_ids_are_validated);
     return UNITY_END();
 }

@@ -205,6 +205,16 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
                                 "No C2 variant is validated by Intervention Outcome Experiments on hardware.",
                                 "The noise-aware C2 variant and the style-aware C4 library are opt-in; the shipped models remain the default."]}
 
+    @r.get("/devices")
+    def devices(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        """Device transport status. Today no physical transport is configured: the answer is UNAVAILABLE, never a fabricated healthy device."""
+        gw = service.gateway
+        if gw is None:
+            return {"physical_transport": "UNAVAILABLE", "reason": "no device transport configured (no secured firmware transport exists yet)", "physical_control_approved": False,
+                    "devices": [], "simulation_device": {"kind": "simulation", "physical": False}}
+        return {"physical_transport": "CONFIGURED", "physical_control_approved": gw.policy.commissioning_approved,
+                "devices": [gw.device_state(d) for d in sorted(gw.registry._d)], "simulation_device": {"kind": "simulation", "physical": False}}
+
     @r.get("/status")
     def get_status(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         return service.state()
