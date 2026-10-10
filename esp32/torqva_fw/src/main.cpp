@@ -56,20 +56,32 @@ using namespace torqva;
 #endif
 
 // ---------- hardware outputs ----------
-static void outputs_off() {
-    pinMode(PIN_RELAY, OUTPUT);   digitalWrite(PIN_RELAY, LOW);
-    pinMode(PIN_EN, OUTPUT);      digitalWrite(PIN_EN, LOW);
-    pinMode(PIN_EN2, OUTPUT);     digitalWrite(PIN_EN2, LOW);
-    pinMode(PIN_LPWM, OUTPUT);    digitalWrite(PIN_LPWM, LOW);
-    pinMode(PIN_RPWM, OUTPUT);    digitalWrite(PIN_RPWM, LOW);
+using namespace torqva_pins;
+
+// Drive a pin LOW only if it is configured (an UNCONFIGURED pin is never touched).
+static void out_low(int pin) {
+    if (pin == UNCONFIGURED) return;
+    pinMode(pin, OUTPUT);
+    digitalWrite(pin, LOW);
 }
 
-static void pwm_begin() {
+// Everything that can energise or annunciate goes to the OFF level. Driver enables and PWM first. The OLED and ADXL345 pins are RESERVED and deliberately left untouched
+// (this firmware drives no display and reads no accelerometer, so it must not drive those lines).
+static void outputs_off() {
+    out_low(R_EN);   out_low(L_EN);
+    out_low(RPWM);   out_low(LPWM);
+    out_low(MOTOR_RELAY);                       // UNCONFIGURED: nothing happens
+    out_low(LED_MOTOR); out_low(LED_TEMP); out_low(LED_ACCEL); out_low(LED_INA); out_low(BUZZER);
+}
+
+// Returns true only if the PWM peripheral was set up for the RPWM pin. LPWM is never driven (unidirectional): it is held LOW as a plain output.
+static bool pwm_begin() {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcAttach(PIN_RPWM, PWM_FREQ_HZ, PWM_RES_BITS);
+    return ledcAttach(RPWM, PWM_FREQ_HZ, PWM_RES_BITS);
 #else
-    ledcSetup(0, PWM_FREQ_HZ, PWM_RES_BITS);
-    ledcAttachPin(PIN_RPWM, 0);
+    if (ledcSetup(0, PWM_FREQ_HZ, PWM_RES_BITS) == 0) return false;
+    ledcAttachPin(RPWM, 0);
+    return true;
 #endif
 }
 
@@ -79,24 +91,38 @@ static void pwm_write(float duty_pct) {
     const uint32_t max = (1u << PWM_RES_BITS) - 1;
     const uint32_t v = (uint32_t)(duty_pct * 0.01f * max + 0.5f);
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcWrite(PIN_RPWM, v);
+    ledcWrite(RPWM, v);
 #else
     ledcWrite(0, v);
 #endif
 }
 
+static bool g_pwm_ok = false;           // the driver is eligible to operate only if the PWM peripheral was set up (see setup())
+
 static void apply(const HalOut& o) {
-    if (!o.driver_enable || !o.relay_on) {
+    if (!g_pwm_ok || !o.driver_enable || !o.relay_on) {
         pwm_write(0);
-        digitalWrite(PIN_EN, LOW);
-        digitalWrite(PIN_EN2, LOW);
-        digitalWrite(PIN_RELAY, LOW);
+        digitalWrite(R_EN, LOW);
+        digitalWrite(L_EN, LOW);
+        if (MOTOR_RELAY != UNCONFIGURED) digitalWrite(MOTOR_RELAY, LOW);
         return;
     }
-    digitalWrite(PIN_RELAY, HIGH);
-    digitalWrite(PIN_EN, HIGH);
-    digitalWrite(PIN_EN2, HIGH);
+    if (MOTOR_RELAY != UNCONFIGURED) digitalWrite(MOTOR_RELAY, HIGH);
+    digitalWrite(R_EN, HIGH);
+    digitalWrite(L_EN, HIGH);
     pwm_write(o.duty_pct);
+}
+
+// Status LEDs and buzzer: annunciators only, never safety functions. LED_ACCEL stays off: the accelerometer is not supported by this firmware.
+static void indicators(const HalIn& in, const HalOut& o, bool latched) {
+    digitalWrite(LED_MOTOR, o.driver_enable ? HIGH : LOW);
+    digitalWrite(LED_TEMP, in.housing_valid ? HIGH : LOW);
+    digitalWrite(LED_INA, (in.current_valid && in.voltage_valid) ? HIGH : LOW);
+    digitalWrite(LED_ACCEL, LOW);
+    static uint32_t last_toggle = 0; static bool beep = false;
+    if (latched) {                                          // a latched safety fault beeps (300 ms) until the intentional reset
+        if ((uint32_t)(millis() - last_toggle) >= 300) { last_toggle = millis(); beep = !beep; digitalWrite(BUZZER, beep ? HIGH : LOW); }
+    } else if (beep) { beep = false; digitalWrite(BUZZER, LOW); }
 }
 
 // ---------- hall RPM (1 pulse / rev, period timing) ----------
@@ -123,7 +149,7 @@ static void read_rpm(HalIn& in) {
 }
 
 // ---------- slow sensors ----------
-static OneWire g_ow(PIN_ONEWIRE);
+static OneWire g_ow(torqva_pins::TEMP_DATA);
 static DallasTemperature g_ds(&g_ow);
 static Adafruit_INA219 g_ina;
 static bool g_ina_ok = false;
@@ -173,7 +199,8 @@ static void read_inputs(HalIn& in) {
     in.ambient_c = g_ambient;  in.ambient_valid = g_ambient_ok && (uint32_t)(in.now_ms - g_ambient_ms) < TORQVA_TEMP_STALE_MS;
     read_rpm(in);
     in.vib_rms_g = 0; in.vib_valid = false;            // ADXL345 SPI/FIFO task not implemented yet
-    in.button_pressed = digitalRead(PIN_BUTTON) == LOW;
+    // No reset button is documented (UNCONFIGURED): it reads as never pressed, so a latched trip cannot be reset by software; only a power cycle clears it.
+    in.button_pressed = (torqva_pins::LOCAL_RESET_BUTTON != torqva_pins::UNCONFIGURED) && digitalRead(torqva_pins::LOCAL_RESET_BUTTON) == LOW;
     in.external_estop = false;                         // no E-stop feedback wired in this pin map
 }
 
@@ -198,8 +225,10 @@ static void control_task(void*) {
             continue;
         }
         out = g_dev->step(in);
+        const bool latched = g_dev->safety().state() == SafetyState::EMERGENCY_STOP;
         xSemaphoreGive(g_mu);
         apply(out);
+        indicators(in, out, latched);
         if (wdt_ok) esp_task_wdt_reset();              // fed ONLY after a complete read -> decide -> apply iteration
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(10));     // 100 Hz
     }
@@ -207,22 +236,22 @@ static void control_task(void*) {
 
 void setup() {
     outputs_off();                                     // FIRST: motor off before anything can fail
-    pinMode(PIN_BUTTON, INPUT_PULLUP);
+    if (torqva_pins::LOCAL_RESET_BUTTON != torqva_pins::UNCONFIGURED) pinMode(torqva_pins::LOCAL_RESET_BUTTON, INPUT_PULLUP);
     Serial.begin(115200);
 #if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
     Serial.setTxTimeoutMs(0);                          // a stalled or absent USB host must never block the loop that parses STOP: telemetry is dropped instead
 #endif
-    pwm_begin();
+    g_pwm_ok = pwm_begin();
     pwm_write(0);
 
-    Wire1.begin(PIN_I2C1_SDA, PIN_I2C1_SCL);
+    Wire1.begin(torqva_pins::INA_SDA, torqva_pins::INA_SCL);          // INA219 bus. The ADXL345 bus (GPIO 16/17) and the OLED (4/5) are reserved and not started.
     g_ina_ok = g_ina.begin(&Wire1);
     if (g_ina_ok) g_ina.setCalibration_32V_2A();
     g_ds.begin();
     g_ds.setWaitForConversion(false);
     g_ds.requestTemperatures();
-    pinMode(PIN_HALL, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(PIN_HALL), hall_isr, FALLING);
+    pinMode(torqva_pins::HALL_INPUT, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(torqva_pins::HALL_INPUT), hall_isr, FALLING);
 
     DeviceConfig cfg = {};
     cfg.fw_version = TORQVA_FW_VERSION;
@@ -243,6 +272,8 @@ void setup() {
     // max_rpm and vib_rms_stop_g stay 0 (= not commissioned) until a human sets them.
     g_dev = new Device(default_limits(), cfg);
     g_mu = xSemaphoreCreateMutex();
+    // A PWM setup failure leaves the driver disabled (apply() never enables it) and latches a visible fault until a power cycle / intentional reset.
+    if (!g_pwm_ok) g_dev->latch_boot_fault(TripReason::OUTPUT_INIT_FAULT);
     // A restart caused by a watchdog, brown-out or panic is a FAULT: latch it so the motor cannot be started again until a person performs the intentional reset
     // (authorised RESET_ESTOP + local button). Ordinary power-on, software, USB and external resets do not latch. The session is never set here: no secured
     // transport is implemented, so Device::set_secure_session() is never called with true and motor commands stay refused (NO_SECURE_SESSION).

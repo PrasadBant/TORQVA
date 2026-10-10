@@ -362,3 +362,56 @@ The operator supplied the sketch running on the board (header: "TORQVA - ESP32-S
 Consequences: (1) with control disabled (the default) the shipped firmware only drives the enable lines LOW and leaves RPWM pulled up with the driver disabled, so it would not start the motor, but it would hold the ADXL345 I2C lines low; (2) if control were ever enabled before the map is reconciled, R_EN/L_EN would be enabled while RPWM is pulled HIGH by the button input pull-up, i.e. a full-duty forward drive command with no PWM control; (3) the latch/reset design assumes hardware that is not present. **Gate: do not flash `torqva_fw` onto this wired board until a person confirms the real wiring and `config_pins.h` is reconciled (including the missing relay/button decision).** Flashing it on a bare ESP32 with nothing connected remains harmless. The sketch also confirms an N16R8 module (unverified).
 
 Hazards in the sketch itself (it remains quarantined for TORQVA): serial `START`/`SPEED` energise the driver with no interlocks; `readTemperature()` waits ~750 ms synchronously each second, so `STOP` can be delayed by that long; no automatic stop on over-temperature, over-current, invalid sensors or lost communication (status text and buzzer only); `SPEED_DEMO_MODE` classifies commanded PWM, not shaft speed; no watchdog; blocking `delay(50)` and software I2C OLED in the main loop.
+
+## Phase 19 - firmware pin map reconciled with the legacy wiring reference (software only; nothing flashed)
+
+**Status: `SOFTWARE IMPLEMENTED`, `SOFTWARE TESTED`, `TARGET COMPILE VERIFIED`; wiring `UNVERIFIED`; board model `UNVERIFIED`; `HARDWARE NOT VALIDATED`; `PHYSICAL OPERATION PROHIBITED WHILE BLOCKERS REMAIN`.** This supersedes the pin-conflict gate above for the *code*; the physical wiring still has to be confirmed by a person. The artifact hashes in the Phase 18 section are obsolete (the firmware changed); use the ones below.
+
+### Authoritative pin map (`esp32/torqva_fw/lib/torqva_core/pinmap.h`, namespace `torqva_pins`; no other file defines a GPIO)
+| GPIO | Signal | Peripheral | Firmware status |
+|---|---|---|---|
+| 4 / 5 | OLED SDA / SCL | SH1106, software I2C | **reserved, not driven** (no display support) |
+| 16 / 17 | ADXL345 SDA / SCL | I2C bus 0 | **reserved, not driven or read** (no accelerometer support; total acceleration would not be vibration RMS) |
+| 7 / 8 | INA219 SDA / SCL | I2C bus 1 (`Wire1`) | used: bus voltage, current, power; presence probe |
+| 6 | DS18B20 data | one-wire | used: index 0 = housing (index 1 = ambient if fitted) |
+| 9 | Hall RPM | interrupt, `INPUT_PULLUP` | used: pulse validation, rpm |
+| 10 | motor LED | annunciator | used: driver enabled |
+| 11 | temperature LED | annunciator | used: housing sensor valid |
+| 12 | accelerometer LED | annunciator | held off (accelerometer unsupported) |
+| 13 | INA219 LED | annunciator | used: current and voltage valid |
+| 14 | buzzer | annunciator | beeps (300 ms) while a safety fault is latched; not a safety function |
+| 18 | R_EN | BTS7960 | driver enable, LOW by default |
+| 21 | L_EN | BTS7960 | driver enable, LOW by default (driven together with R_EN) |
+| 38 | RPWM | BTS7960 | PWM (20 kHz, 10 bit), 0 by default |
+| 39 | LPWM | BTS7960 | held LOW as a plain output (unidirectional) |
+| - | motor relay | - | **UNCONFIGURED: no documented pin; no relay is driven** |
+| - | local reset button | - | **UNCONFIGURED: no documented pin; a latched trip cannot be reset in software, only by a power cycle** |
+| - | E-stop input | - | **UNCONFIGURED: `estop_input_wired` stays false, so motor-energising commands are refused** |
+
+Serial transport is not on this map: `esp32s3_uart` uses UART0 (GPIO 43/44, the CH343 bridge), `esp32s3` uses native USB (GPIO 19/20); both are kept free of other assignments.
+
+### Former conflicts and how each was resolved
+| Conflict | Resolution |
+|---|---|
+| GPIO 38 was a pulled-up button input (would pull the real RPWM high) | 38 is RPWM; the button is unconfigured |
+| GPIO 17 was a driver enable (ADXL345 SCL) | 17 is reserved for the ADXL345 and not driven; enables are 18 and 21 |
+| GPIO 16 was LPWM (ADXL345 SDA) | 16 is reserved and not driven; LPWM is 39 |
+| GPIOs 18 / 21 were enable 2 / relay | 18 = R_EN, 21 = L_EN; no relay is driven |
+| PWM was on GPIO 15 (not connected) | RPWM = 38 |
+| No buzzer/LED support | LEDs 10-13 and buzzer 14 are initialised LOW first and driven as annunciators |
+
+### Checks
+* Native (`pio test -e native`): 107/107 including `test_pinmap_*` (matches the documented reference, no duplicate GPIO, every required peripheral assigned, undocumented interfaces unconfigured, no strapping/USB/flash/PSRAM/UART0 pin used on the N16R8, sensor buses apart from the driver pins) and `OUTPUT_INIT_FAULT`. Mutation-checked (moving RPWM to 17 or R_EN to 38 fails tests). They run against the same `pinmap.h` the firmware compiles. The N16R8 reserved list (strapping 0/3/45/46, USB 19/20, flash 26-32, PSRAM 33-37, UART0 43/44) follows the ESP-IDF ESP32-S3 GPIO documentation as I know it; I did not browse it in this session, so confirm it against the module datasheet.
+* `backend/tests/test_torqva_p19_pins.py`: static checks of the production files (no numeric GPIO literals in `main.cpp`, no other file defines a GPIO, reserved pins never configured, PWM failure keeps the driver disabled, wiring id stays UNVERIFIED).
+* Initialisation: `outputs_off()` is still the first statement of `setup()` and now drives enables, PWM pins and annunciators low (unconfigured pins are never touched). If the PWM peripheral cannot be set up the driver is never enabled and `OUTPUT_INIT_FAULT` is latched (reported in the status frame). The INA219 bus uses pins 7/8 only; the ADXL345 and OLED buses are not started.
+* Protocol: unchanged (`wire protocol 1`); the wiring id is now `W1-LEGACYMAP-UNVERIFIED`. Backend protocol/contract tests pass (608 backend tests).
+
+### Builds (no upload) and artifacts
+`esp32s3_uart` (CH343/COM7, serial on UART0): SUCCESS, RAM 6.3 %, flash 10.0 %; `esp32/torqva_fw/.pio/build/esp32s3_uart/firmware.bin`, 334 320 bytes, SHA-256 `a175db1149bbb48e3315943d92e8562ee7db2439c6f0f208bfb453199eb54f57`. `esp32s3` (native USB): SUCCESS; `.pio/build/esp32s3/firmware.bin`, 320 384 bytes, SHA-256 `0f53e45cde7efde68d1ebe0bfac8afc9917b0fe6b746c6e8d269cf93108ac2ca`. Board target: `esp32-s3-devkitc-1` with 16 MB flash and `qio_opi` PSRAM, i.e. an N16R8 module per the PlatformIO configuration and the operator's sketch header; the actual module is **not confirmed** (the CH343 chip is only the USB-serial bridge).
+
+### Pre-flash report (nothing was uploaded)
+* **Intended wiring (to confirm by a person, wire by wire):** the table above: BTS7960 R_EN/L_EN/RPWM/LPWM to GPIO 18/21/38/39; INA219 on 7/8; DS18B20 on 6 with its pull-up; Hall on 9; ADXL345 on 16/17 and OLED on 4/5 (connected but unused by this firmware); LEDs 10-13 and buzzer 14.
+* **Required sensor connections for a sensible bring-up:** INA219 (current, voltage), DS18B20 (housing) and the Hall signal; missing critical signals latch `SENSOR_INVALID` after 500 ms (fail-safe). Ambient (second DS18B20), vibration and acceleration stay unavailable.
+* **First communication test:** motor-driver power physically isolated (BTS7960 and motor supply disconnected), nothing connected to the driver outputs; preferably the driver board unplugged from GPIO 18/21/38/39 as well.
+* **Outstanding wiring confirmations:** every pin above; whether the CH343 port or the native USB port is used; the actual module model; whether any relay or reset button exists (none is documented, so none is driven or read).
+* **Remaining blockers (unchanged):** an independent hardware E-stop and its wiring contract; a reset arrangement (no documented button, so latched faults clear only by power cycle); default-off hardware (pull-downs on R_EN/L_EN/RPWM/LPWM) across reset and brown-out; approved current/voltage/temperature/overspeed limits; an approved watchdog timeout and an executed on-target test; a secured device transport; confirmation of the board model; retiring the legacy sketch. **Flashing still requires your separate explicit authorisation, and physical motion commands stay blocked.**

@@ -257,3 +257,7 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 ## Session 18 - firmware bring-up preparation (no upload)
 
 * New env `esp32s3_uart` (serial on UART0 = CH343 port): with `esp32s3` the frames would go to the native USB port and COM7 would stay silent. Both build; artifacts and hashes in `docs/TORQVA_HARDWARE_READINESS.md` (Phase 18). Frames from the real firmware core pass the real backend validator; legacy text is still rejected. Board model unconfirmed; nothing flashed, COM7 not opened. Backend 602 passed.
+
+## Session 19 - firmware pin map reconciled with the legacy wiring reference
+
+* One authoritative pinmap.h (RPWM 38, LPWM 39, R_EN 18, L_EN 21, ADXL 16/17 and OLED 4/5 reserved, INA 7/8, DS18B20 6, Hall 9, LEDs 10-13, buzzer 14); relay, reset button and E-stop unconfigured (not invented); PWM failure latches OUTPUT_INIT_FAULT. Native 107/107, backend 608 passed, both ESP32-S3 environments compile. Wiring and board still UNVERIFIED; nothing flashed.

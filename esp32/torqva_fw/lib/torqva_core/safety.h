@@ -12,7 +12,8 @@ enum class TripReason : uint8_t {
     NONE = 0, OVER_CURRENT_SUSTAINED, OVER_CURRENT_INSTANT, TEMP_STOP, TEMP_RISE,
     VIBRATION, RPM_LOSS, VOLTAGE_LOW, VOLTAGE_HIGH, HEARTBEAT_LOST, SENSOR_INVALID,
     EXTERNAL_ESTOP,
-    RESET_FAULT              // the controller restarted because of a watchdog, brown-out or panic: latched until an intentional reset
+    RESET_FAULT,             // the controller restarted because of a watchdog, brown-out or panic: latched until an intentional reset
+    OUTPUT_INIT_FAULT        // the motor-driver PWM could not be initialised: the driver stays disabled and the fault is latched
 };
 
 const char* trip_reason_name(TripReason r);

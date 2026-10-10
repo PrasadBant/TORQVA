@@ -6,6 +6,9 @@
 #include "testexec.h"
 #include "interlock.h"
 #include "estop.h"
+#include "pinmap.h"
+#include <string.h>
+#include <stdio.h>
 
 using namespace torqva;
 
@@ -181,6 +184,57 @@ void test_interlock_blocks_each_unverified_condition_with_its_own_reason() {
     i = all_ok(); i.link_ok = false;                TEST_ASSERT_EQUAL_STRING("NO_HEARTBEAT", start_interlock_reason(i));
     StartInterlockInputs z = {};                    // an all-zero (unverified) input must never permit a start
     TEST_ASSERT_NOT_NULL(start_interlock_reason(z));
+}
+
+// ---------------- Pin map: the table the production firmware compiles against (lib/torqva_core/pinmap.h) ----------------
+static int gpio_of(const char* name) {
+    for (int i = 0; i < torqva_pins::kPinCount; i++) if (strcmp(torqva_pins::kPins[i].name, name) == 0) return torqva_pins::kPins[i].gpio;
+    return -999;
+}
+void test_pinmap_matches_the_documented_wiring_reference() {
+    using namespace torqva_pins;
+    TEST_ASSERT_EQUAL(5, OLED_SCL);  TEST_ASSERT_EQUAL(4, OLED_SDA);
+    TEST_ASSERT_EQUAL(16, ADXL_SDA); TEST_ASSERT_EQUAL(17, ADXL_SCL);
+    TEST_ASSERT_EQUAL(7, INA_SDA);   TEST_ASSERT_EQUAL(8, INA_SCL);
+    TEST_ASSERT_EQUAL(6, TEMP_DATA); TEST_ASSERT_EQUAL(9, HALL_INPUT);
+    TEST_ASSERT_EQUAL(10, LED_MOTOR); TEST_ASSERT_EQUAL(11, LED_TEMP); TEST_ASSERT_EQUAL(12, LED_ACCEL); TEST_ASSERT_EQUAL(13, LED_INA); TEST_ASSERT_EQUAL(14, BUZZER);
+    TEST_ASSERT_EQUAL(18, R_EN); TEST_ASSERT_EQUAL(21, L_EN); TEST_ASSERT_EQUAL(38, RPWM); TEST_ASSERT_EQUAL(39, LPWM);
+    TEST_ASSERT_EQUAL(gpio_of("RPWM"), RPWM);                      // the table and the constants are the same data
+}
+void test_pinmap_has_no_duplicate_gpio_ownership() {
+    using namespace torqva_pins;
+    for (int i = 0; i < kPinCount; i++)
+        for (int j = i + 1; j < kPinCount; j++)
+            if (kPins[i].gpio != UNCONFIGURED && kPins[i].gpio == kPins[j].gpio) { char m[96]; snprintf(m, sizeof(m), "GPIO %d used by %s and %s", kPins[i].gpio, kPins[i].name, kPins[j].name); TEST_FAIL_MESSAGE(m); }
+}
+void test_pinmap_every_required_peripheral_is_assigned_and_only_undocumented_interfaces_are_unconfigured() {
+    using namespace torqva_pins;
+    for (int i = 0; i < kPinCount; i++) {
+        if (kPins[i].required) { char m[80]; snprintf(m, sizeof(m), "%s is required but unassigned", kPins[i].name); TEST_ASSERT_MESSAGE(kPins[i].gpio != UNCONFIGURED, m); }
+    }
+    TEST_ASSERT_EQUAL(UNCONFIGURED, MOTOR_RELAY);                  // no documented relay, reset button or E-stop pin: none was invented
+    TEST_ASSERT_EQUAL(UNCONFIGURED, LOCAL_RESET_BUTTON);
+    TEST_ASSERT_EQUAL(UNCONFIGURED, ESTOP_INPUT);
+}
+void test_pinmap_uses_no_unavailable_pin_on_the_esp32s3_n16r8() {
+    using namespace torqva_pins;
+    for (int i = 0; i < kPinCount; i++)
+        if (kPins[i].gpio != UNCONFIGURED) { char m[96]; snprintf(m, sizeof(m), "%s (GPIO %d) is strapping/USB/flash/PSRAM/UART0 or out of range", kPins[i].name, kPins[i].gpio); TEST_ASSERT_MESSAGE(!gpio_unavailable_on_n16r8(kPins[i].gpio), m); }
+    TEST_ASSERT_TRUE(gpio_unavailable_on_n16r8(0)); TEST_ASSERT_TRUE(gpio_unavailable_on_n16r8(19)); TEST_ASSERT_TRUE(gpio_unavailable_on_n16r8(35));
+    TEST_ASSERT_TRUE(gpio_unavailable_on_n16r8(43)); TEST_ASSERT_TRUE(gpio_unavailable_on_n16r8(49)); TEST_ASSERT_FALSE(gpio_unavailable_on_n16r8(38));
+}
+void test_pinmap_keeps_sensor_buses_and_the_motor_driver_apart() {
+    using namespace torqva_pins;
+    // no bus/sensor pin is a motor-driver pin, and the two I2C buses and the OLED share nothing
+    for (int i = 0; i < kPinCount; i++) {
+        if (strcmp(kPins[i].group, "bts7960") == 0)
+            for (int j = 0; j < kPinCount; j++)
+                if (strcmp(kPins[j].group, "bts7960") != 0 && kPins[j].gpio != UNCONFIGURED)
+                    TEST_ASSERT_NOT_EQUAL_MESSAGE(kPins[i].gpio, kPins[j].gpio, kPins[i].name);
+    }
+    TEST_ASSERT_NOT_EQUAL(ADXL_SCL, R_EN); TEST_ASSERT_NOT_EQUAL(ADXL_SCL, RPWM); TEST_ASSERT_NOT_EQUAL(ADXL_SDA, LPWM);       // the former conflicts (17, 16, 38) are gone
+    TEST_ASSERT_NOT_EQUAL(INA_SDA, ADXL_SDA); TEST_ASSERT_NOT_EQUAL(INA_SCL, ADXL_SCL); TEST_ASSERT_NOT_EQUAL(OLED_SDA, ADXL_SDA);
+    TEST_ASSERT_NOT_EQUAL(RPWM, LPWM); TEST_ASSERT_NOT_EQUAL(R_EN, L_EN);
 }
 
 // ---------------- Abstract E-stop input (no pin, no polarity: electrical behaviour is NOT tested here) ----------------
@@ -580,6 +634,11 @@ int main(int, char**) {
     RUN_TEST(test_interlock_permits_only_when_everything_is_verified);
     RUN_TEST(test_interlock_blocks_each_unverified_condition_with_its_own_reason);
     RUN_TEST(test_fault_mask_keeps_every_simultaneous_cause_while_reason_keeps_the_first);
+    RUN_TEST(test_pinmap_matches_the_documented_wiring_reference);
+    RUN_TEST(test_pinmap_has_no_duplicate_gpio_ownership);
+    RUN_TEST(test_pinmap_every_required_peripheral_is_assigned_and_only_undocumented_interfaces_are_unconfigured);
+    RUN_TEST(test_pinmap_uses_no_unavailable_pin_on_the_esp32s3_n16r8);
+    RUN_TEST(test_pinmap_keeps_sensor_buses_and_the_motor_driver_apart);
     RUN_TEST(test_estop_input_is_unknown_until_configured_and_never_released_when_unconfigured);
     RUN_TEST(test_estop_input_starts_unknown_asserts_immediately_and_releases_only_after_the_debounce);
     RUN_TEST(test_estop_input_treats_an_unreadable_sample_as_asserted_and_a_glitch_restarts_the_debounce);

@@ -323,6 +323,21 @@ void test_a_boot_fault_latches_until_an_intentional_reset_and_never_restarts_the
     TEST_ASSERT_FALSE(r.act.driver_enable);                           // no automatic restart
 }
 
+void test_an_output_initialisation_fault_latches_blocks_start_and_is_reported() {
+    Rig r(true, sim_limits(), false, true, true, true);
+    r.dev.latch_boot_fault(TripReason::OUTPUT_INIT_FAULT);            // what main.cpp does when the motor-driver PWM cannot be set up
+    ready(r);
+    TEST_ASSERT_EQUAL(SafetyState::EMERGENCY_STOP, r.dev.safety().state());
+    TEST_ASSERT_EQUAL_STRING("ESTOP_LATCHED", start_reason(r).c_str());
+    r.run(2000);
+    TEST_ASSERT_TRUE(r.has("OUTPUT_INIT_FAULT"));
+    TEST_ASSERT_FALSE(r.act.driver_enable);
+    r.button = true; r.send("RESET_ESTOP"); r.run(300); r.button = false;                // with the button the intentional reset exists; without a wired button none does
+    TEST_ASSERT_EQUAL(SafetyState::OK, r.dev.safety().state());
+    r.run(1000);
+    TEST_ASSERT_FALSE(r.act.driver_enable);                           // and the reset never restarts the motor
+}
+
 void test_acknowledgements_carry_the_device_id_when_configured() {
     DeviceConfig c = sim_cfg(true, true); c.device_id = "MOTOR-RIG-01";
     Device d(sim_limits(), c);
@@ -751,6 +766,7 @@ int main(int, char**) {
     RUN_TEST(test_a_session_cannot_be_inherited_a_fresh_device_never_has_one);
     RUN_TEST(test_stop_works_without_a_session_and_without_authentication);
     RUN_TEST(test_a_boot_fault_latches_until_an_intentional_reset_and_never_restarts_the_motor);
+    RUN_TEST(test_an_output_initialisation_fault_latches_blocks_start_and_is_reported);
     RUN_TEST(test_acknowledgements_carry_the_device_id_when_configured);
     RUN_TEST(test_status_frame_reports_protocol_identity_interlock_reason_and_fault_mask);
     RUN_TEST(test_commands_must_carry_the_live_session_id_and_old_session_ids_are_rejected);

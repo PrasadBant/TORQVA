@@ -17,6 +17,7 @@ const char* trip_reason_name(TripReason r) {
         case TripReason::SENSOR_INVALID: return "SENSOR_INVALID";
         case TripReason::EXTERNAL_ESTOP: return "EXTERNAL_ESTOP";
         case TripReason::RESET_FAULT: return "RESET_FAULT";
+        case TripReason::OUTPUT_INIT_FAULT: return "OUTPUT_INIT_FAULT";
     }
     return "UNKNOWN";
 }
