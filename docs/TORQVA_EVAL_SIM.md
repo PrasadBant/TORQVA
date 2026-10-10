@@ -334,3 +334,43 @@ Unsupported or insufficiently validated predictions still block ACT. Variants ar
 ### 7.3 Test environment
 The two `test_tcp_server.py[trio]` failures are `ModuleNotFoundError: No module named 'trio'`: trio is in no requirements file and not installed. With trio supplied on `PYTHONPATH` (isolated target dir, nothing
 installed globally) all 8 tests in the file pass; no code was changed.
+
+## 8. Phase 12 - reproduction, fresh-seed confirmation and Evaluation-page fix (SIMULATION ONLY)
+
+**Reproduction (rerun on this checkout).** `python -m torqva.c1_study final`, `c2c4_study final`, `c4cal_study final`, `c2cov_study final`, `c2cov_study final-v2` and `python -m torqva.evaluation` were rerun.
+Every JSON artifact is byte-identical to the committed one, and the selections are unchanged (C4: nothing chosen, closest candidate `cal[sa+loose-int|Tp=120,Tl=1.5|gof=None|corr=None]`; C2 v1 `trend_state+class_conditional`, v2 `class_conditional`).
+The only difference is the Phase 8 `c1_phase8_sessions.jsonl.gz`: decompressed contents are identical, only the gzip header timestamp differs (that writer still stamps the time; the Phase 10 writer was made deterministic in Phase 11). It was left as committed.
+
+**Fresh-seed confirmation** (`python -m torqva.generalization_study confirm` -> `docs/eval/generalization_phase12_final.json`). Nothing is re-fitted or re-selected: the frozen Phase 11 selection files are read, models are rebuilt as in Phase 11, and every variant is
+evaluated on a NEW partition `CONF` (C2 seeds 10,000,000+: 3,960 cases = 8 regimes x 6 faults x 3 severities x 3 speeds x 10 replicates; C4 seeds 4,000,000+: 1,944 sessions). The hygiene assertions (unique seeds, no overlap with CAL/VAL/TEST/VAL2/TEST2 or earlier phases, no offset-stream collision)
+cover the new partition; `conf_partitions()` registers it only for the duration of the run. Limits: same simulator and fault generator as the calibration data; the regimes were seen in Phase 11 (only the seeds are fresh). C1 and the gate (C3) are evaluated by `python -m torqva.evaluation`
+(reproduced, unchanged) and are not re-run on CONF.
+
+*C2 (case-level coverage; abstention = share of cases whose prediction is untrusted).*
+
+| regime | shipped | Phase 10 noise-aware | class-conditional (opt-in) | regime-gated (opt-in) |
+|---|---|---|---|---|
+| baseline | 0.878 / 0 % | 0.929 / 5 % | 0.936 / 5 % | 0.939 / 5 % |
+| noisy | 0.762 / 0 % | 0.917 / 14 % | 0.907 / 86 % | 0.915 / 14 % |
+| hard | 0.742 / 0 % | 0.909 / 50 % | 0.887 / 91 % | 0.908 / 50 % |
+| noise x3 | 0.671 / 0 % | 0.908 / 84 % | 0.898 / 100 % | 0.908 / 84 % |
+| unfamiliar speed 2400 | 0.845 / 100 % | 0.900 / 100 % | 0.900 / 100 % | 0.897 / 100 % |
+
+Phase 11 baseline-domain claims replicate (class-conditional baseline overload coverage >= 0.90 and >= 0.05 above Phase 10; baseline coverage within [0.85, 0.95]; trend state lowers baseline MAE). The heavy-shift gap also replicates: the worst sufficiently-sampled
+fault x regime cell is cooling failure at 2400 rpm (0.795 for Phase 10 and class-conditional, 0.804 for the trend/gated variants) - an unfamiliar speed where no variant is trusted (abstention 100 %, so it cannot authorise an action). Under `hard`, class-conditional covers 0.887 with
+0.82 in its worst fault cell. The shipped predictor is poorly covered under noise (worst cell 0.63) but never abstains; Phase 10 and the gated variant recover coverage by abstaining more (hard 50 %, noise x3 84 %), which is the honest trade-off, not a free improvement.
+
+*C4 (pooled over flagged looseness / sensor-fault sessions after a speed-step test; 1,944 sessions across 9 regimes, CI in the JSON).*
+
+| model | accuracy after | confidently wrong | inconclusive | decision worse than prior | meets pre-registered bar |
+|---|---|---|---|---|---|
+| shipped | 59.4 % | 0.2 % | 54.2 % | 6.6 % | no (decision-worse > 5 %) |
+| style-aware | 77.6 % | 10.9 % | 24.0 % | 5.9 % | no (hard: 28.5 % confidently wrong) |
+| conflict-guarded (Phase 10) | 77.6 % | 6.6 % | 29.8 % | 5.9 % | no (hard: 23.6 %) |
+| Phase 11 calibration candidate | 83.2 % | 3.4 % | 34.1 % | 8.6 % | no (sensor-intermittent 11.2 %; decision-worse 8.6 %) |
+
+The calibration candidate is better on aggregate accuracy and calibration (ECE 0.079 vs 0.161) but is worse than the guarded model on the unseen sensor-intermittent style and makes the decision worse more often, so it is **not adopted** (aggregate accuracy is not the criterion). No variant, including the shipped one, meets the bar
+on these seeds; per-pair and per-regime tables are in the JSON.
+
+**Evaluation page fix.** Root cause: `/evaluation/latest` chose the "newest" run by file modification time; on a fresh checkout every file gets the same time, so the served run was arbitrary (the older `eval_sim_run1.json` lacks the `regimes` and `calibration` sections), and the page dereferenced
+metric paths that older runs do not contain. Fixed: the newest run is the highest run number in the file name, `available_runs` lists every qualifying committed run (there is no other history and the page says so), and missing metrics render as "unavailable". The page also shows this phase's confirmation tables.

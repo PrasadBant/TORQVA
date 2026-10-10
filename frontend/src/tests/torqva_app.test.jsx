@@ -59,4 +59,22 @@ describe('redesigned application shell', () => {
     }
     expect(await screen.findByText('not connected')).toBeInTheDocument();
   });
+
+  it('evaluation page tolerates an older run without regime sections and lists the available runs', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const path = String(url).replace('/api/torqva', '').split('?')[0];
+      if (path === '/me') return ok({ user: 'tester', role: 'viewer' });
+      if (path === '/status') return ok({ mode: 'SIMULATION', device: {}, models: {} });
+      if (path === '/evaluation/latest') return ok({ file: 'eval_sim_run1.json', selection: 'highest run number in the file name', run: { schema: 'EvaluationRun/1', WARNING: 'Simulation only.', git_sha: 'abc', c1: {}, hypotheses: {}, c2: {}, c5: {} },
+        available_runs: [{ file: 'eval_sim_run1.json', git_sha: 'abc', runtime_s: 4.5, has_regimes: false }, { file: 'eval_sim_run2.json', git_sha: 'def', runtime_s: 16.8, has_regimes: true }] });
+      if (path === '/evaluation/c2c4') return { ok: false, status: 404, json: async () => ({ detail: 'none' }) };
+      return ok(path === '/telemetry' ? { samples: [] } : []);
+    }));
+    setToken('t'); render(<TorqvaApp pollMs={100000} />);
+    await screen.findByText(/tester · /);
+    fireEvent.click(screen.getByRole('button', { name: /^Evaluation/ }));
+    expect(await screen.findByRole('table', { name: 'Available evaluation runs' })).toBeInTheDocument();
+    expect(screen.getAllByText('unavailable').length).toBeGreaterThan(3);      // missing metrics are labelled, never blank or zero
+    expect(screen.getByText(/there is no longer history/)).toBeInTheDocument();
+  });
 });

@@ -111,19 +111,28 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
     @r.get("/evaluation/latest")
     def evaluation_latest(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         """Newest EvaluationRun JSON from docs/eval (read-only artifact). Only files whose schema is EvaluationRun/* qualify: other study
-        artifacts in the same folder (c1_phase8_*.json, c2c4_phase10_*.json) are NOT evaluation runs. SIMULATED unless it says otherwise."""
+        artifacts in the same folder (c1_phase8_*.json, c2c4_phase10_*.json) are NOT evaluation runs. SIMULATED unless it says otherwise.
+        'Newest' = the highest run number in eval_sim_run<N>.json (file modification times are NOT used: a fresh clone gives every file the same time, which made the
+        choice arbitrary). `available_runs` lists every qualifying committed run; there is no other evaluation history."""
         import json
+        import re
         from pathlib import Path
         d = Path(__file__).resolve().parents[2] / "docs" / "eval"
-        files = sorted(d.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True) if d.exists() else []
-        for f in files:
+        runs = []
+        for f in (sorted(d.glob("*.json")) if d.exists() else []):
             try:
                 run = json.loads(f.read_text())
             except Exception:
                 continue
-            if str(run.get("schema", "")).startswith("EvaluationRun"):
-                return {"file": f.name, "run": run}
-        raise HTTPException(404, "no evaluation run found")
+            if isinstance(run, dict) and str(run.get("schema", "")).startswith("EvaluationRun"):
+                m = re.search(r"(\d+)", f.stem)
+                runs.append((int(m.group(1)) if m else -1, f.name, run))
+        if not runs:
+            raise HTTPException(404, "no evaluation run found")
+        runs.sort(key=lambda t: (t[0], t[1]))
+        n, name, run = runs[-1]
+        return {"file": name, "run": run, "selection": "highest run number in the file name", "available_runs": [
+            {"file": nm, "git_sha": r.get("git_sha"), "config_hash": r.get("config_hash"), "runtime_s": r.get("runtime_s"), "has_regimes": "regimes" in r} for _, nm, r in runs]}
 
     @r.get("/evaluation/c2c4")
     def evaluation_c2c4(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
@@ -153,7 +162,19 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
         if c4f.exists():
             c4 = json.loads(c4f.read_text())
             phase11["c4_calibration"] = {"adopted": bool(c4["adopted_on_validation"]), "closest_to_feasible": c4["closest_to_feasible"], "n_test_sessions": c4["n_test_sessions"]}
-        return {"schema": full["schema"], "data_provenance": full["data_provenance"], "WARNING": full["WARNING"], "c2": c2, "phase11": phase11,
+        g12 = d / "generalization_phase12_final.json"
+        phase12 = None
+        if g12.exists():
+            g = json.loads(g12.read_text())
+            phase12 = {"n_c2_cases": g["c2"]["n_test_cases"], "n_c4_sessions": g["c4"]["n_test_sessions"], "claims_replicated": g["c2"]["phase11_claims_replicated"],
+                       "c2": {vn: {"worst_subgroup": v["worst_sufficiently_sampled_subgroup"], "by_regime": {rg: {"coverage": e["overall"]["coverage_case_level"], "n_cases": e["overall"]["n_cases"],
+                              "width_median": e["overall"]["width_median"], "mae_norm": e["overall"]["mae_norm"], "abstention": v["abstention_by_regime"][rg],
+                              "supported_frac": e["overall"].get("supported_frac")} for rg, e in v["by_regime"].items()}} for vn, v in g["c2"]["variants"].items()},
+                       "c4": {vn: {k: v["pooled"].get(k) for k in ("n", "accuracy_after", "confident_wrong", "confident_wrong_ci95", "inconclusive", "conflict", "decision_worse_than_prior", "ece_top_prob")}
+                              | {"meets_acceptance_bar": g["c4"]["acceptance_bar_on_fresh_seeds"][vn]["meets_bar"], "worst_regime": g["c4"]["acceptance_bar_on_fresh_seeds"][vn]["worst_regime"],
+                                 "worst_regime_confident_wrong": g["c4"]["acceptance_bar_on_fresh_seeds"][vn]["worst_regime_confident_wrong"]} for vn, v in g["c4"]["variants"].items()},
+                       "c4_adopt": g["c4"]["candidate_vs_phase10_guard"]["adopt"], "WARNING": g["WARNING"]}
+        return {"schema": full["schema"], "data_provenance": full["data_provenance"], "WARNING": full["WARNING"], "c2": c2, "phase11": phase11, "phase12": phase12,
                 "c4_realistic_v1": full["c4"]["realistic_T1"],
                 "c4_realistic_v2": json.loads(v2.read_text())["realistic_T1"] if v2.exists() else None,
                 "prediction_targets": full["prediction_targets"], "test_specs": full["test_specs"],

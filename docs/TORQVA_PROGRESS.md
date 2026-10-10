@@ -205,3 +205,9 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 * New shell and light/navy theme (`theme.css`), 11 pages: Overview, Live Monitor, AI Diagnostics (C1), Predictions (C2), Diagnostic Tests (C4), Interventions (C3), Recovery (C5), Learning (C6 + attestation), Evaluation, Lab, Devices & Settings. All data comes from the existing API; missing values read UNAVAILABLE, a stopped backend shows a STALE warning, the physical device is shown as not connected.
 * Not built because the backend has no such feature: on-demand prediction runs, manual test execution, per-test expected-value numbers, model training/activation/rollback, a health score, multiple physical devices.
 * Tests: frontend 64/64 + build; backend 380 passed (tcp_server tests excluded from that run; they need `trio`); Chrome E2E: new app 47/47, torqva 0 fail, c2c4 0 fail, attestation 0 fail, lab run.
+
+## Session 9 - Phase 12: evaluation and generalization (simulation only)
+
+* Phase 8-11 studies reproduce byte-for-byte (except a gzip header timestamp). New `generalization_study.py` re-evaluates the frozen Phase 11 decisions on fresh seeds (CONF): Phase 11 conclusions replicate; C4 calibration still fails the bar and is not adopted; the C2 heavy-shift gap remains (worst cell 0.795, cooling failure at an unfamiliar speed).
+* Evaluation page fixed: run selection by run number (was file mtime), run history list, "unavailable" for missing metrics, Phase 12 tables.
+* Details and tables: `docs/TORQVA_EVAL_SIM.md` section 8.
