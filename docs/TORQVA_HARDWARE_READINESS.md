@@ -474,3 +474,18 @@ Native firmware 112/112 (ADXL345 decode incl. gravity and implausible data, acce
 * Motor Control page: interlock table, device identity, requested duty vs measured rpm/current/voltage/temperature, vibration RMS shown UNAVAILABLE, a duty slider (0-100 % input domain only, nothing sent while moving it) and a two-step START confirmation. Speed range is not shown: no limits are approved.
 * Operator checklist: `docs/TORQVA_HARDWARE_BRINGUP_CHECKLIST.md` (all items unverified).
 * Firmware unchanged. Artifacts (re-built this phase): `esp32s3_uart` 343 920 bytes, SHA-256 `e184d2638ad2ae97c2a00f99c96c4547ded4b657c1d17a05ab4129576c656b35`; `esp32s3` 330 000 bytes, SHA-256 `1d9a6343e9a9d84fd39bdaffd3410519b4e35dfee877511a9e172d09e5b4498e`. Board model/revision, GPIO 38 and all wiring remain UNVERIFIED. Upload is not authorised.
+
+## Phase 24 - commissioning record (software only; nothing flashed, no port opened, no motor operated)
+
+* `backend/torqva/commissioning.py`, `/api/torqva/device/commissioning*` and the Motor Control "Commissioning" card: eight hardware attestations (board identity, GPIO 38, wiring, logic levels, ratings, E-stop, driver default-off, watchdog), approved limits (current, voltage, temperature, rpm, duty) and an explicit enable that needs every item VERIFIED, limits, and a typed phrase. Admin-only, audited, written evidence required, atomic JSON file (`backend/data/commissioning.json`, git-ignored; override with `TORQVA_COMMISSIONING_FILE`). A damaged file is treated as empty.
+* **It is a human record, not a measurement.** VERIFIED means a person attested it. It never overrides the firmware: START and speed are still refused by the firmware interlocks (limits compiled in, no E-stop input in the firmware, no secure session) and by the supervisor, which the serial bridge never enables.
+* The backend request ceilings (duty, rpm) come from the approved limits; without them START and speed are refused (`NO APPROVED DUTY/SPEED LIMIT`).
+* **Still not implemented (needs firmware work and decisions):** authenticated USB sessions with replay protection and expiry; a firmware E-stop input (needs a pin you choose and a wiring contract); direction (the firmware never drives LPWM by design); a firmware build that carries the approved limits (`TORQVA_LIMITS_APPROVED`).
+
+## Phase 25 - SENSOR_INVALID root cause fixed in firmware (software only; nothing flashed)
+
+See `docs/TORQVA_GAP_AUDIT.md`. 0 V from a responding INA219 is now a valid measurement; an absent supply while idle no longer latches a fault; new start interlock `SUPPLY_NOT_PRESENT`. New artifacts (NOT on the board): `esp32s3_uart` 344 032 bytes SHA-256 `d85a178857f1551f7d1a682eb22a47c297936682193cf95411602ee739c715a6`; `esp32s3` 330 096 bytes SHA-256 `c5304d24e289f67b3bcd21820ed46ae7c1bbcc4ed1042216840501627e58c2e9`. The earlier hashes are obsolete.
+
+## Phase 27 - authenticated USB session, physical-data adapter (software only; nothing flashed, no port opened)
+
+See `docs/TORQVA_GAP_AUDIT.md` (Phase 27 additions). Provisioning is offline and manual (`backend/tools/provision_device_key.py`); the shipped firmware has no key, so no session can exist until you provision one and separately authorise a flash. Even then motion stays refused by the remaining interlocks.

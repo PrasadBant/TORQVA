@@ -108,6 +108,7 @@ const char* parse_command(const char* line, ParsedCommand* out) {
     out->cmd.age_ms = (get_num(s, "age", &d) && d >= 0 && d < 4294967295.0) ? (uint32_t)d : 0;
     if (!get_str(s, "k", out->key, sizeof(out->key))) out->key[0] = 0;
     if (!get_str(s, "sid", out->sid, sizeof(out->sid))) out->sid[0] = 0;
+    if (!get_str(s, "m", out->mac, sizeof(out->mac))) out->mac[0] = 0;
     out->cmd.authorized = false;   // set by the device after key comparison, never by the sender
     return nullptr;
 }
@@ -162,11 +163,11 @@ size_t encode_status(char* buf, size_t n, const StatusFrame& f) {
     int w = snprintf(buf, n,
         "{\"t\":\"status\",\"seq\":%lu,\"ts\":%lu,\"fw\":\"%s\",\"wiring\":\"%s\",\"limits_v\":%u,"
         "\"state\":\"%s\",\"reason\":\"%s\",\"mode\":\"%s\",\"drive\":\"%s\",\"ctl\":%u,"
-        "\"hb_age\":%lu,\"test\":%u,\"proto\":%u,\"dev\":\"%s\",\"blk\":\"%s\",\"fm\":%lu}",
+        "\"hb_age\":%lu,\"test\":%u,\"proto\":%u,\"dev\":\"%s\",\"blk\":\"%s\",\"fm\":%lu,\"cfg\":%u,\"es\":%u}",
         (unsigned long)f.seq, (unsigned long)f.ts_ms, f.fw_version, f.wiring_id, (unsigned)f.limits_version,
         st, trip_reason_name(f.reason), f.mode, f.drive, f.control_enabled ? 1u : 0u,
         (unsigned long)f.heartbeat_age_ms, (unsigned)f.test_id, kWireProtocol, f.device_id ? f.device_id : "", f.start_block ? f.start_block : "",
-        (unsigned long)f.fault_mask);
+        (unsigned long)f.fault_mask, (unsigned)f.cfg_version, (unsigned)f.estop_state);
     return (w > 0 && (size_t)w < n) ? (size_t)w : 0;
 }
 

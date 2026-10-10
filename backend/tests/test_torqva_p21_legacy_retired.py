@@ -23,7 +23,7 @@ INI = "\n".join(l for l in INI_RAW.splitlines() if not l.lstrip().startswith(";"
 
 # historical records: allowed to MENTION the retired sketch, but only together with the word "retired" (they are annotated, not rewritten)
 HISTORICAL = {"docs/ARCHITECTURE.md", "docs/NEW_LAPTOP_SETUP_REPORT.md", "docs/PHASE_6_HARDWARE_VALIDATION_REPORT.md", "docs/TORQVA_AUDIT.md", "docs/TORQVA_HARDWARE_READINESS.md",
-              "docs/TORQVA_PROGRESS.md", "communication/PROTOCOL_DOCS.md", "communication/TCP_PROTOCOL.md"}
+              "docs/TORQVA_PROGRESS.md"}
 CURRENT_DOCS = ["README.md", "esp32/README.md", "docs/software.md", "docs/hardware.md", "docs/HARDWARE_WIRING.md"]
 
 
@@ -127,7 +127,7 @@ def test_supported_platformio_environments_remain_and_are_not_merged():
     usb = re.search(r"\[env:esp32s3\](.*?)(?:\n\[|\Z)", INI, re.S).group(1)
     assert "ARDUINO_USB_CDC_ON_BOOT=1" in usb and "ARDUINO_USB_CDC_ON_BOOT=0" in uart and "extends = env:esp32s3" in uart
     for e in (usb, uart):
-        assert "TORQVA_CONTROL_ENABLED" not in e and "upload_port" not in e and "-t upload" not in e                     # control stays compiled out; no upload target is selected
+        assert "TORQVA_LIMITS_APPROVED" not in e and "TORQVA_ESTOP_INPUT_WIRED" not in e and "upload_port" not in e and "-t upload" not in e        # the human declarations stay off; no upload target is selected
 
 
 def test_gpio_map_is_unchanged_by_the_retirement():
@@ -136,7 +136,8 @@ def test_gpio_map_is_unchanged_by_the_retirement():
                 ("BUZZER", 14), ("ADXL_SDA", 16), ("ADXL_SCL", 17), ("R_EN", 18), ("L_EN", 21), ("RPWM", 38), ("LPWM", 39))
     for name, pin in expected:
         assert re.search(r"constexpr int %s\s*=\s*%d;" % (name, pin), pm), f"{name} {pin}"
-    for name in ("MOTOR_RELAY", "LOCAL_RESET_BUTTON", "ESTOP_INPUT"):                      # never invented
+    assert re.search(r"constexpr int ESTOP_INPUT\s*=\s*15;", pm)                         # owner-chosen E-stop monitoring input
+    for name in ("MOTOR_RELAY", "LOCAL_RESET_BUTTON"):                                     # never invented
         assert re.search(r"constexpr int %s\s*=\s*UNCONFIGURED;" % name, pm), name
 
 
@@ -179,7 +180,7 @@ def test_the_backend_never_treats_a_legacy_sketch_as_a_valid_torqva_device(monke
     assert "legacy monitoring sketch" in err["message"] and any("retired" in r for r in err["recovery"])             # recognised only to explain the failure
     assert b.model.conn != Conn.CONNECTED and b.snapshot()["values"]["rpm"] is None
     for action, params in (("STOP", {}), ("START", {"duty_pct": 30}), ("SET_SPEED", {"rpm": 1500})):
-        rec = b.request_command(action, params, "olga", Role.OPERATOR)
+        rec = b.request_command(action, params, "olga", Role.ADMIN)
         assert rec.state == CmdState.REJECTED, action                                                                   # no command reaches a non-TORQVA board
     assert tr.written == []
     b.disconnect()
@@ -191,7 +192,7 @@ def test_physical_motor_controls_stay_disabled_while_commissioning_is_incomplete
     tr.feed(status(0))
     assert wait(lambda: b.model.conn == Conn.CONNECTED)
     for action, params in (("START", {"duty_pct": 30}), ("SET_SPEED", {"rpm": 1500})):
-        rec = b.request_command(action, params, "olga", Role.OPERATOR)
+        rec = b.request_command(action, params, "olga", Role.ADMIN)
         assert rec.state == CmdState.REJECTED
     blockers = b.control_blockers()
     assert "PHYSICAL CONTROL DISABLED" in blockers and "SECURE DEVICE TRANSPORT NOT CONFIGURED" in blockers and "SAFETY LIMITS NOT APPROVED" in blockers
@@ -200,7 +201,7 @@ def test_physical_motor_controls_stay_disabled_while_commissioning_is_incomplete
 
 
 def test_supported_firmware_default_build_keeps_motor_control_compiled_out():
-    assert "TORQVA_CONTROL_ENABLED" not in INI                                  # enabling control is a deliberate, separate human decision
+    assert "TORQVA_LIMITS_APPROVED" not in INI and "TORQVA_ESTOP_INPUT_WIRED" not in INI      # the limits / E-stop declarations are deliberate, separate human decisions
     main = text("esp32/torqva_fw/src/main.cpp")
     assert "#ifdef TORQVA_CONTROL_ENABLED" in main and "#define TORQVA_CONTROL_ENABLED" not in main      # only an explicit build flag can compile the actuation path in
 
@@ -227,3 +228,25 @@ def test_a_healthy_handshake_still_leaves_every_physical_interlock_open():
     tr.feed(status(1, state="EMERGENCY_STOP", reason="OVER_CURRENT_INSTANT", fm=1))
     assert wait(lambda: {r["id"]: r["status"] for r in b.snapshot()["interlocks"]}["fault"] == "BLOCKED")
     b.disconnect()
+
+
+# ====================================================================================== approved command ranges (Phase 24)
+def test_no_approved_limit_blocks_start_and_speed_and_an_approved_limit_only_removes_that_one_blocker():
+    from torqva.serial_bridge import PhysicalControlPolicy
+    b = DeviceBridge(); tr = MemoryTransport(); b.connect(tr)
+    tr.feed(status(0))
+    assert wait(lambda: b.model.conn == Conn.CONNECTED)
+    snap = b.snapshot()
+    assert snap["control_limits"]["max_duty_pct"] is None and snap["control_limits"]["max_rpm"] is None
+    assert "NO APPROVED DUTY LIMIT" in snap["control_blockers"] and "NO APPROVED SPEED LIMIT" in snap["control_blockers"]
+    b.disconnect()
+    b2 = DeviceBridge(policy=PhysicalControlPolicy(physical_control_enabled=True, max_duty_pct=40.0, max_rpm=2000.0)); tr2 = MemoryTransport(); b2.connect(tr2)
+    tr2.feed(status(0))
+    assert wait(lambda: b2.model.conn == Conn.CONNECTED)
+    bl = b2.snapshot()["control_blockers"]
+    assert "NO APPROVED DUTY LIMIT" not in bl and "NO APPROVED SPEED LIMIT" not in bl
+    assert "SECURE DEVICE TRANSPORT NOT CONFIGURED" in bl and "SAFETY LIMITS NOT APPROVED" in bl          # the firmware's own interlocks still refuse
+    for action, params in (("START", {"duty_pct": 20}), ("SET_SPEED", {"rpm": 1000})):
+        assert b2.request_command(action, params, "olga", Role.ADMIN).state == CmdState.REJECTED
+    assert tr2.written == []
+    b2.disconnect()

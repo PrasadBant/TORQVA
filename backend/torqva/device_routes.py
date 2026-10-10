@@ -16,6 +16,7 @@ from fastapi import Depends, HTTPException, Query, WebSocket, WebSocketDisconnec
 from pydantic import BaseModel, Field
 
 from .auth import Principal, TokenAuth
+from .commissioning import CommissioningError
 from .schemas import Role
 from .serial_bridge import ERROR_HELP, SerialTransport, TransportError, possible_port_holders
 
@@ -35,6 +36,27 @@ class CommandIn(BaseModel):
     action: str = Field(max_length=16)
     duty_pct: Optional[float] = Field(default=None, allow_inf_nan=False, ge=0, le=100)
     rpm: Optional[float] = Field(default=None, allow_inf_nan=False, ge=0, le=100000)
+
+
+class ItemIn(BaseModel):
+    status: str = Field(max_length=16)
+    evidence: str = Field(default="", max_length=500)
+
+
+class LimitsIn(BaseModel):
+    max_current_a: float = Field(allow_inf_nan=False)
+    min_voltage_v: float = Field(allow_inf_nan=False)
+    max_voltage_v: float = Field(allow_inf_nan=False)
+    max_temp_c: float = Field(allow_inf_nan=False)
+    max_rpm: float = Field(allow_inf_nan=False)
+    max_duty_pct: float = Field(allow_inf_nan=False)
+    evidence: str = Field(default="", max_length=500)
+    confirm: str = Field(default="", max_length=64)
+
+
+class EnableIn(BaseModel):
+    enabled: bool
+    confirm: str = Field(default="", max_length=64)
 
 
 def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAuth) -> None:
@@ -73,6 +95,8 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
             raise HTTPException(409, "a serial connection is already open")
         bridge.model.expected_device_id = body.expected_device_id
         audit(p, "device_connect", port=body.port, baud=body.baud)
+        if bridge.autoconnect is not None:
+            bridge.autoconnect.resume()
         try:
             bridge.connect(SerialTransport(body.port, body.baud))
         except RuntimeError as e:                                  # an attempt is in progress, or the port is already owned: never a second open
@@ -87,14 +111,16 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
     @r.post("/device/disconnect")
     def device_disconnect(p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
         audit(p, "device_disconnect")
+        if bridge.autoconnect is not None:
+            bridge.autoconnect.pause()                              # an operator disconnect is respected: no automatic reconnect until an operator connects again
         bridge.disconnect("requested by " + p.user)
         return {"state": "DISCONNECTED"}
 
     @r.post("/device/commands")
     def device_command(body: CommandIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
-        if body.action != "STOP" and not p.at_least(Role.OPERATOR):
-            audit(p, "denied", needed="operator", action=body.action)
-            raise HTTPException(403, "requires role operator")
+        if body.action != "STOP" and not p.at_least(Role.ADMIN):
+            audit(p, "denied", needed="admin", action=body.action)
+            raise HTTPException(403, "starting the motor or changing its speed requires the admin role (STOP is open to every signed-in role)")
         params: Dict[str, Any] = {}
         if body.duty_pct is not None:
             params["duty_pct"] = body.duty_pct
@@ -103,6 +129,38 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         audit(p, "device_command_requested", action=body.action, params=params)
         rec = bridge.request_command(body.action, params, p.user, p.role)
         return rec.public()
+
+    # ---- commissioning record (human attestations; admin writes, audited; never overrides the firmware interlocks)
+    @r.get("/device/commissioning")
+    def commissioning_get(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        return bridge.commissioning.snapshot()
+
+    @r.post("/device/commissioning/items/{item_id}")
+    def commissioning_item(item_id: str, body: ItemIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+        audit(p, "commissioning_item", item=item_id, status=body.status)
+        try:
+            bridge.commissioning.set_item(item_id, body.status, body.evidence, p.user)
+        except CommissioningError as e:
+            raise HTTPException(422, str(e))
+        return bridge.commissioning.snapshot()
+
+    @r.put("/device/commissioning/limits")
+    def commissioning_limits(body: LimitsIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+        audit(p, "commissioning_limits", limits=body.model_dump(exclude={"evidence", "confirm"}))
+        try:
+            bridge.commissioning.set_limits(body.model_dump(exclude={"evidence", "confirm"}), body.evidence, p.user, body.confirm)
+        except CommissioningError as e:
+            raise HTTPException(422, str(e))
+        return bridge.commissioning.snapshot()
+
+    @r.post("/device/commissioning/enable")
+    def commissioning_enable(body: EnableIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+        audit(p, "commissioning_enable", enabled=body.enabled)
+        try:
+            bridge.commissioning.set_enable(body.enabled, body.confirm, p.user)
+        except CommissioningError as e:
+            raise HTTPException(422, str(e))
+        return bridge.commissioning.snapshot()
 
     @r.get("/device/commands")
     def device_commands(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:

@@ -47,7 +47,7 @@ async function openTab(role = 'operator', opts) {
   return calls;
 }
 
-beforeEach(() => { vi.unstubAllGlobals(); setToken(''); });
+beforeEach(() => { window.localStorage.setItem('torqva.mode', 'SIMULATION'); vi.unstubAllGlobals(); setToken(''); });
 
 describe('TORQVA attestation workspace', () => {
   it('always shows that attestation is an operator judgment and keeps the simulation banner', async () => {

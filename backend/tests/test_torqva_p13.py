@@ -236,40 +236,18 @@ def test_gate_never_acts_on_untrusted_conflicted_uncorroborated_or_unfamiliar_ev
     assert decide(gi).verdict != GateVerdict.ACT
 
 
-# ----------------------------------------------------------------------------------------------------- legacy hardware-facing routes
+# ----------------------------------------------------------------------------------------------------- CORS (the retired monitoring routes are covered in test_torqva_api)
 @pytest.fixture()
 def legacy(monkeypatch):
     import main
-    monkeypatch.delenv("TORQVA_DEVICE_KEY", raising=False)
     return main, TestClient(main.app, raise_server_exceptions=False)
-
-
-def test_legacy_device_routes_require_the_device_key_when_configured(legacy, monkeypatch):
-    main, c = legacy
-    monkeypatch.setenv("TORQVA_DEVICE_KEY", "s3cret-device-key")
-    assert c.post("/api/ingest", json={}).status_code == 401
-    assert c.get("/api/device/commands").status_code == 401
-    assert c.post("/api/device/command-ack", json={"command_id": "x", "status": "ACK"}).status_code == 401
-    assert c.post("/api/baseline/result", json={}).status_code == 401
-    assert c.post("/api/ingest", json={}, headers={"X-Device-Key": "wrong"}).status_code == 401
-    r = c.get("/api/device/commands", headers={"X-Device-Key": "s3cret-device-key"})
-    assert r.status_code == 200
-
-
-def test_legacy_baseline_mutations_need_an_operator_when_bearer_auth_is_configured(legacy, monkeypatch):
-    main, c = legacy
-    monkeypatch.setattr(main, "_torqva_auth", TokenAuth(ENTRIES))
-    for path in ("/api/baseline/start", "/api/baseline/cancel", "/api/baseline/reset"):
-        assert c.post(path).status_code == 401
-        assert c.post(path, headers=H("v")).status_code == 403
-        assert c.post(path, headers=H("o")).status_code == 200
-    assert c.post("/api/motor", json={"command": "ON"}).status_code == 401
 
 
 def test_cors_is_not_a_wildcard_and_does_not_allow_credentials(legacy):
     main, c = legacy
-    r = c.options("/api/status", headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "GET"})
+    r = c.options("/api/health", headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "GET"})
     assert "access-control-allow-origin" not in r.headers
-    ok = c.options("/api/status", headers={"Origin": "http://localhost:5173", "Access-Control-Request-Method": "GET"})
+    ok = c.options("/api/health", headers={"Origin": "http://localhost:5173", "Access-Control-Request-Method": "GET"})
     assert ok.headers.get("access-control-allow-origin") == "http://localhost:5173"
     assert "access-control-allow-credentials" not in ok.headers
+

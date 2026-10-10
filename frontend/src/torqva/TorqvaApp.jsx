@@ -7,6 +7,7 @@ import { OverviewPage, LivePage, DiagnosticsPage, PredictionsPage, TestsPage, In
 import { useDeviceStream, DevicePage, MotorControlPage, DeviceCard, DeviceLive } from './device.jsx';
 import Lab from './lab.jsx';
 import Attestation from './attestation.jsx';
+import { ModeSwitch, PhysicalBanner, PhysicalOverview, PhysicalLive, PhysicalAiPage, PhysicalSafetyPage } from './physical.jsx';
 import './torqva.css';
 import './theme.css';
 
@@ -21,6 +22,11 @@ const NAV = [
 // Development convenience only: `npm run dev` starts the backend with a matching local token. Never present in a production build.
 const DEV_TOKEN = (import.meta.env && import.meta.env.DEV && import.meta.env.VITE_TORQVA_DEV_TOKEN) || '';
 const canStart = (role) => role === 'operator' || role === 'admin';
+
+// The application is physical-device-first. Simulation is a separate mode that only an explicit operator choice enters (remembered per browser, never set automatically).
+const MODE_KEY = 'torqva.mode';
+const readMode = () => { try { return window.localStorage.getItem(MODE_KEY) === 'SIMULATION' ? 'SIMULATION' : 'PHYSICAL'; } catch { return 'PHYSICAL'; } };
+const storeMode = (m) => { try { window.localStorage.setItem(MODE_KEY, m); } catch { /* storage may be unavailable: the choice then lasts for this page load only */ } };
 
 function Login({ onLogin, error }) {
   const [t, setT] = useState('');
@@ -42,6 +48,9 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const [user, setUser] = useState(null);
   const [loginError, setLoginError] = useState('');
   const [view, setView] = useState('overview');
+  const [appMode, setAppMode] = useState(readMode);
+  const physicalMode = appMode === 'PHYSICAL';
+  const changeMode = (m) => { setAppMode(m); storeMode(m); setRunning(false); };
   const [d, setD] = useState({});
   const [error, setError] = useState(null);
   const [running, setRunning] = useState(false);
@@ -88,7 +97,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
 
   // Development first load: if the simulator has produced nothing yet, start a HEALTHY simulated run so the app is explorable without hardware.
   useEffect(() => {
-    if (!user || autoStarted.current || !d.status || !devLogin.current) return;
+    if (!user || physicalMode || autoStarted.current || !d.status || !devLogin.current) return;
     autoStarted.current = true;
     const fresh = d.status.t === undefined || d.status.t === null || (d.status.t === 0 && !(d.telemetry?.samples || []).length);
     if (fresh && canStart(user.role)) {
@@ -98,6 +107,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
 
   useEffect(() => {
     if (!user) return undefined;
+    if (physicalMode) { if (view === 'devices') refresh(); return undefined; }        // physical mode never polls or steps the simulator
     refresh();
     const id = setInterval(async () => {
       if (ticking.current) return;
@@ -108,7 +118,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
       } finally { ticking.current = false; }
     }, pollMs);
     return () => clearInterval(id);
-  }, [user, running, refresh, pollMs, stepSeconds]);
+  }, [user, running, refresh, pollMs, stepSeconds, physicalMode, view]);
 
   useEffect(() => {
     if (!user) return;
@@ -129,11 +139,11 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   };
 
   if (!user) return <Login onLogin={onLogin} error={loginError} />;
-  const mode = d.status?.mode || 'SIMULATION';
+  const mode = physicalMode ? 'PHYSICAL' : (d.status?.mode || 'SIMULATION');
   const dev = d.status?.device;
   const stale = offline || (lastOk !== null && now - lastOk > Math.max(8000, pollMs * 4));
   const ctx = { d, role: user.role, user, actions, running, setRunning, busy, error, stale, go: setView, ctl: canStart(user.role), device, deviceCard: <DeviceCard stream={device} go={setView} />, deviceLive: <DeviceLive stream={device} /> };
-  const pages = {
+  const simPages = {
     overview: <OverviewPage {...ctx} />, live: <LivePage {...ctx} />, diagnostics: <DiagnosticsPage {...ctx} />,
     predictions: <PredictionsPage {...ctx} />, tests: <TestsPage {...ctx} c2c4={c2c4.data} />, interventions: <InterventionsPage {...ctx} />,
     recovery: <RecoveryPage {...ctx} />, learning: <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>,
@@ -142,26 +152,37 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     device: <DevicePage stream={device} role={user.role} />, control: <MotorControlPage stream={device} role={user.role} />,
     lab: <Lab role={user.role} />, devices: <DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />,
   };
+  const phys = (layer) => <PhysicalAiPage stream={device} layer={layer} go={setView} />;
+  const physPages = {
+    overview: <PhysicalOverview stream={device} go={setView} role={user.role} />, live: <PhysicalLive stream={device} />, diagnostics: phys('C1'), predictions: phys('C2'), tests: phys('C4'),
+    interventions: phys('C3'), recovery: phys('C5'), learning: phys('C6'),
+    evaluation: (<><div className="tq-callout" role="note" data-testid="eval-sim-note"><strong>SIMULATION EVIDENCE</strong> These are results from the software simulator. They say nothing about this physical device.</div>{simPages.evaluation}</>),
+    device: simPages.device, control: <PhysicalSafetyPage stream={device} role={user.role} />,
+    lab: (<><PageHead title="Lab" sub="The lab runs the software simulator." /><div className="tq-callout" data-testid="lab-sim-note"><strong>SIMULATION ONLY.</strong> The lab uses simulated data. Choose Simulation mode (demo) with the mode switch to use it; it is not available in physical mode.</div></>),
+    devices: simPages.devices,
+  };
+  const pages = physicalMode ? physPages : simPages;
   return (
     <div className="tq-shell">
-      <SimulationBanner mode={mode} physical={device.snap?.origin === 'physical_device' && device.snap?.handshake === true} />
-      {stale && (
+      {physicalMode ? <PhysicalBanner snap={device.snap} /> : <SimulationBanner mode={mode} physical={device.snap?.origin === 'physical_device' && device.snap?.handshake === true} />}
+      {stale && !physicalMode && (
         <div className="tq-conn" role="alert" data-testid="conn-warning"><WifiOff size={16} aria-hidden="true" /><strong>Backend unreachable.</strong>
           <span>Values shown are STALE{lastOk ? ` (last updated ${Math.round((now - lastOk) / 1000)} s ago)` : ''} and are not live. Start the backend and this page recovers automatically.</span></div>)}
       <header className="tq-top">
         <strong className="tq-wordmark">TORQVA</strong>
-        <span className="tq-muted">Environment: software simulator (no hardware)</span>
-        <Pill tone={dev?.estop ? 'stop' : 'ok'}>{dev?.estop ? 'DEVICE E-STOP' : 'Device OK'}</Pill>
+        <span className="tq-muted">{physicalMode ? 'Mode: physical device' : 'Environment: software simulator (no hardware)'}</span>
+        {!physicalMode && <Pill tone={dev?.estop ? 'stop' : 'ok'}>{dev?.estop ? 'DEVICE E-STOP' : 'Device OK'}</Pill>}
         <span className="tq-grow" />
+        <ModeSwitch mode={appMode} onChange={changeMode} />
         <span className="tq-muted">{user.user} · {user.role}</span>
         <button className="tq-btn tq-ghost" onClick={() => { setToken(''); setUser(null); setRunning(false); }} aria-label="Sign out"><LogOut size={14} aria-hidden="true" /></button>
       </header>
       <div className="tq-body">
         <nav aria-label="TORQVA sections">
           <div className="tq-brand">TORQVA<small>Motor intelligence</small></div>
-          <ul>{NAV.map(([k, label, Icon, tag]) => (
+          <ul>{NAV.map(([k, label0, Icon, tag]) => { const label = physicalMode && k === 'control' ? 'Safety & Commissioning' : label0; return (
             <li key={k}><button className={`tq-nav ${view === k ? 'active' : ''}`} aria-current={view === k ? 'page' : undefined} onClick={() => setView(k)}>
-              <Icon size={15} aria-hidden="true" />{label}{tag && <span className="tq-tag">{tag}</span>}</button></li>))}</ul>
+              <Icon size={15} aria-hidden="true" />{label}{tag && <span className="tq-tag">{tag}</span>}</button></li>); })}</ul>
         </nav>
         <main><h1 className="tq-sr">{NAV.find((n) => n[0] === view)[1]}</h1>{pages[view]}</main>
       </div>

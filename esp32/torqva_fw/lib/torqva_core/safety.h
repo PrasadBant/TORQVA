@@ -6,6 +6,9 @@
 
 namespace torqva {
 
+// A bus voltage below this is 'no motor supply connected/switched on' (a valid measurement of an absent supply), not a sensor fault. It is NOT an approved limit.
+static const float kSupplyPresentV = 1.0f;
+
 enum class SafetyState : uint8_t { OK = 0, WARN = 1, EMERGENCY_STOP = 2 };
 
 enum class TripReason : uint8_t {
@@ -49,6 +52,8 @@ public:
     // Call at >= 100 Hz. Never blocks.
     SafetyOutput update(const SafetyInputs& in);
     void heartbeat(uint32_t now_ms) { last_hb_ms_ = now_ms; hb_seen_ = true; }
+    // The host session ended (disconnect, expiry, replaced) and the drive is stopped: the dead-man timer restarts when the next session begins heartbeating. Never clears a trip.
+    void forget_heartbeat() { hb_seen_ = false; }
     // Reset needs BOTH an authorized command and the local button press.
     bool reset_trip(bool authorized_command, bool local_button);
     // Latch a fault detected outside update() (e.g. the reason for the last reset). Same latch, same intentional-reset requirement.
@@ -70,6 +75,7 @@ private:
     bool oc_active_; uint32_t oc_start_;
     bool rl_active_; uint32_t rl_start_;
     bool inv_active_; uint32_t inv_start_;
+    bool crit_seen_ok_;          // all critical signals have been valid at least once since power-up
     uint32_t last_hb_ms_; bool hb_seen_;
 };
 

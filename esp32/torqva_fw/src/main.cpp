@@ -12,6 +12,7 @@
 #include <Adafruit_INA219.h>
 #include <esp_task_wdt.h>
 #include <esp_system.h>
+#include <Preferences.h>
 #include "adxl345.h"
 #ifndef TORQVA_OLED
 #define TORQVA_OLED 1          // local SH1106 status display on the software-I2C pins 4/5 (annunciation only; never a decision input)
@@ -21,6 +22,7 @@
 #endif
 #include "config_pins.h"
 #include "device.h"
+#include "estop.h"
 
 using namespace torqva;
 
@@ -31,7 +33,8 @@ using namespace torqva;
 // ---- Commissioning decisions (human-owned). Both default to 0 = motor-energising commands are REFUSED by the start interlocks (interlock.h).
 //  TORQVA_LIMITS_APPROVED     1 only after a responsible person approved the safety-trip limits for this motor, driver, PSU and cooling (see docs/TORQVA_HARDWARE_READINESS.md).
 //  TORQVA_ESTOP_INPUT_WIRED   1 only after an independent emergency-stop input exists with a documented wiring contract AND config_pins.h defines its pin;
-//                             this build reads no E-stop pin (in.external_estop is always false), so the flag must stay 0 until that code exists.
+//                             The firmware READS GPIO 15 (NC contact to GND, pull-up: closed = LOW = healthy) and reports its state in every status frame, but this flag is the owner's
+//                             declaration that the independent hardware circuit is installed and verified. Default 0: the input is monitored, not enforced, and motion stays refused.
 // Device identity reported to the backend bridge. A label (NOT authentication, NOT a secret); set per unit with -DTORQVA_DEVICE_ID=\"...\". The default is deliberately
 // recognisable as unprovisioned, and the bridge reports an unprovisioned or mismatching identity as unverified.
 #ifndef TORQVA_DEVICE_ID
@@ -40,8 +43,9 @@ using namespace torqva;
 #ifndef TORQVA_LIMITS_APPROVED
 #define TORQVA_LIMITS_APPROVED 0
 #endif
-//  TORQVA_TRANSPORT_SECURED   1 only when the command link runs over an authenticated, confidential, replay-protected channel. The built-in protocol does NOT
-//                             provide that (plaintext shared key; a captured command can be replayed after a reboot), so this stays 0 and motor commands are refused.
+//  TORQVA_TRANSPORT_SECURED   1 = the owner accepts the AUTHENTICATED USB link as the trust boundary: per-device key, HMAC-SHA-256 sessions and commands, replay protection, session expiry.
+//                             It is NOT ENCRYPTED and is valid only for a direct USB connection to a controlled local PC (not network-exposed, not USB-over-IP). Without a provisioned key no session
+//                             can exist, so motion stays refused (NO_SECURE_SESSION) whatever this flag says.
 #ifndef TORQVA_TRANSPORT_SECURED
 #define TORQVA_TRANSPORT_SECURED 0
 #endif
@@ -261,9 +265,10 @@ static void read_inputs(HalIn& in) {
         const float scale = 0.1f / TORQVA_SHUNT_OHM;   // library assumes a 0.1 ohm shunt
         in.current_a = g_ina.getCurrent_mA() * 0.001f * scale;
         in.voltage_v = g_ina.getBusVoltage_V();
-        // Plausibility: INA219 bus range is 0..26 V; an exact 0 V reading with a powered system is a bus fault.
         in.current_valid = isfinite(in.current_a) && in.current_a > -10.0f && in.current_a < 20.0f;
-        in.voltage_valid = isfinite(in.voltage_v) && in.voltage_v > 1.0f && in.voltage_v < 27.0f;
+        // A responding INA219 that reads 0 V is a VALID measurement of an absent motor supply (the safety logic and the SUPPLY_NOT_PRESENT start interlock handle that);
+        // only a non-finite or out-of-range value is a sensor fault.
+        in.voltage_valid = isfinite(in.voltage_v) && in.voltage_v >= 0.0f && in.voltage_v < 27.0f;
     } else {
         in.current_a = 0; in.voltage_v = 0; in.current_valid = false; in.voltage_valid = false;
     }
@@ -276,7 +281,18 @@ static void read_inputs(HalIn& in) {
     read_accel(in);
     // No reset button is documented (UNCONFIGURED): it reads as never pressed, so a latched trip cannot be reset by software; only a power cycle clears it.
     in.button_pressed = (torqva_pins::LOCAL_RESET_BUTTON != torqva_pins::UNCONFIGURED) && digitalRead(torqva_pins::LOCAL_RESET_BUTTON) == LOW;
-    in.external_estop = false;                         // no E-stop feedback wired in this pin map
+    {   // E-stop monitoring input. An open circuit, a pressed switch or an unread pin is an emergency-stop CONDITION; the state is always reported.
+        static EstopInput g_estop(EstopConfig{true, /*active_low=*/false, /*release_debounce_ms=*/100});
+        g_estop.update(millis(), true, digitalRead(torqva_pins::ESTOP_INPUT) == HIGH);
+        const EstopState es = g_estop.state();
+        in.estop_state = es == EstopState::ASSERTED ? 1 : (es == EstopState::RELEASED ? 2 : 3);
+#if TORQVA_ESTOP_INPUT_WIRED
+        in.external_estop = (es == EstopState::ASSERTED);  // declared installed and verified: pressed / open stops the motor and latches. UNKNOWN (first 100 ms, not yet debounced) only
+                                                           // blocks a start (Device checks estop_state): it must not latch a fault at every boot
+#else
+        in.external_estop = false;                         // not declared installed: monitored and reported, but it must not latch faults while nothing is wired
+#endif
+    }
 }
 
 // ---------- device + tasks ----------
@@ -329,6 +345,7 @@ void setup() {
     g_ds.setWaitForConversion(false);
     g_ds.requestTemperatures();
     pinMode(torqva_pins::HALL_INPUT, INPUT_PULLUP);
+    pinMode(torqva_pins::ESTOP_INPUT, INPUT_PULLUP);          // NC contact to GND: closed = LOW (healthy); an open circuit floats HIGH = emergency-stop condition
     attachInterrupt(digitalPinToInterrupt(torqva_pins::HALL_INPUT), hall_isr, FALLING);
 
     DeviceConfig cfg = {};
@@ -343,6 +360,27 @@ void setup() {
 #endif
     cfg.kp = 0.01f; cfg.ki = 0.03f;                    // placeholders: tune during commissioning
     cfg.device_id = TORQVA_DEVICE_ID;
+    {   // Per-device authentication key, provisioned into NVS (namespace "torqva", key "authkey", 32 bytes) by tools/provision_device_key.py. Never compiled in, never logged.
+        // No key (or an all-zero / all-0xFF placeholder): no authenticated session can exist and motion commands are refused.
+        Preferences prefs;
+        if (prefs.begin("torqva", true)) {
+            uint8_t k[32];
+            if (prefs.getBytes("authkey", k, sizeof(k)) == sizeof(k)) {
+                bool zero = true, ones = true;
+                for (int i = 0; i < 32; i++) { if (k[i] != 0) zero = false; if (k[i] != 0xFF) ones = false; }
+                if (!zero && !ones) { memcpy(cfg.auth_key, k, 32); cfg.auth_enabled = true; }
+            }
+            memset(k, 0, sizeof(k));
+            prefs.end();
+        }
+        cfg.rand32 = []() -> uint32_t { return esp_random(); };
+    }
+    // Runtime limits: a copy of the last configuration accepted over the authenticated session is kept in NVS (namespace "torqva", key "cfg"). After a reboot it is restored ONLY so the
+    // safety trips use the approved numbers; it does not approve motion. The backend re-sends the configuration over the new authenticated session, and only that re-approves.
+    cfg.persist_cfg = [](const RuntimeLimits& r) {
+        Preferences p;
+        if (p.begin("torqva", false)) { p.putBytes("cfg", &r, sizeof(r)); p.end(); }
+    };
     cfg.accel_supported = true;                        // this build reads the ADXL345 (frames report ok=0 when it is absent or invalid)
     cfg.limits_approved = (TORQVA_LIMITS_APPROVED != 0);
     cfg.estop_input_wired = (TORQVA_ESTOP_INPUT_WIRED != 0);
@@ -351,6 +389,14 @@ void setup() {
     // max_rpm and vib_rms_stop_g stay 0 (= not commissioned) until a human sets them.
     g_dev = new Device(default_limits(), cfg);
     g_mu = xSemaphoreCreateMutex();
+    {
+        Preferences p;
+        RuntimeLimits r;
+        if (p.begin("torqva", true)) {
+            if (p.getBytes("cfg", &r, sizeof(r)) == sizeof(r)) g_dev->restore_runtime_limits(r);
+            p.end();
+        }
+    }
     // A PWM setup failure leaves the driver disabled (apply() never enables it) and latches a visible fault until a power cycle / intentional reset.
     if (!g_pwm_ok) g_dev->latch_boot_fault(TripReason::OUTPUT_INIT_FAULT);
     // A restart caused by a watchdog, brown-out or panic is a FAULT: latch it so the motor cannot be started again until a person performs the intentional reset

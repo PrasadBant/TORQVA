@@ -60,3 +60,11 @@ def anyio_backend(request):
     """The TCP server is written against asyncio (asyncio.get_running_loop / start_server / StreamWriter) and the project's dependencies do not include trio.
     `@pytest.mark.anyio` tests therefore run on the asyncio backend only: a trio run would exercise asyncio-specific code outside an asyncio loop, which tests nothing real."""
     return request.param
+
+
+@pytest.fixture(autouse=True)
+def _isolated_commissioning_file(tmp_path, monkeypatch):
+    """Tests never read or write the operator's real commissioning record."""
+    monkeypatch.setenv("TORQVA_AUTOCONNECT", "0")                     # tests never scan or open real ports
+    monkeypatch.setenv("TORQVA_COMMISSIONING_FILE", str(tmp_path / "commissioning.json"))
+    monkeypatch.setenv("TORQVA_DEVICE_KEYS_FILE", str(tmp_path / "device_keys.json"))

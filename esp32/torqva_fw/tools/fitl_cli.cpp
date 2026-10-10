@@ -8,19 +8,23 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include "device.h"
 #include "simplant.h"
 
 using namespace torqva;
 
 static void drain(Device& d) {
-    char b[256];
+    char b[320];
     while (d.pop_line(b, sizeof(b))) puts(b);
     puts("#");
     fflush(stdout);
 }
 
+static uint32_t fitl_rand() { return ((uint32_t)rand() << 16) ^ (uint32_t)rand() ^ ((uint32_t)rand() << 8); }
+
 int main(int argc, char** argv) {
+    const char* authkey = nullptr;
     bool control = true, strict = false, approved = false, estop_wired = false, secured = false, session = false, wdt = true, accel = false; const char* sid = nullptr;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--no-control") == 0) control = false;
@@ -32,6 +36,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--accel") == 0) accel = true;       // emit accel frames (the plant has no accelerometer: they report ok=0)
         else if (strcmp(argv[i], "--sid") == 0 && i + 1 < argc) sid = argv[++i];
         else if (strcmp(argv[i], "--no-wdt") == 0) wdt = false;
+        else if (strcmp(argv[i], "--auth-key") == 0 && i + 1 < argc) authkey = argv[++i];      // 64 hex chars: enables the authenticated session (the host test supplies the same key)
     }
 
     Limits l = default_limits();
@@ -43,6 +48,10 @@ int main(int argc, char** argv) {
     c.control_enabled = control; c.kp = 0.01f; c.ki = 0.03f;
     // Strict mode (--strict) exercises the real start interlocks; --approved / --estop-wired declare the two human commissioning decisions.
     c.relaxed_interlocks = !strict; c.limits_approved = approved; c.estop_input_wired = estop_wired; c.transport_secured = secured; c.device_id = "FITL-1"; c.accel_supported = accel;
+    if (authkey && strlen(authkey) == 64) {
+        for (int k = 0; k < 32; k++) { unsigned v = 0; sscanf(authkey + 2 * k, "%2x", &v); c.auth_key[k] = (uint8_t)v; }
+        c.auth_enabled = true; c.rand32 = fitl_rand; srand((unsigned)time(nullptr));
+    }
     Device dev(l, c);
     dev.set_watchdog_active(wdt);
     if (sid) dev.begin_session(sid); else dev.set_secure_session(session);

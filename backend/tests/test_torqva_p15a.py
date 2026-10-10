@@ -75,9 +75,12 @@ def test_no_backend_code_path_constructs_the_hardware_mode():
         text = f.read_text()
         if f.name in ("schemas.py",) or "test" in f.name:
             continue
-        if f.name == "serial_bridge.py":                                  # builds a HARDWARE-mode supervisor CONTEXT only, with hardware control hard-wired off
+        if f.name == "serial_bridge.py":                                  # builds a HARDWARE-mode supervisor CONTEXT only; hardware control is never a literal True: it is derived from the human commissioning record
             t = f.read_text()
-            assert "hardware_control_enabled=False" in t and "hardware_control_enabled=True" not in t
+            assert "hardware_control_enabled=True" not in t and "hardware_control_enabled=self._hardware_control_enabled()" in t
+            fn = t[t.index("def _hardware_control_enabled"):]
+            fn = fn[:fn.index("# Most actionable first")]
+            assert "physical_control_enabled()" in fn and 'snap["origin"] == "physical_device"' in fn and 'snap["handshake"]' in fn and "return False" in fn
             continue
         assert "Mode.HARDWARE" not in text.replace("ctx.mode == Mode.HARDWARE", "").replace("mode == Mode.HARDWARE", ""), f.name
     assert "Mode.SIMULATION" in (ROOT / "backend" / "torqva" / "service.py").read_text()

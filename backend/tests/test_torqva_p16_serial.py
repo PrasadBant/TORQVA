@@ -237,7 +237,7 @@ def test_command_without_acknowledgement_times_out_and_is_never_retried(monkeypa
 def test_physical_start_and_speed_are_blocked_with_the_applicable_reasons_and_nothing_is_written():
     b, tr = connected_bridge()
     for action, params in (("START", {"duty_pct": 30}), ("SET_SPEED", {"rpm": 1500})):
-        rec = b.request_command(action, params, "olga", Role.OPERATOR)
+        rec = b.request_command(action, params, "olga", Role.ADMIN)
         assert rec.state == CmdState.REJECTED
         txt = " | ".join(rec.reasons)
         assert "hardware_control_not_enabled" in txt or "PHYSICAL CONTROL DISABLED" in txt
@@ -250,7 +250,7 @@ def test_physical_start_and_speed_are_blocked_with_the_applicable_reasons_and_no
 def test_even_with_the_policy_flag_on_the_secure_transport_requirement_still_blocks_physical_motion():
     b, tr = connected_bridge(policy=PhysicalControlPolicy(physical_control_enabled=True))
     assert "PHYSICAL CONTROL DISABLED" not in b.control_blockers()
-    rec = b.request_command("START", {"duty_pct": 30}, "olga", Role.OPERATOR)
+    rec = b.request_command("START", {"duty_pct": 30}, "olga", Role.ADMIN)
     assert rec.state == CmdState.REJECTED and tr.written == []                        # the supervisor context never enables hardware control either
     b.disconnect()
 
@@ -259,7 +259,7 @@ def test_unsupported_and_invalid_commands_and_stop_while_disconnected_are_reject
     b = DeviceBridge()
     assert b.request_command("STOP", {}, "vera", Role.VIEWER).reasons == ["DEVICE NOT CONNECTED"]
     for action, params in (("FORMAT_DISK", {}), ("START", {"duty_pct": float("nan")}), ("SET_SPEED", {"rpm": "fast"}), ("START", {})):
-        assert b.request_command(action, params, "olga", Role.OPERATOR).state == CmdState.REJECTED
+        assert b.request_command(action, params, "olga", Role.ADMIN).state == CmdState.REJECTED
 
 
 def test_reconnect_or_device_restart_never_replays_a_pending_command():
@@ -355,7 +355,7 @@ def test_bridge_with_the_real_firmware_core_telemetry_identity_interlock_reason_
     assert s["identity"] == "verified" and s["wire_protocol"] == 1 and s["firmware_mode"] == "SIM" and s["origin"] == "device_firmware_simulation"   # a firmware SIM build is never "physical"
     assert s["start_blocked_reason"] == "LIMITS_NOT_APPROVED"                                  # the device itself explains why motion is not permitted
     assert s["values"]["housing"]["valid"] is True and s["values"]["vibration"]["origin"] == "unavailable"
-    assert b.request_command("START", {"duty_pct": 30}, "olga", Role.OPERATOR).state == CmdState.REJECTED
+    assert b.request_command("START", {"duty_pct": 30}, "olga", Role.ADMIN).state == CmdState.REJECTED
     rec = b.request_command("STOP", {}, "vera", Role.VIEWER)                                   # STOP needs no key and no session: the real core accepts and completes it
     assert wait(lambda: rec.state == CmdState.EXECUTED), (rec.state, rec.reasons)
     b.disconnect(); tr.close()
@@ -396,8 +396,11 @@ def test_device_routes_enforce_authentication_and_roles(api):
     assert c.post("/api/torqva/device/connect", headers=H("o"), json={"port": "COM250"}).status_code == 403
     assert c.post("/api/torqva/device/disconnect", headers=H("v")).status_code == 403
     assert c.post("/api/torqva/device/commands", headers=H("v"), json={"action": "START", "duty_pct": 20}).status_code == 403
-    r = c.post("/api/torqva/device/commands", headers=H("o"), json={"action": "START", "duty_pct": 20}).json()
+    assert c.post("/api/torqva/device/commands", headers=H("o"), json={"action": "START", "duty_pct": 20}).status_code == 403          # starting and speed changes are admin-only
+    assert c.post("/api/torqva/device/commands", headers=H("o"), json={"action": "SET_SPEED", "rpm": 500}).status_code == 403
+    r = c.post("/api/torqva/device/commands", headers=H("a"), json={"action": "START", "duty_pct": 20}).json()
     assert r["state"] == "REJECTED" and "PHYSICAL CONTROL DISABLED" in r["reasons"]
+    assert c.post("/api/torqva/device/commands", headers=H("v"), json={"action": "STOP"}).status_code == 200                           # STOP stays open to every signed-in role
 
 
 def test_connect_validates_the_port_and_baud_and_never_opens_a_real_port_in_tests(api):
@@ -481,3 +484,14 @@ def test_websocket_disconnect_event_reaches_clients_and_marks_the_device_disconn
             names.append(ws.receive_json().get("name"))
         assert "device_disconnected" in names and "connection_error" in names
     assert svc.bridge.snapshot()["label"] == "SIMULATION"
+
+
+def test_operators_and_viewers_cannot_start_or_change_speed_even_when_everything_else_allows_it():
+    b, tr = connected_bridge()
+    for role in (Role.OPERATOR, Role.VIEWER):
+        for action, params in (("START", {"duty_pct": 20}), ("SET_SPEED", {"rpm": 500})):
+            rec = b.request_command(action, params, "olga", role)
+            assert rec.state == CmdState.REJECTED and rec.reasons[0].startswith("ADMIN_REQUIRED")
+    assert tr.written == []
+    assert b.request_command("STOP", {}, "vera", Role.VIEWER).state in (CmdState.SENT, CmdState.ACKNOWLEDGED)
+    b.disconnect()

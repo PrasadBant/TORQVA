@@ -56,7 +56,7 @@ async function signedIn(opts) {
   return srv;
 }
 
-beforeEach(() => { vi.unstubAllGlobals(); setToken(''); });
+beforeEach(() => { window.localStorage.setItem('torqva.mode', 'SIMULATION'); vi.unstubAllGlobals(); setToken(''); });
 
 describe('TORQVA workspace', () => {
   it('shows the sign-in screen with the simulation banner and no data when there is no token', () => {

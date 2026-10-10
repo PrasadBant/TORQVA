@@ -2,6 +2,25 @@
 
 Status: **nothing below has been verified.** Software checks (pin-map tests, protocol tests, target builds) are not evidence of wiring or electrical behaviour. Do not upload until every box in sections 1-5 is ticked and you have given a separate, explicit upload authorisation. The motor stays disabled throughout: physical START and speed are blocked by firmware interlocks and by the backend.
 
+## Status summary (evidence-based; updated by the latest run)
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Firmware builds for `esp32s3_uart` and `esp32s3` | VERIFIED | `platformio run` exit 0 (build only; not a hardware test) |
+| Protocol: real firmware frames accepted by the backend parser | VERIFIED | fitl-generated frames, including byte-wise chunking (software only) |
+| Legacy text rejected, cannot enter physical mode | VERIFIED | backend tests (software only) |
+| Board chip/module/revision, flash and PSRAM | NOT VERIFIED | no board query was run |
+| UART (CH343) vs native USB routing | NOT VERIFIED | depends on the connector in use |
+| GPIO 38 vs on-board RGB LED | NOT VERIFIED | board revision unknown |
+| Physical wiring of all sensors, OLED, LEDs, buzzer, driver | NOT VERIFIED | nobody has checked the wires |
+| Approved voltage/current/temperature/overspeed limits | BLOCKED | none approved |
+| Independent hardware E-stop | BLOCKED | none exists; input unconfigured |
+| Reset-safe default-off driver/relay circuitry | NOT VERIFIED | not measured; no relay documented |
+| Watchdog on target | NOT VERIFIED | 2 s is an assumption; no on-target test |
+| Secure physical command transport / commissioning | BLOCKED | USB serial is unauthenticated; commissioning disabled |
+| Handshake and telemetry from an actual device | NOT VERIFIED | the board has not run the supported firmware |
+| Physical motor control | BLOCKED | all of the above |
+
 ## 1. Board identity
 - [ ] Photo of the module shield (for example `ESP32-S3-WROOM-1-N16R8`) and of the board silkscreen/revision.
 - [ ] Read-only identification, with the Arduino IDE and TORQVA disconnected: `python -m esptool --port COMx chip_id` and `flash_id` (reads only). Flash must be 16 MB and PSRAM octal 8 MB to match `qio_opi` / 16 MB in `platformio.ini`; any mismatch must be resolved before flashing.

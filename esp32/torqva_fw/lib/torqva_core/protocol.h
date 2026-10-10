@@ -15,6 +15,7 @@ namespace torqva {
 struct ParsedCommand {
     Command cmd;
     char key[32];
+    char mac[33];     // "m": hex HMAC of the command (authenticated sessions); empty if absent
     char sid[33];     // session id the command claims to belong to ("" if absent); checked against the live session by Device::on_line
 };
 
@@ -59,6 +60,8 @@ struct StatusFrame {
     const char* device_id;   // configured identity ("" if none); a label, not authentication
     const char* start_block; // the FIRST failed start interlock (static string) or "" when a motor-energising command would currently be permitted
     uint32_t fault_mask;     // every distinct trip cause since the last reset (bit = 1 << TripReason)
+    uint16_t cfg_version;    // runtime limits accepted in THIS boot over the authenticated session (0 = none: motion is refused)
+    uint8_t estop_state;     // E-stop monitoring input: 0 not monitored, 1 asserted, 2 released, 3 unknown (reported only)
 };
 
 static const unsigned kWireProtocol = 1;

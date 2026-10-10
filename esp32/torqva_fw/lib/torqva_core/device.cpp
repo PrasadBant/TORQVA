@@ -12,7 +12,7 @@ static const uint32_t kResetWindowMs = 10000;
 static const uint32_t kFreshMs = 250;
 
 Device::Device(const Limits& l, const DeviceConfig& c)
-    : cfg_(c), lim_(l), safety_(l), drive_(l, c.kp, c.ki), validator_(l), tests_(l),
+    : cfg_(c), lim_(l), safety_(l), drive_(l, c.kp, c.ki), validator_(l), tests_(l), auth_(), cfg_runtime_valid_(false), cfg_ver_(0),
       last_in_(), have_in_(false), watchdog_active_(false), session_active_(false), session_sid_(), last_step_ms_(0), stepped_(false), last_hb_ms_(0), hb_seen_(false), seq_(0),
       last_fast_ms_(0), last_slow_ms_(0), last_status_ms_(0), last_accel_ms_(0),
       last_state_(SafetyState::OK), last_reason_(TripReason::NONE),
@@ -20,6 +20,9 @@ Device::Device(const Limits& l, const DeviceConfig& c)
       reset_deadline_ms_(0), last_out_(), last_dt_s_(0.01f),
       q_head_(0), q_tail_(0), q_count_(0), dropped_(0) {
     memset(q_, 0, sizeof(q_));
+    AuthConfig ac = {}; ac.enabled = c.auth_enabled && c.rand32 != nullptr; memcpy(ac.key, c.auth_key, 32); ac.device_id = c.device_id; ac.rand32 = c.rand32;
+    ac.max_ttl_ms = c.auth_max_ttl_ms ? c.auth_max_ttl_ms : 600000u; ac.pending_ms = 5000u;
+    auth_ = SessionAuth(ac);
     last_out_.driver_enable = false; last_out_.duty_pct = 0; last_out_.relay_on = false;
 }
 
@@ -63,7 +66,43 @@ CommandContext Device::ctx() const {
     return c;
 }
 
+void Device::restore_runtime_limits(const RuntimeLimits& r) {
+    if (runtime_limits_validate(r)) return;
+    set_limits(runtime_limits_to_limits(r, lim_));             // motion is NOT approved by this; the version is not remembered either (an old configuration cannot be replayed: it is bound to its session)
+}
+
+void Device::handle_cfg(const char* line, uint32_t now_ms) {
+    char b[96];
+    CfgMsg m;
+    const char* why = parse_cfg(line, &m);
+    uint16_t ver = 0;
+    if (!why) {
+        ver = m.lim.version;
+        char canon[200];
+        cfg_canonical(m, canon, sizeof(canon));
+        why = auth_.enabled() ? auth_.verify_message(canon, m.sid, m.seq, m.mac, now_ms) : "NO_SECURE_SESSION";     // only an authenticated session may configure limits
+        if (!why) why = runtime_limits_validate(m.lim);
+        if (!why && m.lim.version <= cfg_ver_) why = "VERSION_NOT_NEWER";                                              // no rollback or silent re-apply of an old configuration
+        if (!why) {
+            set_limits(runtime_limits_to_limits(m.lim, lim_));
+            cfg_runtime_valid_ = true; cfg_ver_ = m.lim.version;
+            if (cfg_.persist_cfg) cfg_.persist_cfg(m.lim);
+        }
+    }
+    queue_line(b, encode_cfg_ack(b, sizeof(b), ver, why == nullptr, why ? why : "OK"));
+}
+
 void Device::on_line(const char* line, uint32_t now_ms) {
+    if (is_cfg_line(line)) { handle_cfg(line, now_ms); return; }
+    {   // authenticated-session handshake lines (hello / auth) never reach the command parser
+        char out[kLine], sid[33];
+        const int r = auth_.handle(line, now_ms, out, sizeof(out), sid);
+        if (r) {
+            queue_line(out, strlen(out));
+            if (r == 2 && !begin_session(sid)) auth_.end();
+            return;
+        }
+    }
     ParsedCommand pc;
     const char* err = parse_command(line, &pc);
     if (err) {
@@ -73,6 +112,12 @@ void Device::on_line(const char* line, uint32_t now_ms) {
         return;
     }
     pc.cmd.authorized = (pc.key[0] != 0) && (strncmp(pc.key, cfg_.key, sizeof(cfg_.key)) == 0);
+    if (auth_.enabled()) {
+        // Authenticated mode: the plaintext key is ignored. Every non-STOP command must carry a valid MAC of the live session and a fresh counter. STOP is never refused.
+        const char* bad = auth_.verify_command(pc.cmd.id, cmd_type_name(pc.cmd.type), pc.cmd.param, pc.cmd.param2, pc.cmd.param3, pc.cmd.ttl_ms, pc.cmd.seq, pc.cmd.age_ms, pc.sid, pc.mac, now_ms);
+        pc.cmd.authorized = (bad == nullptr);
+        if (bad && pc.cmd.type != CmdType::STOP) { Ack a = {pc.cmd.id, AckStatus::REJECTED, bad}; queue_ack(a); return; }
+    }
 
     // Session binding (strict mode): every command except STOP must belong to the live authenticated session. A command captured in an earlier session, or sent
     // before a session exists (for example right after a reboot), is rejected before it reaches the validator. STOP is never refused.
@@ -117,13 +162,13 @@ void Device::display_info(DisplayInfo* d, uint32_t now_ms) const {
 }
 
 void Device::set_secure_session(bool v) {
-    if (session_active_ && !v) { drive_.stop(); tests_.abort("SESSION_LOST"); session_sid_[0] = 0; }      // fail safe: no session, no motion
+    if (session_active_ && !v) { drive_.stop(); tests_.abort("SESSION_LOST"); session_sid_[0] = 0; hb_seen_ = false; safety_.forget_heartbeat(); }      // fail safe: no session, no motion; the dead-man restarts with the next session
     session_active_ = v;
 }
 
 bool Device::begin_session(const char* sid) {
     if (!sid || !sid[0] || strlen(sid) > 32) return false;
-    if (session_active_) { drive_.stop(); tests_.abort("SESSION_REPLACED"); }       // a new session never inherits motion from the old one
+    if (session_active_) { drive_.stop(); tests_.abort("SESSION_REPLACED"); hb_seen_ = false; safety_.forget_heartbeat(); }       // a new session never inherits motion or a heartbeat from the old one
     strncpy(session_sid_, sid, sizeof(session_sid_) - 1); session_sid_[sizeof(session_sid_) - 1] = 0;
     session_active_ = true;
     return true;
@@ -132,16 +177,17 @@ bool Device::begin_session(const char* sid) {
 const char* Device::start_blocked_reason(uint32_t now_ms) const {
     StartInterlockInputs s;
     s.initialized = have_in_;
-    s.limits_approved = cfg_.limits_approved;
+    s.limits_approved = cfg_.limits_approved || cfg_runtime_valid_;
     s.transport_secured = cfg_.transport_secured;
     s.session_active = session_active_;
     s.estop_input_wired = cfg_.estop_input_wired;
-    s.estop_active = have_in_ && last_in_.external_estop;
+    s.estop_active = have_in_ && (last_in_.external_estop || last_in_.estop_state == 1 || last_in_.estop_state == 3);   // pressed / open / not yet read all block a start (0 = not monitored)
     s.watchdog_active = watchdog_active_;
     s.safety_state = safety_.state();
     s.required_sensors_valid = have_in_ &&
         last_in_.current_valid && finite_f(last_in_.current_a) && last_in_.voltage_valid && finite_f(last_in_.voltage_v) &&
         last_in_.housing_valid && finite_f(last_in_.housing_c) && last_in_.rpm_valid && finite_f(last_in_.rpm);
+    s.supply_present = have_in_ && last_in_.voltage_valid && finite_f(last_in_.voltage_v) && last_in_.voltage_v >= kSupplyPresentV;
     s.telemetry_fresh = have_in_ && (uint32_t)(now_ms - last_in_.now_ms) <= kFreshMs;      // wrap-safe
     s.link_ok = hb_seen_ && (uint32_t)(now_ms - last_hb_ms_) < lim_.heartbeat_timeout_ms;
     return start_interlock_reason(s);
@@ -202,6 +248,7 @@ HalOut Device::step(const HalIn& in) {
     last_in_ = in; have_in_ = true;
     last_step_ms_ = in.now_ms;
     last_dt_s_ = dt;
+    if (auth_.expired(in.now_ms)) { auth_.end(); set_secure_session(false); }      // an expired session stops motion; a new handshake is needed
 
     // Local-button reset of a latched trip (needs a prior authorized RESET_ESTOP command).
     if (reset_pending_) {
@@ -299,7 +346,8 @@ void Device::emit_frames(const HalIn& in) {
                          m == DriveMode::IDLE ? "IDLE" : (m == DriveMode::OPEN_LOOP ? "OPEN_LOOP" : "CLOSED_LOOP"),
                          cfg_.control_enabled, hb_seen_ ? (uint32_t)(in.now_ms - last_hb_ms_) : 0xFFFFFFFFu,
                          tests_.active() ? (uint8_t)tests_.id() : (uint8_t)0,
-                         cfg_.device_id, cfg_.relaxed_interlocks ? "" : (start_blocked_reason(in.now_ms) ? start_blocked_reason(in.now_ms) : ""), safety_.fault_mask()};
+                         cfg_.device_id, cfg_.relaxed_interlocks ? "" : (start_blocked_reason(in.now_ms) ? start_blocked_reason(in.now_ms) : ""), safety_.fault_mask(),
+                         cfg_version(), last_in_.estop_state};
         queue_line(b, encode_status(b, sizeof(b), f));
     }
 }

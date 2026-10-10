@@ -13,8 +13,16 @@ MAIN = (FW / "src" / "main.cpp").read_text()
 # ----------------------------------------------------------------------------------------------- fail-closed configuration of the supported firmware
 def test_default_target_builds_with_no_control_commissioning_or_secret_flags():
     env = re.search(r"\[env:esp32s3\](.*?)(?:\n\[|\Z)", INI, re.S).group(1)
-    for flag in ("TORQVA_CONTROL_ENABLED", "TORQVA_LIMITS_APPROVED", "TORQVA_ESTOP_INPUT_WIRED", "TORQVA_TRANSPORT_SECURED", "TORQVA_KEY"):
-        assert flag not in env, flag
+# Motor-energising code is compiled into the device builds (TORQVA_CONTROL_ENABLED) so that START / SET_SPEED can be accepted at all; without it the firmware answers NOT_IN_HARDWARE_CONTROL
+# to every motor command. This does NOT permit motion: every start interlock still applies (approved limits confirmed in this boot, authenticated session, E-stop declared installed AND
+# released, watchdog, valid sensors, supply, no latched fault, live heartbeat). The key below is a LABEL: with a provisioned device key the plaintext key is ignored entirely.
+    for flag in ("TORQVA_LIMITS_APPROVED", "TORQVA_ESTOP_INPUT_WIRED"):
+        assert flag not in env, flag                                     # the human declarations stay OFF in every build
+    assert "-DTORQVA_CONTROL_ENABLED=1" in env and '-DTORQVA_KEY=\\"authenticated-session-only\\"' in env
+    # The OWNER accepted the AUTHENTICATED (integrity + replay protected, UNENCRYPTED) USB link as the trust boundary for a direct USB connection to a local PC. Without a provisioned key
+    # no session can exist, so this flag alone never permits motion; the E-stop declaration stays OFF until a person installs and verifies the circuit.
+    assert "-DTORQVA_TRANSPORT_SECURED=1" in env
+    assert "TORQVA_ESTOP_INPUT_WIRED" not in INI and "TORQVA_LIMITS_APPROVED" not in INI
 
 
 def test_every_commissioning_flag_defaults_to_zero_and_hardware_never_relaxes_interlocks():

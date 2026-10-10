@@ -28,8 +28,9 @@ def test_production_pinmap_equals_the_intended_reference_and_has_no_duplicates()
 
 def test_undocumented_interfaces_are_unconfigured_not_invented():
     c = constants()
-    for k in ("MOTOR_RELAY", "LOCAL_RESET_BUTTON", "ESTOP_INPUT"):
+    for k in ("MOTOR_RELAY", "LOCAL_RESET_BUTTON"):
         assert c[k] == -1, k
+    assert c["ESTOP_INPUT"] == 15                                              # the owner chose GPIO 15 as the E-stop MONITORING input (subject to board verification)
 
 
 def test_main_cpp_uses_named_pins_only_and_no_other_file_defines_a_gpio():

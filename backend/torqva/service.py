@@ -7,6 +7,7 @@ from __future__ import annotations
 import copy
 import os
 import threading
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -35,7 +36,15 @@ class SimulationService:
         self.scenario: Dict[str, Any] = {}
         self.running = False
         self._n = 0
+        from .commissioning import Commissioning
         self.bridge = DeviceBridge(expected_device_id=os.environ.get("TORQVA_EXPECTED_DEVICE_ID") or None)   # USB serial bridge: never connects by itself
+        from .device_keys import KeyStore
+        self.bridge.keystore = KeyStore(os.environ.get("TORQVA_DEVICE_KEYS_FILE") or str(Path(__file__).resolve().parents[1] / "data" / "device_keys.json"))
+        self.bridge.commissioning = Commissioning(os.environ.get("TORQVA_COMMISSIONING_FILE") or str(Path(__file__).resolve().parents[1] / "data" / "commissioning.json"))
+        from .autoconnect import AutoConnector
+        self.bridge.autoconnect = AutoConnector(self.bridge, os.environ.get("TORQVA_DEVICE_PORT") or None, scan=os.environ.get("TORQVA_AUTOCONNECT", "1") != "0")
+        if os.environ.get("TORQVA_AUTOCONNECT", "1") != "0":
+            self.bridge.autoconnect.start()                       # a TORQVA connection is attempted whenever a USB-serial board appears
         self.gateway = None            # Optional[DeviceGateway]: set only when a device transport is configured (none is, today)
         # Serialises every state change and every read of the live orchestrator (HTTP handlers run in a thread pool). The lock is taken per simulated
         # second inside step(), never for a whole multi-second step, so a STOP is never queued behind a long run.

@@ -44,7 +44,7 @@ async function openLab(role = 'operator', sessions = () => [session()]) {
   return calls;
 }
 
-beforeEach(() => { vi.unstubAllGlobals(); setToken(''); });
+beforeEach(() => { window.localStorage.setItem('torqva.mode', 'SIMULATION'); vi.unstubAllGlobals(); setToken(''); });
 
 describe('TORQVA Lab', () => {
   it('shows the regime description for the selected regime', async () => {

@@ -7,6 +7,7 @@
 #include <math.h>
 #include "device.h"
 #include "simplant.h"
+#include "sha256.h"
 
 using namespace torqva;
 
@@ -126,7 +127,7 @@ void test_strict_start_refused_on_stale_telemetry_and_wrap_safe() {
     r.t += 600;                                                      // control loop silent for 600 ms; heartbeat window (2 s) still open
     TEST_ASSERT_EQUAL_STRING("TELEMETRY_STALE", start_reason(r).c_str());
     // millis() rollover: a snapshot taken just before the wrap and a start request just after it is fresh; 600 ms later is stale.
-    Device d(sim_limits(), sim_cfg(true, false, true, true, true));
+    Device d(sim_limits(), sim_cfg(false, false, true, true, true));      // control not enabled (the shipped build): no heartbeat is expected
     d.set_watchdog_active(true); d.set_secure_session(true);
     HalIn in = {};
     in.now_ms = 0xFFFFFFF0u; in.current_valid = in.voltage_valid = in.housing_valid = in.rpm_valid = true;
@@ -294,7 +295,7 @@ void test_losing_the_secure_session_stops_a_running_motor_and_blocks_restart() {
 }
 
 void test_a_session_cannot_be_inherited_a_fresh_device_never_has_one() {
-    Device d(sim_limits(), sim_cfg(true, false, true, true, true));
+    Device d(sim_limits(), sim_cfg(false, false, true, true, true));      // control not enabled (the shipped build): no heartbeat is expected
     TEST_ASSERT_FALSE(d.secure_session());
 }
 
@@ -374,6 +375,222 @@ void test_invalid_or_non_finite_accelerometer_data_sends_ok_zero_without_numbers
         TEST_ASSERT_TRUE(n >= 6);
     }
     for (size_t i = 0; i < none.size(); i++) TEST_ASSERT_NULL(strstr(none[i].c_str(), "\"t\":\"accel\""));      // a build without the sensor invents nothing
+}
+
+void test_strict_device_idle_with_no_motor_supply_stays_ok_and_reports_the_supply_interlock() {
+    Device d(sim_limits(), sim_cfg(false, false, true, true, true));      // control not enabled (the shipped build): no heartbeat is expected
+    HalIn in = {};
+    for (uint32_t t = 0; t < 3000; t += 10) {
+        in.now_ms = t; in.current_a = 0.0f; in.current_valid = true; in.voltage_v = 0.0f; in.voltage_valid = true;      // INA219 answers, motor rail is at 0 V
+        in.housing_c = 25.0f; in.housing_valid = true; in.rpm = 0.0f; in.rpm_valid = true;
+        d.step(in);
+    }
+    Device::DisplayInfo di; d.display_info(&di, 3000);
+    TEST_ASSERT_EQUAL_MESSAGE(0, (int)di.reason, trip_reason_name(di.reason));
+    TEST_ASSERT_EQUAL(SafetyState::OK, di.state);                      // no latched emergency stop for an absent supply
+    TEST_ASSERT_TRUE(di.voltage_valid);                                // 0 V is a valid measurement, shown as a number
+    TEST_ASSERT_TRUE(strlen(di.start_block) > 0);                      // but motion stays refused (session/heartbeat/supply...)
+    in.voltage_valid = false; in.now_ms = 3010; d.step(in);            // a sensor that stops answering is still invalid, never shown as a number
+    d.display_info(&di, 3010); TEST_ASSERT_FALSE(di.voltage_valid);
+}
+
+// ---------------- authenticated session through the whole Device (strict mode) ----------------
+static uint32_t g_arng = 7;
+static uint32_t arand() { g_arng = g_arng * 1103515245u + 12345u; return g_arng; }
+static std::string last_line(Device& d) { char b[320]; std::string out; while (d.pop_line(b, sizeof(b))) out += std::string(b) + "\n"; return out; }
+static std::string field(const std::string& l, const char* name, size_t len) { std::string k = std::string("\"") + name + "\":\""; size_t p = l.find(k); return p == std::string::npos ? "" : l.substr(p + k.size(), len); }
+static std::string hmachex(const uint8_t* key, const std::string& msg, size_t bytes) { uint8_t d[32]; char h[65]; hmac_sha256(key, 32, msg.data(), msg.size(), d); to_hex(d, bytes, h); return h; }
+
+static int g_persisted = 0; static uint16_t g_persisted_ver = 0;
+static void test_persist(const RuntimeLimits& r) { g_persisted++; g_persisted_ver = r.version; }
+
+struct AuthRig {
+    Device dev; uint8_t key[32]; uint8_t sk[32]; std::string sid; uint32_t now; uint32_t seq;
+    static DeviceConfig cfg(uint8_t* key, bool approved = true) {
+        DeviceConfig c = sim_cfg(true, false, approved, true, true); c.persist_cfg = test_persist;
+        c.device_id = "RIG-1"; c.auth_enabled = true; c.rand32 = arand;
+        for (int i = 0; i < 32; i++) key[i] = c.auth_key[i] = (uint8_t)(i * 5 + 1);
+        return c;
+    }
+    AuthRig(uint8_t* k, bool approved = true) : dev(sim_limits(), cfg(k, approved)), now(1000), seq(0) { memcpy(key, k, 32); }
+    bool login(uint32_t ttl = 60000) {
+        const std::string cn = "00112233445566778899aabbccddeeff";
+        dev.on_line(("{\"t\":\"hello\",\"cn\":\"" + cn + "\"}").c_str(), now);
+        std::string ch = last_line(dev); std::string dn = field(ch, "dn", 32);
+        if (dn.size() != 32 || field(ch, "proof", 64) != hmachex(key, "dev|" + cn + "|" + dn + "|RIG-1", 32)) return false;
+        char t[16]; snprintf(t, sizeof(t), "%lu", (unsigned long)ttl);
+        dev.on_line(("{\"t\":\"auth\",\"proof\":\"" + hmachex(key, "cli|" + dn + "|" + cn + "|RIG-1|" + t, 32) + "\",\"ttl\":" + t + "}").c_str(), now + 5);
+        std::string ok = last_line(dev); sid = field(ok, "sid", 16);
+        if (sid.size() != 16) return false;
+        std::string skm = "sk|" + cn + "|" + dn; hmac_sha256(key, 32, skm.data(), skm.size(), sk);
+        return true;
+    }
+    std::string send(const char* type, float p, bool good_mac = true, bool with_key = false) {
+        seq++;
+        char canon[200], line[300];
+        snprintf(canon, sizeof(canon), "%lu|%s|%.3f|%.3f|%.3f|%lu|%lu|%lu|%s", (unsigned long)(100 + seq), type, (double)p, 0.0, 0.0, 5000ul, (unsigned long)seq, 0ul, sid.c_str());
+        uint8_t d[32]; char m[33]; hmac_sha256(sk, 32, canon, strlen(canon), d); to_hex(d, 16, m); if (!good_mac) m[0] = (m[0] == 'a') ? 'b' : 'a';
+        snprintf(line, sizeof(line), "{\"id\":%lu,\"type\":\"%s\",\"p\":%.3f,\"p2\":0.000,\"p3\":0.000,\"ttl\":5000,\"age\":0,\"seq\":%lu,\"sid\":\"%s\",\"m\":\"%s\"%s}",
+                 (unsigned long)(100 + seq), type, (double)p, (unsigned long)seq, sid.c_str(), m, with_key ? ",\"k\":\"sim-key\"" : "");
+        dev.on_line(line, now); return last_line(dev);
+    }
+};
+
+void test_authenticated_session_gates_every_command_and_never_blocks_stop() {
+    uint8_t k[32]; AuthRig r(k);
+    r.dev.on_line("{\"id\":1,\"type\":\"STOP\",\"ttl\":5000,\"seq\":1,\"age\":0,\"k\":\"sim-key\"}", r.now);
+    TEST_ASSERT_NOT_NULL(strstr(last_line(r.dev).c_str(), "ACCEPTED"));                                 // STOP needs no session
+    r.dev.on_line("{\"id\":2,\"type\":\"START\",\"p\":20,\"ttl\":5000,\"seq\":2,\"age\":0,\"k\":\"sim-key\"}", r.now);
+    TEST_ASSERT_NOT_NULL(strstr(last_line(r.dev).c_str(), "NO_SECURE_SESSION"));                        // the plaintext key opens nothing
+    TEST_ASSERT_TRUE(r.login());
+    std::string a = r.send("START", 20.0f, false);
+    TEST_ASSERT_NOT_NULL(strstr(a.c_str(), "BAD_MAC")); TEST_ASSERT_NULL(strstr(a.c_str(), "ACCEPTED"));
+    a = r.send("START", 20.0f, true, true);
+    TEST_ASSERT_NULL(strstr(a.c_str(), "BAD_MAC")); TEST_ASSERT_NULL(strstr(a.c_str(), "NO_SECURE_SESSION")); TEST_ASSERT_NULL(strstr(a.c_str(), "WRONG_SESSION"));       // authentic: now it is the interlocks' decision
+    a = r.send("STOP", 0.0f, false);
+    TEST_ASSERT_NOT_NULL(strstr(a.c_str(), "ACCEPTED"));                                                // even a bad-MAC STOP is honoured: it can only make things safer
+    TEST_ASSERT_FALSE(r.dev.start_blocked_reason(r.now) == nullptr);                                    // and START is still refused by the other interlocks (heartbeat, sensors, ...)
+}
+
+void test_a_captured_authentic_command_cannot_be_replayed_or_survive_expiry_or_a_new_login() {
+    uint8_t k[32]; AuthRig r(k); TEST_ASSERT_TRUE(r.login(30000));
+    char line[300]; std::string a = r.send("SET_SPEED", 10.0f);
+    TEST_ASSERT_NULL(strstr(a.c_str(), "BAD_MAC")); TEST_ASSERT_NULL(strstr(a.c_str(), "REPLAY"));
+    snprintf(line, sizeof(line), "{\"id\":101,\"type\":\"SET_SPEED\",\"p\":10.000,\"p2\":0.000,\"p3\":0.000,\"ttl\":5000,\"age\":0,\"seq\":1,\"sid\":\"%s\",\"m\":\"%s\"}", r.sid.c_str(), "x");
+    r.dev.on_line(line, r.now);
+    TEST_ASSERT_NOT_NULL(strstr(last_line(r.dev).c_str(), "BAD_MAC"));
+    const uint32_t saved_seq = r.seq; std::string old_sid = r.sid;
+    r.seq = saved_seq - 1;                                                                              // re-send the same counter with a fresh, valid MAC
+    TEST_ASSERT_NOT_NULL(strstr(r.send("SET_SPEED", 10.0f).c_str(), "REPLAY"));
+    r.now += 40000; HalIn in = {}; in.now_ms = r.now; r.dev.step(in);                                   // past the 30 s ttl
+    TEST_ASSERT_FALSE(r.dev.secure_session());                                                          // expiry ends the session (and stops motion)
+    TEST_ASSERT_NOT_NULL(strstr(r.send("SET_SPEED", 10.0f).c_str(), "NO_SECURE_SESSION"));
+    TEST_ASSERT_TRUE(r.login()); TEST_ASSERT_TRUE(r.sid != old_sid);                                    // a new login gives a new session id
+    r.seq = 0;
+    std::string stale = r.send("SET_SPEED", 10.0f); TEST_ASSERT_NULL(strstr(stale.c_str(), "NO_SECURE_SESSION"));
+}
+
+// ---------------- runtime-configurable limits over the authenticated session ----------------
+struct CfgRig : AuthRig {
+    CfgRig(uint8_t* k, bool approved = false) : AuthRig(k, approved) { HalIn in = {}; in.now_ms = now; dev.step(in); }       // one control iteration so the device is initialised
+    std::string cfg(uint16_t ver, const char* ci = "3.000", const char* vl = "18.000", const char* vh = "26.000", const char* ct = "60.000", const char* rp = "3000.000", const char* dp = "30.000",
+                    bool good_mac = true, bool bump_seq = true, const char* sid_override = nullptr) {
+        if (bump_seq) seq++;
+        const std::string use_sid = sid_override ? sid_override : sid;
+        char canon[220], line[300];
+        snprintf(canon, sizeof(canon), "cfg|%u|%lu|%lu|%s|%s|%s|%s|%s|%s|%s", (unsigned)ver, (unsigned long)(900 + seq), (unsigned long)seq, use_sid.c_str(), ci, vl, vh, ct, rp, dp);
+        uint8_t d[32]; char m[33]; hmac_sha256(sk, 32, canon, strlen(canon), d); to_hex(d, 16, m); if (!good_mac) m[0] = (m[0] == 'a') ? 'b' : 'a';
+        snprintf(line, sizeof(line), "{\"t\":\"cfg\",\"ver\":%u,\"id\":%lu,\"seq\":%lu,\"sid\":\"%s\",\"ci\":%s,\"vl\":%s,\"vh\":%s,\"ct\":%s,\"rp\":%s,\"dp\":%s,\"m\":\"%s\"}",
+                 (unsigned)ver, (unsigned long)(900 + seq), (unsigned long)seq, use_sid.c_str(), ci, vl, vh, ct, rp, dp, m);
+        dev.on_line(line, now); return last_line(dev);
+    }
+};
+
+void test_an_authenticated_configuration_approves_limits_applies_them_and_is_reported_in_status() {
+    g_persisted = 0;
+    uint8_t k[32]; CfgRig r(k);
+    TEST_ASSERT_EQUAL_STRING("LIMITS_NOT_APPROVED", r.dev.start_blocked_reason(r.now));                         // nothing is defaulted: no configuration, no motion
+    TEST_ASSERT_EQUAL(0, r.dev.cfg_version());
+    TEST_ASSERT_TRUE(r.login());
+    std::string a = r.cfg(2);
+    TEST_ASSERT_NOT_NULL(strstr(a.c_str(), "\"t\":\"cfg_ack\"")); TEST_ASSERT_NOT_NULL(strstr(a.c_str(), "\"ok\":1")); TEST_ASSERT_NOT_NULL(strstr(a.c_str(), "\"ver\":2"));
+    TEST_ASSERT_EQUAL(2, r.dev.cfg_version()); TEST_ASSERT_EQUAL(1, g_persisted); TEST_ASSERT_EQUAL(2, g_persisted_ver);                  // stored for audit only
+    TEST_ASSERT_TRUE(strcmp(r.dev.start_blocked_reason(r.now), "LIMITS_NOT_APPROVED") != 0);                    // the limits gate is satisfied; other interlocks still decide
+    const Limits& l = r.dev.limits();
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, l.current_stop_a); TEST_ASSERT_EQUAL_FLOAT(3.75f, l.current_inst_a); TEST_ASSERT_EQUAL_FLOAT(18.0f, l.volt_min_v); TEST_ASSERT_EQUAL_FLOAT(26.0f, l.volt_max_v);
+    TEST_ASSERT_EQUAL_FLOAT(60.0f, l.temp_stop_c); TEST_ASSERT_EQUAL_FLOAT(50.0f, l.temp_warn_c); TEST_ASSERT_EQUAL_FLOAT(3000.0f, l.max_rpm); TEST_ASSERT_EQUAL_FLOAT(30.0f, l.max_duty_pct);
+    HalIn in = {}; in.now_ms = r.now + 1100; in.housing_valid = true; in.housing_c = 25.0f; r.dev.step(in);       // status frame carries the accepted version
+    TEST_ASSERT_NOT_NULL(strstr(last_line(r.dev).c_str(), "\"cfg\":2"));
+}
+
+void test_a_configuration_without_authentication_or_with_tampering_replay_rollback_or_bad_values_changes_nothing() {
+    g_persisted = 0;
+    uint8_t k[32]; CfgRig r(k);
+    std::string a = r.cfg(2, "3.000", "18.000", "26.000", "60.000", "3000.000", "30.000", true, true, "0123456789abcdef");        // no session yet
+    TEST_ASSERT_NOT_NULL(strstr(a.c_str(), "NO_SECURE_SESSION")); TEST_ASSERT_EQUAL(0, r.dev.cfg_version());
+    TEST_ASSERT_TRUE(r.login());
+    TEST_ASSERT_NOT_NULL(strstr(r.cfg(2, "3.000", "18.000", "26.000", "60.000", "3000.000", "30.000", false).c_str(), "BAD_MAC")); TEST_ASSERT_EQUAL(0, r.dev.cfg_version());
+    TEST_ASSERT_NOT_NULL(strstr(r.cfg(2, "3.000", "18.000", "26.000", "60.000", "3000.000", "30.000", true, true, "0123456789abcdef").c_str(), "WRONG_SESSION"));
+    TEST_ASSERT_NOT_NULL(strstr(r.cfg(2, "9.000").c_str(), "CURRENT_OUT_OF_RANGE"));                                              // above the sensor's measurement ceiling
+    TEST_ASSERT_NOT_NULL(strstr(r.cfg(2, "3.000", "26.000", "18.000").c_str(), "VOLTAGE_OUT_OF_RANGE"));                         // min above max
+    TEST_ASSERT_NOT_NULL(strstr(r.cfg(2, "3.000", "18.000", "26.000", "200.000").c_str(), "TEMPERATURE_OUT_OF_RANGE"));
+    TEST_ASSERT_NOT_NULL(strstr(r.cfg(2, "3.000", "18.000", "26.000", "60.000", "0.000").c_str(), "RPM_OUT_OF_RANGE"));
+    TEST_ASSERT_NOT_NULL(strstr(r.cfg(2, "3.000", "18.000", "26.000", "60.000", "3000.000", "101.000").c_str(), "DUTY_OUT_OF_RANGE"));
+    TEST_ASSERT_NOT_NULL(strstr(r.cfg(2, "nan").c_str(), "INCOMPLETE"));                                                          // non-numeric values never parse
+    TEST_ASSERT_EQUAL(0, r.dev.cfg_version()); TEST_ASSERT_EQUAL_STRING("LIMITS_NOT_APPROVED", r.dev.start_blocked_reason(r.now));
+    TEST_ASSERT_EQUAL_FLOAT(default_limits().current_stop_a, r.dev.limits().current_stop_a);                                      // nothing was applied
+    TEST_ASSERT_NOT_NULL(strstr(r.cfg(3).c_str(), "\"ok\":1")); TEST_ASSERT_EQUAL(3, r.dev.cfg_version());
+    r.seq -= 1;                                                                                                                   // the identical counter again, with a valid MAC and a newer version
+    TEST_ASSERT_NOT_NULL(strstr(r.cfg(4).c_str(), "REPLAY")); TEST_ASSERT_EQUAL(3, r.dev.cfg_version());
+    TEST_ASSERT_NOT_NULL(strstr(r.cfg(3).c_str(), "VERSION_NOT_NEWER"));                                                          // the same version again is not a new approval
+    TEST_ASSERT_NOT_NULL(strstr(r.cfg(2).c_str(), "VERSION_NOT_NEWER"));                                                          // rollback refused even with a fresh counter
+    TEST_ASSERT_NOT_NULL(strstr(r.cfg(4, "2.500").c_str(), "\"ok\":1")); TEST_ASSERT_EQUAL(4, r.dev.cfg_version());
+    TEST_ASSERT_EQUAL_FLOAT(2.5f, r.dev.limits().current_stop_a); TEST_ASSERT_EQUAL(2, g_persisted);                                // only the two accepted configurations were stored
+}
+
+void test_a_restored_configuration_sets_the_trip_numbers_but_never_approves_motion_and_the_target_persists_accepted_configurations() {
+    uint8_t k[32];
+    DeviceConfig c = AuthRig::cfg(k, false);
+    Device d(sim_limits(), c);
+    RuntimeLimits r = {7, 2.5f, 19.0f, 25.0f, 55.0f, 2500.0f, 25.0f};
+    { HalIn in = {}; in.now_ms = 1000; d.step(in); }
+    d.restore_runtime_limits(r);
+    TEST_ASSERT_EQUAL(0, d.cfg_version());                                                                                       // not approved
+    TEST_ASSERT_EQUAL_FLOAT(2.5f, d.limits().current_stop_a); TEST_ASSERT_EQUAL_FLOAT(55.0f, d.limits().temp_stop_c);
+    TEST_ASSERT_EQUAL_STRING("LIMITS_NOT_APPROVED", d.start_blocked_reason(1000));
+    RuntimeLimits bad = r; bad.max_current_a = NAN; d.restore_runtime_limits(bad);                                                // an invalid stored copy is ignored
+    TEST_ASSERT_EQUAL_FLOAT(2.5f, d.limits().current_stop_a);
+}
+
+void test_runtime_configuration_validation_mapping_and_codec() {
+    RuntimeLimits ok = {2, 3.0f, 18.0f, 26.0f, 60.0f, 3000.0f, 30.0f};
+    TEST_ASSERT_NULL(runtime_limits_validate(ok));
+    RuntimeLimits b = ok; b.version = 0; TEST_ASSERT_NOT_NULL(runtime_limits_validate(b));
+    b = ok; b.max_current_a = INFINITY; TEST_ASSERT_NOT_NULL(runtime_limits_validate(b));
+    b = ok; b.volt_max_v = 30.0f; TEST_ASSERT_EQUAL_STRING("VOLTAGE_OUT_OF_RANGE", runtime_limits_validate(b));
+    b = ok; b.max_rpm = 40000.0f; TEST_ASSERT_EQUAL_STRING("RPM_OUT_OF_RANGE", runtime_limits_validate(b));
+    Limits l = runtime_limits_to_limits(ok, default_limits());
+    TEST_ASSERT_EQUAL_FLOAT(default_limits().ramp_pct_per_s, l.ramp_pct_per_s);                                                  // what the operator did not set keeps its value
+    char line[300];
+    snprintf(line, sizeof(line), "{\"t\":\"cfg\",\"ver\":2,\"id\":5,\"seq\":9,\"sid\":\"abcdef0123456789\",\"ci\":3.000,\"vl\":18.000,\"vh\":26.000,\"ct\":60.000,\"rp\":3000.000,\"dp\":30.000,\"m\":\"%s\"}", "00000000000000000000000000000000");
+    TEST_ASSERT_TRUE(is_cfg_line(line)); TEST_ASSERT_FALSE(is_cfg_line("{\"t\":\"hello\"}"));
+    CfgMsg m; TEST_ASSERT_NULL(parse_cfg(line, &m));
+    TEST_ASSERT_EQUAL(2, m.lim.version); TEST_ASSERT_EQUAL_FLOAT(3.0f, m.lim.max_current_a); TEST_ASSERT_EQUAL_UINT32(9, m.seq);
+    char canon[200]; cfg_canonical(m, canon, sizeof(canon));
+    TEST_ASSERT_EQUAL_STRING("cfg|2|5|9|abcdef0123456789|3.000|18.000|26.000|60.000|3000.000|30.000", canon);
+    TEST_ASSERT_NOT_NULL(parse_cfg("{\"t\":\"cfg\",\"ver\":2}", &m));
+    char ack[96]; TEST_ASSERT_TRUE(encode_cfg_ack(ack, sizeof(ack), 2, false, "BAD_MAC") > 0); TEST_ASSERT_EQUAL_STRING("{\"t\":\"cfg_ack\",\"ver\":2,\"ok\":0,\"reason\":\"BAD_MAC\"}", ack);
+}
+
+void test_status_frames_report_the_estop_input_state_without_changing_any_decision() {
+    DeviceConfig c = sim_cfg(false, false, true, false, true);                     // E-stop input NOT declared installed
+    Device d(sim_limits(), c); d.set_secure_session(true);
+    const uint8_t states[4] = {0, 1, 2, 3};
+    const char* want[4] = {"\"es\":0", "\"es\":1", "\"es\":2", "\"es\":3"};
+    for (int i = 0; i < 4; i++) {
+        HalIn in = {}; in.now_ms = 1000u * (uint32_t)(i + 1); in.estop_state = states[i]; d.step(in); d.step(in);
+        TEST_ASSERT_NOT_NULL(strstr(last_line(d).c_str(), want[i]));
+        TEST_ASSERT_EQUAL_STRING("ESTOP_INPUT_NOT_VERIFIED", d.start_blocked_reason(in.now_ms));      // reporting the pin never marks the circuit installed
+    }
+}
+
+void test_a_pressed_open_or_unread_estop_input_blocks_a_start_in_a_build_that_declares_the_circuit() {
+    Device d(sim_limits(), sim_cfg(false, false, true, true, true)); d.set_secure_session(true); d.set_watchdog_active(true);       // E-stop declared installed
+    HalIn in = {}; in.now_ms = 1000; in.current_valid = in.voltage_valid = in.housing_valid = in.rpm_valid = true; in.voltage_v = 24.0f;
+    const uint8_t blocking[2] = {1, 3};
+    for (int i = 0; i < 2; i++) { in.estop_state = blocking[i]; in.now_ms += 10; d.step(in); TEST_ASSERT_EQUAL_STRING("ESTOP_ACTIVE", d.start_blocked_reason(in.now_ms)); }
+    in.estop_state = 2; in.now_ms += 10; d.step(in);
+    TEST_ASSERT_TRUE(strcmp(d.start_blocked_reason(in.now_ms), "ESTOP_ACTIVE") != 0);                 // released: the E-stop is no longer the reason (other interlocks still decide)
+    TEST_ASSERT_EQUAL(SafetyState::OK, d.safety().state());                                           // UNKNOWN / released never latch by themselves
+}
+
+void test_a_device_without_a_provisioned_key_can_never_open_a_session() {
+    DeviceConfig c = sim_cfg(true, false, true, true, true); c.device_id = "RIG-1";
+    Device d(sim_limits(), c);
+    d.on_line("{\"t\":\"hello\",\"cn\":\"00112233445566778899aabbccddeeff\"}", 10);
+    TEST_ASSERT_NOT_NULL(strstr(last_line(d).c_str(), "NO_KEY")); TEST_ASSERT_FALSE(d.secure_session());
+    d.on_line("{\"id\":3,\"type\":\"START\",\"p\":20,\"ttl\":5000,\"seq\":3,\"age\":0,\"k\":\"sim-key\"}", 20);
+    TEST_ASSERT_NOT_NULL(strstr(last_line(d).c_str(), "NO_SECURE_SESSION"));
 }
 
 void test_display_info_reflects_validity_and_the_safety_state_without_inventing_values() {
@@ -818,6 +1035,16 @@ int main(int, char**) {
     RUN_TEST(test_an_output_initialisation_fault_latches_blocks_start_and_is_reported);
     RUN_TEST(test_accel_frames_carry_raw_axes_and_a_total_magnitude_only_when_valid);
     RUN_TEST(test_invalid_or_non_finite_accelerometer_data_sends_ok_zero_without_numbers_and_unsupported_builds_send_nothing);
+    RUN_TEST(test_strict_device_idle_with_no_motor_supply_stays_ok_and_reports_the_supply_interlock);
+    RUN_TEST(test_authenticated_session_gates_every_command_and_never_blocks_stop);
+    RUN_TEST(test_a_captured_authentic_command_cannot_be_replayed_or_survive_expiry_or_a_new_login);
+    RUN_TEST(test_an_authenticated_configuration_approves_limits_applies_them_and_is_reported_in_status);
+    RUN_TEST(test_a_configuration_without_authentication_or_with_tampering_replay_rollback_or_bad_values_changes_nothing);
+    RUN_TEST(test_a_restored_configuration_sets_the_trip_numbers_but_never_approves_motion_and_the_target_persists_accepted_configurations);
+    RUN_TEST(test_runtime_configuration_validation_mapping_and_codec);
+    RUN_TEST(test_status_frames_report_the_estop_input_state_without_changing_any_decision);
+    RUN_TEST(test_a_pressed_open_or_unread_estop_input_blocks_a_start_in_a_build_that_declares_the_circuit);
+    RUN_TEST(test_a_device_without_a_provisioned_key_can_never_open_a_session);
     RUN_TEST(test_display_info_reflects_validity_and_the_safety_state_without_inventing_values);
     RUN_TEST(test_acknowledgements_carry_the_device_id_when_configured);
     RUN_TEST(test_status_frame_reports_protocol_identity_interlock_reason_and_fault_mask);

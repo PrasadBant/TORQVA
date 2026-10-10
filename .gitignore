@@ -43,3 +43,5 @@ scratch/
 
 # TORQVA
 esp32/torqva_fw/.pio/
+backend/data/commissioning.json
+backend/data/device_keys.json

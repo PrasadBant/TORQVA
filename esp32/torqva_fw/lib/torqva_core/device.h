@@ -11,6 +11,8 @@
 #include "testexec.h"
 #include "protocol.h"
 #include "interlock.h"
+#include "auth.h"
+#include "runtime_config.h"
 
 namespace torqva {
 
@@ -27,8 +29,15 @@ struct DeviceConfig {
     bool estop_input_wired;
     const char* device_id;       // optional identity echoed in every acknowledgement ("dev"); the backend can require it. NOT a secret and NOT authentication by itself
     bool accel_supported;        // an ADXL345 is read by this build: "accel" frames are emitted (ok=0 when the reading is invalid). False in host simulation: no frames, nothing invented
-    bool transport_secured;      // declared by the deployment; the serial/TCP protocol itself has a plaintext shared key and no challenge, so this stays false until a secured channel exists
+    bool transport_secured;      // declared by the deployment: the command link is an AUTHENTICATED USB link (per-device key, HMAC, replay protection, expiry). NOT encrypted. Valid only for a direct USB link to a local PC. (was: the serial/TCP protocol itself has a plaintext shared key and no challenge, so this stays false until a secured channel exists
     bool relaxed_interlocks;
+    // Authenticated session (auth.h). auth_enabled = a per-device key was provisioned. Without it no session can exist and motion commands are refused (NO_SECURE_SESSION).
+    bool auth_enabled;
+    uint8_t auth_key[32];
+    uint32_t (*rand32)();
+    uint32_t auth_max_ttl_ms;    // 0 = 600000
+    // Called after a runtime configuration was authenticated, validated and applied (the target stores it for audit; it is NEVER trusted on its own after a reboot). May be null.
+    void (*persist_cfg)(const RuntimeLimits&);
 };
 
 // Sensor / input snapshot supplied by the platform (real HAL or SimPlant).
@@ -45,6 +54,7 @@ struct HalIn {
     bool  acc_valid;
     bool  button_pressed;        // local acknowledge button, level
     bool  external_estop;        // sensed E-stop / relay feedback if wired
+    uint8_t estop_state;         // reported only: 0 not monitored, 1 asserted (pressed / open circuit), 2 released (circuit healthy), 3 unknown (not yet read / debounce)
 };
 
 // Actuator demands for the platform to apply. Fail-safe values are all-off.
@@ -74,6 +84,11 @@ public:
     // motor is energised stops it (like a STOP), so a dropped or hijacked link cannot leave motion running. Never true after construction (a reboot has no session).
     void set_secure_session(bool v);
     bool secure_session() const { return session_active_; }
+    // Runtime limits. restore_runtime_limits() loads a STORED configuration so the safety trips use the approved numbers, but does NOT approve motion: only an authenticated cfg message
+    // received in this boot does (cfg_version() > 0).
+    void restore_runtime_limits(const RuntimeLimits& r);
+    uint16_t cfg_version() const { return cfg_runtime_valid_ ? cfg_ver_ : 0; }
+    const Limits& limits() const { return lim_; }
     // Begin a session bound to a session id issued by the authenticated transport (up to 32 chars, non-empty). Every non-STOP command must then carry the same "sid";
     // commands for an earlier session id are rejected (WRONG_SESSION). Replaces any previous session. The transport calls this only after its handshake.
     bool begin_session(const char* sid);
@@ -105,6 +120,9 @@ private:
     DriveController drive_;
     CommandValidator validator_;
     TestExecutor tests_;
+    SessionAuth auth_;
+    bool cfg_runtime_valid_; uint16_t cfg_ver_;
+    void handle_cfg(const char* line, uint32_t now_ms);
 
     HalIn last_in_; bool have_in_; bool watchdog_active_; bool session_active_; char session_sid_[33];
     uint32_t last_step_ms_; bool stepped_;

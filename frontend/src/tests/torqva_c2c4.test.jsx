@@ -72,7 +72,7 @@ describe('C2/C4 components', () => {
 });
 
 describe('Predictions and Evaluation views', () => {
-  beforeEach(() => { vi.unstubAllGlobals(); setToken(''); });
+  beforeEach(() => { window.localStorage.setItem('torqva.mode', 'SIMULATION'); vi.unstubAllGlobals(); setToken(''); });
 
   function server(extra = {}) {
     vi.stubGlobal('fetch', vi.fn(async (url) => {

@@ -25,6 +25,8 @@ class FakeSocket {
 }
 const wsFactory = (url) => new FakeSocket(url);
 
+const COMM = { items: [{ id: 'estop', label: 'Independent hardware emergency stop installed and tested', status: 'NOT VERIFIED', evidence: '', by: null }, { id: 'wiring', label: 'Wiring confirmed', status: 'VERIFIED', evidence: 'bench check', by: 'adam' }], limits: null, enable: null, physical_control_enabled: false, enable_allowed: false, enable_phrase: 'ENABLE PHYSICAL CONTROL', note: 'A human record, not a measurement.' };
+
 function server({ snap = DISCONNECTED, role = 'operator', commandResponse, commands = [], onCommand } = {}) {
   const calls = [];
   vi.stubGlobal('fetch', vi.fn(async (url, o = {}) => {
@@ -35,6 +37,7 @@ function server({ snap = DISCONNECTED, role = 'operator', commandResponse, comma
     if (path === '/device/status') return ok(snap);
     if (path === '/device/commands' && (o.method || 'GET') === 'GET') return ok({ commands });
     if (path === '/device/commands') { onCommand && onCommand(JSON.parse(o.body)); return ok(commandResponse || { id: 11, action: 'STOP', state: 'SENT', reasons: [], requested_by: 'tester' }); }
+    if (path === '/device/commissioning') return ok(COMM);
     if (path === '/device/ports') return ok({ ports: [{ device: 'COM7', description: 'USB Serial' }] });
     if (path === '/device/history') return ok({ points: [[Date.now() / 1000 - 2, 1100], [Date.now() / 1000 - 1, null], [Date.now() / 1000, 1200]], origin: 'physical_device' });
     if (path === '/attestation/references') return ok({ versions: [], active_version: null });
@@ -53,7 +56,7 @@ async function open(page, opts = {}) {
   return calls;
 }
 
-beforeEach(() => { vi.unstubAllGlobals(); setToken(''); FakeSocket.last = null; });
+beforeEach(() => { window.localStorage.setItem('torqva.mode', 'SIMULATION'); vi.unstubAllGlobals(); setToken(''); FakeSocket.last = null; });
 
 describe('device pages', () => {
   it('without a device the app is in SIMULATION, says so, and offers no physical telemetry or controls', async () => {
@@ -136,7 +139,7 @@ describe('device pages', () => {
   });
 
   it('a rejected command shows the reasons it was refused', async () => {
-    await open('Motor Control', { snap: { ...SNAP, control_blockers: [] }, commandResponse: { id: 12, action: 'START', state: 'REJECTED', reasons: ['hardware_control_not_enabled'], requested_by: 'tester' }, commands: [] });
+    await open('Motor Control', { role: 'admin', snap: { ...SNAP, control_blockers: [] }, commandResponse: { id: 12, action: 'START', state: 'REJECTED', reasons: ['hardware_control_not_enabled'], requested_by: 'tester' }, commands: [] });
     await screen.findByText('Motor state');
     fireEvent.change(screen.getByLabelText(/Open-loop start duty/), { target: { value: '20' } });
     fireEvent.click(screen.getByRole('button', { name: /Request START/ }));
@@ -151,6 +154,35 @@ describe('device pages', () => {
     expect(t).toHaveTextContent('NOT VERIFIED');
     expect(t).toHaveTextContent('BLOCKED');
     expect(t).not.toHaveTextContent(/^VERIFIED$/);
+  });
+
+  it('shows the commissioning record, offers edits to admins only, and never claims the record enables motion', async () => {
+    await open('Motor Control', { role: 'admin', commands: [] });
+    const t = await screen.findByTestId('commissioning');
+    expect(t).toHaveTextContent('NOT VERIFIED'); expect(t).toHaveTextContent('bench check (adam)');
+    expect(screen.getByText(/No limits are approved/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Enable in the record' })).toBeDisabled();
+    expect(screen.getByText(/does not enable motion/)).toBeInTheDocument();
+  });
+
+  it('shows the approved limit version and change history and asks for the confirmation phrase', async () => {
+    const withLimits = { ...COMM, limits: { version: 2, by: 'adam', max_current_a: 2.5, min_voltage_v: 18, max_voltage_v: 24, max_temp_c: 60, max_rpm: 3000, max_duty_pct: 30 }, limits_confirm_phrase: 'APPROVE THESE LIMITS',
+      limits_history: [{ version: 1, by: 'olga', at: 1700000000, previous: null, new: {} }, { version: 2, by: 'adam', at: 1700000100, previous: { max_current_a: 3, max_duty_pct: 30 }, new: { max_current_a: 2.5, max_duty_pct: 30 } }] };
+    server({ role: 'admin' });
+    const f = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url, o) => (String(url).endsWith('/device/commissioning') ? ok(withLimits) : f(url, o))));
+    setToken('t'); render(<TorqvaApp pollMs={100000} wsFactory={wsFactory} />);
+    fireEvent.click(await screen.findByRole('button', { name: /^Device\s?USB$/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Motor Control/ }));
+    expect(await screen.findByTestId('limits-approved')).toHaveTextContent('Version 2, approved by adam');
+    expect(screen.getByTestId('limits-history')).toHaveTextContent('Max current (A): 3 → 2.5');
+    expect(screen.getByText(/Type APPROVE THESE LIMITS to confirm/)).toBeInTheDocument();
+  });
+
+  it('a non-admin sees the record but no edit controls', async () => {
+    await open('Motor Control', { role: 'operator', commands: [] });
+    await screen.findByTestId('commissioning');
+    expect(screen.queryByRole('button', { name: 'Attest' })).toBeNull();
   });
 
   it('a viewer can request STOP only and the safety fault is explained', async () => {
@@ -220,5 +252,13 @@ describe('device pages', () => {
     await waitFor(() => expect(FakeSocket.last).not.toBeNull());
     act(() => { for (let i = 0; i < 30; i++) FakeSocket.last.emit({ type: 'event', name: 'protocol_error', ts: i, data: { code: 'MALFORMED', count: 1 } }); });
     expect(await screen.findByText(/Protocol error ×30/i)).toBeInTheDocument();
+  });
+
+  it('an operator cannot start or change speed: the controls are disabled and say why, while STOP remains available', async () => {
+    await open('Motor Control', { role: 'operator', snap: { ...SNAP, control_blockers: [] }, commands: [] });
+    await screen.findByText('Motor state');
+    expect(screen.getByRole('button', { name: /Request START/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Send STOP to device/ })).not.toBeDisabled();
+    expect(screen.getByText(/can request STOP only/)).toBeInTheDocument();
   });
 });

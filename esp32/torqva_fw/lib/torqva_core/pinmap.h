@@ -7,7 +7,8 @@
 // Interfaces that have NO documented pin are UNCONFIGURED (-1). They are never given a guessed GPIO, and everything that depends on them stays disabled:
 //   MOTOR_RELAY          no power relay documented  -> the firmware drives no relay
 //   LOCAL_RESET_BUTTON   no reset button documented -> a latched trip can only be cleared by a power cycle (the device-side reset needs the button)
-//   ESTOP_INPUT          no independent E-stop input documented -> estop_input_wired stays false -> motor-energising commands are refused
+//   (ESTOP_INPUT is now assigned GPIO 15 as a MONITORING input; see below. The firmware reads it and reports its state, but the start interlock stays closed until a person declares the
+//    circuit installed and verified with -DTORQVA_ESTOP_INPUT_WIRED=1. The ESP32 GPIO is NOT the emergency stop: an independent hardware circuit must remove motor-driver power.)
 #pragma once
 
 namespace torqva_pins {
@@ -41,7 +42,10 @@ constexpr int LPWM = 39;
 // No documented pin: unconfigured, never invented
 constexpr int MOTOR_RELAY = UNCONFIGURED;
 constexpr int LOCAL_RESET_BUTTON = UNCONFIGURED;
-constexpr int ESTOP_INPUT = UNCONFIGURED;
+// E-stop MONITORING input, proposed by the owner: a normally-closed contact between GPIO 15 and GND with a pull-up. Healthy (closed) reads LOW; a pressed switch, a broken wire or an
+// unconnected input reads HIGH = emergency-stop condition. GPIO 15 is a plain GPIO on the ESP32-S3 (it is the 32 kHz crystal pad XTAL_32K_P and is free when no 32 kHz crystal is fitted);
+// the board schematic / header must confirm that, which this software cannot do.
+constexpr int ESTOP_INPUT = 15;
 
 struct PinEntry {
     const char* name;
@@ -61,7 +65,7 @@ static const PinEntry kPins[] = {
     {"R_EN", R_EN, "bts7960", true},                       {"L_EN", L_EN, "bts7960", true},
     {"RPWM", RPWM, "bts7960", true},                       {"LPWM", LPWM, "bts7960", true},
     {"MOTOR_RELAY", MOTOR_RELAY, "relay", false},          {"LOCAL_RESET_BUTTON", LOCAL_RESET_BUTTON, "button", false},
-    {"ESTOP_INPUT", ESTOP_INPUT, "estop", false},
+    {"ESTOP_INPUT", ESTOP_INPUT, "estop", true},
 };
 static const int kPinCount = (int)(sizeof(kPins) / sizeof(kPins[0]));
 

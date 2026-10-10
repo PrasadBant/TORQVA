@@ -10,12 +10,13 @@ struct StartInterlockInputs {
     bool initialized;            // the control loop has run at least once
     bool limits_approved;        // a human approved the safety-trip limits for THIS motor/driver/PSU (commissioning decision)
     bool session_active;         // a freshly authenticated session is established RIGHT NOW (set by the transport layer after its handshake; false after any link loss or reboot)
-    bool transport_secured;      // the command link is authenticated, confidential and replay-protected (the plaintext shared key alone is NOT sufficient)
+    bool transport_secured;      // the command link is authenticated, integrity-protected and replay-protected (AUTHENTICATED USB - UNENCRYPTED; the plaintext shared key alone is NOT NOT sufficient)
     bool estop_input_wired;      // an independent emergency-stop input exists with a documented wiring contract
     bool estop_active;           // that input currently asserts stop
     bool watchdog_active;        // the task watchdog is registered for the control task
     SafetyState safety_state;    // must be OK (WARN and EMERGENCY_STOP both block)
     bool required_sensors_valid; // current, voltage, housing and rpm: flagged valid AND finite
+    bool supply_present;         // a motor supply is measured (bus voltage at or above kSupplyPresentV): without one, motion is refused, but it is not a sensor fault
     bool telemetry_fresh;        // the last sensor snapshot is recent (wrap-safe age)
     bool link_ok;                // an authorised heartbeat was seen within the heartbeat timeout
 };

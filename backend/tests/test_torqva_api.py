@@ -145,23 +145,14 @@ def test_step_without_simulation_is_409():
     assert c.post("/api/torqva/simulation/step", json={"seconds": 1}, headers=H("o-tok")).status_code == 409
 
 
-def test_legacy_motor_endpoint_requires_operator_token_once_auth_is_configured(monkeypatch):
+def test_the_retired_monitoring_routes_no_longer_exist():
     import main
     from fastapi.testclient import TestClient as TC
-    a = TokenAuth(ENTRIES)
-    monkeypatch.setattr(main, "_torqva_auth", a)
     c = TC(main.app)
-    assert c.post("/api/motor", json={"command": "ON"}).status_code == 401
-    assert c.post("/api/motor", json={"command": "ON"}, headers=H("v-tok")).status_code == 403
-    # operator passes auth, then fails only because no device is connected in tests (503), never 401/403
-    assert c.post("/api/motor", json={"command": "ON"}, headers=H("o-tok")).status_code == 503
-
-
-def test_legacy_motor_endpoint_unchanged_when_auth_not_configured(monkeypatch):
-    import main
-    from fastapi.testclient import TestClient as TC
-    monkeypatch.setattr(main, "_torqva_auth", TokenAuth([]))
-    assert TC(main.app).post("/api/motor", json={"command": "ON"}).status_code == 503
+    for method, path in (("post", "/api/motor"), ("post", "/api/ingest"), ("get", "/api/device/commands"), ("post", "/api/device/command-ack"), ("post", "/api/baseline/start"),
+                         ("post", "/api/baseline/result"), ("get", "/api/status"), ("get", "/api/sensors/latest")):
+        assert getattr(c, method)(path).status_code in (404, 405), path                   # nothing unauthenticated can reach a motor or ingest data any more
+    assert c.get("/api/health").json() == {"status": "ok"}
 
 
 def test_me_and_evaluation_endpoints(service):

@@ -69,7 +69,7 @@ def test_platformio_environments_match_the_bringup_procedure():
     assert "board = esp32-s3-devkitc-1" in usb and "ARDUINO_USB_CDC_ON_BOOT=1" in usb                  # serial on the NATIVE USB port
     assert "extends = env:esp32s3" in uart and "ARDUINO_USB_CDC_ON_BOOT=0" in uart and "ARDUINO_USB_CDC_ON_BOOT=1" not in uart   # serial on UART0 = the CH343 bridge port
     for e in (usb, uart):
-        for forbidden in ("TORQVA_CONTROL_ENABLED", "TORQVA_LIMITS_APPROVED", "TORQVA_ESTOP_INPUT_WIRED", "TORQVA_TRANSPORT_SECURED", "TORQVA_KEY", "upload_", "-t upload"):
+        for forbidden in ("TORQVA_LIMITS_APPROVED", "TORQVA_ESTOP_INPUT_WIRED", "upload_", "-t upload"):
             assert forbidden not in e, forbidden
     assert re.findall(r"^\[env:(\w+)\]", INI, re.M) == ["native", "fitl", "esp32s3", "esp32s3_uart"]
 
@@ -77,5 +77,5 @@ def test_platformio_environments_match_the_bringup_procedure():
 @pytest.mark.skipif(not (FW / ".pio" / "build" / "esp32s3_uart" / "firmware.elf").exists(), reason="esp32s3_uart not built")
 def test_built_artifact_is_torqva_firmware_not_the_legacy_sketch():
     b = (FW / ".pio" / "build" / "esp32s3_uart" / "firmware.elf").read_bytes()
-    assert b.count(b'"proto":%u') >= 1 and b"NO_SECURE_SESSION" in b and b"LIMITS_NOT_APPROVED" in b and b"UNPROVISIONED" in b
+    assert b.count(b'"proto":%u') >= 1 and b"NO_SECURE_SESSION" in b and b"LIMITS_NOT_APPROVED" in b and (b"UNPROVISIONED" in b or b"RIG-1" in b)
     assert b"MOTOR_ON" not in b and b"smart_motor" not in b and b"BTS7960" not in b

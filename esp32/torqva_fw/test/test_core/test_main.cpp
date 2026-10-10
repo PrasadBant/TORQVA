@@ -8,6 +8,10 @@
 #include "estop.h"
 #include "pinmap.h"
 #include "adxl345.h"
+#include "sha256.h"
+#include "auth.h"
+#include <string.h>
+#include <stdio.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -92,6 +96,56 @@ void test_temp_rise_limit_only_when_configured() {
     TEST_ASSERT_EQUAL(TripReason::TEMP_RISE, on.update(in).reason);
 }
 
+// An absent motor supply (a valid ~0 V measurement) must not latch an emergency stop while the drive is idle; it must still refuse motion, and it must trip while driving.
+void test_absent_supply_while_idle_is_not_a_latched_fault_but_blocks_motion_and_trips_while_driving() {
+    SafetyMonitor idle(default_limits());
+    SafetyInputs in = healthy(0); in.voltage_v = 0.0f; in.duty_pct = 0.0f;
+    for (uint32_t t = 0; t < 3000; t += 10) { in.now_ms = t; TEST_ASSERT_TRUE(idle.update(in).drive_allowed); }      // far longer than sensor_invalid_ms
+    TEST_ASSERT_EQUAL(SafetyState::OK, idle.state());
+    SafetyMonitor low(default_limits());
+    in = healthy(0); in.voltage_v = 12.0f; in.duty_pct = 0.0f;                                                       // a supply that IS present but low still trips at idle
+    TEST_ASSERT_EQUAL(TripReason::VOLTAGE_LOW, low.update(in).reason);
+    SafetyMonitor drv(default_limits());
+    in = healthy(0); in.voltage_v = 0.0f; in.duty_pct = 20.0f;                                                       // driving with no supply reading is a fault
+    TEST_ASSERT_EQUAL(TripReason::VOLTAGE_LOW, drv.update(in).reason);
+    SafetyMonitor dead(default_limits());
+    in = healthy(0); in.duty_pct = 0.0f; dead.update(in);                                                            // the INA219 answered once ...
+    in.voltage_valid = false;                                                                                        // ... then stops answering: still a latched SENSOR_INVALID
+    for (uint32_t t = 10; t <= 1000; t += 10) { in.now_ms = t; dead.update(in); }
+    TEST_ASSERT_EQUAL(TripReason::SENSOR_INVALID, dead.reason());
+}
+
+// Power-up: sensors that have not yet produced a first valid reading must not latch an idle device; a LOSS after they were valid, or invalid data while driving, still latches.
+void test_idle_warmup_with_never_valid_sensors_does_not_latch_but_a_later_loss_or_driving_does() {
+    SafetyMonitor warm(default_limits());
+    SafetyInputs in = healthy(0); in.housing_valid = false; in.duty_pct = 0.0f;                        // DS18B20 has not completed its first conversion
+    for (uint32_t t = 0; t <= 8000; t += 10) { in.now_ms = t; TEST_ASSERT_TRUE(warm.update(in).drive_allowed); }
+    TEST_ASSERT_EQUAL(SafetyState::OK, warm.state());
+    in.housing_valid = true; in.now_ms = 8010; TEST_ASSERT_TRUE(warm.update(in).drive_allowed);          // now valid once
+    in.housing_valid = false;                                                                            // then lost
+    for (uint32_t t = 8020; t <= 8800; t += 10) { in.now_ms = t; warm.update(in); }
+    TEST_ASSERT_EQUAL(TripReason::SENSOR_INVALID, warm.reason());
+    SafetyMonitor drv(default_limits());
+    in = healthy(0); in.housing_valid = false; in.duty_pct = 20.0f;                                      // invalid while driving: latches even if never valid
+    for (uint32_t t = 0; t <= 800; t += 10) { in.now_ms = t; drv.update(in); }
+    TEST_ASSERT_EQUAL(TripReason::SENSOR_INVALID, drv.reason());
+}
+
+// The heartbeat dead-man applies while DRIVING; an idle device with no host yet (or a restarted host) is not a fault, otherwise every boot with control compiled in would latch.
+void test_heartbeat_dead_man_applies_while_driving_not_while_idle() {
+    SafetyMonitor m(default_limits());
+    SafetyInputs in = healthy(0); in.hardware_control_mode = true; in.duty_pct = 0.0f;
+    for (uint32_t t = 0; t <= 10000; t += 10) { in.now_ms = t; TEST_ASSERT_TRUE(m.update(in).drive_allowed); }
+    in.duty_pct = 20.0f; in.now_ms = 10010;
+    TEST_ASSERT_TRUE(m.update(in).drive_allowed);                                  // the timer starts when driving starts
+    in.now_ms = 10010 + 2100;
+    SafetyOutput o = m.update(in);
+    TEST_ASSERT_FALSE(o.drive_allowed); TEST_ASSERT_EQUAL(TripReason::HEARTBEAT_LOST, o.reason);
+    SafetyMonitor f(default_limits());
+    in = healthy(0); in.hardware_control_mode = true; f.heartbeat(0); f.forget_heartbeat();           // a session end forgets the heartbeat; it never clears a trip
+    in.now_ms = 5000; TEST_ASSERT_TRUE(f.update(in).drive_allowed);
+}
+
 void test_voltage_window() {
     SafetyMonitor lo(default_limits());
     SafetyInputs in = healthy(0); in.voltage_v = 19.9f;
@@ -163,7 +217,7 @@ static StartInterlockInputs all_ok() {
     StartInterlockInputs i = {};
     i.initialized = i.limits_approved = i.transport_secured = i.session_active = i.estop_input_wired = i.watchdog_active = true;
     i.estop_active = false; i.safety_state = SafetyState::OK;
-    i.required_sensors_valid = i.telemetry_fresh = i.link_ok = true;
+    i.required_sensors_valid = i.supply_present = i.telemetry_fresh = i.link_ok = true;
     return i;
 }
 void test_interlock_permits_only_when_everything_is_verified() {
@@ -181,6 +235,7 @@ void test_interlock_blocks_each_unverified_condition_with_its_own_reason() {
     i = all_ok(); i.safety_state = SafetyState::WARN;            TEST_ASSERT_EQUAL_STRING("SAFETY_NOT_OK", start_interlock_reason(i));
     i = all_ok(); i.safety_state = SafetyState::EMERGENCY_STOP;  TEST_ASSERT_EQUAL_STRING("SAFETY_NOT_OK", start_interlock_reason(i));
     i = all_ok(); i.required_sensors_valid = false; TEST_ASSERT_EQUAL_STRING("SENSOR_NOT_VALID", start_interlock_reason(i));
+    i = all_ok(); i.supply_present = false;         TEST_ASSERT_EQUAL_STRING("SUPPLY_NOT_PRESENT", start_interlock_reason(i));
     i = all_ok(); i.telemetry_fresh = false;        TEST_ASSERT_EQUAL_STRING("TELEMETRY_STALE", start_interlock_reason(i));
     i = all_ok(); i.link_ok = false;                TEST_ASSERT_EQUAL_STRING("NO_HEARTBEAT", start_interlock_reason(i));
     StartInterlockInputs z = {};                    // an all-zero (unverified) input must never permit a start
@@ -204,6 +259,104 @@ void test_adxl345_implausible_data_is_invalid_and_zeros_are_not_presented_as_a_r
     TEST_ASSERT_FALSE(s.valid);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, s.mag_g);                                 // numbers of an invalid sample are zeroed and must never be shown (valid=false)
     TEST_ASSERT_TRUE(adxl345_devid_ok(0xE5)); TEST_ASSERT_FALSE(adxl345_devid_ok(0x00)); TEST_ASSERT_FALSE(adxl345_devid_ok(0xFF));   // a floating bus reads 0x00 / 0xFF
+}
+
+// ---------------- SHA-256 / HMAC-SHA-256 known-answer tests (FIPS 180-4, RFC 4231) ----------------
+void test_sha256_and_hmac_match_the_published_vectors() {
+    uint8_t d[32]; char h[65];
+    sha256("abc", 3, d); to_hex(d, 32, h);
+    TEST_ASSERT_EQUAL_STRING("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", h);
+    sha256("", 0, d); to_hex(d, 32, h);
+    TEST_ASSERT_EQUAL_STRING("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", h);
+    const char* two = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";                  // crosses a block boundary
+    sha256(two, strlen(two), d); to_hex(d, 32, h);
+    TEST_ASSERT_EQUAL_STRING("248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1", h);
+    uint8_t key[20]; memset(key, 0x0b, sizeof(key));
+    hmac_sha256(key, 20, "Hi There", 8, d); to_hex(d, 32, h);
+    TEST_ASSERT_EQUAL_STRING("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7", h);
+    hmac_sha256((const uint8_t*)"Jefe", 4, "what do ya want for nothing?", 28, d); to_hex(d, 32, h);
+    TEST_ASSERT_EQUAL_STRING("5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843", h);
+    TEST_ASSERT_TRUE(ct_equal("abc", "abc")); TEST_ASSERT_FALSE(ct_equal("abc", "abd")); TEST_ASSERT_FALSE(ct_equal("abc", "ab"));
+}
+
+static uint32_t g_rng = 1;
+static uint32_t test_rand() { g_rng = g_rng * 1664525u + 1013904223u; return g_rng; }
+static void make_auth(SessionAuth& a, uint8_t key[32]) {
+    AuthConfig c = {}; c.enabled = true; for (int i = 0; i < 32; i++) key[i] = c.key[i] = (uint8_t)(i * 7 + 3);
+    c.device_id = "RIG-1"; c.rand32 = test_rand; c.max_ttl_ms = 600000; c.pending_ms = 5000;
+    a = SessionAuth(c);
+}
+static void hex_proof(const uint8_t key[32], const char* msg, size_t bytes, char* out) { uint8_t d[32]; hmac_sha256(key, 32, msg, strlen(msg), d); to_hex(d, bytes, out); }
+static const char* CN = "00112233445566778899aabbccddeeff";
+
+// the host side of the handshake, written independently of SessionAuth
+static bool handshake(SessionAuth& a, const uint8_t key[32], uint32_t now, uint32_t ttl, char sid[33], uint8_t sk[32]) {
+    char out[256], line[160], dn[40], proof[65], msg[200];
+    snprintf(line, sizeof(line), "{\"t\":\"hello\",\"cn\":\"%s\"}", CN);
+    if (a.handle(line, now, out, sizeof(out), sid) != 1) return false;
+    const char* p = strstr(out, "\"dn\":\""); if (!p) return false; memcpy(dn, p + 6, 32); dn[32] = 0;
+    p = strstr(out, "\"proof\":\""); if (!p) return false; memcpy(proof, p + 9, 64); proof[64] = 0;
+    snprintf(msg, sizeof(msg), "dev|%s|%s|RIG-1", CN, dn); char want[65]; hex_proof(key, msg, 32, want);
+    if (strcmp(want, proof) != 0) return false;                                               // the host verifies the DEVICE proof
+    snprintf(msg, sizeof(msg), "cli|%s|%s|RIG-1|%lu", dn, CN, (unsigned long)ttl); hex_proof(key, msg, 32, proof);
+    snprintf(line, sizeof(line), "{\"t\":\"auth\",\"proof\":\"%s\",\"ttl\":%lu}", proof, (unsigned long)ttl);
+    if (a.handle(line, now + 10, out, sizeof(out), sid) != 2) return false;
+    snprintf(msg, sizeof(msg), "sk|%s|%s", CN, dn); hmac_sha256(key, 32, msg, strlen(msg), sk);
+    return true;
+}
+static void mac_for(const uint8_t sk[32], uint32_t id, const char* type, float p, uint32_t seq, const char* sid, char* out) {
+    char canon[160]; uint8_t d[32];
+    snprintf(canon, sizeof(canon), "%lu|%s|%.3f|%.3f|%.3f|%lu|%lu|%lu|%s", (unsigned long)id, type, (double)p, 0.0, 0.0, 5000ul, (unsigned long)seq, 0ul, sid);
+    hmac_sha256(sk, 32, canon, strlen(canon), d); to_hex(d, 16, out);
+}
+
+void test_session_handshake_succeeds_only_with_the_right_key_and_is_one_guess_per_challenge() {
+    SessionAuth a; uint8_t key[32]; make_auth(a, key); char sid[33]; uint8_t sk[32];
+    TEST_ASSERT_TRUE(handshake(a, key, 1000, 60000, sid, sk)); TEST_ASSERT_TRUE(a.active()); TEST_ASSERT_EQUAL(16, (int)strlen(sid));
+    SessionAuth b; make_auth(b, key); char out[256], line[200];
+    snprintf(line, sizeof(line), "{\"t\":\"hello\",\"cn\":\"%s\"}", CN); b.handle(line, 0, out, sizeof(out), sid);
+    char badp[65]; memset(badp, 'a', 64); badp[64] = 0;
+    snprintf(line, sizeof(line), "{\"t\":\"auth\",\"proof\":\"%s\",\"ttl\":60000}", badp);
+    TEST_ASSERT_EQUAL(1, b.handle(line, 10, out, sizeof(out), sid)); TEST_ASSERT_NOT_NULL(strstr(out, "BAD_PROOF")); TEST_ASSERT_FALSE(b.active());
+    TEST_ASSERT_EQUAL(1, b.handle(line, 20, out, sizeof(out), sid)); TEST_ASSERT_NOT_NULL(strstr(out, "NO_CHALLENGE"));          // the challenge was consumed by the failed guess
+    SessionAuth none; AuthConfig nc = {}; none = SessionAuth(nc);
+    snprintf(line, sizeof(line), "{\"t\":\"hello\",\"cn\":\"%s\"}", CN);
+    TEST_ASSERT_EQUAL(1, none.handle(line, 0, out, sizeof(out), sid)); TEST_ASSERT_NOT_NULL(strstr(out, "NO_KEY"));            // no provisioned key: no session can ever exist
+    TEST_ASSERT_EQUAL(0, a.handle("{\"id\":1,\"type\":\"STOP\"}", 0, out, sizeof(out), sid));                                 // not an auth line
+}
+
+void test_commands_need_a_valid_mac_a_fresh_counter_and_an_unexpired_session() {
+    SessionAuth a; uint8_t key[32]; make_auth(a, key); char sid[33], m[33]; uint8_t sk[32];
+    TEST_ASSERT_EQUAL_STRING("NO_SECURE_SESSION", a.verify_command(1, "STOP", 0, 0, 0, 5000, 1, 0, "x", "", 0));
+    TEST_ASSERT_TRUE(handshake(a, key, 1000, 60000, sid, sk));
+    mac_for(sk, 7, "SET_SPEED", 12.5f, 1, sid, m);
+    TEST_ASSERT_NULL(a.verify_command(7, "SET_SPEED", 12.5f, 0, 0, 5000, 1, 0, sid, m, 2000));
+    TEST_ASSERT_EQUAL_STRING("REPLAY", a.verify_command(7, "SET_SPEED", 12.5f, 0, 0, 5000, 1, 0, sid, m, 2001));              // the identical, authentic command again
+    mac_for(sk, 8, "SET_SPEED", 12.5f, 2, sid, m);
+    TEST_ASSERT_EQUAL_STRING("BAD_MAC", a.verify_command(8, "SET_SPEED", 99.0f, 0, 0, 5000, 2, 0, sid, m, 2002));             // a tampered parameter
+    TEST_ASSERT_EQUAL_STRING("BAD_MAC", a.verify_command(8, "START", 12.5f, 0, 0, 5000, 2, 0, sid, m, 2002));                 // a tampered type
+    TEST_ASSERT_EQUAL_STRING("BAD_MAC", a.verify_command(8, "SET_SPEED", 12.5f, 0, 0, 5000, 2, 7, sid, m, 2002));             // a tampered age
+    TEST_ASSERT_EQUAL_STRING("BAD_MAC", a.verify_command(8, "SET_SPEED", 12.5f, 0, 0, 5000, 2, 0, sid, "00000000000000000000000000000000", 2002));
+    TEST_ASSERT_EQUAL_STRING("WRONG_SESSION", a.verify_command(8, "SET_SPEED", 12.5f, 0, 0, 5000, 2, 0, "0123456789abcdef", m, 2002));
+    TEST_ASSERT_NULL(a.verify_command(8, "SET_SPEED", 12.5f, 0, 0, 5000, 2, 0, sid, m, 2003));                                // failed attempts did not move the counter
+    mac_for(sk, 9, "STOP", 0, 1, sid, m);
+    TEST_ASSERT_EQUAL_STRING("REPLAY", a.verify_command(9, "STOP", 0, 0, 0, 5000, 1, 0, sid, m, 2004));                       // an older counter, even with a valid MAC
+    mac_for(sk, 10, "STOP", 0, 3, sid, m);
+    TEST_ASSERT_EQUAL_STRING("SESSION_EXPIRED", a.verify_command(10, "STOP", 0, 0, 0, 5000, 3, 0, sid, m, 1000 + 60000 + 10));
+    TEST_ASSERT_TRUE(a.expired(1000 + 60000 + 10)); a.end(); TEST_ASSERT_FALSE(a.active());
+}
+
+void test_a_new_hello_ends_the_old_session_and_wrong_ttl_is_refused() {
+    SessionAuth a; uint8_t key[32]; make_auth(a, key); char sid[33], out[256], line[200]; uint8_t sk[32];
+    TEST_ASSERT_TRUE(handshake(a, key, 0, 60000, sid, sk)); TEST_ASSERT_TRUE(a.active());
+    snprintf(line, sizeof(line), "{\"t\":\"hello\",\"cn\":\"%s\"}", CN); a.handle(line, 100, out, sizeof(out), sid);
+    TEST_ASSERT_FALSE(a.active());
+    const char* dn = strstr(out, "\"dn\":\"") + 6; char dnb[33]; memcpy(dnb, dn, 32); dnb[32] = 0; char msg[200], proof[65];
+    snprintf(msg, sizeof(msg), "cli|%s|%s|RIG-1|%lu", dnb, CN, 999ul); hex_proof(key, msg, 32, proof);
+    snprintf(line, sizeof(line), "{\"t\":\"auth\",\"proof\":\"%s\",\"ttl\":999}", proof);
+    TEST_ASSERT_EQUAL(1, a.handle(line, 110, out, sizeof(out), sid)); TEST_ASSERT_NOT_NULL(strstr(out, "BAD_TTL"));
+    snprintf(line, sizeof(line), "{\"t\":\"hello\",\"cn\":\"%s\"}", "zz112233445566778899aabbccddeeff");
+    TEST_ASSERT_EQUAL(1, a.handle(line, 120, out, sizeof(out), sid)); TEST_ASSERT_NOT_NULL(strstr(out, "BAD_HELLO"));
 }
 
 // ---------------- Pin map: the table the production firmware compiles against (lib/torqva_core/pinmap.h) ----------------
@@ -232,9 +385,25 @@ void test_pinmap_every_required_peripheral_is_assigned_and_only_undocumented_int
     for (int i = 0; i < kPinCount; i++) {
         if (kPins[i].required) { char m[80]; snprintf(m, sizeof(m), "%s is required but unassigned", kPins[i].name); TEST_ASSERT_MESSAGE(kPins[i].gpio != UNCONFIGURED, m); }
     }
-    TEST_ASSERT_EQUAL(UNCONFIGURED, MOTOR_RELAY);                  // no documented relay, reset button or E-stop pin: none was invented
+    TEST_ASSERT_EQUAL(UNCONFIGURED, MOTOR_RELAY);                  // no documented relay or reset button: none was invented
     TEST_ASSERT_EQUAL(UNCONFIGURED, LOCAL_RESET_BUTTON);
-    TEST_ASSERT_EQUAL(UNCONFIGURED, ESTOP_INPUT);
+    TEST_ASSERT_EQUAL(15, ESTOP_INPUT);                            // the OWNER chose GPIO 15 as the E-stop monitoring input (subject to board verification)
+    TEST_ASSERT_FALSE(gpio_unavailable_on_n16r8(ESTOP_INPUT));
+}
+
+// The E-stop monitoring input as wired by the owner: normally-closed contact to GND with a pull-up. Healthy (closed) = LOW. Everything else is an emergency-stop condition.
+void test_estop_monitoring_input_nc_contact_to_ground_treats_open_pressed_or_unread_as_asserted() {
+    EstopInput e(EstopConfig{true, /*active_low=*/false, 100});
+    TEST_ASSERT_TRUE(e.blocks_operation());                                      // before the first read: unknown blocks
+    TEST_ASSERT_EQUAL(EstopState::ASSERTED, e.update(0, true, true));            // HIGH = open circuit / pressed / floating input
+    TEST_ASSERT_EQUAL(EstopState::ASSERTED, e.update(10, true, false));          // closed again, but not yet debounced
+    TEST_ASSERT_TRUE(e.blocks_operation());
+    TEST_ASSERT_EQUAL(EstopState::RELEASED, e.update(120, true, false));         // LOW for 100 ms: healthy
+    TEST_ASSERT_FALSE(e.blocks_operation());
+    TEST_ASSERT_EQUAL(EstopState::ASSERTED, e.update(130, true, true));          // a broken wire or a press is immediate
+    TEST_ASSERT_EQUAL(EstopState::ASSERTED, e.update(140, false, false));        // an unreadable pin is asserted too
+    EstopInput off(EstopConfig{false, false, 100});
+    TEST_ASSERT_EQUAL(EstopState::UNKNOWN, off.update(1000, true, false));       // an unconfigured input never reports released
 }
 void test_pinmap_uses_no_unavailable_pin_on_the_esp32s3_n16r8() {
     using namespace torqva_pins;
@@ -647,6 +816,9 @@ int main(int, char**) {
     RUN_TEST(test_overcurrent_timer_resets_on_dip);
     RUN_TEST(test_temperature_warn_and_stop);
     RUN_TEST(test_temp_rise_limit_only_when_configured);
+    RUN_TEST(test_absent_supply_while_idle_is_not_a_latched_fault_but_blocks_motion_and_trips_while_driving);
+    RUN_TEST(test_idle_warmup_with_never_valid_sensors_does_not_latch_but_a_later_loss_or_driving_does);
+    RUN_TEST(test_heartbeat_dead_man_applies_while_driving_not_while_idle);
     RUN_TEST(test_voltage_window);
     RUN_TEST(test_rpm_loss_when_driving_without_pulses);
     RUN_TEST(test_no_rpm_loss_when_idle);
@@ -656,9 +828,14 @@ int main(int, char**) {
     RUN_TEST(test_fault_mask_keeps_every_simultaneous_cause_while_reason_keeps_the_first);
     RUN_TEST(test_adxl345_decodes_raw_bytes_to_g_and_reports_gravity_in_the_magnitude);
     RUN_TEST(test_adxl345_implausible_data_is_invalid_and_zeros_are_not_presented_as_a_reading);
+    RUN_TEST(test_sha256_and_hmac_match_the_published_vectors);
+    RUN_TEST(test_session_handshake_succeeds_only_with_the_right_key_and_is_one_guess_per_challenge);
+    RUN_TEST(test_commands_need_a_valid_mac_a_fresh_counter_and_an_unexpired_session);
+    RUN_TEST(test_a_new_hello_ends_the_old_session_and_wrong_ttl_is_refused);
     RUN_TEST(test_pinmap_matches_the_documented_wiring_reference);
     RUN_TEST(test_pinmap_has_no_duplicate_gpio_ownership);
     RUN_TEST(test_pinmap_every_required_peripheral_is_assigned_and_only_undocumented_interfaces_are_unconfigured);
+    RUN_TEST(test_estop_monitoring_input_nc_contact_to_ground_treats_open_pressed_or_unread_as_asserted);
     RUN_TEST(test_pinmap_uses_no_unavailable_pin_on_the_esp32s3_n16r8);
     RUN_TEST(test_pinmap_keeps_sensor_buses_and_the_motor_driver_apart);
     RUN_TEST(test_estop_input_is_unknown_until_configured_and_never_released_when_unconfigured);

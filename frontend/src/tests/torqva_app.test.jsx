@@ -18,7 +18,7 @@ function server({ down = false } = {}) {
     return ok([]);
   }));
 }
-beforeEach(() => { vi.unstubAllGlobals(); setToken(''); });
+beforeEach(() => { window.localStorage.setItem('torqva.mode', 'SIMULATION'); vi.unstubAllGlobals(); setToken(''); });
 
 describe('redesigned application shell', () => {
   it('overview shows simulated telemetry with SIM provenance and the software-simulator environment', async () => {

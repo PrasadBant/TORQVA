@@ -25,7 +25,7 @@ const char* trip_reason_name(TripReason r) {
 SafetyMonitor::SafetyMonitor(const Limits& l)
     : lim_(l), state_(SafetyState::OK), reason_(TripReason::NONE), fault_mask_(0),
       oc_active_(false), oc_start_(0), rl_active_(false), rl_start_(0),
-      inv_active_(false), inv_start_(0), last_hb_ms_(0), hb_seen_(false) {}
+      inv_active_(false), inv_start_(0), crit_seen_ok_(false), last_hb_ms_(0), hb_seen_(false) {}
 
 void SafetyMonitor::trip(TripReason r) {
     fault_mask_ |= trip_bit(r);                      // record every cause, even when a first cause is already latched
@@ -62,9 +62,13 @@ SafetyOutput SafetyMonitor::update(const SafetyInputs& in) {
 
         // Critical signal validity (fail safe: no data -> no motion)
         const bool critical_invalid = !current_ok || !voltage_ok || !housing_ok || !rpm_ok;
+        // A critical signal that is invalid latches a fault when (a) it was valid before and has been lost, or (b) the motor is being driven. Before every critical signal has been
+        // valid once (sensors still warming up after power-up, for example the DS18B20's first conversion) an idle device does NOT latch: it simply cannot be started, because the
+        // start interlock refuses with SENSOR_NOT_VALID. Nothing invalid is ever treated as valid.
+        if (!critical_invalid) crit_seen_ok_ = true;
         if (critical_invalid) {
             if (!inv_active_) { inv_active_ = true; inv_start_ = now; }
-            if ((uint32_t)(now - inv_start_) >= lim_.sensor_invalid_ms) trip(TripReason::SENSOR_INVALID);
+            if ((uint32_t)(now - inv_start_) >= lim_.sensor_invalid_ms && (crit_seen_ok_ || in.duty_pct > 0.0f)) trip(TripReason::SENSOR_INVALID);
         } else {
             inv_active_ = false;
         }
@@ -82,7 +86,8 @@ SafetyOutput SafetyMonitor::update(const SafetyInputs& in) {
 
         // Voltage
         if (voltage_ok) {
-            if (in.voltage_v < lim_.volt_min_v) trip(TripReason::VOLTAGE_LOW);
+            // An absent supply (below kSupplyPresentV) with the drive idle is not a fault: nothing can move. A supply that is present but low, or ANY low voltage while driving, trips.
+            if (in.voltage_v < lim_.volt_min_v && (in.duty_pct > 0.0f || in.voltage_v >= kSupplyPresentV)) trip(TripReason::VOLTAGE_LOW);
             if (in.voltage_v > lim_.volt_max_v) trip(TripReason::VOLTAGE_HIGH);
         }
 
@@ -107,7 +112,10 @@ SafetyOutput SafetyMonitor::update(const SafetyInputs& in) {
         }
 
         // Heartbeat (Hardware-control mode only). Timer starts at first update after enable/reset.
-        if (in.hardware_control_mode) {
+        // The dead-man applies while the motor is being driven: if the host goes quiet the motor stops and the fault latches. An idle device is not driving anything, so a quiet host (not yet
+        // connected, restarted, unplugged) is not a fault there (otherwise every boot would latch HEARTBEAT_LOST before the authenticated session can start); START itself is refused
+        // without a recent heartbeat (NO_HEARTBEAT), so nothing can start without a live host.
+        if (in.hardware_control_mode && in.duty_pct > 0.0f) {
             if (!hb_seen_) { hb_seen_ = true; last_hb_ms_ = now; }
             if ((uint32_t)(now - last_hb_ms_) >= lim_.heartbeat_timeout_ms) trip(TripReason::HEARTBEAT_LOST);
         }

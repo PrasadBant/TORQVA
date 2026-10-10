@@ -65,3 +65,17 @@
   .tq-nav .tq-tag { display: none; }
   .tq-body main { padding: 12px; }
 }
+
+/* Physical-mode dashboard */
+.tq-status-strip { padding: 10px 12px; border: 1px solid var(--tq-border, #d8dee9); border-radius: 10px; margin-bottom: 12px; }
+.tq-status-strip details summary { cursor: pointer; font-size: 0.85rem; }
+.tq-stop-big { width: 100%; min-height: 56px; font-size: 1.25rem; font-weight: 700; margin: 10px 0 14px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.tq-kpi > span { display: block; }
+.tq-kpi .tq-na { font-size: 1.05rem; opacity: 0.7; }
+
+.tq-ready-bar { height: 8px; border-radius: 6px; background: rgba(128,128,128,0.25); overflow: hidden; margin: 6px 0 10px; }
+.tq-ready-bar > span { display: block; height: 100%; background: #1f9d55; }
+.tq-ready-list { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 6px; }
+
+.tq-avail { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
+.tq-avail details { flex-basis: 100%; }
