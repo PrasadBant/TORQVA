@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, XCircle } from 'lucide-react';
 import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt } from './components.jsx';
 import { api } from './api.js';
 
@@ -55,13 +54,17 @@ export default function Attestation({ role }) {
   const reload = async (id) => { await load(); if (id) await open(id); };
   const capture = () => a.run(async () => { const c = await api.attCapture(); await reload(c.id); });
   const refresh = () => a.run(async () => { await api.attRefresh(detail.id, detail.rev); await reload(detail.id); });
-  const decide = () => a.run(async () => {
-    const body = { reason, expected_rev: detail.rev, acknowledge: ack };
-    if (mode === 'attest') await api.attAttest(detail.id, body);
-    else if (mode === 'reject') await api.attReject(detail.id, body);
-    else await api.attRevoke(detail.id, body);
-    await reload(detail.id);
-  });
+  const decide = async () => {
+    const ok = await a.run(async () => {
+      const body = { reason, expected_rev: detail.rev, acknowledge: ack };
+      if (mode === 'attest') await api.attAttest(detail.id, body);
+      else if (mode === 'reject') await api.attReject(detail.id, body);
+      else await api.attRevoke(detail.id, body);
+      await reload(detail.id);
+      return true;
+    });
+    if (!ok) { try { await reload(detail.id); } catch { /* keep the error message; the view re-syncs when the server is reachable */ } }   // a refused decision: show what the server now says
+  };
   const startHold = () => a.run(async () => { await api.attHoldStart({ seconds: Number(holdForm.seconds), reason: holdForm.reason }); await load(); });
   const endHold = () => a.run(async () => { await api.attHoldEnd(); await load(); });
   const activate = (v) => a.run(async () => { await api.attActivate(v, refReason); await load(); });
@@ -73,7 +76,7 @@ export default function Attestation({ role }) {
   const refOk = refReason.trim().length >= MIN_REASON;
 
   return (
-    <div className="tq-grid">
+    <div className="tq-grid tq-grid-wide">
       <Card title="What attestation means" id="c-att-notice">
         <p className="tq-warnbox" role="note" data-testid="att-notice">{NOTICE}</p>
         <p className="tq-muted">Telemetry and checks are <ProvBadge kind="SIMULATED" /> values; a decision recorded here is <ProvBadge kind="HUMAN_CONFIRMED" /> — a named
@@ -83,8 +86,20 @@ export default function Attestation({ role }) {
       </Card>
 
       <Card title="Supervised warm-up" id="c-att-hold" right={<Pill tone={hold.active ? 'warn' : 'off'}>{hold.active ? 'hold active' : 'no hold'}</Pill>}>
-        <p className="tq-muted">While a hold is active, anomaly <em>scores</em> do not open incidents (so a healthy but shifted motor can be observed). Mandatory-stop
-          conditions are never deferred. Maximum 300 s; it ends by itself. A real fault would be flagged late by at most the hold length.</p>
+        <p className="tq-muted">Anomaly detection keeps running during a hold. Only anomalies explainable as a healthy gain/noise shift are deferred (and counted below);
+          any channel-selective or protected-channel deviation — every ordinary fault — ends the hold and opens an incident as usual. Mandatory-stop conditions and device
+          e-stops are never deferred. Maximum 300 s; it ends by itself.</p>
+        {hold.info?.regime_escalation && (
+          <div className="tq-warnbox" role="alert" data-testid="regime-escalation">
+            <strong>Unfamiliar regime — human review required.</strong> Anomalous scores are being deferred because they are explained by a coherent gain/noise shift.
+            This is <strong>not</strong> confirmed healthy: a coherent shift can also be a real fault (for example a sensor fault). Deferral is capped and ends at
+            once on any fault evidence.
+          </div>)}
+        {hold.info && (
+          <p role="status" data-testid="hold-status">
+            {hold.active ? 'Hold active' : 'Hold ended'} · deferred anomaly windows: <strong className="tq-num">{hold.info.deferred_windows ?? 0}</strong>
+            {hold.info.released ? <> · released: <strong>{hold.info.released}</strong></> : null}
+          </p>)}
         <form className="tq-form" onSubmit={(e) => { e.preventDefault(); startHold(); }} aria-label="Start supervised warm-up">
           <label className="tq-inline">Seconds<input type="number" min="1" max="300" value={holdForm.seconds} onChange={(e) => setHoldForm({ ...holdForm, seconds: e.target.value })} disabled={!ctl} /></label>
           <label>Reason<input type="text" value={holdForm.reason} onChange={(e) => setHoldForm({ ...holdForm, reason: e.target.value })} disabled={!ctl} /></label>
@@ -95,12 +110,12 @@ export default function Attestation({ role }) {
         </form>
       </Card>
 
-      <Card title="Candidate warm-up sessions" id="c-att-list" right={<ProvBadge kind="SIMULATED" />}>
+      <Card title="Candidate warm-up sessions" id="c-att-list" className="tq-span" right={<ProvBadge kind="SIMULATED" />}>
         <div className="tq-row"><button className="tq-btn" onClick={capture} disabled={!ctl || a.busy}>Capture candidate from current simulation</button></div>
         <ErrorBox error={a.error} />
         {!list.length ? <Empty>No candidates yet. Start a simulation, let it warm up, then capture a candidate.</Empty> : (
           <table className="tq-table"><caption className="tq-sr">Candidate warm-up sessions</caption>
-            <thead><tr><th scope="col">ID</th><th scope="col">State</th><th scope="col">Session</th><th scope="col">Speed rpm</th><th scope="col">Windows</th><th scope="col">Failed checks</th></tr></thead>
+            <thead><tr><th scope="col">ID</th><th scope="col">State</th><th scope="col">Session</th><th scope="col">rpm</th><th scope="col">Windows</th><th scope="col">Failed checks</th></tr></thead>
             <tbody>{list.map((c) => (
               <tr key={c.id} className={c.id === sel ? 'tq-selected' : ''}>
                 <td><button className="tq-link" onClick={() => a.run(() => open(c.id))} aria-label={`Open candidate ${c.id}`}>{c.id}</button></td>
@@ -110,7 +125,7 @@ export default function Attestation({ role }) {
       </Card>
 
       {detail && (
-        <Card title={`Evidence — ${detail.id}`} id="c-att-detail" right={<StateLabel state={detail.state} />}>
+        <Card title={`Evidence — ${detail.id}`} id="c-att-detail" className="tq-span" right={<StateLabel state={detail.state} />}>
           <p className="tq-muted">{MEANING[detail.state]} · captured by {detail.created_by} · session {detail.session} · rev <span className="tq-num">{detail.rev}</span> ·
             evidence hash <span className="tq-num">{detail.evidence_hash}</span></p>
           {detail.warnings?.length > 0 && <div className="tq-warnbox" role="alert">{detail.warnings.map((w) => <p key={w}>{w}</p>)}</div>}
@@ -128,7 +143,7 @@ export default function Attestation({ role }) {
             <thead><tr><th scope="col">Check</th><th scope="col">Result</th><th scope="col">Detail</th></tr></thead>
             <tbody>{detail.checks.map((c) => (
               <tr key={c.name}><td>{c.name.replace(/_/g, ' ')}</td>
-                <td>{c.passed ? <Pill tone="ok"><CheckCircle2 size={12} aria-hidden="true" />pass</Pill> : <Pill tone="crit"><XCircle size={12} aria-hidden="true" />fail</Pill>}</td>
+                <td>{c.passed ? <Pill tone="ok">pass</Pill> : <Pill tone="crit">fail</Pill>}</td>
                 <td>{c.detail}</td></tr>))}</tbody></table>
           <p className="tq-muted">Model / configuration: detector {detail.versions?.detector_class} v{detail.versions?.detector_version} · attestation config {detail.versions?.attestation_config}</p>
 
@@ -164,7 +179,7 @@ export default function Attestation({ role }) {
             </>)}
         </Card>)}
 
-      <Card title="Reference versions" id="c-att-refs" right={<ProvBadge kind="DERIVED" />}>
+      <Card title="Reference versions" id="c-att-refs" className="tq-span" right={<ProvBadge kind="DERIVED" />}>
         <p className="tq-muted">Versions are immutable. Activation swaps the active reference of the running session only; the trained baseline is never edited.
           Active: <strong>{refs.active_version ? `v${refs.active_version}` : 'none (shipped detector, unadapted)'}</strong></p>
         {ctl && (
@@ -182,7 +197,7 @@ export default function Attestation({ role }) {
         {ctl && <div className="tq-row"><button className="tq-btn tq-danger" onClick={rollback} disabled={!refOk || !refs.active_version || a.busy}>Roll back active reference</button></div>}
       </Card>
 
-      <Card title="Attestation log" id="c-att-log">
+      <Card title="Attestation log" id="c-att-log" className="tq-span">
         {!events.length ? <Empty>No attestation activity yet.</Empty> : (
           <table className="tq-table"><caption className="tq-sr">Attestation log</caption>
             <thead><tr><th scope="col">#</th><th scope="col">Event</th><th scope="col">Candidate / version</th><th scope="col">By</th><th scope="col">Reason</th></tr></thead>

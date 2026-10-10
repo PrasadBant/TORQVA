@@ -16,7 +16,7 @@ const detail = (o = {}) => ({ ...brief(), evidence_hash: 'abc123', versions: { d
     voltage_v_mean: 23.5, voltage_v_std: 0.03, current_a_mean: 1.2, housing_c_mean: 25, vib_rms_g_mean: 0.07 },
   checks: CHECKS.map((c) => ({ ...c, passed: true })), history: [{ event: 'candidate_captured', from: 'ELIGIBLE', to: 'ELIGIBLE', by: 'olga', role: 'operator', reason: '' }], ...o });
 
-function server(role, { list, det, refs } = {}) {
+function server(role, { list, det, refs, hold } = {}) {
   const calls = [];
   vi.stubGlobal('fetch', vi.fn(async (url, o = {}) => {
     const path = String(url).replace('/api/torqva', '');
@@ -29,7 +29,7 @@ function server(role, { list, det, refs } = {}) {
     if (path.startsWith('/attestation/candidates/') && method === 'GET') return ok(det ?? detail());
     if (path === '/attestation/references') return ok(refs ?? { versions: [], active_version: null });
     if (path === '/attestation/events') return ok([]);
-    if (path === '/attestation/warmup' && method === 'GET') return ok({ active: false });
+    if (path === '/attestation/warmup' && method === 'GET') return ok(hold ?? { active: false });
     if (method === 'POST' && path.endsWith('/attest')) return { ok: false, status: 409, json: async () => ({ detail: 'candidate changed (rev 2, you saw 1)' }) };
     if (method === 'POST') return ok(brief());
     return ok(path.startsWith('/telemetry') ? { samples: [] } : []);
@@ -118,5 +118,21 @@ describe('TORQVA attestation workspace', () => {
     expect(rb).toBeDisabled();
     fireEvent.change(screen.getByLabelText('Reference change reason'), { target: { value: 'suspected contamination of v2' } });
     expect(rb).toBeEnabled();
+  });
+
+  it('reports deferred anomaly windows and why a hold was released (deferral is never silent)', async () => {
+    await openTab('operator', { hold: { active: false, info: { deferred_windows: 42, released: 'fault_suspected:residual_anomaly_after_nuisance_model' } } });
+    const st = await screen.findByTestId('hold-status');
+    expect(st).toHaveTextContent('Hold ended');
+    expect(st).toHaveTextContent('deferred anomaly windows: 42');
+    expect(st).toHaveTextContent('fault_suspected');
+  });
+
+  it('escalates a deferred coherent shift as an unfamiliar regime that is not confirmed healthy', async () => {
+    await openTab('operator', { hold: { active: true, info: { deferred_windows: 12, regime_escalation: true } } });
+    const w = await screen.findByTestId('regime-escalation');
+    expect(w).toHaveTextContent('human review required');
+    expect(w).toHaveTextContent('not confirmed healthy');
+    expect(screen.getByTestId('hold-status')).toHaveTextContent('deferred anomaly windows: 12');
   });
 });

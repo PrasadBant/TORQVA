@@ -40,9 +40,9 @@ export function stateTone(state) {
   return 'info';
 }
 
-export function Card({ title, right, children, id }) {
+export function Card({ title, right, children, id, className = '' }) {
   return (
-    <section className="tq-card" aria-labelledby={id}>
+    <section className={`tq-card ${className}`.trim()} aria-labelledby={id}>
       <header><h3 id={id}>{title}</h3>{right}</header>
       {children}
     </section>

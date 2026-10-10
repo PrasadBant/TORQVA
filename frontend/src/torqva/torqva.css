@@ -98,3 +98,8 @@
 
 .tq-shell textarea { background: var(--tq-s2); color: var(--tq-text); border: 1px solid var(--tq-border); border-radius: 6px; padding: 6px 8px; font: inherit; width: 100%; resize: vertical; }
 .tq-shell textarea:focus-visible { outline: 2px solid var(--tq-accent); outline-offset: 2px; }
+
+.tq-grid-wide { grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); }
+.tq-grid-wide > .tq-span { grid-column: 1 / -1; }
+.tq-table th, .tq-table td { overflow-wrap: break-word; word-break: normal; }
+.tq-table td:first-child, .tq-table th:first-child { white-space: nowrap; }

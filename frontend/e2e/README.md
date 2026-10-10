@@ -8,3 +8,9 @@ recovery, keyboard navigation, responsive widths (1024/768/390, no horizontal ov
     TORQVA_TOKEN=<token> node e2e/torqva.e2e.mjs
 
 Not wired into `npm test`: Playwright is not a project dependency (adding it needs sign-off).
+
+`torqva-attestation.e2e.mjs` (Phase 9) drives the Attestation tab: candidate capture, eligibility failures, confirmation gating, attest / activate / roll back, rejection, stale-decision handling, 1024/768/390 px layouts and the read-only viewer. It needs an operator and a viewer token:
+
+    TORQVA_TOKEN=<operator token> TORQVA_VIEWER_TOKEN=<viewer token> node e2e/torqva-attestation.e2e.mjs
+
+Start the frontend with `npm run dev -- --host 127.0.0.1` (the scripts use 127.0.0.1). Use a freshly started backend for a clean candidate/version history.

@@ -218,8 +218,7 @@ class Orchestrator:
         self.tt.update(w)
         sc = self.det.score(w)
         if self._warmup_pending() or self.hold_active():
-            # Attested healthy warm-up (opt-in): scores are not yet evidence. Hard limits are NOT affected: see _advance_incident.
-            sc = replace(sc, anomalous=False, status="TRANSIENT")
+            sc = self._defer_or_release(w, sc)
         self.buf.append(w)
         self._maybe_propose_reference()
         self.scores.append(sc)
@@ -261,6 +260,63 @@ class Orchestrator:
 
     def hold_active(self) -> bool:
         return self._hold_until is not None and self.now < self._hold_until
+
+    DEFER_LOOKBACK = 20          # windows examined by the selective-deferral test
+    DEFER_MIN_FLAGGED = 3        # anomalous windows in the lookback before the explainability test runs
+    DEFER_MIN_SCORED = 8         # steady scored windows needed before the test may call a fault (fewer = too noisy to separate nuisance)
+    DEFER_MAX_WINDOWS = 180      # hard bound on deferred anomalous windows per hold, independent of the hold length
+    DEFER_LOG_EVERY_S = 10.0
+    APPROVED_DEFERRAL = "explained_by_session_gain_or_noise"
+
+    def _defer_or_release(self, w, sc):
+        """Selective deferral. Anomaly detection keeps running during a hold / attested warm-up. An anomalous window is deferred ONLY in two
+        cases: (1) too little evidence yet (< DEFER_MIN_SCORED steady scored windows, or < DEFER_MIN_FLAGGED anomalies) — bounded by the hold
+        and the deferral cap; (2) the recent deviation is fully explained by a bounded, stationary common-mode vibration gain and/or noise
+        estimate (`explained_by_session_gain_or_noise`). A coherent shift is NOT assumed healthy: it is escalated (an UNFAMILIAR-regime
+        advisory that needs human review, visible in the API/UI) and it is capped at DEFER_MAX_WINDOWS. Every other outcome — a fault
+        verdict, or any uncertain verdict (gain/noise outside the envelope, non-stationary, unknown region) — ends the hold at once and the
+        score opens an incident exactly as without a hold. Mandatory-stop and device e-stop paths (incl. heartbeat loss) never go through here."""
+        if not sc.anomalous or not isinstance(self.det, AdaptiveBaselineDetector):
+            return sc
+        info = self.hold_info if self.hold_info is not None else {}
+        if info.get("deferred_windows", 0) >= self.DEFER_MAX_WINDOWS:
+            self._release_hold("deferral_limit_reached")
+            return sc
+        recent = (self.buf + [w])[-self.DEFER_LOOKBACK:]
+        # The 20-window lookback is noisier than a 60-window warm-up, so its stationarity tolerance is looser (a slow drift is still
+        # escalated and capped by DEFER_MAX_WINDOWS; the attestation checks, which use the full warm-up, reject drift).
+        a = assess_session(self.det, recent, ref=None, regime_aware=True, min_flagged=self.DEFER_MIN_FLAGGED,
+                           cfg=CoherenceConfig(coh_tol=self.cfg.reference_coh_tol, ref=ReferenceConfig(stat_tol=0.12)))
+        enough = a.scored >= self.DEFER_MIN_SCORED
+        explained = a.verdict == "UNFAMILIAR" and a.reason == self.APPROVED_DEFERRAL
+        insufficient = (not enough) or a.verdict == "HEALTHY"
+        if enough and not explained and not insufficient:
+            self._release_hold(("fault_suspected:" if a.verdict == "FAULT" else "uncertain_regime:") + a.reason)
+            return sc
+        if self.hold_info is not None:
+            first = "deferred_windows" not in self.hold_info
+            self.hold_info["deferred_windows"] = self.hold_info.get("deferred_windows", 0) + 1
+            if explained:
+                self.hold_info["regime_escalation"] = True
+                if first or self.hold_info.get("escalated_at") is None:
+                    self.hold_info["escalated_at"] = self.now
+                    self._log("c1_unfamiliar_regime", reason=a.reason, note="coherent shift explained by gain/noise: NOT confirmed healthy; "
+                              "human review required; capped and the hold releases on any fault evidence", metrics=a.metrics)
+            last = self.hold_info.get("last_advisory_t", -1e9)
+            if self.now - last >= self.DEFER_LOG_EVERY_S:
+                self.hold_info["last_advisory_t"] = self.now
+                self._log("c1_hold_deferred", reason=a.reason, verdict=a.verdict, deferred_windows=self.hold_info["deferred_windows"],
+                          note="anomalous scores deferred; mandatory stops and device e-stops are not deferred")
+        return replace(sc, anomalous=False, status="TRANSIENT")
+
+    def _release_hold(self, why: str) -> None:
+        if self._hold_until is not None:
+            self._hold_until = None
+            if self.hold_info is not None:
+                self.hold_info["released"] = why
+        if self._warmup_pending():
+            self._ref_attempted = True                   # abandon the attested-warm-up attempt: scoring is fully live again
+        self._log("c1_hold_released", reason=why)
 
     def _warmup_pending(self) -> bool:
         # Bounded: if no steady warm-up materialises within 3x the requested length the attempt is abandoned (see below), so score-based

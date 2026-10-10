@@ -262,10 +262,9 @@ def test_mandatory_stop_after_capture_blocks_attestation_and_expires_the_candida
 def test_sensor_faults_mixed_conditions_drift_and_unfamiliar_regimes_are_not_eligible(env):
     svc, c = env
     for fault in ("sensor_fault", "looseness", "overload"):
-        run(svc, fault=fault, sev=0.5, inject_after=0, hold=True)          # no incident can open during the hold: the evidence must reject it
-        assert svc.orch.inc is None
+        run(svc, fault=fault, sev=0.5, inject_after=0, hold=True)          # the hold releases itself on a real fault; the incident opens normally
         cand = capture(c).json()
-        assert cand["state"] == "REJECTED" and failed(c, cand["id"]) & {"no_suspected_fault", "sensor_envelope"}, (fault, cand)
+        assert cand["state"] == "REJECTED" and failed(c, cand["id"]) & {"no_incident", "no_suspected_fault", "sensor_envelope"}, (fault, cand)
     # mixed operating conditions: the setpoint changes inside the window
     run(svc, steps=40, hold=True)
     svc.orch.dev.sim.set_setpoint(1950.0); svc.step(30)
@@ -487,13 +486,170 @@ def test_hold_defers_score_incidents_but_never_a_mandatory_stop(env, monkeypatch
     assert c.post(f"{P}/commands/stop", headers=H("v")).status_code == 200
 
 
-def test_a_real_fault_during_a_hold_is_still_caught_by_the_evidence_and_after_the_hold(env):
+def first_incident_delay(svc, limit=40):
+    n = 0
+    while svc.orch.inc is None and not svc.orch.incidents_done and n < limit:
+        svc.step(1); n += 1
+    return n if (svc.orch.inc is not None or svc.orch.incidents_done) else None
+
+
+@pytest.mark.parametrize("fault", ["imbalance", "looseness", "overload", "sensor_fault"])
+def test_ordinary_faults_open_an_incident_within_seconds_even_during_a_hold(env, fault):
+    """The hold must never suppress incident reporting for a real fault: it is released and the incident opens normally."""
     svc, c = env
-    run(svc, steps=70, fault="imbalance", sev=0.9, inject_after=30, hold=True)
-    cand = capture(c).json()
-    assert cand["state"] == "REJECTED"                                          # contaminated warm-up is not attestable
-    svc.orch.end_supervised_warmup("olga"); svc.step(15)
-    assert svc.orch.inc is not None or svc.orch.incidents_done                  # and detection resumes once the hold ends
+    run(svc, steps=30, hold=True)
+    assert svc.orch.hold_active()
+    svc.orch.dev.sim.inject(__import__("torqva.schemas", fromlist=["Hypothesis"]).Hypothesis(fault), 0.5)
+    d = first_incident_delay(svc)
+    assert d is not None and d <= 8, (fault, d)                                    # seconds, not the hold length (up to 300 s)
+    assert not svc.orch.hold_active() and svc.orch.hold_info["released"].startswith("fault_suspected")
+    assert any(l["kind"] == "c1_hold_released" for l in svc.orch.log)
+
+
+def test_escalating_fault_on_top_of_a_healthy_shift_is_caught_not_deferred(env):
+    svc, c = env
+    run(svc, steps=30, gain=1.2, hold=True)
+    assert svc.orch.inc is None and svc.orch.hold_info.get("deferred_windows", 0) > 0     # the shift alone is deferred ...
+    H = __import__("torqva.schemas", fromlist=["Hypothesis"]).Hypothesis
+    delay = None
+    for i, sev in enumerate((0.1, 0.1, 0.2, 0.2, 0.4, 0.4, 0.6, 0.6, 0.8, 0.8, 0.9, 0.9)):   # ... a growing fault is not
+        svc.orch.dev.sim.inject(H.IMBALANCE, sev)
+        svc.step(2)
+        if svc.orch.inc is not None:
+            delay = 2 * (i + 1); break
+    assert delay is not None and delay <= 12
+
+
+def test_deferral_is_never_silent_it_is_counted_logged_and_visible_via_the_api(env):
+    svc, c = env
+    run(svc, steps=60, gain=1.25, hold=True)
+    assert svc.orch.inc is None
+    assert svc.orch.hold_info["deferred_windows"] > 20
+    adv = [l for l in svc.orch.log if l["kind"] == "c1_hold_deferred"]
+    assert adv and "mandatory stops and device e-stops are not deferred" in adv[0]["note"] and any(l["verdict"] == "UNFAMILIAR" for l in adv)
+    assert len(adv) <= 1 + 60 // 10                                                  # rate limited
+    w = c.get(f"{P}/attestation/warmup", headers=H("v")).json()
+    assert w["active"] is True and w["info"]["deferred_windows"] == svc.orch.hold_info["deferred_windows"]
+
+
+def test_hold_timeout_restores_normal_detection(env):
+    svc, c = env
+    svc.start(None, 0, None, 1, 1650.0, 40, False)
+    svc.orch.dev.sim.vib_gain = 1.25
+    svc.orch.begin_supervised_warmup("olga", 30)
+    svc.step(25)
+    assert svc.orch.inc is None                                                      # still held
+    svc.step(15)
+    assert not svc.orch.hold_active() and (svc.orch.inc is not None or svc.orch.incidents_done)        # expired: the control behaves as always
+
+
+def test_communication_loss_during_a_hold_trips_the_device_and_opens_an_incident_at_once(env):
+    svc, c = env
+    run(svc, steps=30, gain=1.25, hold=True)
+    assert svc.orch.inc is None
+    svc.orch.heartbeat_enabled = False                                               # communication loss
+    n = 0
+    while svc.orch.inc is None and n < 15:
+        svc.step(1); n += 1
+    assert svc.orch.inc is not None and svc.orch.dev.estop and n <= 8                # device watchdog + DEVICE_ESTOP path, not deferred
+    assert svc.orch.dev.estop_reason == "HEARTBEAT_LOST"
+
+
+# ---------------- selective deferral: exactly what may be deferred, and for how long ----------------
+from torqva.c1_robust import SessionAssessment
+
+
+def fake_assess(verdict, reason, scored, flagged=10):
+    return lambda *a, **k: SessionAssessment(verdict, reason, flagged, scored, 0)
+
+
+def hold_run(svc, steps, gain=None, hold_s=300):
+    svc.start(None, 0, None, 1, 1650.0, 40, False)
+    if gain is not None:
+        svc.orch.dev.sim.vib_gain = gain
+    svc.orch.begin_supervised_warmup("olga", hold_s)
+    svc.step(steps)
+    return svc.orch
+
+
+def test_a_coherent_shift_is_escalated_not_assumed_healthy(env):
+    svc, c = env
+    o = hold_run(svc, 60, gain=1.25)
+    assert o.inc is None and o.hold_info["regime_escalation"] is True
+    esc = [l for l in o.log if l["kind"] == "c1_unfamiliar_regime"]
+    assert len(esc) == 1 and "NOT confirmed healthy" in esc[0]["note"] and "human review" in esc[0]["note"]
+    w = c.get(f"{P}/attestation/warmup", headers=H("v")).json()
+    assert w["info"]["regime_escalation"] is True and w["info"]["deferred_windows"] > 0
+    cand = capture(c).json()                                                        # and the evidence still carries the explicit warning
+    assert any("indistinguishable from a sensor gain fault" in x for x in cand["warnings"])
+
+
+def test_shift_outside_the_approved_envelope_is_never_deferred(env):
+    svc, c = env
+    for gain in (1.6, 0.55):
+        o = hold_run(svc, 40, gain=gain)
+        assert o.inc is not None or o.incidents_done, gain                         # incident opens (no healthy-shift assumption)
+        assert o.hold_info["released"].startswith("uncertain_regime:") and "regime_escalation" not in o.hold_info
+
+
+@pytest.mark.parametrize("reason", ["uncertain_non_stationary_warmup", "uncertain_gain_outside_envelope", "uncertain_noise_outside_envelope",
+                                    "operating_region_not_in_trained_bins", "channel_selective_anomaly"])
+def test_only_the_approved_explanation_can_be_deferred(env, monkeypatch, reason):
+    svc, c = env
+    run(svc, steps=40, hold=True)
+    monkeypatch.setattr(pl, "assess_session", fake_assess("UNFAMILIAR" if reason != "channel_selective_anomaly" else "FAULT", reason, scored=20))
+    svc.orch.dev.sim.inject(__import__("torqva.schemas", fromlist=["Hypothesis"]).Hypothesis.IMBALANCE, 0.5)
+    assert first_incident_delay(svc, 10) is not None and not svc.orch.hold_active()
+    assert svc.orch.hold_info["released"].endswith(reason)
+
+
+def test_minimum_of_eight_steady_windows_is_enforced_exactly(env, monkeypatch):
+    svc, c = env
+    H_ = __import__("torqva.schemas", fromlist=["Hypothesis"]).Hypothesis
+    run(svc, steps=40, hold=True)
+    svc.orch.dev.sim.inject(H_.IMBALANCE, 0.5)
+    monkeypatch.setattr(pl, "assess_session", fake_assess("FAULT", "channel_selective_anomaly", scored=pl.Orchestrator.DEFER_MIN_SCORED - 1))
+    svc.step(5)
+    assert svc.orch.inc is None and svc.orch.hold_active()                          # 7 steady windows: too little evidence to release
+    assert svc.orch.hold_info["deferred_windows"] >= 3 and "regime_escalation" not in svc.orch.hold_info
+    monkeypatch.setattr(pl, "assess_session", fake_assess("FAULT", "channel_selective_anomaly", scored=pl.Orchestrator.DEFER_MIN_SCORED))
+    svc.step(2)
+    assert svc.orch.inc is not None and svc.orch.hold_info["released"].startswith("fault_suspected")   # 8 steady windows: released at once
+    assert pl.Orchestrator.DEFER_MIN_SCORED == 8
+
+
+def test_deferral_is_bounded_independent_of_the_hold_length(env):
+    svc, c = env
+    o = hold_run(svc, 200, gain=1.25, hold_s=300)
+    assert o.hold_active() is False or o.hold_info.get("released")
+    assert o.hold_info["released"] == "deferral_limit_reached" and o.hold_info["deferred_windows"] == pl.Orchestrator.DEFER_MAX_WINDOWS
+    assert o.inc is not None or o.incidents_done                                      # normal (control) incident reporting resumed
+    assert pl.Orchestrator.DEFER_MAX_WINDOWS < pl.Orchestrator.MAX_HOLD_S
+
+
+def test_gradual_drift_during_a_hold_is_escalated_and_capped(env):
+    svc, c = env
+    svc.start(None, 0, None, 1, 1650.0, 40, False); svc.orch.begin_supervised_warmup("olga", 300)
+    for i in range(330):
+        svc.orch.dev.sim.vib_gain = 1.0 + 0.35 * min(i, 90) / 90
+        svc.step(1)
+        if svc.orch.inc is not None:
+            break
+    assert svc.orch.hold_info.get("regime_escalation") is True and (svc.orch.inc is not None)
+    why = svc.orch.hold_info.get("released")
+    assert why in ("deferral_limit_reached",) or (why or "").startswith(("uncertain_regime", "fault_suspected")) or not svc.orch.hold_active()
+    assert svc.orch.hold_info["deferred_windows"] <= pl.Orchestrator.DEFER_MAX_WINDOWS
+
+
+def test_independently_detectable_faults_on_top_of_a_shift_open_incidents_promptly(env):
+    svc, c = env
+    H_ = __import__("torqva.schemas", fromlist=["Hypothesis"]).Hypothesis
+    for fault in (H_.IMBALANCE, H_.LOOSENESS, H_.OVERLOAD, H_.SENSOR_FAULT):
+        o = hold_run(svc, 30, gain=1.2)
+        assert o.inc is None
+        o.dev.sim.inject(fault, 0.5)
+        assert first_incident_delay(svc, 12) is not None, fault
+        assert o.hold_info["released"].startswith(("fault_suspected", "uncertain_regime"))
 
 
 # ---------------- contract with the UI (fields the TORQVA workspace reads) ----------------
