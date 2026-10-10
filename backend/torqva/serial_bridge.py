@@ -845,6 +845,41 @@ class DeviceBridge:
             b.append(f"SAFETY FAULT LATCHED: {m.status.get('reason')}")
         return b
 
+    def interlocks(self) -> List[Dict[str, str]]:
+        """Every interlock for physical motion with an honest status: VERIFIED | BLOCKED | NOT VERIFIED | UNAVAILABLE.
+        Hardware facts (E-stop circuit, reset-safe driver, watchdog on target) are NEVER 'VERIFIED' here: no software evidence can establish them, and not knowing of a failure is not verification."""
+        m = self.model
+        now = self._clock()
+        snap = m.snapshot(now)
+        hs = bool(snap["handshake"])
+        st = m.status or {}
+        blk = st.get("blk", "")
+        V, B, N, U = "VERIFIED", "BLOCKED", "NOT VERIFIED", "UNAVAILABLE"
+        sens = snap["sensor_status"]
+        core = [sens.get(k, "unavailable") for k in ("current", "voltage", "housing", "rpm")]
+        if not hs:
+            sensors = (U, "no device handshake")
+        elif all(x == "valid" for x in core):
+            sensors = (V, "current, voltage, housing temperature and rpm are valid and fresh")
+        else:
+            sensors = (B, ", ".join(f"{k}: {sens.get(k, 'unavailable')}" for k in ("current", "voltage", "housing", "rpm") if sens.get(k) != "valid"))
+        fault_ok = hs and st.get("state") != "EMERGENCY_STOP" and not st.get("fm")
+        rows = [
+            ("identity", "Device identity verified", (U, "no device handshake") if not hs else (B, "identity mismatch") if m.identity == "mismatch" else (V, "device id matches the expected id") if m.identity == "verified" else (N, f"device id {st.get('dev')!r} is not provisioned/checked against an expected id")),
+            ("handshake", "Handshake valid", (V, f"protocol {st.get('proto')}, firmware {st.get('fw')}") if hs else (U, "no valid status frame received")),
+            ("telemetry", "Telemetry fresh", (V, "fast frames are arriving") if hs and snap["telemetry_fresh"] else (B if hs else U, "telemetry is stale" if hs else "no device")),
+            ("sensors", "Sensors valid", sensors),
+            ("limits", "Approved operating limits present", (U, "no device handshake") if not hs else (B, "the firmware reports LIMITS_NOT_APPROVED") if blk == "LIMITS_NOT_APPROVED" else (N, "the backend cannot confirm approved limits")),
+            ("session", "Secure session established", (B, "USB serial is unauthenticated; no secure device transport exists in the firmware")),
+            ("supervisor", "Safety Supervisor permits physical action", (B, "the serial bridge never enables hardware control in the supervisor")),
+            ("commissioning", "Commissioning enabled", (V, "enabled by policy") if self.policy.physical_control_enabled else (B, "physical control is disabled (human commissioning decision)")),
+            ("estop", "Emergency-stop circuit verified", (B, "emergency stop asserted") if blk == "ESTOP_ACTIVE" else (N, "no E-stop input is wired or attested (ESTOP_INPUT is unconfigured)")),
+            ("driver", "Reset-safe driver circuitry verified", (N, "default-off pull-downs on the driver lines have not been attested or measured")),
+            ("watchdog", "Watchdog requirement verified", (N, "watchdog timeout is unapproved and has no on-target test")),
+            ("fault", "No active blocking fault", (U, "no device handshake") if not hs else (V, "no latched fault") if fault_ok else (B, f"latched: {st.get('reason')} (fault mask {st.get('fm')})")),
+        ]
+        return [{"id": i, "label": l, "status": v[0], "detail": v[1]} for i, l, v in rows]
+
     def _ctx(self) -> SupervisorContext:
         m = self.model
         st = m.status or {}
@@ -930,6 +965,7 @@ class DeviceBridge:
         with self._lock:
             s = self.model.snapshot(self._clock())
             s["control_blockers"] = self.control_blockers()
+            s["interlocks"] = self.interlocks()
             s["physical_control_enabled"] = self.policy.physical_control_enabled
             s["usb_trust_boundary"] = "USB serial is unauthenticated and unencrypted: treated as inside the host's physical trust boundary"
             return s

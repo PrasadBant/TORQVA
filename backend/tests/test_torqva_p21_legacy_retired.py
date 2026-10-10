@@ -203,3 +203,27 @@ def test_supported_firmware_default_build_keeps_motor_control_compiled_out():
     assert "TORQVA_CONTROL_ENABLED" not in INI                                  # enabling control is a deliberate, separate human decision
     main = text("esp32/torqva_fw/src/main.cpp")
     assert "#ifdef TORQVA_CONTROL_ENABLED" in main and "#define TORQVA_CONTROL_ENABLED" not in main      # only an explicit build flag can compile the actuation path in
+
+
+# ====================================================================================== interlock display (Phase 22)
+def test_interlocks_are_honest_without_a_device_and_hardware_facts_are_never_verified():
+    b = DeviceBridge()
+    il = {r["id"]: r["status"] for r in b.snapshot()["interlocks"]}
+    assert il["handshake"] == "UNAVAILABLE" and il["telemetry"] == "UNAVAILABLE" and il["sensors"] == "UNAVAILABLE"
+    assert il["session"] == "BLOCKED" and il["supervisor"] == "BLOCKED" and il["commissioning"] == "BLOCKED"
+    assert il["estop"] == "NOT VERIFIED" and il["driver"] == "NOT VERIFIED" and il["watchdog"] == "NOT VERIFIED"
+
+
+def test_a_healthy_handshake_still_leaves_every_physical_interlock_open():
+    b = DeviceBridge(); tr = MemoryTransport(); b.connect(tr)
+    tr.feed(status(0, dev="RIG-1"))
+    assert wait(lambda: b.model.conn == Conn.CONNECTED)
+    il = {r["id"]: r["status"] for r in b.snapshot()["interlocks"]}
+    assert il["handshake"] == "VERIFIED" and il["limits"] == "BLOCKED"
+    for k in ("session", "supervisor", "commissioning"):
+        assert il[k] == "BLOCKED"
+    for k in ("estop", "driver", "watchdog"):
+        assert il[k] == "NOT VERIFIED"                      # absence of a reported failure is not verification
+    tr.feed(status(1, state="EMERGENCY_STOP", reason="OVER_CURRENT_INSTANT", fm=1))
+    assert wait(lambda: {r["id"]: r["status"] for r in b.snapshot()["interlocks"]}["fault"] == "BLOCKED")
+    b.disconnect()

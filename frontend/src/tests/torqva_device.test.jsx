@@ -140,7 +140,17 @@ describe('device pages', () => {
     await screen.findByText('Motor state');
     fireEvent.change(screen.getByLabelText(/Open-loop start duty/), { target: { value: '20' } });
     fireEvent.click(screen.getByRole('button', { name: /Request START/ }));
+    expect(screen.queryByText(/hardware_control_not_enabled/)).toBeNull();                       // the first click only asks for confirmation: nothing is sent
+    fireEvent.click(screen.getByRole('button', { name: /Confirm START request/ }));
     expect(await screen.findByText(/hardware_control_not_enabled/)).toBeInTheDocument();
+  });
+
+  it('lists every interlock and never marks hardware checks verified', async () => {
+    await open('Motor Control', { snap: { ...SNAP, interlocks: [{ id: 'estop', label: 'Emergency-stop circuit verified', status: 'NOT VERIFIED', detail: 'no E-stop input' }, { id: 'session', label: 'Secure session established', status: 'BLOCKED', detail: 'USB' }] }, commands: [] });
+    const t = await screen.findByTestId('interlocks');
+    expect(t).toHaveTextContent('NOT VERIFIED');
+    expect(t).toHaveTextContent('BLOCKED');
+    expect(t).not.toHaveTextContent(/^VERIFIED$/);
   });
 
   it('a viewer can request STOP only and the safety fault is explained', async () => {

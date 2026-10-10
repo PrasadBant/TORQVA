@@ -244,6 +244,7 @@ export function MotorControlPage({ stream, role }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [last, setLast] = useState(null);
+  const [confirm, setConfirm] = useState(false);
   const o = originOf(snap);
   const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
   const send = (body) => async () => { setBusy(true); setErr(null); try { setLast(await api.deviceCommand(body)); } catch (e) { setErr(e); } finally { setBusy(false); stream.refresh(); } };
@@ -259,12 +260,23 @@ export function MotorControlPage({ stream, role }) {
             {!snap?.handshake ? <Empty>No device is connected. Simulation controls are on the Live Monitor page.</Empty> : (
               <dl className="tq-kv">
                 <dt>Drive</dt><dd>{snap.drive || '—'}</dd>
-                <dt>Commanded duty</dt><dd className="tq-num">{snap.values?.duty?.value == null ? '—' : `${fmt(snap.values.duty.value, 1)} %`}</dd>
-                <dt>Measured speed</dt><dd className="tq-num">{snap.values?.rpm?.value == null ? 'UNAVAILABLE' : `${fmt(snap.values.rpm.value, 0)} rpm`}</dd>
+                <dt>Device identity</dt><dd>{snap.device_id || '—'} <span className="tq-muted">({snap.identity})</span></dd>
+                <dt>Requested duty (command, not a measurement)</dt><dd className="tq-num">{snap.values?.duty?.value == null ? '—' : `${fmt(snap.values.duty.value, 1)} %`}</dd>
+                <dt>Measured speed (Hall sensor)</dt><dd className="tq-num">{snap.values?.rpm?.value == null ? 'UNAVAILABLE' : `${fmt(snap.values.rpm.value, 0)} rpm`}</dd>
                 <dt>Safety state</dt><dd>{snap.safety_state === 'EMERGENCY_STOP' ? <Pill tone="stop">LATCHED: {title(snap.trip_reason)}</Pill> : <Pill tone={snap.safety_state === 'OK' ? 'ok' : 'warn'}>{snap.safety_state || '—'}</Pill>}</dd>
                 <dt>Firmware motion permission</dt><dd>{snap.start_blocked_reason ? <Pill tone="warn">refused: {snap.start_blocked_reason}</Pill> : <Pill tone="info">no interlock refusal reported</Pill>}</dd>
+                <dt>Current / voltage</dt><dd className="tq-num">{snap.values?.current?.valid ? `${fmt(snap.values.current.value, 2)} A` : 'UNAVAILABLE'} · {snap.values?.voltage?.valid ? `${fmt(snap.values.voltage.value, 1)} V` : 'UNAVAILABLE'}</dd>
+                <dt>Housing temperature</dt><dd className="tq-num">{snap.values?.housing?.valid ? `${fmt(snap.values.housing.value, 1)} °C` : 'UNAVAILABLE'}</dd>
+                <dt>Vibration RMS</dt><dd>UNAVAILABLE <span className="tq-muted">(not implemented; raw acceleration is a different quantity)</span></dd>
                 <dt>Telemetry</dt><dd>{snap.telemetry_fresh ? <Pill tone="ok">live</Pill> : <Pill tone="crit">STALE</Pill>}</dd>
               </dl>)}
+          </Card>
+          <Card title="Safety interlocks" id="c-interlocks">
+            {!snap?.interlocks ? <Empty>No interlock data.</Empty> : (
+              <table className="tq-table" data-testid="interlocks"><caption className="tq-sr">Physical motion interlocks</caption>
+                <thead><tr><th scope="col">Interlock</th><th scope="col">Status</th><th scope="col">Evidence</th></tr></thead>
+                <tbody>{snap.interlocks.map((r) => (<tr key={r.id}><td>{r.label}</td><td><Pill tone={r.status === 'VERIFIED' ? 'ok' : r.status === 'BLOCKED' ? 'stop' : r.status === 'NOT VERIFIED' ? 'warn' : 'info'}>{r.status}</Pill></td><td className="tq-muted">{r.detail}</td></tr>))}</tbody></table>)}
+            <p className="tq-muted">Hardware checks are never VERIFIED by software: no reported failure is not a verification.</p>
           </Card>
           <Card title="Request motion" id="c-mctl" right={<ProvBadge kind="PREDICTED" />}>
             {blocked && (
@@ -273,11 +285,13 @@ export function MotorControlPage({ stream, role }) {
                 <ul className="tq-list">{blockers.map((b) => <li key={b}>{b}</li>)}</ul>
               </div>)}
             <form className="tq-form" onSubmit={(e) => e.preventDefault()}>
-              <label>Open-loop start duty (%) <input type="number" min="0" max="100" value={duty} onChange={(e) => setDuty(e.target.value)} disabled={blocked || !canOperate(role)} /></label>
+              <label>Open-loop start duty (%) <input type="number" min="0" max="100" value={duty} onChange={(e) => { setDuty(e.target.value); setConfirm(false); }} disabled={blocked || !canOperate(role)} /></label>
+              <label>Duty slider <input type="range" min="0" max="100" step="1" value={duty === '' ? 0 : duty} onChange={(e) => { setDuty(e.target.value); setConfirm(false); }} disabled={blocked || !canOperate(role)} aria-label="Duty slider (nothing is sent until you press a request button)" /></label>
               <label>Speed setting (rpm) <input type="number" min="0" value={rpm} onChange={(e) => setRpm(e.target.value)} disabled={blocked || !canOperate(role)} /></label>
-              <p className="tq-muted">The permitted operating range is not shown because no safety limits are approved for this motor.</p>
+              <p className="tq-muted">The permitted operating range is not shown because no safety limits are approved for this motor. The slider spans the 0–100 % duty input domain only; that is not an approved operating range. Nothing is sent while moving it.</p>
               <div className="tq-row">
-                <button type="button" className="tq-btn tq-primary" disabled={blocked || busy || !canOperate(role) || duty === ''} onClick={send({ action: 'START', duty_pct: Number(duty) })}>Request START</button>
+                <button type="button" className="tq-btn tq-primary" disabled={blocked || busy || !canOperate(role) || duty === ''} onClick={() => (confirm ? (setConfirm(false), send({ action: 'START', duty_pct: Number(duty) })()) : setConfirm(true))}>{confirm ? 'Confirm START request' : 'Request START'}</button>
+                {confirm && <button type="button" className="tq-btn" onClick={() => setConfirm(false)}>Cancel</button>}
                 <button type="button" className="tq-btn" disabled={blocked || busy || !canOperate(role) || rpm === ''} onClick={send({ action: 'SET_SPEED', rpm: Number(rpm) })}>Request speed</button>
               </div>
             </form>
