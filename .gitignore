@@ -1,0 +1,42 @@
+# Environment & Secrets
+.env
+*.env
+!.env.example
+
+# Python Caches & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+*.pytest_cache/
+
+# Node & Frontend Build Artifacts
+node_modules/
+dist/
+dist-ssr/
+build/
+*.local
+
+# Arduino & Embedded Build Artifacts
+*.elf
+*.bin
+*.hex
+esp32/firmware/*/build/
+
+# Databases & Runtime Data
+*.db
+*.sqlite3
+data/*.db
+
+# IDE & OS Junk
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
+# Temporary Scratch Files
+scratch/
