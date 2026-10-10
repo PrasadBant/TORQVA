@@ -1,0 +1,295 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
+import { Octagon } from 'lucide-react';
+import { api, getToken } from './api.js';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt } from './components.jsx';
+import { PageHead, Tabs } from './pages.jsx';
+
+const title = (s) => String(s ?? '').replaceAll('_', ' ');
+const defaultWs = (import.meta.env && import.meta.env.MODE === 'test') ? null : (url) => new WebSocket(url);
+const canOperate = (role) => role === 'operator' || role === 'admin';
+const SIGNALS = [['rpm', 'Speed', 'rpm', 0], ['current', 'Current', 'A', 2], ['voltage', 'Voltage', 'V', 2], ['power', 'Power', 'W', 1], ['housing', 'Housing temperature', '°C', 1], ['duty', 'Drive duty (command)', '%', 1]];
+const RANGES = [[60, 'Last 60 s'], [180, 'Last 3 min'], [360, 'Last 6 min']];
+const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
+
+/** Live device state: REST snapshot + read-only WebSocket with reconnection. Telemetry is only ever "live" while the server says it is fresh AND frames keep arriving. */
+export function useDeviceStream(enabled, wsFactory = defaultWs, pollMs = 3000) {
+  const [snap, setSnap] = useState(null);
+  const [commands, setCommands] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [ws, setWs] = useState('idle');                 // idle | connecting | open | closed
+  const [lastMsg, setLastMsg] = useState(null);
+  const [error, setError] = useState(null);
+  const alive = useRef(true);
+
+  const pushEvent = useCallback((e) => setEvents((x) => [{ ...e, k: `${e.ts}-${Math.random()}` }, ...x].slice(0, 40)), []);
+  const refresh = useCallback(async () => {
+    try {
+      const [s, c] = await Promise.all([api.deviceStatus(), api.deviceCommands()]);
+      if (!alive.current) return;
+      if (isObj(s)) { setSnap(s); setError(null); }
+      if (isObj(c) && Array.isArray(c.commands)) setCommands(c.commands);
+    } catch (e) { if (alive.current) setError(e); }
+  }, []);
+
+  useEffect(() => {
+    alive.current = true;
+    if (!enabled) return undefined;
+    refresh();
+    const poll = setInterval(refresh, pollMs);          // fallback while the socket is down, and to refresh the command table
+    let sock = null; let retry = 0; let timer = null;
+    const open = () => {
+      if (!wsFactory || !alive.current) return;
+      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      setWs('connecting');
+      try { sock = wsFactory(`${proto}://${window.location.host}/api/torqva/ws`); } catch { setWs('closed'); return; }
+      sock.onopen = () => { try { sock.send(JSON.stringify({ type: 'auth', token: getToken() })); } catch { /* socket closed before auth */ } };
+      sock.onmessage = (ev) => {
+        let m; try { m = JSON.parse(ev.data); } catch { return; }          // malformed frames are ignored, never trusted
+        if (!isObj(m)) return;
+        setLastMsg(Date.now());
+        if (m.type === 'snapshot' && isObj(m.data)) { retry = 0; setWs('open'); setSnap(m.data); if (Array.isArray(m.commands)) setCommands(m.commands); }
+        else if (m.type === 'event' && typeof m.name === 'string') {
+          if (m.name === 'telemetry' && isObj(m.data)) setSnap((s) => ({ ...(s || {}), ...m.data }));
+          else {
+            pushEvent(m);
+            if (['device_disconnected', 'device_restarted', 'command_sent', 'command_rejected', 'command_acknowledged', 'command_executed', 'command_timed_out', 'command_unknown_outcome', 'telemetry_stale', 'safety_fault_latched', 'device_state_changed'].includes(m.name)) refresh();
+          }
+        }
+      };
+      const lost = () => {
+        if (!alive.current) return;
+        setWs('closed');
+        retry += 1; timer = setTimeout(open, Math.min(15000, 1000 * 2 ** Math.min(retry, 4)));   // exponential backoff, capped
+      };
+      sock.onclose = lost;
+      sock.onerror = () => { try { sock.close(); } catch { /* already closed */ } };
+    };
+    open();
+    return () => { alive.current = false; clearInterval(poll); if (timer) clearTimeout(timer); if (sock) { sock.onclose = null; try { sock.close(); } catch { /* closing */ } } };
+  }, [enabled, refresh, wsFactory, pollMs, pushEvent]);
+
+  return { snap, commands, events, ws, lastMsg, error, refresh };
+}
+
+export function originOf(snap) {
+  if (!snap || !snap.handshake) return { label: 'SIMULATION', tone: 'info', physical: false };
+  if (snap.origin === 'physical_device') return { label: 'PHYSICAL DEVICE', tone: 'ok', physical: true };
+  return { label: 'DEVICE (FIRMWARE SIMULATION MODE)', tone: 'warn', physical: false };
+}
+
+const ago = (unix) => (unix ? `${fmt(Math.max(0, Date.now() / 1000 - unix), 1)} s ago` : 'never');
+
+function ConnPill({ snap }) {
+  const c = snap?.connection || 'DISCONNECTED';
+  const tone = c === 'CONNECTED' ? 'ok' : c === 'STALE' || c === 'CONNECTING' ? 'warn' : c === 'ERROR' ? 'crit' : 'off';
+  return <Pill tone={tone}>{c}</Pill>;
+}
+
+/* ------------------------------------------------------------------ Device connection */
+export function DevicePage({ stream, role }) {
+  const { snap, events, ws, error } = stream;
+  const [ports, setPorts] = useState([]);
+  const [form, setForm] = useState({ port: '', baud: 115200, expected: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const admin = role === 'admin';
+  const o = originOf(snap);
+  useEffect(() => { if (admin) api.devicePorts().then((r) => setPorts(Array.isArray(r?.ports) ? r.ports : [])).catch(() => setPorts([])); }, [admin]);
+  const act = (fn) => async () => { setBusy(true); setErr(null); try { await fn(); } catch (e) { setErr(e); } finally { setBusy(false); stream.refresh(); } };
+  const connected = snap && snap.connection && snap.connection !== 'DISCONNECTED' && snap.connection !== 'ERROR';
+  return (
+    <>
+      <PageHead title="Device Connection" sub="USB serial link to the ESP32-S3, owned by the backend. The browser never touches the port."
+        right={<><Pill tone={o.tone}>{o.label}</Pill><ConnPill snap={snap} /></>} />
+      <div className="tq-split">
+        <div className="tq-stack">
+          <Card title="Connection" id="c-devconn">
+            <dl className="tq-kv">
+              <dt>Mode</dt><dd>{o.label}</dd>
+              <dt>USB state</dt><dd><ConnPill snap={snap} /></dd>
+              <dt>Live updates (WebSocket)</dt><dd>{ws === 'open' ? <Pill tone="ok">connected</Pill> : <Pill tone="warn">{ws === 'idle' ? 'off' : ws}</Pill>}</dd>
+              <dt>Last message</dt><dd className="tq-num">{ago(snap?.last_rx_unix)}</dd>
+              <dt>Device id</dt><dd>{snap?.device_id || '—'} {snap?.identity && snap.identity !== 'unknown' && <span className="tq-chip">{snap.identity}</span>}</dd>
+              <dt>Firmware / protocol</dt><dd>{snap?.firmware || '—'} · wire protocol {snap?.wire_protocol ?? '—'}</dd>
+              <dt>Firmware mode</dt><dd>{snap?.firmware_mode || '—'}</dd>
+            </dl>
+            {!snap?.handshake && <p className="tq-callout">No device handshake. The application is in <strong>SIMULATION</strong>; physical-device telemetry is unavailable and physical motor controls are disabled.</p>}
+            {snap?.last_error && <p className="tq-callout crit" role="alert">{snap.last_error}</p>}
+            <ErrorBox error={error} />
+            <p className="tq-muted">Trust boundary: {snap?.usb_trust_boundary || 'USB serial is unauthenticated; it is treated as inside the host computer\'s physical trust boundary.'}</p>
+          </Card>
+          <Card title="Counters" id="c-devcnt">
+            {!snap?.counters ? <Empty>No data.</Empty> : (
+              <dl className="tq-kv">{Object.entries(snap.counters).map(([k, v]) => (<React.Fragment key={k}><dt>{title(k)}</dt><dd className="tq-num">{v}</dd></React.Fragment>))}</dl>)}
+          </Card>
+        </div>
+        <div className="tq-stack">
+          <Card title="Serial port" id="c-devport">
+            {!admin ? <Empty>Connecting a device requires the admin role.</Empty> : (
+              <form className="tq-form" onSubmit={(e) => { e.preventDefault(); act(() => api.deviceConnect({ port: form.port, baud: Number(form.baud), expected_device_id: form.expected || null }))(); }}>
+                <label>Port
+                  <select value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} disabled={connected}>
+                    <option value="">select a port…</option>
+                    {ports.map((p) => <option key={p.device} value={p.device}>{p.device} — {p.description}</option>)}
+                  </select>
+                </label>
+                <label>Baud rate (USB-CDC ignores it)
+                  <input type="number" value={form.baud} onChange={(e) => setForm({ ...form, baud: e.target.value })} disabled={connected} />
+                </label>
+                <label>Expected device id (optional; a mismatch is refused)
+                  <input type="text" value={form.expected} onChange={(e) => setForm({ ...form, expected: e.target.value })} disabled={connected} />
+                </label>
+                <div className="tq-row">
+                  <button type="submit" className="tq-btn tq-primary" disabled={busy || connected || !form.port}>Connect</button>
+                  <button type="button" className="tq-btn" disabled={busy || !connected} onClick={act(() => api.deviceDisconnect())}>Disconnect</button>
+                </div>
+              </form>)}
+            <ErrorBox error={err} />
+            <p className="tq-muted">If the device disappears the backend closes the port and shows DISCONNECTED; reconnect by selecting the port again. Nothing is replayed after a reconnect.</p>
+          </Card>
+          <Card title="Recent device events" id="c-devev">
+            {!events.length ? <Empty>No events yet.</Empty> : (
+              <ul className="tq-feed">{events.slice(0, 12).map((e) => (<li key={e.k}><Pill tone={/error|disconnected|fault|timed|unknown|rejected/.test(e.name) ? 'crit' : 'info'}>{title(e.name)}</Pill><span className="tq-muted">{JSON.stringify(e.data).slice(0, 90)}</span></li>))}</ul>)}
+          </Card>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ Live device charts (used by Live Monitor and the Device page) */
+export function DeviceLive({ stream }) {
+  const { snap } = stream;
+  const [signal, setSignal] = useState('rpm');
+  const [seconds, setSeconds] = useState(60);
+  const [points, setPoints] = useState([]);
+  const [err, setErr] = useState(null);
+  const o = originOf(snap);
+  const load = useCallback(() => api.deviceHistory(signal, seconds).then((r) => { setPoints(Array.isArray(r?.points) ? r.points : []); setErr(null); }).catch(setErr), [signal, seconds]);
+  useEffect(() => { load(); const id = setInterval(load, 2000); return () => clearInterval(id); }, [load]);
+  const data = useMemo(() => points.map(([t, v]) => ({ t, v })), [points]);
+  const meta = SIGNALS.find((s) => s[0] === signal);
+  const stale = snap && !snap.telemetry_fresh;
+  return (
+    <div className="tq-stack">
+      <p className={`tq-callout ${o.physical ? '' : 'warn'}`} role="note">
+        {o.physical ? 'Values below are measurements reported by the connected ESP32-S3.' : snap?.handshake ? 'The connected firmware reports SIMULATION mode: these are not physical measurements.' : 'No device is connected. There is no physical-device telemetry; nothing here is simulated or invented.'}
+        {stale && snap?.handshake && <strong> Telemetry is STALE: last frame {fmt(snap.telemetry_age_s, 1)} s ago. Showing the last readings, not live data.</strong>}
+      </p>
+      <div className="tq-kpis">
+        {SIGNALS.map(([k, name, unit, d]) => {
+          const v = snap?.values?.[k];
+          const missing = !v || v.value === null || v.value === undefined;
+          return (
+            <div key={k} className={`tq-kpi ${missing || v?.stale ? 'tq-unavailable' : ''}`}>
+              <div className="tq-kpi-label"><span>{name}</span>{v && !missing ? <ProvBadge kind={o.physical ? 'MEASURED' : 'SIMULATED'} /> : null}</div>
+              <div className="tq-kpi-value tq-num">{missing ? 'UNAVAILABLE' : fmt(v.value, d)}{!missing && <span className="tq-kpi-unit">{unit}</span>}</div>
+              {v && !missing && v.stale && <div className="tq-muted" style={{ fontSize: 12 }}>stale</div>}
+              {v && missing && <div className="tq-muted" style={{ fontSize: 12 }}>invalid sensor reading</div>}
+            </div>);
+        })}
+        <div className="tq-kpi tq-unavailable"><div className="tq-kpi-label"><span>Vibration / acceleration</span></div><div className="tq-kpi-value tq-num">UNAVAILABLE</div>
+          <div className="tq-muted" style={{ fontSize: 12 }}>the firmware does not measure it yet</div></div>
+      </div>
+      <Card title="History" id="c-devhist" right={<><label className="tq-inline">Signal <select value={signal} onChange={(e) => setSignal(e.target.value)}>{SIGNALS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></label>
+        <label className="tq-inline">Range <select value={seconds} onChange={(e) => setSeconds(Number(e.target.value))}>{RANGES.map(([s, n]) => <option key={s} value={s}>{n}</option>)}</select></label></>}>
+        <ErrorBox error={err} />
+        {!data.length ? <Empty>No device history for this range. History exists only while a device is sending telemetry.</Empty> : (
+          <div role="img" aria-label={`${meta[1]} history`}><ResponsiveContainer width="100%" height={220}>
+            <LineChart data={data}><CartesianGrid stroke="var(--tq-border)" />
+              <XAxis dataKey="t" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(x) => new Date(x * 1000).toLocaleTimeString()} minTickGap={40} />
+              <YAxis width={54} domain={['auto', 'auto']} /><Tooltip labelFormatter={(x) => new Date(x * 1000).toLocaleTimeString()} />
+              <Line dataKey="v" name={`${meta[1]} (${meta[2]})`} stroke="var(--tq-accent)" dot={false} isAnimationActive={false} connectNulls={false} />
+            </LineChart></ResponsiveContainer></div>)}
+        <p className="tq-muted">Gaps mean invalid readings or a disconnect; they are never drawn as zero.</p>
+      </Card>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ Motor control (physical actuation stays blocked) */
+const STATE_TONE = { REQUESTED: 'info', REJECTED: 'crit', AUTHORIZED: 'wait', SENT: 'wait', ACKNOWLEDGED: 'info', EXECUTED: 'ok', FAILED: 'crit', TIMED_OUT: 'warn', UNKNOWN_OUTCOME: 'warn' };
+
+export function MotorControlPage({ stream, role }) {
+  const { snap, commands } = stream;
+  const [duty, setDuty] = useState('');
+  const [rpm, setRpm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [last, setLast] = useState(null);
+  const o = originOf(snap);
+  const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
+  const send = (body) => async () => { setBusy(true); setErr(null); try { setLast(await api.deviceCommand(body)); } catch (e) { setErr(e); } finally { setBusy(false); stream.refresh(); } };
+  const connected = snap && ['CONNECTED', 'STALE'].includes(snap.connection);
+  const blocked = blockers.length > 0;
+  return (
+    <>
+      <PageHead title="Motor Control" sub="Every request goes: authenticated backend → role check → Safety Supervisor → commissioning and interlocks → dispatcher → device validation → acknowledgement."
+        right={<><Pill tone={o.tone}>{o.label}</Pill><Pill tone="stop">PHYSICAL CONTROL DISABLED BY DEFAULT</Pill></>} />
+      <div className="tq-split">
+        <div className="tq-stack">
+          <Card title="Motor state" id="c-mstate">
+            {!snap?.handshake ? <Empty>No device is connected. Simulation controls are on the Live Monitor page.</Empty> : (
+              <dl className="tq-kv">
+                <dt>Drive</dt><dd>{snap.drive || '—'}</dd>
+                <dt>Commanded duty</dt><dd className="tq-num">{snap.values?.duty?.value == null ? '—' : `${fmt(snap.values.duty.value, 1)} %`}</dd>
+                <dt>Measured speed</dt><dd className="tq-num">{snap.values?.rpm?.value == null ? 'UNAVAILABLE' : `${fmt(snap.values.rpm.value, 0)} rpm`}</dd>
+                <dt>Safety state</dt><dd>{snap.safety_state === 'EMERGENCY_STOP' ? <Pill tone="stop">LATCHED: {title(snap.trip_reason)}</Pill> : <Pill tone={snap.safety_state === 'OK' ? 'ok' : 'warn'}>{snap.safety_state || '—'}</Pill>}</dd>
+                <dt>Firmware motion permission</dt><dd>{snap.start_blocked_reason ? <Pill tone="warn">refused: {snap.start_blocked_reason}</Pill> : <Pill tone="info">no interlock refusal reported</Pill>}</dd>
+                <dt>Telemetry</dt><dd>{snap.telemetry_fresh ? <Pill tone="ok">live</Pill> : <Pill tone="crit">STALE</Pill>}</dd>
+              </dl>)}
+          </Card>
+          <Card title="Request motion" id="c-mctl" right={<ProvBadge kind="PREDICTED" />}>
+            {blocked && (
+              <div className="tq-callout crit" role="alert" data-testid="control-blockers">
+                <strong>Physical motion is unavailable:</strong>
+                <ul className="tq-list">{blockers.map((b) => <li key={b}>{b}</li>)}</ul>
+              </div>)}
+            <form className="tq-form" onSubmit={(e) => e.preventDefault()}>
+              <label>Open-loop start duty (%) <input type="number" min="0" max="100" value={duty} onChange={(e) => setDuty(e.target.value)} disabled={blocked || !canOperate(role)} /></label>
+              <label>Speed setting (rpm) <input type="number" min="0" value={rpm} onChange={(e) => setRpm(e.target.value)} disabled={blocked || !canOperate(role)} /></label>
+              <p className="tq-muted">The permitted operating range is not shown because no safety limits are approved for this motor.</p>
+              <div className="tq-row">
+                <button type="button" className="tq-btn tq-primary" disabled={blocked || busy || !canOperate(role) || duty === ''} onClick={send({ action: 'START', duty_pct: Number(duty) })}>Request START</button>
+                <button type="button" className="tq-btn" disabled={blocked || busy || !canOperate(role) || rpm === ''} onClick={send({ action: 'SET_SPEED', rpm: Number(rpm) })}>Request speed</button>
+              </div>
+            </form>
+            {!canOperate(role) && <p className="tq-muted">Your role ({role}) can request STOP only.</p>}
+            <h4>Protective stop request</h4>
+            <button type="button" className="tq-btn tq-danger" disabled={busy || !connected} onClick={send({ action: 'STOP' })}><Octagon size={14} aria-hidden="true" /> Send STOP to device</button>
+            <p className="tq-muted">This is a software request, not an independent physical emergency stop. The firmware's own protections run locally and do not depend on this website, the network or any model.</p>
+            <ErrorBox error={err} />
+            {last && <p className="tq-callout">Last request #{last.id}: <Pill tone={STATE_TONE[last.state] || 'info'}>{last.state}</Pill> {(last.reasons || []).join(' · ')}</p>}
+          </Card>
+        </div>
+        <Card title="Command history" id="c-mhist">
+          {!commands.length ? <Empty>No commands requested in this session.</Empty> : (
+            <table className="tq-table"><caption className="tq-sr">Device command history</caption>
+              <thead><tr><th scope="col">#</th><th scope="col">Action</th><th scope="col">By</th><th scope="col">State</th><th scope="col">Detail</th></tr></thead>
+              <tbody>{commands.slice(0, 20).map((c) => (<tr key={c.id}><td className="tq-num">{c.id}</td><td>{title(c.action)}</td><td>{c.requested_by}</td>
+                <td><Pill tone={STATE_TONE[c.state] || 'info'}>{title(c.state)}</Pill></td><td className="tq-muted">{(c.reasons || []).join(' · ') || c.ack_reason}</td></tr>))}</tbody></table>)}
+          <p className="tq-muted">SENT and ACKNOWLEDGED are not EXECUTED. Nothing is retried or replayed automatically; after a disconnect or device restart an unfinished command is shown as UNKNOWN OUTCOME and the operator must act again.</p>
+        </Card>
+      </div>
+    </>
+  );
+}
+
+/** Compact device summary for the Overview page. */
+export function DeviceCard({ stream, go }) {
+  const { snap } = stream;
+  const o = originOf(snap);
+  const blockers = snap?.control_blockers || [];
+  return (
+    <Card title="Device (USB)" id="c-devcard" right={<Pill tone={o.tone}>{o.label}</Pill>}>
+      <dl className="tq-kv">
+        <dt>USB connection</dt><dd><ConnPill snap={snap} /></dd>
+        <dt>Last telemetry</dt><dd className="tq-num">{snap?.handshake ? (snap.telemetry_fresh ? `live · ${ago(snap.last_rx_unix)}` : `STALE · ${ago(snap.last_rx_unix)}`) : 'none (no device)'}</dd>
+        <dt>Safety state</dt><dd>{snap?.safety_state || '—'}</dd>
+        <dt>Physical motion</dt><dd>{blockers.length ? <Pill tone="stop">blocked ({blockers.length})</Pill> : <Pill tone="info">no blocker reported</Pill>}</dd>
+      </dl>
+      <button className="tq-link" onClick={() => go('device')}>Open Device</button>
+    </Card>
+  );
+}

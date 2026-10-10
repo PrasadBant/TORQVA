@@ -311,7 +311,7 @@ def test_c2_has_no_path_to_the_device():
     from torqva.api import create_router
     from torqva.auth import TokenAuth
     from torqva.service import SimulationService
-    routes = [(r.path, sorted(r.methods)) for r in create_router(SimulationService(), TokenAuth([])).routes]
+    routes = [(r.path, sorted(getattr(r, "methods", None) or ())) for r in create_router(SimulationService(), TokenAuth([])).routes]
     assert not [p for p, m in routes if "predict" in p and "POST" in m]
 
 

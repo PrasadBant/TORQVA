@@ -108,7 +108,7 @@ private:
     float last_dt_s_;
 
     static const int kQ = 24;
-    static const int kLine = 200;
+    static const int kLine = 288;
     char q_[kQ][kLine];
     int q_head_, q_tail_, q_count_;
     uint32_t dropped_;

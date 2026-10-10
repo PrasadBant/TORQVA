@@ -243,3 +243,8 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 
 * New `device_protocol.py` (tqv1), `device_transport.py` (mTLS server with CRL, certificate pinning and identity binding; session/command lifecycle; gateway that accepts only supervisor-approved actions; mock link), `GET /api/torqva/devices` (UNAVAILABLE today), firmware session-id binding (`begin_session`, `WRONG_SESSION`, `NO_SECURE_SESSION`, acks echo dev+sid). Installed ESP32 framework has mbedTLS 2.28.7 = TLS 1.2 max: policy default is TLS 1.2 + ECDHE/AEAD only, TLS 1.3 selectable. No firmware TLS client exists; nothing is wired into live dispatch.
 * Results: backend 522 passed (41 new transport tests with real TLS handshakes, mutation-checked), frontend 67 + build OK, native 100/100, real-core contract 19/19, ESP32-S3 compile OK (compile only). Hardware NOT validated; physical operation prohibited.
+
+## Session 16 - USB serial bridge, WebSocket and live device dashboard (software only)
+
+* `serial_bridge.py` (backend-owned port, validated parser, bounded model/history, command lifecycle, hub), `device_routes.py` (REST + read-only WebSocket), firmware status frame extended (proto, dev, blk, fm), frontend Device / Motor Control pages, Live Monitor source switch, device card, dynamic banner. STOP is the only sendable device command; START/speed stay blocked with reasons. No real port was opened.
+* Results: backend 569 passed (47 new), frontend 78 passed + build OK, native 101/101, ESP32-S3 compile OK, Chrome E2E all five suites 0 failures (app 53/53). Hardware NOT validated.

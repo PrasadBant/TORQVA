@@ -74,7 +74,7 @@ def test_frame_schema_types_finite_and_units(fw):
     for f in slow:
         assert set(f) == {"t", "seq", "ts", "housing", "ambient", "q"} and 0 <= f["housing"] <= 100 and 0 <= f["ambient"] <= 60                       # degrees C
     for f in status:
-        assert set(f) == {"t", "seq", "ts", "fw", "wiring", "limits_v", "state", "reason", "mode", "drive", "ctl", "hb_age", "test"}
+        assert set(f) == {"t", "seq", "ts", "fw", "wiring", "limits_v", "state", "reason", "mode", "drive", "ctl", "hb_age", "test", "proto", "dev", "blk", "fm"}
         assert f["mode"] == "SIM" and f["state"] in ("OK", "WARN", "EMERGENCY_STOP") and f["drive"] in ("IDLE", "OPEN_LOOP", "CLOSED_LOOP")
 
 

@@ -55,7 +55,13 @@ struct StatusFrame {
     bool control_enabled;
     uint32_t heartbeat_age_ms;
     uint8_t test_id;      // 0 = none
+    // Added in wire protocol 1 (backend bridge): who is talking, and why motion is or is not currently permitted.
+    const char* device_id;   // configured identity ("" if none); a label, not authentication
+    const char* start_block; // the FIRST failed start interlock (static string) or "" when a motor-energising command would currently be permitted
+    uint32_t fault_mask;     // every distinct trip cause since the last reset (bit = 1 << TripReason)
 };
+
+static const unsigned kWireProtocol = 1;
 
 size_t encode_fast(char* buf, size_t n, const FastFrame& f);
 size_t encode_slow(char* buf, size_t n, const SlowFrame& f);

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from .attestation import AttestationService
+from .serial_bridge import DeviceBridge
 from .evaluation import build_models
 from .pipeline import Orchestrator, PipelineConfig
 from .schemas import Hypothesis, Mode, Role
@@ -34,6 +35,7 @@ class SimulationService:
         self.scenario: Dict[str, Any] = {}
         self.running = False
         self._n = 0
+        self.bridge = DeviceBridge(expected_device_id=os.environ.get("TORQVA_EXPECTED_DEVICE_ID") or None)   # USB serial bridge: never connects by itself
         self.gateway = None            # Optional[DeviceGateway]: set only when a device transport is configured (none is, today)
         # Serialises every state change and every read of the live orchestrator (HTTP handlers run in a thread pool). The lock is taken per simulated
         # second inside step(), never for a whole multi-second step, so a STOP is never queued behind a long run.

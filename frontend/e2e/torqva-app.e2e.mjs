@@ -31,7 +31,7 @@ check('environment is labelled software simulator', (await page.textContent('hea
 await shot('overview-1440');
 
 const pages = [['Live Monitor', 'Latest telemetry'], ['AI Diagnostics', 'Fault hypotheses'], ['Predictions', 'Candidate interventions|Predictions'], ['Diagnostic Tests', 'Available tests'],
-  ['Interventions', 'Decision gate'], ['Recovery', 'Outcomes'], ['Learning', 'Learning dataset'], ['Evaluation', 'Evaluation run'], ['Lab', 'Lab|session|Session'], ['Devices & Settings', 'Devices']];
+  ['Interventions', 'Decision gate'], ['Recovery', 'Outcomes'], ['Learning', 'Learning dataset'], ['Evaluation', 'Evaluation run'], ['Lab', 'Lab|session|Session'], ['Devices & Settings', 'Devices'], ['Device', 'No device handshake'], ['Motor Control', 'Physical motion is unavailable']];
 for (const [nav, expect] of pages) {
   await page.click(`nav button:has-text("${nav}")`); await page.waitForTimeout(700);
   const txt = await page.textContent('main');
@@ -39,6 +39,13 @@ for (const [nav, expect] of pages) {
   check(`  ${nav}: no horizontal overflow at 1440px`, (await overflow()) <= 1);
   await shot(nav.replace(/\W+/g, '-').toLowerCase() + '-1440');
 }
+await page.click('nav button:has-text("Device")'); await page.waitForTimeout(600);
+const devTxt = await page.textContent('main');
+check('Device page: SIMULATION, no physical telemetry, no handshake', devTxt.includes('SIMULATION') && devTxt.includes('No device handshake') && !devTxt.includes('PHYSICAL DEVICE'));
+await page.click('nav button:has-text("Motor Control")'); await page.waitForTimeout(600);
+const mcTxt = await page.textContent('main');
+check('Motor Control: physical controls disabled with the reason shown', mcTxt.includes('DEVICE NOT CONNECTED') && mcTxt.includes('PHYSICAL CONTROL DISABLED') && await page.isDisabled('button:has-text("Request START")') && await page.isDisabled('button:has-text("Send STOP to device")'));
+await page.click('nav button:has-text("Devices & Settings")'); await page.waitForTimeout(400);
 const dev = await page.textContent('main');
 check('physical device shown as not connected, simulated device distinguished', /not connected/.test(dev) && /software simulator/.test(dev));
 

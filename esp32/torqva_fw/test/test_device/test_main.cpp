@@ -391,6 +391,21 @@ void test_stop_needs_no_session_id_and_session_ids_are_validated() {
     TEST_ASSERT_FALSE(r.act.driver_enable);
 }
 
+void test_status_frame_reports_protocol_identity_interlock_reason_and_fault_mask() {
+    DeviceConfig c = sim_cfg(true, /*relaxed*/ false, false, false, false); c.device_id = "RIG-7";
+    Device d(sim_limits(), c);
+    SimPlant plant; HalOut act = {false, 0, false}; uint32_t t = 0;
+    std::vector<std::string> out;
+    for (int i = 0; i < 150; i++) { HalIn in = plant.step(10, act, false); t = in.now_ms; act = d.step(in); char b[320]; while (d.pop_line(b, sizeof(b))) out.push_back(b); }
+    std::string st;
+    for (size_t i = 0; i < out.size(); i++) if (out[i].find("\"t\":\"status\"") != std::string::npos) st = out[i];
+    TEST_ASSERT_TRUE(st.size() > 0 && st.size() < 288);
+    TEST_ASSERT_NOT_NULL(strstr(st.c_str(), "\"proto\":1"));
+    TEST_ASSERT_NOT_NULL(strstr(st.c_str(), "\"dev\":\"RIG-7\""));
+    TEST_ASSERT_NOT_NULL(strstr(st.c_str(), "\"blk\":\"LIMITS_NOT_APPROVED\""));      // the device itself says why motion is not permitted
+    TEST_ASSERT_NOT_NULL(strstr(st.c_str(), "\"fm\":0"));
+}
+
 // ---------- protocol ----------
 void test_parse_valid_command() {
     ParsedCommand pc;
@@ -658,7 +673,7 @@ void test_frames_have_increasing_seq_and_bounded_length() {
     uint32_t last = 0; bool first = true; int frames = 0;
     for (size_t i = 0; i < r.out.size(); i++) {
         const std::string& s = r.out[i];
-        TEST_ASSERT_TRUE(s.size() < 200);
+        TEST_ASSERT_TRUE(s.size() < 288);                              // the line buffer (kLine); wire protocol 1 added fields to the status frame
         TEST_ASSERT_EQUAL('{', s[0]);
         TEST_ASSERT_EQUAL('}', s[s.size() - 1]);
         size_t p = s.find("\"seq\":");
@@ -737,6 +752,7 @@ int main(int, char**) {
     RUN_TEST(test_stop_works_without_a_session_and_without_authentication);
     RUN_TEST(test_a_boot_fault_latches_until_an_intentional_reset_and_never_restarts_the_motor);
     RUN_TEST(test_acknowledgements_carry_the_device_id_when_configured);
+    RUN_TEST(test_status_frame_reports_protocol_identity_interlock_reason_and_fault_mask);
     RUN_TEST(test_commands_must_carry_the_live_session_id_and_old_session_ids_are_rejected);
     RUN_TEST(test_a_new_session_replaces_the_old_one_stops_motion_and_makes_old_commands_invalid);
     RUN_TEST(test_stop_needs_no_session_id_and_session_ids_are_validated);

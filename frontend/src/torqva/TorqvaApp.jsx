@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, Gauge, ListChecks, Microscope, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap } from 'lucide-react';
+import { Activity, Gauge, ListChecks, Microscope, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap, Usb, SlidersHorizontal } from 'lucide-react';
 import { api, setToken, getToken, ApiError } from './api.js';
 import { SimulationBanner, Pill } from './components.jsx';
 import { Evaluation } from './views.jsx';
 import { OverviewPage, LivePage, DiagnosticsPage, PredictionsPage, TestsPage, InterventionsPage, RecoveryPage, LearningPage, DevicesPage, PageHead } from './pages.jsx';
+import { useDeviceStream, DevicePage, MotorControlPage, DeviceCard, DeviceLive } from './device.jsx';
 import Lab from './lab.jsx';
 import Attestation from './attestation.jsx';
 import './torqva.css';
@@ -13,6 +14,7 @@ const NAV = [
   ['overview', 'Overview', Gauge, ''], ['live', 'Live Monitor', Activity, ''], ['diagnostics', 'AI Diagnostics', Microscope, 'C1'],
   ['predictions', 'Predictions', LineChart, 'C2'], ['tests', 'Diagnostic Tests', TestTube2, 'C4'], ['interventions', 'Interventions', ListChecks, 'C3'],
   ['recovery', 'Recovery', ShieldCheck, 'C5'], ['learning', 'Learning', GraduationCap, 'C6'], ['evaluation', 'Evaluation', FlaskConical, ''],
+  ['device', 'Device', Usb, 'USB'], ['control', 'Motor Control', SlidersHorizontal, ''],
   ['lab', 'Lab', Beaker, ''], ['devices', 'Devices & Settings', Settings, ''],
 ];
 
@@ -36,7 +38,7 @@ function Login({ onLogin, error }) {
   );
 }
 
-export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5 }) {
+export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory }) {
   const [user, setUser] = useState(null);
   const [loginError, setLoginError] = useState('');
   const [view, setView] = useState('overview');
@@ -50,6 +52,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5 }) {
   const [evalState, setEvalState] = useState({ run: null, error: null });
   const [c2c4, setC2c4] = useState({ data: null, error: null });
   const [audit, setAudit] = useState({ rows: [], error: null });
+  const device = useDeviceStream(!!user, wsFactory);
   const alive = useRef(true);
   const autoStarted = useRef(false);
   const devLogin = useRef(false);        // true only when the development token signed us in (never in production builds)
@@ -129,18 +132,19 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5 }) {
   const mode = d.status?.mode || 'SIMULATION';
   const dev = d.status?.device;
   const stale = offline || (lastOk !== null && now - lastOk > Math.max(8000, pollMs * 4));
-  const ctx = { d, role: user.role, user, actions, running, setRunning, busy, error, stale, go: setView, ctl: canStart(user.role) };
+  const ctx = { d, role: user.role, user, actions, running, setRunning, busy, error, stale, go: setView, ctl: canStart(user.role), device, deviceCard: <DeviceCard stream={device} go={setView} />, deviceLive: <DeviceLive stream={device} /> };
   const pages = {
     overview: <OverviewPage {...ctx} />, live: <LivePage {...ctx} />, diagnostics: <DiagnosticsPage {...ctx} />,
     predictions: <PredictionsPage {...ctx} />, tests: <TestsPage {...ctx} c2c4={c2c4.data} />, interventions: <InterventionsPage {...ctx} />,
     recovery: <RecoveryPage {...ctx} />, learning: <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>,
     evaluation: (<><PageHead title="Evaluation and Research" sub="Simulation evaluation artifacts, baselines versus candidates, provenance and known limitations." />
       <Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} /></>),
+    device: <DevicePage stream={device} role={user.role} />, control: <MotorControlPage stream={device} role={user.role} />,
     lab: <Lab role={user.role} />, devices: <DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />,
   };
   return (
     <div className="tq-shell">
-      <SimulationBanner mode={mode} />
+      <SimulationBanner mode={mode} physical={device.snap?.origin === 'physical_device' && device.snap?.handshake === true} />
       {stale && (
         <div className="tq-conn" role="alert" data-testid="conn-warning"><WifiOff size={16} aria-hidden="true" /><strong>Backend unreachable.</strong>
           <span>Values shown are STALE{lastOk ? ` (last updated ${Math.round((now - lastOk) / 1000)} s ago)` : ''} and are not live. Start the backend and this page recovers automatically.</span></div>)}

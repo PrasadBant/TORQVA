@@ -79,6 +79,10 @@ def test_no_backend_code_path_constructs_the_hardware_mode():
         text = f.read_text()
         if f.name in ("schemas.py",) or "test" in f.name:
             continue
+        if f.name == "serial_bridge.py":                                  # builds a HARDWARE-mode supervisor CONTEXT only, with hardware control hard-wired off
+            t = f.read_text()
+            assert "hardware_control_enabled=False" in t and "hardware_control_enabled=True" not in t
+            continue
         assert "Mode.HARDWARE" not in text.replace("ctx.mode == Mode.HARDWARE", "").replace("mode == Mode.HARDWARE", ""), f.name
     assert "Mode.SIMULATION" in (ROOT / "backend" / "torqva" / "service.py").read_text()
 

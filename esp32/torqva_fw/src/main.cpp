@@ -25,6 +25,11 @@ using namespace torqva;
 //  TORQVA_LIMITS_APPROVED     1 only after a responsible person approved the safety-trip limits for this motor, driver, PSU and cooling (see docs/TORQVA_HARDWARE_READINESS.md).
 //  TORQVA_ESTOP_INPUT_WIRED   1 only after an independent emergency-stop input exists with a documented wiring contract AND config_pins.h defines its pin;
 //                             this build reads no E-stop pin (in.external_estop is always false), so the flag must stay 0 until that code exists.
+// Device identity reported to the backend bridge. A label (NOT authentication, NOT a secret); set per unit with -DTORQVA_DEVICE_ID=\"...\". The default is deliberately
+// recognisable as unprovisioned, and the bridge reports an unprovisioned or mismatching identity as unverified.
+#ifndef TORQVA_DEVICE_ID
+#define TORQVA_DEVICE_ID "UNPROVISIONED"
+#endif
 #ifndef TORQVA_LIMITS_APPROVED
 #define TORQVA_LIMITS_APPROVED 0
 #endif
@@ -230,6 +235,7 @@ void setup() {
     cfg.control_enabled = false;
 #endif
     cfg.kp = 0.01f; cfg.ki = 0.03f;                    // placeholders: tune during commissioning
+    cfg.device_id = TORQVA_DEVICE_ID;
     cfg.limits_approved = (TORQVA_LIMITS_APPROVED != 0);
     cfg.estop_input_wired = (TORQVA_ESTOP_INPUT_WIRED != 0);
     cfg.transport_secured = (TORQVA_TRANSPORT_SECURED != 0);
@@ -272,7 +278,7 @@ void loop() {
             if (n < sizeof(line) - 1) line[n++] = c; else { n = 0; discarding = true; }   // overlong line: drop it AND its remainder
         }
     }
-    char out[256];
+    char out[320];
     for (int i = 0; i < 8; i++) {
         bool got;
         xSemaphoreTake(g_mu, portMAX_DELAY);

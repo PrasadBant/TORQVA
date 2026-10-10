@@ -2,12 +2,14 @@ import React from 'react';
 import { AlertTriangle, CheckCircle2, ShieldAlert, Info, XOctagon, Clock, XCircle, FlaskConical } from 'lucide-react';
 
 /** Persistent, non-dismissable. TORQVA only serves simulated data in this build. */
-export function SimulationBanner({ mode = 'SIMULATION' }) {
+export function SimulationBanner({ mode = 'SIMULATION', physical = false }) {
   return (
     <div className="tq-banner" role="status" aria-live="polite" data-testid="sim-banner">
       <FlaskConical size={16} aria-hidden="true" />
-      <strong>{mode}</strong>
-      <span>All values below are simulated. No physical motor is connected or controlled. Not hardware evidence.</span>
+      <strong>{physical ? 'PHYSICAL DEVICE CONNECTED' : mode}</strong>
+      {physical
+        ? <span>A device is connected over USB. Simulated data is labelled SIM and device readings HW. Physical motor control is disabled; this is not hardware validation.</span>
+        : <span>All values below are simulated. No physical motor is connected or controlled. Not hardware evidence.</span>}
     </div>
   );
 }

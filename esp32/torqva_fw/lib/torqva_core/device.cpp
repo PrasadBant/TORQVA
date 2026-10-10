@@ -276,7 +276,8 @@ void Device::emit_frames(const HalIn& in) {
                          safety_.state(), safety_.reason(), cfg_.mode,
                          m == DriveMode::IDLE ? "IDLE" : (m == DriveMode::OPEN_LOOP ? "OPEN_LOOP" : "CLOSED_LOOP"),
                          cfg_.control_enabled, hb_seen_ ? (uint32_t)(in.now_ms - last_hb_ms_) : 0xFFFFFFFFu,
-                         tests_.active() ? (uint8_t)tests_.id() : (uint8_t)0};
+                         tests_.active() ? (uint8_t)tests_.id() : (uint8_t)0,
+                         cfg_.device_id, cfg_.relaxed_interlocks ? "" : (start_blocked_reason(in.now_ms) ? start_blocked_reason(in.now_ms) : ""), safety_.fault_mask()};
         queue_line(b, encode_status(b, sizeof(b), f));
     }
 }

@@ -205,6 +205,9 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
                                 "No C2 variant is validated by Intervention Outcome Experiments on hardware.",
                                 "The noise-aware C2 variant and the style-aware C4 library are opt-in; the shipped models remain the default."]}
 
+    from .device_routes import add_device_routes
+    add_device_routes(r, service, need, audit, auth)
+
     @r.get("/devices")
     def devices(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         """Device transport status. Today no physical transport is configured: the answer is UNAVAILABLE, never a fabricated healthy device."""

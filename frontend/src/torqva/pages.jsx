@@ -121,7 +121,7 @@ function warnings(d) {
 }
 
 /* ------------------------------------------------------------------ 1. Overview */
-export function OverviewPage({ d, role, user, go, stale, ctl }) {
+export function OverviewPage({ d, role, user, go, stale, ctl, deviceCard }) {
   const s = d.status || {}; const w = s.last_window; const t = samplesOf(d);
   const tail = t.slice(-60);
   const hyp = lastOf(d.log, 'hypotheses'); const gate = [...(d.decisions || [])].reverse().find((x) => x.inputs);
@@ -153,6 +153,7 @@ export function OverviewPage({ d, role, user, go, stale, ctl }) {
                 <dt>Anomaly windows</dt><dd className="tq-num">{above} of {t.length} above learned threshold</dd>
               </dl>)}
           </Card>
+          {deviceCard}
           <Card title="Recent events" id="c-events">
             {!events.length ? <Empty>No events yet.</Empty> : (
               <ul className="tq-feed">{events.map((l, i) => (<li key={i}><Pill tone={logTone(l)}>{fmt(l.t, 0)} s</Pill><span>{describeLog(l)}</span></li>))}</ul>)}
@@ -187,8 +188,10 @@ export function OverviewPage({ d, role, user, go, stale, ctl }) {
 
 /* ------------------------------------------------------------------ 2. Live monitoring */
 const RANGES = [['60', 'Last 60 s'], ['180', 'Last 3 min'], ['all', 'All (≤300 windows)']];
-export function LivePage({ d, role, actions, running, setRunning, busy, error, stale }) {
+export function LivePage({ d, role, actions, running, setRunning, busy, error, stale, deviceLive, device }) {
   const [range, setRange] = useState('all');
+  const [source, setSource] = useState('simulation');                // 'simulation' | 'device'
+  const deviceOn = !!(device && device.snap && device.snap.handshake);
   const all = samplesOf(d);
   const s = d.status || {};
   const data = useMemo(() => {
@@ -199,10 +202,20 @@ export function LivePage({ d, role, actions, running, setRunning, busy, error, s
   }, [all, range]);
   const last = data[data.length - 1]; const w = s.last_window;
   const missing = ['rpm', 'housing', 'vib_rms', 'current'].filter((k) => w && (w[k] === null || w[k] === undefined));
+  const physical = deviceOn && device.snap.origin === 'physical_device';
+  const selector = deviceOn ? (
+    <div className="tq-row" role="group" aria-label="Data source" style={{ marginBottom: 12 }}>
+      <button className="tq-btn" aria-pressed={source === 'simulation'} onClick={() => setSource('simulation')}>Simulation</button>
+      <button className="tq-btn" aria-pressed={source === 'device'} onClick={() => setSource('device')}>{physical ? 'Physical device' : 'Connected device (firmware simulation)'}</button>
+    </div>) : null;
+  if (deviceOn && source === 'device') {
+    return (<><PageHead title="Live Motor Monitoring" sub="Readings reported by the connected device over USB serial; stale data is marked, never shown as live." right={<Pill tone={physical ? 'ok' : 'warn'}>{physical ? 'PHYSICAL DEVICE' : 'DEVICE (FIRMWARE SIMULATION MODE)'}</Pill>} />{selector}{deviceLive}</>);
+  }
   return (
     <>
       <PageHead title="Live Motor Monitoring" sub="Telemetry from the software simulator, refreshed every few seconds while it runs."
         right={<><ProvBadge kind="SIMULATED" />{stale ? <Pill tone="crit">stale</Pill> : <Pill tone={running ? 'ok' : 'off'}>{running ? 'running' : 'paused'}</Pill>}</>} />
+      {selector}
       <div className="tq-kpis">
         <Kpi label="Speed" value={w?.rpm} unit="rpm" digits={0} />
         <Kpi label="Housing temperature" value={w?.housing} unit="°C" />
