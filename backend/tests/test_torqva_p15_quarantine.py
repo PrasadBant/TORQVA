@@ -1,45 +1,13 @@
-"""Phase 15 follow-up: legacy-firmware quarantine and fail-closed firmware configuration. Static checks of the repository; nothing is built for or sent to hardware."""
+"""Phase 15 follow-up: fail-closed configuration of the supported firmware (the legacy-sketch quarantine tests were replaced by test_torqva_p21_legacy_retired.py when the sketch was retired). Static checks of the repository; nothing is built for or sent to hardware."""
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-LEGACY = ROOT / "esp32" / "firmware" / "smart_motor_monitor" / "smart_motor_monitor.ino"
 FW = ROOT / "esp32" / "torqva_fw"
 INI = chr(10).join(l for l in (FW / "platformio.ini").read_text().splitlines() if not l.lstrip().startswith(";"))      # comments are not configuration
 MAIN = (FW / "src" / "main.cpp").read_text()
-
-
-def test_legacy_sketch_refuses_to_compile_unless_explicitly_acknowledged_before_any_include():
-    src = LEGACY.read_text()
-    guard = src.index("#ifndef TORQVA_LEGACY_UNSAFE_ACKNOWLEDGED")
-    assert guard < src.index("#include"), "the guard must precede every include"
-    assert "#error" in src[guard:guard + 400]
-
-
-@pytest.mark.skipif(not shutil.which("g++"), reason="no host C++ preprocessor")
-def test_preprocessor_stops_on_the_guard_and_only_proceeds_when_the_macro_is_defined():
-    plain = subprocess.run(["g++", "-E", "-x", "c++", str(LEGACY)], capture_output=True, text=True)
-    assert plain.returncode != 0 and "Legacy sketch quarantined" in plain.stderr
-    acked = subprocess.run(["g++", "-E", "-x", "c++", "-DTORQVA_LEGACY_UNSAFE_ACKNOWLEDGED", str(LEGACY)], capture_output=True, text=True)
-    assert "Legacy sketch quarantined" not in acked.stderr          # past the guard (it then fails on the missing Arduino headers, which is expected here)
-
-
-def test_no_platformio_environment_builds_the_legacy_sketch():
-    assert "firmware/" not in INI and "smart_motor_monitor" not in INI
-    assert "src_dir" not in INI and "src_filter" not in INI.replace("build_src_filter", "")
-    for env in re.findall(r"^\[env:(\w+)\]", INI, re.M):
-        assert env in ("native", "fitl", "esp32s3", "esp32s3_uart"), env
-
-
-def test_user_facing_docs_that_describe_uploading_the_sketch_carry_the_warning():
-    for rel in ("docs/software.md", "README.md"):
-        t = (ROOT / rel).read_text()
-        assert "legacy sketch is quarantined" in t, rel
-    assert (ROOT / "esp32" / "firmware" / "README_LEGACY_UNSAFE.md").exists()
 
 
 # ----------------------------------------------------------------------------------------------- fail-closed configuration of the supported firmware

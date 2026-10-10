@@ -294,7 +294,7 @@ class DeviceModel:
         steps = list(steps)
         if self.last_error_code in ("HANDSHAKE_INVALID", "HANDSHAKE_TIMEOUT") and any(m in s for s in self.samples for m in LEGACY_MARKERS):
             summary = "The attached board is running the legacy monitoring sketch, not TORQVA firmware."
-            steps.insert(0, "Its serial output matches the legacy smart_motor_monitor sketch (human-readable status text). That sketch is quarantined: it accepts unauthenticated network motor commands and has no interlocks. TORQVA sent nothing to it.")
+            steps.insert(0, "Its serial output matches the legacy smart_motor_monitor sketch (human-readable status text). That sketch has been retired from the TORQVA repository (it accepted unauthenticated network motor commands and had no interlocks) and its text is not TORQVA telemetry. TORQVA sent nothing to it.")
             steps.append("Moving the board to the supported TORQVA firmware (esp32/torqva_fw) is a deliberate human decision; TORQVA never flashes firmware.")
         return {"code": self.last_error_code, "message": summary, "detail": self.last_error_detail or self.last_error, "recovery": steps}
 

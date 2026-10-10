@@ -1,5 +1,5 @@
 // Hardware constants for the TORQVA firmware. GPIO assignments live ONLY in lib/torqva_core/pinmap.h (namespace torqva_pins): this file defines no pin.
-// The map comes from the operator's legacy sketch as the INTENDED wiring and is NOT verified against the physical build: the wiring id reported in every status frame stays
+// The map comes from the operator's legacy sketch (retired from the tree) as the INTENDED wiring and is NOT verified against the physical build: the wiring id reported in every status frame stays
 // "UNVERIFIED" until a human confirms the real wiring.
 #pragma once
 #include "pinmap.h"

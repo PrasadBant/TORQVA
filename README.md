@@ -10,9 +10,7 @@ The Smart Motor Condition Monitoring System continuously measures motor health a
 
 ---
 
-> **WARNING - the legacy sketch is quarantined.** `smart_motor_monitor.ino` accepts an unauthenticated TCP `MOTOR_ON` and energises the motor with no interlocks or watchdog.
-> It will not compile unless `TORQVA_LEGACY_UNSAFE_ACKNOWLEDGED` is defined, and must not be uploaded to a rig with motor power connected. The supported firmware is
-> `esp32/torqva_fw` (PlatformIO). See `esp32/firmware/README_LEGACY_UNSAFE.md` and `docs/TORQVA_HARDWARE_READINESS.md`.
+> **Firmware status.** `esp32/torqva_fw/` (PlatformIO) is the **sole supported firmware**. The old `smart_motor_monitor` Arduino sketch was retired from the current tree (it accepted an unauthenticated TCP `MOTOR_ON` and had no interlocks or watchdog); it exists only in Git history and must not be recovered, built or uploaded. Old serial text such as `STATUS: MOTOR OFF` is **not** valid TORQVA telemetry: the supported firmware must implement the current TORQVA device protocol. **The hardware is not ready for physical motor operation** until the remaining safety requirements in `docs/TORQVA_HARDWARE_READINESS.md` are met. See `esp32/README.md`.
 
 ## 2. Hardware Used & ESP32-S3 Details
 
@@ -33,7 +31,7 @@ The Smart Motor Condition Monitoring System continuously measures motor health a
 ## 3. ESP32-S3 GPIO & Pin Configuration
 
 > [!IMPORTANT]
-> **Existing hardware pin assignments are strictly preserved from firmware (`smart_motor_monitor.ino`).**
+> **The authoritative GPIO map is `esp32/torqva_fw/lib/torqva_core/pinmap.h`** (derived from the retired sketch's wiring; unverified, not an approved wiring contract). The table below is a HISTORICAL table and can disagree with it (for example the BTS7960 and ADXL345 pins); `pinmap.h` wins.
 
 | Module / Sensor | Signal / Pin | ESP32-S3 GPIO | Protocol / Mode | Notes |
 |---|---|---|---|---|
@@ -61,11 +59,11 @@ The Smart Motor Condition Monitoring System continuously measures motor health a
 - [x] **Multi-Parameter Sensor Acquisition**: Real-time reading of Temperature, Current, Voltage, Power, RPM, and Vibration RMS.
 - [x] **Local Display & Diagnostics**: SH1106 OLED rendering, status LEDs, and buzzer alert triggers.
 - [x] **On-Device Baseline Calibration**: NVS Preferences storage for baseline metric comparison.
-- [x] **Non-Blocking Network Architecture**: ESP32-S3 Wi-Fi auto-reconnect watchdog & raw TCP socket telemetry client (`smart_motor_monitor.ino`).
+- [x] **Structured USB serial telemetry**: `esp32/torqva_fw` speaks the TORQVA JSON-lines device protocol; the backend owns the serial port (Device page). (The retired sketch's Wi-Fi/TCP client is no longer in the tree.)
 - [x] **FastAPI Backend Server**: Asynchronous TCP socket server (Port 5001), REST API endpoints (`/api/*`), SQLite storage, and WebSocket distribution channel (`/ws`).
 - [x] **Predictive Health Engine**: Baseline-relative deviation scoring, weighted multi-factor health index (0–100%), and explainable diagnostic advisories.
 - [x] **React Industrial Dashboard**: Dark-mode UI with live metric gauges, alert panel, device state indicator, dynamic time-series charts, and motor toggle controls.
-- [x] **BTS7960 Motor Actuation Layer**: Non-blocking TCP command parsing (`MOTOR_ON`, `MOTOR_OFF`) with ACK string replies (`MOTOR_ON_ACK`, `MOTOR_OFF_ACK`).
+- [ ] **BTS7960 physical actuation: NOT enabled.** Motor control is compiled out of the supported firmware and physical START / speed commands are refused by the interlocks and the backend. The retired sketch's TCP `MOTOR_ON` path no longer exists in the tree.
 
 ### PLANNED / NEXT DEVELOPMENT
 - [ ] **Advanced Motor Control**: Variable PWM speed slider on the frontend dashboard to adjust motor RPM dynamically via TCP.
@@ -77,7 +75,7 @@ The Smart Motor Condition Monitoring System continuously measures motor health a
 ## 5. Software Requirements & System Setup
 
 ### Prerequisites
-- **Embedded**: Arduino IDE (v2.0+) with ESP32 board support package (v2.0+ or v3.0+).
+- **Embedded**: PlatformIO (`python -m pip install platformio`); the project is `esp32/torqva_fw/`. The Arduino IDE is not used for this project.
 - **Backend**: Python 3.10+
 - **Frontend**: Node.js v18+ and npm
 
@@ -85,21 +83,15 @@ The Smart Motor Condition Monitoring System continuously measures motor health a
 
 ## 6. How to Build & Install
 
-### Step A: Flash ESP32-S3 Firmware
-1. Open `esp32/firmware/smart_motor_monitor/smart_motor_monitor.ino` in Arduino IDE.
-2. Install required libraries:
-   - `ArduinoJson`
-   - `Adafruit ADXL345` & `Adafruit Unified Sensor`
-   - `Adafruit INA219`
-   - `DallasTemperature` & `OneWire`
-   - `U8g2`
-3. Update Wi-Fi SSID, Password, and Backend Laptop IP in `smart_motor_monitor.ino`:
-   ```cpp
-   const char* WIFI_SSID    = "YOUR_WIFI_SSID";
-   const char* WIFI_PASS    = "YOUR_WIFI_PASSWORD";
-   const char* BACKEND_HOST = "192.168.X.X"; // Host laptop IP
-   ```
-4. Select **ESP32S3 Dev Module** and click **Upload**.
+### Step A: Build the ESP32-S3 firmware (build and test only)
+The only firmware is `esp32/torqva_fw/`. Libraries are fetched by PlatformIO; there are no Wi-Fi credentials or host IP in the firmware.
+```powershell
+cd esp32/torqva_fw
+python -m platformio test -e native          # host unit tests
+python -m platformio run -e esp32s3_uart     # build: Serial on UART0 (CH343 / USB-to-serial connector)
+python -m platformio run -e esp32s3          # build: Serial on the native USB CDC connector
+```
+Uploading to a board is a separate, explicitly authorised step that needs the pre-flash checks in `docs/TORQVA_HARDWARE_READINESS.md`; nothing in this repository selects an upload target by default. See `esp32/README.md`.
 
 ### Step B: Run FastAPI Backend
 ```powershell
@@ -197,9 +189,7 @@ smart-motor-monitor/
 │   └── software.md
 ├── esp32/                          # Microcontroller firmware
 │   ├── README.md
-│   └── firmware/
-│       └── smart_motor_monitor/
-│           └── smart_motor_monitor.ino
+│   └── torqva_fw/                  # the sole supported firmware (PlatformIO)
 └── frontend/                       # React + Vite Industrial Dashboard
     ├── .env.example
     ├── index.html
@@ -214,9 +204,9 @@ smart-motor-monitor/
 
 | Issue | Potential Cause | Recommended Fix |
 |---|---|---|
-| **ESP32 failed to connect to TCP server** | Laptop IP address changed or Firewall blocking Port 5001 | Check `ipconfig` on laptop, update `BACKEND_HOST` in `smart_motor_monitor.ino`, and allow Port 5001 in Windows Firewall. |
+| **Device page shows `HANDSHAKE INVALID`** | The board prints text that is not TORQVA protocol 1 (for example an old sketch still flashed on it, or a wrong environment) | The supported firmware must implement the current TORQVA protocol (`esp32/torqva_fw`). The backend never accepts old text as telemetry. Flashing needs a separate explicit authorisation. |
 | **DS18B20 reading -127.00°C** | Missing pull-up resistor or faulty wiring | Connect a 4.7kΩ resistor between DS18B20 `DATA` (GPIO 6) and `3.3V`. |
 | **INA219 failed to initialize** | Incorrect I2C bus wiring | Verify INA219 SDA is on GPIO 7 and SCL is on GPIO 8. |
 | **OLED display blank** | I2C address or bus wiring issue | Ensure OLED SDA is on GPIO 4 and SCL is on GPIO 5. |
-| **Motor does not run on `MOTOR_ON` command** | BTS7960 enable pins disabled or 24V power off | Check 24V DC motor power supply, and verify GPIO 17 (R_EN) and GPIO 18 (L_EN) are receiving 3.3V logic HIGH. |
+| **Motor does not run** | Physical motor operation is intentionally disabled | Expected: the supported firmware refuses physical START and speed commands until the safety requirements in `docs/TORQVA_HARDWARE_READINESS.md` are met. Do not try to bypass the interlocks. |
 | **RPM reads 0 while motor is spinning** | Magnet gap too large or Hall pin unpulled | Ensure neodymium magnet is within 1–3 mm of A3144 face and GPIO 9 interrupt is configured (`INPUT_PULLUP`). |

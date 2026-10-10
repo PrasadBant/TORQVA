@@ -1,5 +1,7 @@
 # TORQVA — Phase 0 Audit
 
+> **RETIRED / HISTORICAL.** This Phase 0 audit (the state as found) describes the legacy `smart_motor_monitor` Arduino sketch, which was **retired from the current tree** (Git history only; not to be recovered, built or uploaded). It is preserved as a record and is not current instructions. `esp32/torqva_fw/` is the sole supported firmware, and the hardware is not ready for physical motor operation (`docs/TORQVA_HARDWARE_READINESS.md`).
+
 Audited: 2026-10-10. Source: the repo as found (snapshot commit `855f282`). Nothing was changed in code during the audit.
 
 ## 1. What exists

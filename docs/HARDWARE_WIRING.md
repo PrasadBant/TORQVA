@@ -1,6 +1,6 @@
 # Hardware Wiring & Physical Bench Safety Specification (Phase 6)
 
-> **Note:** the pin map below comes from the quarantined legacy sketch (`esp32/firmware/README_LEGACY_UNSAFE.md`). It is not an approved or verified wiring contract, and the supported firmware is `esp32/torqva_fw`.
+> **Note:** the pin map below was carried over from the wiring of the retired legacy sketch (removed from the current tree; Git history only). It is not an approved or verified wiring contract. The authoritative map is `esp32/torqva_fw/lib/torqva_core/pinmap.h`; `esp32/torqva_fw/` is the sole supported firmware. The hardware is not ready for physical motor operation.
 
 
 ## 1. Physical Bench Safety Procedure
@@ -24,7 +24,7 @@
 
 ## 2. Component Pinout & Wiring Table
 
-The default software configuration defined in [esp32/firmware/smart_motor_monitor.ino](file:///c:/Users/dkdar/.gemini/antigravity-ide/scratch/smart-motor-monitor/esp32/firmware/smart_motor_monitor.ino) maps to standard ESP32-S3 DevKit boards:
+HISTORICAL pin table (an older revision of the retired sketch's wiring). It can disagree with the authoritative map `esp32/torqva_fw/lib/torqva_core/pinmap.h` (for example BTS7960 and ADXL345 pins); where they differ, `pinmap.h` wins, and neither is a verified wiring contract. The table below is that historical table:
 
 | Component | Pin / Signal | ESP32-S3 GPIO | Power Rail | Ground | Wiring & Pull-Up Notes |
 |---|---|---|---|---|---|
@@ -100,15 +100,7 @@ void loop() {}
 
 ## 5. Wi-Fi & Host Machine Network Configuration
 
-1. **Host Backend Discovery**:
-   - The ESP32-S3 communicates with FastAPI over standard HTTP REST (`POST /api/ingest`, `GET /api/device/commands`, etc.).
-   - In [esp32/firmware/smart_motor_monitor.ino](file:///c:/Users/dkdar/.gemini/antigravity-ide/scratch/smart-motor-monitor/esp32/firmware/smart_motor_monitor.ino):
-     ```cpp
-     const char* WIFI_SSID    = "YOUR_WLAN_SSID";
-     const char* WIFI_PASS    = "YOUR_WLAN_PASSWORD";
-     const char* BACKEND_HOST = "192.168.1.100"; // IPv4 address of laptop running FastAPI
-     const int   BACKEND_PORT = 8000;
-     ```
+1. **Host Backend Discovery** (historical, retired): the retired legacy sketch used Wi-Fi and HTTP/TCP to reach the backend. The supported firmware `esp32/torqva_fw` has no Wi-Fi client; it talks to the backend over USB serial using the TORQVA device protocol (Device page), so no SSID, password or host IP is configured on the device.
 2. **Windows Firewall Rule**:
    - Allow Python / Uvicorn inbound on port `8000` across Private networks:
      ```powershell

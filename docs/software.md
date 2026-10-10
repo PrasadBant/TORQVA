@@ -3,38 +3,29 @@
 ## 1. System Overview
 
 The system consists of three main software tiers:
-1. **ESP32-S3 Firmware** (`esp32/firmware/smart_motor_monitor/smart_motor_monitor.ino`)
+1. **ESP32-S3 Firmware** (`esp32/torqva_fw/`, PlatformIO; the sole supported firmware)
 2. **FastAPI Backend Server** (`backend/`)
 3. **React + Vite Industrial Dashboard** (`frontend/`)
 
 ---
 
-## 2. Firmware Prerequisites & Arduino IDE Setup
+## 2. Firmware Prerequisites & PlatformIO Setup
 
-> **WARNING - the legacy sketch is quarantined.** `smart_motor_monitor.ino` accepts an unauthenticated TCP `MOTOR_ON` and energises the motor with no interlocks or watchdog.
-> It will not compile unless `TORQVA_LEGACY_UNSAFE_ACKNOWLEDGED` is defined, and must not be uploaded to a rig with motor power connected. The supported firmware is
-> `esp32/torqva_fw` (PlatformIO). See `esp32/firmware/README_LEGACY_UNSAFE.md` and `docs/TORQVA_HARDWARE_READINESS.md`.
+> **Firmware status.** `esp32/torqva_fw/` (PlatformIO) is the **sole supported firmware**. The old `smart_motor_monitor` Arduino sketch was retired from the current tree (it accepted an unauthenticated TCP `MOTOR_ON` and had no interlocks or watchdog); it exists only in Git history and must not be recovered, built or uploaded. Old serial text such as `STATUS: MOTOR OFF` is **not** valid TORQVA telemetry: the supported firmware must implement the current TORQVA device protocol. **The hardware is not ready for physical motor operation** until the remaining safety requirements in `docs/TORQVA_HARDWARE_READINESS.md` are met.
 
 
-### Required Arduino Libraries:
-- **`ArduinoJson`** (v6.x or v7.x)
-- **`Adafruit ADXL345`**
-- **`Adafruit Unified Sensor`**
-- **`Adafruit INA219`**
-- **`DallasTemperature`**
-- **`OneWire`**
-- **`U8g2`** (For SH1106 OLED display)
+### Libraries
+PlatformIO fetches the libraries declared in `esp32/torqva_fw/platformio.ini` (Adafruit INA219, OneWire, DallasTemperature, U8g2). Nothing is installed by hand.
 
-### Compilation & Upload Steps:
-1. Open `esp32/firmware/smart_motor_monitor/smart_motor_monitor.ino` in Arduino IDE.
-2. Set Board to **ESP32S3 Dev Module**.
-3. Configure Wi-Fi Credentials & Host IP in `smart_motor_monitor.ino`:
-   ```cpp
-   const char* WIFI_SSID    = "YOUR_WIFI_SSID";
-   const char* WIFI_PASS    = "YOUR_WIFI_PASSWORD";
-   const char* BACKEND_HOST = "192.168.X.X"; // Host laptop IP
-   ```
-4. Upload firmware to ESP32-S3 (`Ctrl+U`).
+### Build and test (no upload):
+```powershell
+cd esp32/torqva_fw
+python -m platformio test -e native          # host unit tests
+python -m platformio run -e esp32s3_uart     # Serial on UART0, reached through the USB-to-serial (CH343) connector
+python -m platformio run -e esp32s3          # Serial on the native USB CDC connector
+python -m platformio run -e fitl             # firmware-in-the-loop CLI used by the backend contract tests
+```
+The two device environments differ only in which port carries `Serial`; they are deliberately not merged. Uploading is a separate, explicitly authorised step (pre-flash checks in `docs/TORQVA_HARDWARE_READINESS.md`); there is no Wi-Fi configuration in the firmware, and the device talks to the backend over USB serial (Device page).
 
 ---
 

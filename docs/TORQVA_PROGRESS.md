@@ -265,3 +265,9 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 ## Session 20 - ADXL345, OLED and annunciators, Device-page states, pre-flash checkpoint
 
 * ADXL345 raw acceleration (accel frames; total magnitude includes gravity, not vibration RMS), OLED status display, LEDs/buzzer; backend accel parsing, per-sensor status, state labels, aggregated error events; Device page updates. Native 112, backend 617, frontend 82, both ESP32-S3 targets compile. Board identity/wiring unconfirmed; nothing flashed; waiting for authorisation (see Phase 20 checkpoint).
+
+## Session 21 - legacy smart motor firmware retired
+
+* Removed `esp32/firmware/` (the `smart_motor_monitor` sketch and its quarantine README) from the tracked tree via an ordinary commit; history is intact. `esp32/torqva_fw/` is the sole supported firmware. Docs updated (README, software, hardware, wiring, esp32/README, communication) and historical reports marked retired, not rewritten.
+* The obsolete quarantine tests (compile-guard checks of the removed sketch) were replaced by `test_torqva_p21_legacy_retired.py`; the fail-closed firmware-configuration tests were kept.
+* Nothing flashed, COM7 not opened, no device commands, no motor operated, nothing pushed. Details and remaining blockers: `docs/TORQVA_HARDWARE_READINESS.md` Phase 21.

@@ -1,5 +1,7 @@
 # System Architecture & Development Stages Roadmap
 
+> **RETIRED / HISTORICAL.** This roadmap and its TCP `MOTOR_ON` / `MOTOR_OFF` flow describes the legacy `smart_motor_monitor` Arduino sketch, which was **retired from the current tree** (Git history only; not to be recovered, built or uploaded). It is preserved as a record and is not current instructions. `esp32/torqva_fw/` is the sole supported firmware, and the hardware is not ready for physical motor operation (`docs/TORQVA_HARDWARE_READINESS.md`).
+
 ## 1. Multi-Stage Development Strategy
 
 The Smart Motor Condition Monitoring & Control System is structured into three clear stages:

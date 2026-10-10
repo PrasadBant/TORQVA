@@ -1,5 +1,7 @@
 # Phase 6: Real ESP32-S3 Hardware Integration & End-to-End Validation Report
 
+> **RETIRED / HISTORICAL.** This report describes the legacy `smart_motor_monitor` Arduino sketch, which was **retired from the current tree** (Git history only; not to be recovered, built or uploaded). It is preserved as a record and is not current instructions. `esp32/torqva_fw/` is the sole supported firmware, and the hardware is not ready for physical motor operation (`docs/TORQVA_HARDWARE_READINESS.md`).
+
 ## 1. Hardware Used
 - **Microcontroller**: ESP32-S3 Dual-Core Xtensa LX7 MCU (Targeted architecture).
 - **Target Motor**: RS-775 24V DC Permanent Magnet Brushless/Brushed Motor.

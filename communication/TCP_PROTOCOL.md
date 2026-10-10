@@ -1,5 +1,7 @@
 # TCP Communication Protocol Specification
 
+> **LEGACY PROTOCOL - RETIRED FIRMWARE.** This document describes the TCP/HTTP text protocol of the legacy `smart_motor_monitor` sketch, which was retired from the current tree (Git history only). No supported firmware speaks it. The supported firmware is `esp32/torqva_fw` and its protocol is the TORQVA JSON-lines device protocol over USB serial (`docs/software.md`). Old text such as `STATUS: MOTOR OFF` or `MOTOR_ON` is not valid TORQVA telemetry. Preserved as a historical record.
+
 This document details the TCP socket protocol used for bidirectional communication between the **ESP32-S3 Motor Telemetry Node** and the **Laptop/Server Backend**.
 
 ---

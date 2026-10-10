@@ -1,6 +1,6 @@
 // THE authoritative GPIO map for the TORQVA firmware. Pure constants (no Arduino dependency) so the firmware (src/main.cpp) and the native tests use the SAME table.
 //
-// Source: the operator's legacy sketch (smart_motor_monitor, "TORQVA - ESP32-S3 N16R8"), used as the INTENDED wiring reference. That is evidence of intent, NOT proof that the
+// Source: the operator's legacy sketch (smart_motor_monitor, since retired from the tree; Git history only, "TORQVA - ESP32-S3 N16R8"), used as the INTENDED wiring reference. That is evidence of intent, NOT proof that the
 // physical wires match: the wiring id reported in every status frame stays "...-UNVERIFIED" until a person confirms the real wiring.
 // Target: ESP32-S3 N16R8 (16 MB flash, 8 MB octal PSRAM) per the project's PlatformIO environments and the sketch header; the actual module is not confirmed.
 //

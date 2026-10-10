@@ -1,5 +1,7 @@
 # NEW LAPTOP SETUP REPORT
 
+> **RETIRED / HISTORICAL.** This setup report (its Arduino IDE compile/upload lines) describes the legacy `smart_motor_monitor` Arduino sketch, which was **retired from the current tree** (Git history only; not to be recovered, built or uploaded). It is preserved as a record and is not current instructions. `esp32/torqva_fw/` is the sole supported firmware, and the hardware is not ready for physical motor operation (`docs/TORQVA_HARDWARE_READINESS.md`).
+
 ## 1. Environment
 
 - **Python**: Python 3.13.0 (via `py` launcher: `C:\Users\Mohit Bogar\AppData\Local\Programs\Python\Launcher\py.exe`)
@@ -45,7 +47,7 @@
   - `Adafruit ADXL345` & `Adafruit Unified Sensor`
   - `OneWire` & `DallasTemperature`
   - `Adafruit INA219`
-- **Firmware compile**: Firmware source code verified at `esp32/firmware/smart_motor_monitor.ino`. Ready for Arduino IDE compilation and upload.
+- **Firmware compile**: Firmware source code verified at `esp32/firmware/smart_motor_monitor.ino` (RETIRED, removed from the tree; no longer ready for any compilation or upload).
 - **Hardware**: **NOT TESTED** (per migration specifications; hardware testing is reserved for physical motor validation phase).
 
 ## 7. Migration Issues

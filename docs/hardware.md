@@ -1,6 +1,6 @@
 # Hardware Specification & Pinout Guide
 
-> **Note:** the pin map below comes from the quarantined legacy sketch (`esp32/firmware/README_LEGACY_UNSAFE.md`). It is not an approved or verified wiring contract, and the supported firmware is `esp32/torqva_fw`.
+> **Note:** the pin map below was carried over from the wiring of the retired legacy sketch (removed from the current tree; Git history only). It is not an approved or verified wiring contract. The authoritative map is `esp32/torqva_fw/lib/torqva_core/pinmap.h`; `esp32/torqva_fw/` is the sole supported firmware. The hardware is not ready for physical motor operation.
 
 
 ## 1. Overview
@@ -27,7 +27,7 @@ The Smart DC Motor Monitoring and Predictive Maintenance System utilizes an **ES
 ## 3. ESP32-S3 Hardware Pin Mapping
 
 > [!IMPORTANT]
-> All GPIO pin assignments are preserved directly from `esp32/firmware/smart_motor_monitor/smart_motor_monitor.ino`.
+> HISTORICAL pin table (an older revision of the retired sketch's wiring). It can disagree with the authoritative map `esp32/torqva_fw/lib/torqva_core/pinmap.h` (for example BTS7960 and ADXL345 pins); where they differ, `pinmap.h` wins, and neither is a verified wiring contract.
 
 | Function / Signal | Pin Name | ESP32-S3 GPIO | Interface / Mode | Notes & Wiring |
 |---|---|---|---|---|

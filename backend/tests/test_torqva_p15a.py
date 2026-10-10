@@ -1,7 +1,4 @@
-"""Phase 15A: acknowledgement identity binding, quarantine depth, and 'simulation never becomes physical control' checks. No hardware, nothing flashed."""
-import re
-import shutil
-import subprocess
+"""Phase 15A: acknowledgement identity binding and 'simulation never becomes physical control' checks. No hardware, nothing flashed."""
 import sys
 from pathlib import Path
 
@@ -14,7 +11,6 @@ from torqva.schemas import ActionType, CommandStatus, Connection, DecisionVerdic
 from torqva.supervisor import SafetySupervisor, SupervisorContext, SupervisorLimits
 
 ROOT = Path(__file__).resolve().parents[2]
-LEGACY = ROOT / "esp32" / "firmware" / "smart_motor_monitor" / "smart_motor_monitor.ino"
 MAIN = (ROOT / "esp32" / "torqva_fw" / "src" / "main.cpp").read_text()
 
 
@@ -101,32 +97,3 @@ def test_reset_reason_latches_a_fault_for_watchdog_brownout_and_panic_only():
     assert "latch_boot_fault(TripReason::RESET_FAULT)" in block
     for r in ("ESP_RST_POWERON", "ESP_RST_SW", "ESP_RST_USB"):
         assert r not in block
-
-
-# ------------------------------------------------------------------------------------------------ legacy quarantine depth
-def test_legacy_motor_on_stays_disabled_even_when_the_compile_override_is_defined():
-    src = LEGACY.read_text()
-    fn = src[src.index("void setMotorState(bool turnOn) {"):]
-    gate = fn[:fn.index("pinMode(PIN_R_EN, OUTPUT);")]
-    assert "#ifndef TORQVA_LEGACY_ENABLE_MOTOR" in gate and "return;" in gate and "REFUSED" in gate
-    assert "TORQVA_LEGACY_ENABLE_MOTOR" not in "".join(p.read_text() for p in (ROOT / "esp32" / "torqva_fw").rglob("*.ini"))
-
-
-def _preprocess(tmp_path, *defs):
-    for h in re.findall(r"#include\s*[<\"]([^>\"]+)[>\"]", LEGACY.read_text()):         # empty stand-ins for the Arduino headers (preprocessing only, nothing is compiled)
-        f = tmp_path / h; f.parent.mkdir(parents=True, exist_ok=True); f.write_text("")
-    r = subprocess.run(["g++", "-E", "-P", "-x", "c++", "-I", str(tmp_path), *defs, str(LEGACY)], capture_output=True, text=True)
-    return r.stdout
-
-
-@pytest.mark.skipif(not shutil.which("g++"), reason="no host C++ preprocessor")
-def test_with_only_the_compile_override_the_actuation_branch_is_preprocessed_out(tmp_path):
-    out = _preprocess(tmp_path, "-DTORQVA_LEGACY_UNSAFE_ACKNOWLEDGED")
-    assert "MOTOR_ON REFUSED" in out[out.index("void setMotorState(bool turnOn)"):][:900]
-    both = _preprocess(tmp_path, "-DTORQVA_LEGACY_UNSAFE_ACKNOWLEDGED", "-DTORQVA_LEGACY_ENABLE_MOTOR")
-    assert "MOTOR_ON REFUSED" not in both[both.index("void setMotorState(bool turnOn)"):][:900]
-
-
-def test_hardware_pages_that_reuse_the_legacy_pin_map_say_it_is_not_a_verified_contract():
-    for rel in ("docs/hardware.md", "docs/HARDWARE_WIRING.md"):
-        assert "quarantined legacy sketch" in (ROOT / rel).read_text(), rel

@@ -225,7 +225,7 @@ def test_legacy_sketch_output_is_recognised_as_such_and_never_treated_as_a_devic
         tr.feed(line)
     assert wait(lambda: b.model.last_error_code == "HANDSHAKE_INVALID", 3)
     e = b.snapshot()["error"]
-    assert "legacy monitoring sketch" in e["message"] and any("quarantined" in r for r in e["recovery"]) and tr.written == []
+    assert "legacy monitoring sketch" in e["message"] and any("retired" in r for r in e["recovery"]) and tr.written == []
     assert b.snapshot()["handshake"] is False and b.snapshot()["label"] == "SIMULATION"
     b.disconnect()
 
