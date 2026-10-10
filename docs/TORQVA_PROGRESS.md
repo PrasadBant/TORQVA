@@ -4,15 +4,18 @@
 | Phase | Status |
 |---|---|
 | 0 Audit | **done** (2026-10-10): audit, wiring draft, baseline results written. Awaiting human review of Decisions + H-tasks |
-| 1 Hardware safety & firmware core | not started — blocked on human approvals below |
+| 1 Hardware safety & firmware core | **in progress**: host-tested core logic done (limits, safety monitor, ramp/PI/drive, command validator, test executor; 40/40 native tests pass). Not yet done: Arduino/hardware app layer (`src/main.cpp`), frames, NVS limits, device build. Nothing flashed |
 | 2–15 | not started |
 
 ## Current checklist (Phase 1 prep)
 - [x] Audit, capability matrix, baseline run
 - [x] `git init`, snapshot commit `855f282`, branch `torqva/phase-0-audit`
 - [ ] Human answers D-03 (pin map option) and confirms what is physically wired today
-- [ ] Phase 1 firmware: new PlatformIO-or-Arduino decision (D-01) resolved
-- [ ] Firmware safety task, soft-start, PI loop, frames, command/ack, heartbeat (host-side unit tests first)
+- [x] D-01 resolved: PlatformIO approved; D-03 resolved: Option B
+- [x] Core logic as host-testable library `esp32/torqva_fw/lib/torqva_core` + 40 unit tests (`pio test -e native`)
+- [ ] Device layer `src/main.cpp`: FreeRTOS tasks (safety/control/rpm/slow sensors/comms), EN/relay GPIO, 20 kHz LEDC PWM, NVS limits, JSON-lines frames over USB-CDC, command dispatch
+- [ ] `pio run -e esp32s3` compile check (no flash)
+- [ ] Human: H-01 is now replaced by the PlatformIO compile (I will run it); H-03..H-09 still needed before motor tests
 
 ## Human tasks
 Never assume done until you confirm.
@@ -31,9 +34,11 @@ Never assume done until you confirm.
 ## Decisions
 | ID | Decision | Rationale |
 |---|---|---|
-| D-01 | **Keep the existing toolchain** (Arduino IDE sketch) for now. Not switching to PlatformIO. | Master prompt §0.3: replacing a toolchain needs your approval. PlatformIO would let me build/test headlessly, so **I recommend it — please say yes/no.** |
+| D-01 | **PlatformIO approved** by the human. New project in `esp32/torqva_fw/`; legacy Arduino sketch in `esp32/firmware/` left untouched. | Headless build + host unit tests. |
 | D-02 | **Keep the existing backend and frontend stack** (FastAPI/SQLite/pydantic; React+JS+Vite+Recharts). Add modules beside it. Not migrating to SQLModel/Alembic/TypeScript/uPlot/TanStack yet. | §0.3: replacing frameworks needs approval. Adding TypeScript/uPlot/TanStack Query later counts as heavy dependencies → will ask in Phase 3. |
-| D-03 | Pin map: recommend Option B (minimal change) in `TORQVA_WIRING.md` §4.2. **Needs your choice.** | Avoids a full rewire. |
+| D-03 | **Option B** chosen by the human (keep legacy pins, change only what safety needs). | Avoids a full rewire. |
+| D-07 | Header named `torqva_limits.h`, not `limits.h` (collided with the system header). Limit defaults: ramp 30 %/s, max duty 70 %, 4 A/2 s, 5 A instant (**assumed PSU limit, see H-10**), temp 50/60 °C, 20–25.5 V, heartbeat 2 s, RPM-loss 1 s. `max_rpm` and `vib_rms_stop_g` default to 0 = not commissioned: SET_SPEED and all RUN_TESTs are refused until you set them. | Fail-safe defaults. |
+| D-08 | STOP bypasses auth/TTL/sequence checks and is never refused; RESET_ESTOP needs authorized command AND local button; abort of a test holds the current (lower) speed, never returns to the faster one. | Safety properties, covered by tests. |
 | D-04 | Existing `health_engine` thresholds stay as the "(a) existing thresholds" arm of the ablation ladder and are not modified. | Needed for honest comparison. |
 | D-05 | Old `docs/HARDWARE_WIRING.md` left untouched but marked superseded in the audit; I did not delete it. | §0.3: no deleting existing files without asking. |
 | D-06 | Local git repo created (not a repo when found). No remote, no push. | Section 18. |
@@ -44,6 +49,11 @@ Never assume done until you confirm.
 - No auth on any endpoint; firmware 2.0.0 has no safety layer (Audit R-1).
 - Old wiring doc is contradictory (Audit R-2).
 
+## Open design gaps (core logic)
+- `Command.authorized` is a flag set by the comms layer; the real auth mechanism (token/HMAC) is not designed yet (Phase 2).
+- `age_ms` TTL relies on the serial bridge stamping queue age; the device cannot detect transit delay itself.
+- No current-limit foldback; trip only. Over-current thresholds are tied to the INA219 range (H-05 shunt swap).
+
 ## Next step
-1. You: answer D-01 (PlatformIO?), D-03 (pin map A/B), H-01, H-10, and say which H-tasks are already physically done.
-2. Me (Phase 1, software-only, no flashing): write firmware safety/control logic as host-testable C++ modules (limits, ramp, PI, command validation, test envelope) with unit tests, plus the frame/command schema in `docs/TORQVA_ARCHITECTURE.md`. I will not flash or run the motor.
+1. Me: write `src/main.cpp` device layer + `docs/TORQVA_ARCHITECTURE.md` (frame/command schema), then `pio run -e esp32s3` (compile only). Will not flash.
+2. You: H-10 (PSU model/current limit, voltage trim?) and which of H-03..H-09 are physically done; approve before any flash.
