@@ -71,7 +71,7 @@ describe('C2/C4 components', () => {
   });
 });
 
-describe('Decisions and Evaluation views', () => {
+describe('Predictions and Evaluation views', () => {
   beforeEach(() => { vi.unstubAllGlobals(); setToken(''); });
 
   function server(extra = {}) {
@@ -87,11 +87,11 @@ describe('Decisions and Evaluation views', () => {
   const pred = (o = {}) => ({ action: 'STOP', risk: 0.1, mean_at_30_60_120: { rpm: [1, 0, 0], vib_rms: [0.01, 0, 0], housing: [25, 25, 25] }, lo_120: { vib_rms: 0, housing: 24 },
     hi_120: { vib_rms: 0.02, housing: 26 }, status: 'supported', status_reasons: [], ...o });
 
-  it('shows each prediction status and the reasons for an unsupported one in Decisions', async () => {
+  it('shows each prediction status and the reasons for an unsupported one on the Predictions page', async () => {
     server({ '/predictions': [pred(), pred({ action: 'REDUCE_SPEED', status: 'unsupported', status_reasons: ['measurement_noise_5.0x_calibration_level'] })] });
     setToken('t'); render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
-    fireEvent.click(screen.getByRole('button', { name: /^Decisions/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Predictions/ }));
     expect(await screen.findByText('unsupported — not used for decisions')).toBeInTheDocument();
     expect(screen.getByText(/measurement noise 5.0x calibration level/)).toBeInTheDocument();
     expect(screen.getByText('Predicted vs observed (simulated)')).toBeInTheDocument();
@@ -101,7 +101,7 @@ describe('Decisions and Evaluation views', () => {
     server({ '/prediction-checks': () => ({ ok: false, status: 404, json: async () => ({ detail: 'x' }) }) });
     setToken('t'); render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
-    fireEvent.click(screen.getByRole('button', { name: /^Decisions/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Predictions/ }));
     expect(await screen.findByText('Predicted vs observed (simulated)')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });

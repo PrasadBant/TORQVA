@@ -42,7 +42,7 @@ async function openTab(role = 'operator', opts) {
   setToken('t');
   render(<TorqvaApp pollMs={100000} />);
   await screen.findByText(/tester · /);
-  fireEvent.click(screen.getByRole('button', { name: /^Attestation/ }));
+  fireEvent.click(screen.getByRole('button', { name: /^Learning/ }));
   await screen.findByText('Candidate warm-up sessions');
   return calls;
 }

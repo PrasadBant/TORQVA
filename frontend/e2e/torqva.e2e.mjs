@@ -20,6 +20,7 @@ const check = (name, ok, extra = '') => { results.push(`${ok ? 'PASS' : 'FAIL'} 
 await page.goto(BASE + '/#/torqva');
 await page.fill('input[type=password]', TOKEN);
 await page.click('button:has-text("Sign in")');
+await page.click('nav button:has-text("Live Monitor")');
 await page.waitForSelector('text=Start new simulation');
 check('banner visible on sign-in', await page.isVisible('[data-testid=sim-banner]'));
 check('Run/STOP disabled before any simulation', await page.isDisabled('button:has-text("Run")') && await page.isDisabled('button[aria-label="Stop motor (coast)"]'));
@@ -31,7 +32,7 @@ await page.waitForSelector('button:has-text("Run"):not([disabled])', { timeout: 
 check('Run enabled right after start (sim time 0)', await page.isEnabled('button:has-text("Run")'));
 check('STOP enabled right after start', await page.isEnabled('button[aria-label="Stop motor (coast)"]'));
 await page.click('button:has-text("Run")');
-await page.click('nav button:has-text("Decisions")');
+await page.click('nav button:has-text("Interventions")');
 await page.waitForSelector('button:has-text("Approve"):not([disabled])', { timeout: 120000 });
 await shot('10-awaiting-approval');
 check('approval pending shown, REDUCE_SPEED not yet sent',
@@ -66,17 +67,17 @@ check('focus is visible (outline)', ring !== 'none', `outline=${ring}`);
 // ---- responsive
 for (const w of [1024, 768, 390]) {
   await page.setViewportSize({ width: w, height: 900 });
-  for (const v of ['Overview', 'Live', 'Investigation', 'Decisions', 'Recovery', 'Learning & Evaluation']) {
+  for (const v of ['Overview', 'Live Monitor', 'AI Diagnostics', 'Interventions', 'Recovery', 'Evaluation']) {
     await page.click(`nav button:has-text("${v}")`); await page.waitForTimeout(400);
     const ov = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     check(`no horizontal page overflow @${w} ${v}`, ov <= 1, `overflow=${ov}px`);
-    if (w === 390 && ['Decisions', 'Live'].includes(v)) await shot(`14-w390-${v}`);
+    if (w === 390 && ['Interventions', 'Live Monitor'].includes(v)) await shot(`14-w390-${v}`);
   }
 }
 await page.setViewportSize({ width: 1440, height: 900 });
 
 // ---- error state: stop backend, UI must show an error and not crash
-await page.click('nav button:has-text("Overview")');
+await page.click('nav button:has-text("Live Monitor")');
 await page.route('**/api/torqva/**', (r) => r.abort());
 await page.click('button[aria-label="Stop motor (coast)"]');
 await page.waitForTimeout(2500);

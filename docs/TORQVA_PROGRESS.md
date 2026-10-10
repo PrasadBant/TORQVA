@@ -198,3 +198,10 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 * C2: overload shortfall = housing-state lag. Class-conditional intervals raise baseline overload coverage 0.834 -> 0.928 (trend state 0.947) on fresh seeds; heavy-shift cells remain 0.80-0.85 and are labelled insufficiently validated. Opt-in only.
 * Tests: backend 386 passed, 2 failed (`trio` absent; pass with trio on PYTHONPATH), frontend 60/60 + build, firmware 65/65, Chrome E2E 22/22.
 * Next: broaden the C4 signature library / real test traces; never claim conditional coverage beyond the validated noise domain.
+
+## Session 8 - Frontend redesign (simulation mode, no backend or safety changes)
+
+* `/` now loads the TORQVA application (previously `/#/torqva` behind a typed token). The old hardware dashboard remains at `/#/legacy`. `npm run dev` starts the backend (local-only dev token, hashed into `TORQVA_TOKENS`) and Vite; `npm run dev:ui` starts only the frontend. Auto sign-in and the first healthy simulated run exist only in development (`import.meta.env.DEV` and `VITE_TORQVA_DEV_TOKEN`); production builds ignore them and backend authorization is unchanged.
+* New shell and light/navy theme (`theme.css`), 11 pages: Overview, Live Monitor, AI Diagnostics (C1), Predictions (C2), Diagnostic Tests (C4), Interventions (C3), Recovery (C5), Learning (C6 + attestation), Evaluation, Lab, Devices & Settings. All data comes from the existing API; missing values read UNAVAILABLE, a stopped backend shows a STALE warning, the physical device is shown as not connected.
+* Not built because the backend has no such feature: on-demand prediction runs, manual test execution, per-test expected-value numbers, model training/activation/rollback, a health score, multiple physical devices.
+* Tests: frontend 64/64 + build; backend 380 passed (tcp_server tests excluded from that run; they need `trio`); Chrome E2E: new app 47/47, torqva 0 fail, c2c4 0 fail, attestation 0 fail, lab run.

@@ -70,7 +70,7 @@ const pct = (v) => (v == null ? '—' : `${fmt(v * 100, 1)}%`);
 /** Phase 10 validation status: C2 interval coverage per regime and C4 test value, with the limitations spelled out. */
 export function C2C4Validation({ data, error }) {
   if (error && !data) return <Card title="C2 / C4 validation (Phase 10)" id="c-c2c4"><Empty>No C2/C4 study result available ({String(error.message)}).</Empty></Card>;
-  if (!data) return null;
+  if (!data || !data.c2) return null;
   const regs = Object.keys(data.c2.control || {});
   const variants = [['control', 'shipped C2'], ['noise_aware', 'noise-aware C2 (opt-in)']];
   const real = data.c4_realistic_v2 || data.c4_realistic_v1 || {};

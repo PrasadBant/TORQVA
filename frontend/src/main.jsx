@@ -4,17 +4,18 @@ import App from './App.jsx';
 import TorqvaApp from './torqva/TorqvaApp.jsx';
 import './index.css';
 
-// The legacy dashboard stays the default. The TORQVA workspace lives at  /#/torqva
-const isTorqva = () => window.location.hash.startsWith('#/torqva');
+// The root route (/) is the TORQVA software application (simulation mode, no hardware needed).
+// The previous hardware-oriented dashboard is kept, unchanged, at  /#/legacy
+const isLegacy = () => window.location.hash.startsWith('#/legacy');
 
 function Root() {
-  const [torqva, setTorqva] = React.useState(isTorqva());
+  const [legacy, setLegacy] = React.useState(isLegacy());
   React.useEffect(() => {
-    const on = () => setTorqva(isTorqva());
+    const on = () => setLegacy(isLegacy());
     window.addEventListener('hashchange', on);
     return () => window.removeEventListener('hashchange', on);
   }, []);
-  return torqva ? <TorqvaApp /> : <App />;
+  return legacy ? <App /> : <TorqvaApp />;
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(

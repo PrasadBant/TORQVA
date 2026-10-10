@@ -28,8 +28,8 @@ async function login(tok) {
   await page.reload();
   await page.fill('input[type=password]', tok);
   await page.click('button:has-text("Sign in")');
-  await page.waitForSelector('nav button:has-text("Attestation")');
-  await page.click('nav button:has-text("Attestation")');
+  await page.waitForSelector('nav button:has-text("Learning")');
+  await page.click('nav button:has-text("Learning")');
   await page.waitForSelector('text=Candidate warm-up sessions');
 }
 const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

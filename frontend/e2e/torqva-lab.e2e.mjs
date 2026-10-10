@@ -16,7 +16,7 @@ const res = []; const check = (n, ok, x = '') => res.push(`${ok ? 'PASS' : 'FAIL
 await page.goto('http://127.0.0.1:5173/#/torqva');
 await page.fill('input[type=password]', TOKEN);
 await page.click('button:has-text("Sign in")');
-await page.waitForSelector('text=Start new simulation');
+await page.click('nav button:has-text("Live Monitor")'); await page.waitForSelector('text=Start new simulation');
 await page.click('nav button:has-text("Lab")');
 await page.waitForSelector('text=New recording session');
 await page.waitForSelector('[data-testid=regime-desc]');
