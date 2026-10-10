@@ -5,12 +5,12 @@ Direction (latest human instruction): **software first, hardware last.** Do not 
 ## Phase status (software-first plan)
 | Phase | Status |
 |---|---|
-| 1 Firmware foundation | **Done except the ESP32 compile result** (see below). Core logic, device layer, protocol, deterministic sim plant, 65 host tests. `src/main.cpp` written; `pio run -e esp32s3` was still downloading the toolchain when this was written |
+| 1 Firmware foundation | **Done except the ESP32 compile result: NOT CONFIRMED (toolchain download failing/slow, see Session 3 §1)**; was:  (see below). Core logic, device layer, protocol, deterministic sim plant, 65 host tests. `src/main.cpp` written; `pio run -e esp32s3` was still downloading the toolchain when this was written |
 | 2 Software architecture | **Done** (`docs/TORQVA_ARCHITECTURE.md`; modules under `backend/torqva/`) |
 | 3 Intelligence pipeline C1–C6 | **Done in simulation.** C1, C2, C3, C4 (T1/T3/T4), C5, C6 implemented and tested. C2 is *unvalidated*; C6 never run on real data |
 | 4 Backend + data layer | **Mostly done for simulation.** Done: typed schemas, SQLite document store (records scoped per simulation session), append-only audit (DB triggers block update/delete), dispatcher with ack/timeout/TTL/resend/idempotency, Safety Supervisor, **token auth with roles (fail closed)**, `/api/torqva/*` routes (status, telemetry, incidents, decisions, predictions, commands, outcomes, cases, approve/reject, stop, reset-estop, audit, simulation start/step), mounted in `main.py`. Legacy `POST /api/motor` now requires an operator token **once `TORQVA_TOKENS` is set** (unchanged otherwise). **Not done:** WebSocket push, serial bridge for a real device, rate limiting, token rotation/expiry, HTTPS/CORS tightening (CORS is still `*`), learning/model-registry endpoints |
-| 5 UI/UX | **First slice done** at `/#/torqva` (legacy dashboard remains the default): sign-in, persistent SIMULATION banner on every view, provenance badges, Overview (scenario control, STOP, device state), Live (speed, anomaly score ÷ threshold with gaps, thermal/vibration), Investigation (posterior bars, gate verdict + inputs, test result, state history), Decisions (C2 table labelled *Intervention Outcome Prediction (unvalidated)*, supervisor decisions, approve/reject gated by role, commands with device-ack status), Recovery (criteria pass/fail, observed vs predicted), Learning & Evaluation (reads the latest EvaluationRun), Audit (admin). **Not built:** Motors list, Lab (sessions, commissioning wizard, pre-run checklist, fault-injection records), Cases/Timeline, model registry/promotion/rollback screen, System Health, Settings, WebSocket push (UI polls), light theme, mobile/keyboard/contrast audit beyond basics, Playwright e2e |
-| 6 Research validation | **Done for simulation** (`docs/TORQVA_EVAL_SIM.md`); real/measured section empty by design |
+| 5 UI/UX | **Browser-inspected, defects fixed, Lab added.** First slice done at `/#/torqva` (legacy dashboard remains the default): sign-in, persistent SIMULATION banner on every view, provenance badges, Overview (scenario control, STOP, device state), Live (speed, anomaly score ÷ threshold with gaps, thermal/vibration), Investigation (posterior bars, gate verdict + inputs, test result, state history), Decisions (C2 table labelled *Intervention Outcome Prediction (unvalidated)*, supervisor decisions, approve/reject gated by role, commands with device-ack status), Recovery (criteria pass/fail, observed vs predicted), Learning & Evaluation (reads the latest EvaluationRun), Audit (admin). Lab screen built (Session 3 §3). **Not built:** Motors list, commissioning wizard, Cases/Timeline, model registry/promotion/rollback screen, System Health, Settings, WebSocket push (UI polls), light theme, mobile/keyboard/contrast audit beyond basics, Playwright e2e |
+| 6 Research validation | **Done for simulation, now including six held-out regimes** (`docs/TORQVA_EVAL_SIM.md`, runs 1 and 2); real/measured section empty by design |
 | 7 End-to-end software acceptance | **Done in simulation** (`tests/test_torqva_e2e.py`, 11 tests incl. failure paths). Gaps listed below |
 | 8 Hardware integration | **Not started, deliberately last** |
 
@@ -18,12 +18,64 @@ Direction (latest human instruction): **software first, hardware last.** Do not 
 | Check | Command | Result |
 |---|---|---|
 | Firmware host tests | `cd esp32/torqva_fw && pio test -e native` | **65 / 65 passed** (41 core logic, 24 protocol + device-with-sim-plant) |
-| Backend | `cd backend && python -m pytest -q` | **228 passed, 2 failed** (includes 4 firmware-in-the-loop conformance tests and 16 API/auth tests). The 2 failures are the pre-existing `[trio]` parametrisations (`ModuleNotFoundError: No module named 'trio'`); unrelated to TORQVA |
-| Frontend | `cd frontend && npm test` and `npm run build` | **37 / 37 passed** (24 legacy + 13 TORQVA); production build succeeds |
+| Backend | `cd backend && python -m pytest -q` | **254 passed, 2 failed** (the same 2 pre-existing `[trio]` failures: `ModuleNotFoundError: No module named 'trio'`) |
+| Frontend | `cd frontend && npm test` and `npm run build` | **43 / 43 passed** (24 legacy + 14 TORQVA + 5 Lab); production build succeeds |
 | Live server smoke | uvicorn `main:app` with `TORQVA_TOKENS` set, curl | no token 401; viewer start 403; legacy `/api/motor` without token 401; operator-started simulation ended `RECOVERED` (SIMULATED); status reports the unvalidated-C2 label |
 | Simulation evaluation | `cd backend && python -m torqva.evaluation` | runs in ~5 s; results in `docs/TORQVA_EVAL_SIM.md` |
 | ESP32-S3 compile | `pio run -e esp32s3` | **NOT YET CONFIRMED** (see "ESP32 compile" below) |
 | Lint / typecheck | – | none configured (not run) |
+
+
+## Session 3 — browser inspection, Lab, harder evaluation
+
+### 1. ESP32-S3 compile status — NOT CONFIRMED (do not treat the S3 firmware as compiling)
+- `pio run -e esp32s3` has **not** completed. The first attempt failed while downloading the Xtensa toolchain: `Tool Manager: Error ... IncompleteRead(62954426 bytes read, 21814873 more expected)`. Later attempts stalled at 0 bytes (several concurrent PlatformIO processes also contended for the package lock; they were killed).
+- Measured network: the registry API is reachable and GitHub gives ~430 KB/s, but the registry CDN download averages ~55 KB/s. A manual resumable download of `toolchain-xtensa-esp32s3` (81 MB) was started with `curl.exe -C - --retry` into `%TEMP%\pio_dl\` and was at ~33 MB when last checked; the Arduino framework package (hundreds of MB) is still needed after that. At this speed it is hours.
+- What **is** verified for this firmware: the same logic compiles and passes 65 host tests and the firmware-in-the-loop CLI (`pio test -e native`, `pio run -e fitl`). `src/main.cpp` (the Arduino/ESP32 hardware layer) has never been compiled.
+- Next step for this item: let the download finish (or use a faster network), then `cd esp32/torqva_fw && python -m platformio run -e esp32s3`. Compile only. Nothing was flashed.
+
+### 2. Real-browser UI inspection (done, with Google Chrome)
+- The Chrome-extension tools were not available in this session, so I drove the installed **Google Chrome (headless)** with `playwright-core`, installed in a scratch folder and not added to the project. Servers: backend `uvicorn main:app` on :8000 with `TORQVA_TOKENS` set, frontend `npm run dev` on :5173. I looked at the screenshots (login, Overview, Live, Investigation, Decisions, Recovery, Lab, and the 390 px layouts).
+- Exercised: wrong-token sign-in, scenario start, Run, the whole incident → approval → device acknowledgement → RECOVERED path (reached in the browser), every view, keyboard navigation (Tab/Enter, visible focus outline), widths 1440/1024/768/390, and a simulated network failure.
+- **Defects found and fixed:**
+  1. Run and STOP stayed disabled right after starting a simulation, because sim time 0 was treated as "no simulation" (regression test added).
+  2. At 390 px the page was 383 px wider than the viewport (tables).
+  3. The anomaly-score chart was unreadable because one ~200× spike flattened the threshold line; now log scale with a labelled threshold.
+  4. Charts had no legend and crowded x-axis labels.
+  5. The STOP prediction interval went negative (−0.086 g); clipped at 0 in the predictor.
+  6. The commands table "#" column showed history length instead of the command id.
+  7. The Lab checklist ticks only appeared after the server round trip; now optimistic.
+- After the fixes: no horizontal overflow at 1024/768/390 on any view; no console errors except the one deliberate aborted request in the failure test; no HTTP ≥ 400 apart from my deliberate wrong-token attempt.
+- **Not covered:** Firefox/Safari, a physical phone, screen readers, measured colour contrast, reduced-motion behaviour, the Audit view with many rows, polling for more than ~10 minutes.
+- Opt-in E2E scripts are in `frontend/e2e/` (`torqva.e2e.mjs`, `torqva-lab.e2e.mjs`, README). They need `npm i --no-save playwright-core`. Playwright is **not** a project dependency (adding one needs sign-off) and they are not part of `npm test`.
+
+### 3. Lab (`backend/torqva/lab.py`, `/api/torqva/lab/*`, "Lab" screen)
+- **Reproducible sessions:** a session is fully defined by regime + seed + speed profile + fault injection. Re-running gives the same window hash (`POST …/reproduce` compares them; tested bit-for-bit; a different seed gives a different hash).
+- **Fault-injection records:** ground truth (fault, severity, injection time, clears-below-rpm) plus physical settings (mass g, radius mm, …), operator, purpose, notes and config hash are stored with the session.
+- **Configurable regimes:** six regimes selectable per session and per experiment. The default reproduces the previous simulator exactly (tested).
+- **Pre-run checklist:** guard, masses secured, e-stop tested, area clear, limits reviewed. All items are required before a run, logged to the audit trail with the user, and labelled a procedure, not a safety mechanism.
+- **Blind sessions:** the injected fault and config hash are redacted from every read until a human reveals them after the run. The model output is stored (frozen) at run time; a test checks the reveal does not change it. Healthy sessions abstain instead of guessing.
+- **Experiment comparison:** each action (continue / reduce / stop) runs from identical starting conditions (same seed ⇒ identical pre-action history, checked by hash) for 1–10 repeats. Reports per-action/signal MAE vs persistence, 90 % interval coverage, risk Brier score, and whether C2's ranking matched the measured best action (ties counted). Marked `validated_c2: false`; it validates nothing on hardware.
+- Roles: viewer reads; operator creates/runs/reveals/reproduces; admin reads the audit log. Every Lab action is audited.
+- Verified in the real browser: regime description updates, step add, checklist gating, blind hiding before and after the run, "reproduced identically", reveal ("Truth: looseness · model: looseness · match"), the experiment table, and no overflow at 768/390.
+
+### 4. Harder, held-out evaluation (`docs/TORQVA_EVAL_SIM.md`, run 2)
+- Simulator regimes: more noise, healthy session-to-session shifts, a sensor fault that mimics looseness at one speed (speed-independent noise on the harmonic channels), intermittent faults.
+- New deterministic safeguards: an out-of-distribution ("unfamiliar evidence") guard on the hypothesis posterior and on C4 test outcomes; likelihood-temperature calibration on a disjoint validation set; and a **gate rule that looseness and sensor-fault diagnoses are never "confident" until a speed-step test has run**. The Safety Supervisor was not changed.
+- Headline (simulation only): in the look-alike regime the uncalibrated model turned **27/27 sensor faults into confident "looseness"**; with the safeguards there are **0 false-confident decisions**, at 33 % abstention. In the combined `hard` regime false-confident decisions drop from 63/171 to 0 at 77 % abstention. After the follow-up T1 test, 4 decisions in the look-alike and hard regimes are still confidently wrong and 23–37 are escalated as an unfamiliar test outcome.
+- **Limitations the study exposed (not fixed):** C1 flags 100 % of healthy runs in the noisy and hard regimes (56 % under session shift); C2 interval coverage falls to 74–76 % mean / 17 % worst cell in those regimes and the C2 trust check correctly refuses; temperature calibration had no effect (T = 1) because the validation set had no look-alike fault; T1 signatures fitted on one sensor-fault style do not transfer to another.
+- Autonomy: **none enabled.** Hardware mode still requires explicit human approval for every motion command; simulation auto-approval is a simulation-only setting.
+
+### Commands run this session
+| Purpose | Command |
+|---|---|
+| Backend tests | `cd backend && python -m pytest -q` |
+| Frontend tests / build | `cd frontend && npm test` · `npm run build` |
+| Firmware host tests | `cd esp32/torqva_fw && python -m platformio test -e native` |
+| Firmware-in-the-loop CLI | `python -m platformio run -e fitl` (used by `tests/test_torqva_conformance.py`) |
+| Simulation evaluation | `cd backend && python -m torqva.evaluation --out run.json` |
+| Run the app | backend: set `TORQVA_TOKENS` (sha256 of a token; `python -m torqva.auth` prints one), then `python -m uvicorn main:app --host 127.0.0.1 --port 8000`; frontend: `npm run dev`; open `http://127.0.0.1:5173/#/torqva` |
+| Browser E2E (opt-in) | `npm i --no-save playwright-core` then `TORQVA_TOKEN=<token> node e2e/torqva.e2e.mjs` |
 
 ## What was built
 - **Firmware** (`esp32/torqva_fw`): versioned limits, latching safety monitor, soft-start/ramp/PI/drive, command validator (idempotent; STOP never refused), on-device test executor (T1/T3/T4), JSON-lines protocol, `Device` (hardware-agnostic), `SimPlant`, Arduino hardware layer. **Motor commands are rejected unless built with `-DTORQVA_CONTROL_ENABLED=1`** (not set anywhere). Outputs forced OFF first thing in `setup()`.
@@ -53,6 +105,7 @@ Direction (latest human instruction): **software first, hardware last.** Do not 
 | D-12 | In simulation, supervisor auto-approves (configurable `auto_approve_in_simulation`); in HARDWARE mode every motion command needs `human_approved` |
 
 ## Known gaps / risks (honest list)
+0. **Session 3:** ESP32-S3 compile unconfirmed; C1 not robust to noise/session shift; sensor-fault style generalisation; C2 coverage collapses under noise; the Lab runs on the simulator only and records nothing from real hardware.
 1. **ESP32 compile unverified.** Device code (`src/main.cpp`) has never been compiled for the S3; may need small API fixes.
 2. **Authentication exists for TORQVA routes and (opt-in) the legacy motor route**; but default (no `TORQVA_TOKENS`) leaves the legacy `/api/motor` open exactly as before, CORS is `*`, tokens do not expire. The shared `k` key on the serial protocol is a placeholder.
 3. **Sim-only evidence.** Simulator uncalibrated and too easy (faults detected at 2–5 % severity). False-confident hypothesis rate 4.9 % is too high for autonomous action on a real rig.
@@ -67,8 +120,9 @@ Direction (latest human instruction): **software first, hardware last.** Do not 
 Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, IS wiring, 2nd DS18B20, Hall 5 V supply, guard, PSU model/limits). **Do not run the motor with legacy firmware unattended** until the hardware safety items are done.
 
 ## Next steps (in order)
-1. Confirm `pio run -e esp32s3` compiles; fix any errors (compile-only, no flashing). **First attempt failed: the Xtensa toolchain download broke mid-transfer (`IncompleteRead`, flaky network). A retry was started; result not yet known.**
-2. Extend conformance to test execution (T1/T3/T4 timelines) and telemetry frames.
-3. Phase 4 remainder: WebSocket push, serial bridge, token expiry, learning/model-registry endpoints.
-4. Phase 5 remainder: Lab screen + session/fault-injection records (needed before any real data), model registry/rollback screen, System Health, WebSocket push, accessibility/mobile audit, Playwright e2e; look at the UI in a real browser (only unit-tested so far — never visually inspected).
-5. Re-run the evaluation after improving the false-confident rate (e.g. an explicit "none of the above / sensor" check); add harder simulator regimes.
+1. Finish the ESP32-S3 compile (toolchain + framework download on a working connection; `python -m platformio run -e esp32s3`; fix any errors; compile only).
+2. Make C1 robust to noise and session shift (per-session baseline adaptation with the drift guard; noisier/mixed-regime commissioning data) and re-run `torqva.evaluation`; target a healthy false-incident rate under 5 % in `noisy` and `session_shift` without losing detection.
+3. Broaden the C4 signature library across sensor-fault styles and re-measure the looseness-vs-sensor pair; add a multi-speed (T2 sweep) test.
+4. Lab: commissioning wizard (speed-bin coverage, sweeping inside each bin), session-comparison view, export of session records.
+5. WebSocket push + serial bridge; token expiry; model-registry/rollback screen; System Health.
+6. Hardware integration stays last, after your review: verify wiring, PSU and sensor ratings, E-stop/relay; explicit authorization before any flash or energised test.

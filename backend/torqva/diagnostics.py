@@ -88,6 +88,7 @@ def run_test_on_sim(sim: MotorSim, test: str, tracker: Optional[ThermalTracker] 
 class OutcomeModel:
     mu: Dict[Hypothesis, np.ndarray]
     var: Dict[Hypothesis, np.ndarray]
+    ood_thr: Optional[float] = None     # best-hypothesis log-likelihood below this = outcome unlike any learned signature
 
     def loglik(self, h: Hypothesis, obs: np.ndarray) -> float:
         return float(-0.5 * np.sum((obs - self.mu[h]) ** 2 / self.var[h] + np.log(self.var[h])))
@@ -113,7 +114,10 @@ class DiagnosticsModel:
                         samples[h].append(obs)
             mu = {h: np.mean(v, axis=0) for h, v in samples.items()}
             var = {h: np.var(v, axis=0) + 0.05 ** 2 + 0.05 * np.abs(mu[h]) ** 2 * 0.1 for h, v in samples.items()}
-            self.models[test] = OutcomeModel(mu, var)
+            om = OutcomeModel(mu, var)
+            lls = [om.loglik(h, o) for h, v in samples.items() for o in v]
+            om.ood_thr = float(min(lls) - 6.0)                  # 6 nats below the worst training outcome
+            self.models[test] = om
         self.version += 1
 
     # ---------------- Bayesian use ----------------
@@ -122,7 +126,8 @@ class DiagnosticsModel:
         lp = np.array([np.log(max(post.probs[h], 1e-12)) + m.loglik(h, obs) for h in HYPS])
         lp -= lp.max()
         p = np.exp(lp); p /= p.sum()
-        return Posterior({h: float(x) for h, x in zip(HYPS, p)}, post.n_windows)
+        ood = bool(m.ood_thr is not None and max(m.loglik(h, obs) for h in HYPS) < m.ood_thr)
+        return Posterior({h: float(x) for h, x in zip(HYPS, p)}, post.n_windows, ood)
 
     def expected_info_gain(self, post: Posterior, test: str, n_mc: int = 200, seed: int = 0) -> float:
         """E[H(prior) - H(posterior)] over simulated outcomes drawn from the learned signatures."""

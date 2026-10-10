@@ -85,3 +85,13 @@
   .tq-bars li { grid-template-columns: 90px 1fr 54px; }
 }
 @media (prefers-reduced-motion: reduce) { .tq-shell * { transition: none !important; animation: none !important; } }
+
+.tq-fieldset { border: 1px solid var(--tq-border); border-radius: 6px; padding: 8px; display: grid; gap: 8px; }
+.tq-fieldset legend { color: var(--tq-muted); padding: 0 4px; }
+.tq-inline { display: grid; gap: 2px; color: var(--tq-muted); }
+.tq-shell input[type=number], .tq-shell input[type=text] { background: var(--tq-s2); color: var(--tq-text); border: 1px solid var(--tq-border); border-radius: 6px; padding: 6px 8px; font: inherit; width: 100%; min-width: 0; max-width: 140px; }
+.tq-shell input[type=text] { max-width: none; }
+.tq-link { background: none; border: 0; color: var(--tq-accent); cursor: pointer; font: inherit; padding: 0; text-decoration: underline; }
+.tq-selected { background: var(--tq-s2); }
+.tq-link { white-space: nowrap; }
+.tq-table td, .tq-table th { overflow-wrap: anywhere; }

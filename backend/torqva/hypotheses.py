@@ -22,6 +22,7 @@ HYPS = list(Hypothesis)
 class Posterior:
     probs: Dict[Hypothesis, float]
     n_windows: int
+    ood: bool = False          # evidence does not look like ANY learned signature (unfamiliar): never 'confident'
 
     def ranked(self):
         return sorted(self.probs.items(), key=lambda kv: kv[1], reverse=True)
@@ -48,6 +49,8 @@ class Posterior:
     def label(self, p_conf: float = 0.7, margin: float = 0.3) -> str:
         if self.n_windows < 3:
             return "insufficient"
+        if self.ood:
+            return "unfamiliar"
         return "confident" if (self.top_p >= p_conf and self.margin >= margin) else "ambiguous"
 
 
@@ -57,9 +60,12 @@ class HypothesisModel:
         self.var: Dict[Hypothesis, np.ndarray] = {}
         self.prior: Dict[Hypothesis, float] = {h: 1.0 / len(HYPS) for h in HYPS}
         self.max_eff = max_effective_windows
+        self.ood_slack = 3.0
         self.temp = temperature
         self.version = 0
         self._hist: List[tuple] = []
+        self.ood_thr: Dict[Hypothesis, float] = {}
+        self.use_ood = True
 
     def fit(self, samples: Dict[Hypothesis, Sequence[np.ndarray]], priors: Optional[Dict[Hypothesis, float]] = None) -> int:
         self._hist.append((copy.deepcopy(self.mu), copy.deepcopy(self.var), dict(self.prior)))
@@ -71,6 +77,9 @@ class HypothesisModel:
             Z = np.clip(Z, -30, 30)
             self.mu[h] = Z.mean(axis=0)
             self.var[h] = Z.var(axis=0) + 1.0        # +1: floor at unit (healthy) variance
+            lls = np.array([self._loglik(h, z) for z in Z])
+            # 1st percentile of per-window log-likelihood on the training evidence, minus slack: below this = unfamiliar
+            self.ood_thr[h] = float(np.percentile(lls, 1) - self.ood_slack)
         if priors:
             tot = sum(priors.values())
             self.prior = {h: priors.get(h, 0.0) / tot for h in HYPS}
@@ -101,4 +110,20 @@ class HypothesisModel:
         p /= p.sum()
         probs = {h: 0.0 for h in HYPS}
         probs.update({h: float(pi) for h, pi in zip(hs, p)})
-        return Posterior(probs, len(zs))
+        top = hs[int(np.argmax(ll))]
+        ood = bool(self.use_ood and top in self.ood_thr and ll.max() < self.ood_thr[top])
+        return Posterior(probs, len(zs), ood)
+
+
+def calibrate_temperature(model: HypothesisModel, cases: Sequence[tuple], grid=(1, 2, 4, 8, 16, 32, 64, 128, 256)) -> Dict[str, float]:
+    """Pick the likelihood temperature that minimises negative log-likelihood of the TRUE class on a VALIDATION set
+    (cases = [(list_of_z_vectors, true_hypothesis)]). Validation must be disjoint from both training and test."""
+    best, rows = None, {}
+    for T in grid:
+        model.temp = float(T)
+        nll = float(np.mean([-np.log(max(model.posterior(zs).probs[h], 1e-9)) for zs, h in cases]))
+        rows[float(T)] = nll
+        if best is None or nll < best[1] - 1e-12:
+            best = (float(T), nll)
+    model.temp = best[0]
+    return {"chosen_temperature": best[0], "validation_nll": best[1], "grid_nll": rows}

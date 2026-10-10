@@ -57,3 +57,41 @@ def test_hypothesis_ranking_far_above_chance_but_false_confidence_is_reported(ru
     assert "false_confident_rate" in h and h["confusion"]["matrix"]
     for v in h["test_value"].values():
         assert v["accuracy_after_test"] > v["accuracy_before_test"]
+
+
+# ---------------- held-out regimes ----------------
+def test_regime_study_reports_every_regime_and_policy_with_the_required_metrics(run):
+    reg = run["regimes"]
+    for name in evaluation.EVAL_REGIMES:
+        e = reg[name]
+        assert {"detection_rate", "healthy_false_incident_rate", "c2", "policies"} <= set(e)
+        for pol in ("uncalibrated", "calibrated_ood", "calibrated_ood_pair_rule"):
+            p = e["policies"][pol]
+            assert {"abstention_rate", "false_confident_count", "macro_f1", "per_class", "confusion"} <= set(p)
+        assert {"coverage_mean", "coverage_min", "trusted_by_check"} <= set(e["c2"])
+
+
+def test_safeguards_never_increase_false_confident_decisions(run):
+    for name in evaluation.EVAL_REGIMES:
+        p = run["regimes"][name]["policies"]
+        assert p["calibrated_ood"]["false_confident_count"] <= p["uncalibrated"]["false_confident_count"], name
+        assert p["calibrated_ood_pair_rule"]["false_confident_count"] <= p["calibrated_ood"]["false_confident_count"], name
+
+
+def test_confusable_sensor_regime_is_the_failure_the_pair_rule_exists_for(run):
+    e = run["regimes"]["confusable_sensor"]["policies"]
+    assert e["uncalibrated"]["looseness_vs_sensor"]["sensor_called_looseness"] > 0       # the documented failure is real
+    assert e["calibrated_ood_pair_rule"]["false_confident_count"] == 0                    # ... and is held back by the rule
+    assert e["calibrated_ood_pair_rule"]["abstention_rate"] > e["uncalibrated"]["abstention_rate"]
+
+
+def test_known_limitations_stay_visible_in_the_report(run):
+    # These are findings, not goals: if they ever stop being true the docs must be updated deliberately.
+    assert run["regimes"]["noisy"]["healthy_false_incident_rate"] > 0.5
+    assert run["regimes"]["hard"]["c2"]["trusted_by_check"] is False
+    assert run["regimes"]["baseline"]["c2"]["trusted_by_check"] is True
+
+
+def test_validation_seeds_are_disjoint_from_regime_test_seeds():
+    assert not ({8001, 8002} & set(evaluation.SEEDS_REG))
+    assert not (set(evaluation.SEEDS_REG) & set(evaluation.TRAIN_SEEDS))

@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, Gauge, ListChecks, Microscope, History, ShieldCheck, LogOut, FlaskConical } from 'lucide-react';
+import { Activity, Gauge, ListChecks, Microscope, History, ShieldCheck, LogOut, FlaskConical, Beaker } from 'lucide-react';
 import { api, setToken, getToken, ApiError } from './api.js';
 import { SimulationBanner, Pill } from './components.jsx';
 import { Overview, Live, Investigation, Decisions, Recovery, Evaluation, Audit } from './views.jsx';
+import Lab from './lab.jsx';
 import './torqva.css';
 
 const NAV = [
   ['overview', 'Overview', Gauge], ['live', 'Live', Activity], ['investigation', 'Investigation', Microscope],
-  ['decisions', 'Decisions', ListChecks], ['recovery', 'Recovery', ShieldCheck], ['evaluation', 'Learning & Evaluation', FlaskConical],
+  ['decisions', 'Decisions', ListChecks], ['lab', 'Lab', Beaker], ['recovery', 'Recovery', ShieldCheck], ['evaluation', 'Learning & Evaluation', FlaskConical],
   ['audit', 'Audit', History],
 ];
 
@@ -90,7 +91,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5 }) {
   if (!user) return <Login onLogin={onLogin} error={loginError} />;
   const mode = d.status?.mode || 'SIMULATION';
   const dev = d.status?.device;
-  const Body = { overview: Overview, live: Live, investigation: Investigation, decisions: Decisions, recovery: Recovery, evaluation: Evaluation, audit: Audit }[view];
+  const Body = { overview: Overview, live: Live, investigation: Investigation, decisions: Decisions, recovery: Recovery, evaluation: Evaluation, audit: Audit, lab: Lab }[view];
   const props = { d, role: user.role, actions, running, setRunning, busy, error, evalRun: evalState.run, evalError: evalState.error, rows: audit.rows };
   return (
     <div className="tq-shell">

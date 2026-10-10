@@ -38,6 +38,30 @@ class SimParams:
 
 
 @dataclass
+class Regime:
+    """Simulation regime: how hard/realistic the synthetic world is. Defaults reproduce the original simulator exactly."""
+    name: str = "baseline"
+    noise_mult: float = 1.0            # scales measurement noise
+    session_offsets: bool = False      # healthy session-to-session shifts (vibration gain, ambient, supply, current)
+    sensor_fault_mode: str = "stuck"   # stuck | noisy_harmonics (speed-independent, looks like looseness at one speed) | intermittent
+    looseness_mode: str = "steady"     # steady | intermittent (harmonics present in ~half the windows)
+    description: str = "Original simulator."
+
+
+REGIMES: Dict[str, Regime] = {r.name: r for r in [
+    Regime("baseline"),
+    Regime("noisy", noise_mult=2.0, description="Twice the measurement noise."),
+    Regime("session_shift", session_offsets=True, description="Healthy baselines shift between sessions (gain, ambient, supply, current offset)."),
+    Regime("confusable_sensor", sensor_fault_mode="noisy_harmonics",
+           description="Sensor fault = speed-independent noise on the harmonic channels: mimics looseness at one speed."),
+    Regime("intermittent", sensor_fault_mode="intermittent", looseness_mode="intermittent",
+           description="Both looseness and the sensor fault come and go from window to window."),
+    Regime("hard", noise_mult=2.0, session_offsets=True, sensor_fault_mode="noisy_harmonics", looseness_mode="intermittent",
+           description="All of the above combined."),
+]}
+
+
+@dataclass
 class Window:
     """One 1-second feature window. `provenance` is always SIMULATED here."""
     t: float
@@ -79,14 +103,24 @@ class GroundTruth:
 
 
 class MotorSim:
-    def __init__(self, seed: int = 0, params: Optional[SimParams] = None):
+    def __init__(self, seed: int = 0, params: Optional[SimParams] = None, regime: Optional[Regime] = None):
         self.p = params or SimParams()
+        self.regime = regime or REGIMES["baseline"]
         self.rng = np.random.RandomState(seed)
+        # Session offsets come from a separate stream so enabling them never perturbs the main noise sequence.
+        orng = np.random.RandomState(seed + 99991)
+        if self.regime.session_offsets:
+            self.vib_gain = float(np.clip(1.0 + 0.10 * orng.randn(), 0.7, 1.3))
+            self.ambient_c = self.p.ambient_c + float(np.clip(2.0 * orng.randn(), -5, 5))
+            self.supply_off = float(np.clip(0.25 * orng.randn(), -0.6, 0.6))
+            self.current_off = float(np.clip(0.03 * orng.randn(), -0.08, 0.08))
+        else:
+            self.vib_gain, self.ambient_c, self.supply_off, self.current_off = 1.0, self.p.ambient_c, 0.0, 0.0
         self.t = 0.0
         self.rpm = 0.0
         self.setpoint = 0.0
         self.driven = False
-        self.housing = self.p.ambient_c
+        self.housing = self.ambient_c
         self.truth = GroundTruth()
 
     # ---------- control ----------
@@ -129,14 +163,17 @@ class MotorSim:
 
         extra_i = 1.2 * s_over
         duty = (self.rpm / p.rpm_per_pct) * (1.0 + 0.25 * s_over + 0.15 * s_sup) if self.driven else 0.0
-        cur = (p.i_idle_a + p.i_per_pct_a * duty + extra_i) if self.driven else 0.0
-        volt = p.supply_v - p.r_supply_ohm * cur - 3.0 * s_sup
+        cur = (p.i_idle_a + p.i_per_pct_a * duty + extra_i + self.current_off) if self.driven else 0.0
+        volt = p.supply_v + self.supply_off - p.r_supply_ohm * cur - 3.0 * s_sup
 
         cool = p.cool_per_s * (1.0 - 0.7 * s_cool)
-        self.housing += (p.heat_per_a2 * cur * cur - cool * (self.housing - p.ambient_c)) * dt
+        self.housing += (p.heat_per_a2 * cur * cur - cool * (self.housing - self.ambient_c)) * dt
         self.t += dt
 
         # Vibration (g). 1x ~ rpm^2 (imbalance), harmonics + broadband for looseness.
+        rg = self.regime
+        if s_loose > 0 and rg.looseness_mode == "intermittent" and rng.rand() < 0.5:
+            s_loose = 0.0                                          # harmonics absent in this window
         r = self.rpm
         base1 = p.a1x * r * r
         v1 = base1 * (1.0 + 6.0 * s_imb)
@@ -147,22 +184,39 @@ class MotorSim:
         v2 = self._noisy(v2)
         v3 = self._noisy(v3)
         vhf = self._noisy(vhf)
-        floor = abs(rng.randn()) * p.noise_abs
+        if self.vib_gain != 1.0:
+            v1, v2, v3, vhf = (x * self.vib_gain for x in (v1, v2, v3, vhf))
+        floor = abs(rng.randn()) * p.noise_abs * rg.noise_mult
         rms = float(np.sqrt(v1 * v1 + v2 * v2 + v3 * v3 + vhf * vhf + floor * floor))
 
         rpm_meas, valid = r, True
         if s_sens > 0:
-            # sensor fault signature: vibration channel stops tracking speed (stuck + noise)
-            v1 = v2 = v3 = 0.05 * s_sens + abs(rng.randn()) * 0.01
-            vhf = 0.02
-            rms = float(np.sqrt(v1 * v1 * 3 + vhf * vhf))
-        return Window(self.t, rpm_meas + rng.randn() * 2.0 if r > 0 else 0.0, self.setpoint, self.driven,
-                      duty + rng.randn() * 0.2 if self.driven else 0.0,
-                      volt + rng.randn() * 0.03, cur + (rng.randn() * 0.02 if self.driven else 0.0),
-                      volt * cur, self.housing + rng.randn() * 0.03, p.ambient_c, rms, v1, v2, v3, vhf, valid)
+            mode = rg.sensor_fault_mode
+            if mode == "noisy_harmonics" and r > 50:
+                # Electronics noise on the harmonic channels: does NOT scale with shaft speed (looseness does).
+                v2 = v2 + s_sens * 1.2e-4 * 1500.0 * (0.6 + 0.8 * rng.rand())
+                v3 = v3 + s_sens * 0.8e-4 * 1500.0 * (0.6 + 0.8 * rng.rand())
+                vhf = vhf + 0.020 * s_sens
+                rms = float(np.sqrt(v1 * v1 + v2 * v2 + v3 * v3 + vhf * vhf + floor * floor))
+            elif mode == "intermittent":
+                if rng.rand() < 0.4:                              # burst of garbage, otherwise looks healthy
+                    v1 = v2 = v3 = (0.05 + abs(rng.randn()) * 0.05) * (0.5 + s_sens)
+                    vhf = 0.03
+                    rms = float(np.sqrt(v1 * v1 * 3 + vhf * vhf))
+            else:
+                # stuck: vibration channel stops tracking speed (stuck + noise)
+                v1 = v2 = v3 = 0.05 * s_sens + abs(rng.randn()) * 0.01
+                vhf = 0.02
+                rms = float(np.sqrt(v1 * v1 * 3 + vhf * vhf))
+        nm = rg.noise_mult
+        return Window(self.t, rpm_meas + rng.randn() * 2.0 * nm if r > 0 else 0.0, self.setpoint, self.driven,
+                      duty + rng.randn() * 0.2 * nm if self.driven else 0.0,
+                      volt + rng.randn() * 0.03 * nm, cur + (rng.randn() * 0.02 * nm if self.driven else 0.0),
+                      volt * cur, self.housing + rng.randn() * 0.03 * nm, self.ambient_c, rms, v1, v2, v3, vhf, valid)
 
     def _noisy(self, x: float) -> float:
-        return max(0.0, x * (1.0 + self.p.noise_rel * self.rng.randn()) + 0.2 * self.p.noise_abs * self.rng.randn() * (x > 0))
+        m = self.regime.noise_mult
+        return max(0.0, x * (1.0 + self.p.noise_rel * m * self.rng.randn()) + 0.2 * self.p.noise_abs * m * self.rng.randn() * (x > 0))
 
     def run(self, seconds: int) -> List[Window]:
         return [self.step(1.0) for _ in range(int(seconds))]

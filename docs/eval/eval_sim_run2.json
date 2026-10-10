@@ -1,0 +1,2859 @@
+{
+  "schema": "EvaluationRun/1",
+  "data_provenance": "SIMULATED",
+  "WARNING": "Simulation only. The simulator is uncalibrated and self-consistent with the predictors; do not quote as hardware results.",
+  "git_sha": "09b1d66",
+  "config_hash": "22ffd3b544ae",
+  "config": {
+    "bin_width": 300,
+    "percentile": 99.5,
+    "severities": [
+      0.02,
+      0.05,
+      0.1,
+      0.2,
+      0.4,
+      0.8
+    ],
+    "test_speeds": [
+      1350,
+      1650,
+      1950
+    ],
+    "train_seeds": [
+      0,
+      101,
+      102,
+      11,
+      12
+    ],
+    "confirm_run": 5
+  },
+  "model_versions": {
+    "baseline_detector": 1,
+    "hypothesis_model": 1,
+    "diagnostics": 1,
+    "predictor": 2
+  },
+  "train_dataset": {
+    "healthy_windows": 450,
+    "hypothesis_samples": {
+      "imbalance": 240,
+      "looseness": 240,
+      "overload": 240,
+      "cooling_failure": 240,
+      "supply_voltage": 240,
+      "sensor_fault": 240
+    },
+    "c2_calibration_cases": 216
+  },
+  "test_protocol": "test sessions use seeds and speeds disjoint from training; labels hidden until scoring",
+  "measured": {
+    "status": "NO MEASURED DATA: no real labelled sessions recorded yet"
+  },
+  "c1": {
+    "healthy": {
+      "c1": {
+        "window_false_alarm_rate": 0.002619047619047619,
+        "confirmed_false_incidents": 0,
+        "windows": 4200
+      },
+      "global": {
+        "window_false_alarm_rate": 0.0002380952380952381,
+        "confirmed_false_incidents": 0,
+        "windows": 4200
+      },
+      "legacy": {
+        "window_false_alarm_rate": 0.0,
+        "confirmed_false_incidents": 0,
+        "windows": 4200
+      }
+    },
+    "detection": {
+      "imbalance@0.02": {
+        "c1": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "imbalance@0.05": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 2.0
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "imbalance@0.1": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 0.5555555555555556,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "imbalance@0.2": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "imbalance@0.4": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "imbalance@0.8": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.4444444444444444,
+          "median_delay_s": 0.0
+        }
+      },
+      "looseness@0.02": {
+        "c1": {
+          "detected_fraction": 0.6666666666666666,
+          "median_delay_s": 4.0
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "looseness@0.05": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 1.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "looseness@0.1": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "looseness@0.2": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "looseness@0.4": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "looseness@0.8": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "overload@0.02": {
+        "c1": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "overload@0.05": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "overload@0.1": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "overload@0.2": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "overload@0.4": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "overload@0.8": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        }
+      },
+      "supply_voltage@0.02": {
+        "c1": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "supply_voltage@0.05": {
+        "c1": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "supply_voltage@0.1": {
+        "c1": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "supply_voltage@0.2": {
+        "c1": {
+          "detected_fraction": 0.4444444444444444,
+          "median_delay_s": 12.0
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "supply_voltage@0.4": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "supply_voltage@0.8": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        }
+      },
+      "sensor_fault@0.02": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "sensor_fault@0.05": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "sensor_fault@0.1": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "sensor_fault@0.2": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "sensor_fault@0.4": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "sensor_fault@0.8": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      }
+    }
+  },
+  "hypotheses": {
+    "decided": 144,
+    "not_decided_no_anomaly_evidence": 0,
+    "top1_accuracy": 0.9513888888888888,
+    "random_baseline": 0.16666666666666666,
+    "confident_decisions": 143,
+    "false_confident_rate": 0.04895104895104895,
+    "confusion": {
+      "order": [
+        "imbalance",
+        "looseness",
+        "overload",
+        "cooling_failure",
+        "supply_voltage",
+        "sensor_fault"
+      ],
+      "matrix": [
+        [
+          23,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          21,
+          0,
+          0,
+          0,
+          3
+        ],
+        [
+          0,
+          0,
+          24,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          24,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          24,
+          0
+        ],
+        [
+          0,
+          3,
+          0,
+          0,
+          0,
+          21
+        ]
+      ]
+    },
+    "test_value": {
+      "imbalance_vs_looseness:T1": {
+        "accuracy_before_test": 0.5,
+        "accuracy_after_test": 1.0,
+        "n": 10
+      },
+      "overload_vs_cooling_failure:T4": {
+        "accuracy_before_test": 0.5,
+        "accuracy_after_test": 1.0,
+        "n": 10
+      }
+    }
+  },
+  "c2": {
+    "mae": {
+      "CONTINUE_MONITORING/rpm": {
+        "model": 1.6625823710993017,
+        "persistence": 1.6625823710993037
+      },
+      "CONTINUE_MONITORING/vib_rms": {
+        "model": 0.008888719190026127,
+        "persistence": 0.008888719190026127
+      },
+      "CONTINUE_MONITORING/current": {
+        "model": 0.01635479648524337,
+        "persistence": 0.016354796485243375
+      },
+      "CONTINUE_MONITORING/housing": {
+        "model": 0.09626474986859541,
+        "persistence": 1.4551041733514654
+      },
+      "REDUCE_SPEED/rpm": {
+        "model": 4.028996861619081,
+        "persistence": 524.5347012519568
+      },
+      "REDUCE_SPEED/vib_rms": {
+        "model": 0.007581499862452938,
+        "persistence": 0.05484405499133586
+      },
+      "REDUCE_SPEED/current": {
+        "model": 0.018536683364035567,
+        "persistence": 0.302667202211303
+      },
+      "REDUCE_SPEED/housing": {
+        "model": 0.09557701527875788,
+        "persistence": 0.8862211940294645
+      },
+      "STOP/rpm": {
+        "model": 3.041496732661065,
+        "persistence": 1695.6132278695875
+      },
+      "STOP/vib_rms": {
+        "model": 0.016094229322650824,
+        "persistence": 0.11301569110199554
+      },
+      "STOP/current": {
+        "model": 0.0,
+        "persistence": 1.4796366528346063
+      },
+      "STOP/housing": {
+        "model": 0.09956866749384276,
+        "persistence": 0.1697113294491909
+      }
+    },
+    "coverage_mean": 0.8813657407407407,
+    "coverage_min": 0.5833333333333334,
+    "coverage_target": 0.9,
+    "n_cases": 48,
+    "ranking_vs_measured_best": {
+      "agree": 6,
+      "total": 9,
+      "scenarios_where_all_actions_equal_on_limits": 3
+    },
+    "validated_by_intervention_experiments": false
+  },
+  "c5": {
+    "cases": 40,
+    "true_recoveries_declared": 20,
+    "FALSE_RECOVERY_DECLARATIONS": 0,
+    "missed_recoveries": 0,
+    "correct_non_recoveries": 20
+  },
+  "regimes": {
+    "baseline": {
+      "sessions": 171,
+      "faulty_sessions": 162,
+      "healthy_sessions": 9,
+      "detection_rate": 1.0,
+      "healthy_false_incident_rate": 0.0,
+      "policies": {
+        "uncalibrated": {
+          "decisions": 162,
+          "top1_accuracy_all_flagged_faulty": 0.9938271604938271,
+          "abstention_rate": 0.0,
+          "confident_decisions": 162,
+          "false_confident_count": 1,
+          "false_confident_rate_of_decisions": 0.006172839506172839,
+          "accuracy_when_confident": 0.9938271604938271,
+          "macro_f1": 0.9938250428816467,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.9642857142857143,
+              "recall": 1.0,
+              "f1": 0.9818181818181818,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": 1.0,
+              "recall": 0.9629629629629629,
+              "f1": 0.9811320754716981,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                1,
+                0,
+                0,
+                0,
+                26
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 0,
+            "sensor_called_looseness": 1,
+            "looseness_total": 27,
+            "sensor_total": 27
+          }
+        },
+        "calibrated_ood": {
+          "decisions": 162,
+          "top1_accuracy_all_flagged_faulty": 0.9938271604938271,
+          "abstention_rate": 0.0,
+          "confident_decisions": 162,
+          "false_confident_count": 1,
+          "false_confident_rate_of_decisions": 0.006172839506172839,
+          "accuracy_when_confident": 0.9938271604938271,
+          "macro_f1": 0.9938250428816467,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.9642857142857143,
+              "recall": 1.0,
+              "f1": 0.9818181818181818,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": 1.0,
+              "recall": 0.9629629629629629,
+              "f1": 0.9811320754716981,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                1,
+                0,
+                0,
+                0,
+                26
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 0,
+            "sensor_called_looseness": 1,
+            "looseness_total": 27,
+            "sensor_total": 27
+          }
+        },
+        "calibrated_ood_pair_rule": {
+          "decisions": 162,
+          "top1_accuracy_all_flagged_faulty": 0.9938271604938271,
+          "abstention_rate": 0.3333333333333333,
+          "confident_decisions": 108,
+          "false_confident_count": 0,
+          "false_confident_rate_of_decisions": 0.0,
+          "accuracy_when_confident": 1.0,
+          "macro_f1": 0.9938250428816467,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.9642857142857143,
+              "recall": 1.0,
+              "f1": 0.9818181818181818,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": 1.0,
+              "recall": 0.9629629629629629,
+              "f1": 0.9811320754716981,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                1,
+                0,
+                0,
+                0,
+                26
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 0,
+            "sensor_called_looseness": 1,
+            "looseness_total": 27,
+            "sensor_total": 27
+          },
+          "after_T1_for_held_back": {
+            "held_back": 54,
+            "confident_correct": 54,
+            "false_confident": 0,
+            "abstained_or_escalated": 0,
+            "test_outcome_unfamiliar": 0
+          }
+        }
+      },
+      "c2": {
+        "coverage_mean": 0.9166666666666666,
+        "coverage_min": 0.5833333333333334,
+        "target": 0.9,
+        "cases": 48,
+        "trusted_by_check": true
+      }
+    },
+    "noisy": {
+      "sessions": 171,
+      "faulty_sessions": 162,
+      "healthy_sessions": 9,
+      "detection_rate": 1.0,
+      "healthy_false_incident_rate": 1.0,
+      "policies": {
+        "uncalibrated": {
+          "decisions": 171,
+          "top1_accuracy_all_flagged_faulty": 0.9938271604938271,
+          "abstention_rate": 0.0,
+          "confident_decisions": 171,
+          "false_confident_count": 10,
+          "false_confident_rate_of_decisions": 0.05847953216374269,
+          "accuracy_when_confident": 0.9415204678362573,
+          "macro_f1": 0.9938250428816467,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.9642857142857143,
+              "recall": 1.0,
+              "f1": 0.9818181818181818,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": 1.0,
+              "recall": 0.9629629629629629,
+              "f1": 0.9811320754716981,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                1,
+                0,
+                0,
+                0,
+                26
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 0,
+            "sensor_called_looseness": 1,
+            "looseness_total": 27,
+            "sensor_total": 27
+          }
+        },
+        "calibrated_ood": {
+          "decisions": 171,
+          "top1_accuracy_all_flagged_faulty": 0.9938271604938271,
+          "abstention_rate": 0.1286549707602339,
+          "confident_decisions": 149,
+          "false_confident_count": 1,
+          "false_confident_rate_of_decisions": 0.005847953216374269,
+          "accuracy_when_confident": 0.9932885906040269,
+          "macro_f1": 0.9938250428816467,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.9642857142857143,
+              "recall": 1.0,
+              "f1": 0.9818181818181818,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": 1.0,
+              "recall": 0.9629629629629629,
+              "f1": 0.9811320754716981,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                1,
+                0,
+                0,
+                0,
+                26
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 0,
+            "sensor_called_looseness": 1,
+            "looseness_total": 27,
+            "sensor_total": 27
+          }
+        },
+        "calibrated_ood_pair_rule": {
+          "decisions": 171,
+          "top1_accuracy_all_flagged_faulty": 0.9938271604938271,
+          "abstention_rate": 0.43859649122807015,
+          "confident_decisions": 96,
+          "false_confident_count": 0,
+          "false_confident_rate_of_decisions": 0.0,
+          "accuracy_when_confident": 1.0,
+          "macro_f1": 0.9938250428816467,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.9642857142857143,
+              "recall": 1.0,
+              "f1": 0.9818181818181818,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": 1.0,
+              "recall": 0.9629629629629629,
+              "f1": 0.9811320754716981,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                1,
+                0,
+                0,
+                0,
+                26
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 0,
+            "sensor_called_looseness": 1,
+            "looseness_total": 27,
+            "sensor_total": 27
+          },
+          "after_T1_for_held_back": {
+            "held_back": 54,
+            "confident_correct": 54,
+            "false_confident": 0,
+            "abstained_or_escalated": 0,
+            "test_outcome_unfamiliar": 0
+          }
+        }
+      },
+      "c2": {
+        "coverage_mean": 0.7644675925925926,
+        "coverage_min": 0.16666666666666666,
+        "target": 0.9,
+        "cases": 48,
+        "trusted_by_check": false
+      }
+    },
+    "session_shift": {
+      "sessions": 171,
+      "faulty_sessions": 162,
+      "healthy_sessions": 9,
+      "detection_rate": 1.0,
+      "healthy_false_incident_rate": 0.5555555555555556,
+      "policies": {
+        "uncalibrated": {
+          "decisions": 167,
+          "top1_accuracy_all_flagged_faulty": 0.9938271604938271,
+          "abstention_rate": 0.0,
+          "confident_decisions": 167,
+          "false_confident_count": 6,
+          "false_confident_rate_of_decisions": 0.03592814371257485,
+          "accuracy_when_confident": 0.9640718562874252,
+          "macro_f1": 0.9938250428816467,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.9642857142857143,
+              "recall": 1.0,
+              "f1": 0.9818181818181818,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": 1.0,
+              "recall": 0.9629629629629629,
+              "f1": 0.9811320754716981,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                1,
+                0,
+                0,
+                0,
+                26
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 0,
+            "sensor_called_looseness": 1,
+            "looseness_total": 27,
+            "sensor_total": 27
+          }
+        },
+        "calibrated_ood": {
+          "decisions": 167,
+          "top1_accuracy_all_flagged_faulty": 0.9938271604938271,
+          "abstention_rate": 0.10179640718562874,
+          "confident_decisions": 150,
+          "false_confident_count": 2,
+          "false_confident_rate_of_decisions": 0.011976047904191617,
+          "accuracy_when_confident": 0.9866666666666667,
+          "macro_f1": 0.9938250428816467,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.9642857142857143,
+              "recall": 1.0,
+              "f1": 0.9818181818181818,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": 1.0,
+              "recall": 0.9629629629629629,
+              "f1": 0.9811320754716981,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                1,
+                0,
+                0,
+                0,
+                26
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 0,
+            "sensor_called_looseness": 1,
+            "looseness_total": 27,
+            "sensor_total": 27
+          }
+        },
+        "calibrated_ood_pair_rule": {
+          "decisions": 167,
+          "top1_accuracy_all_flagged_faulty": 0.9938271604938271,
+          "abstention_rate": 0.4251497005988024,
+          "confident_decisions": 96,
+          "false_confident_count": 1,
+          "false_confident_rate_of_decisions": 0.005988023952095809,
+          "accuracy_when_confident": 0.9895833333333334,
+          "macro_f1": 0.9938250428816467,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.9642857142857143,
+              "recall": 1.0,
+              "f1": 0.9818181818181818,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": 1.0,
+              "recall": 0.9629629629629629,
+              "f1": 0.9811320754716981,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                1,
+                0,
+                0,
+                0,
+                26
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 0,
+            "sensor_called_looseness": 1,
+            "looseness_total": 27,
+            "sensor_total": 27
+          },
+          "after_T1_for_held_back": {
+            "held_back": 54,
+            "confident_correct": 54,
+            "false_confident": 0,
+            "abstained_or_escalated": 0,
+            "test_outcome_unfamiliar": 0
+          }
+        }
+      },
+      "c2": {
+        "coverage_mean": 0.9184027777777778,
+        "coverage_min": 0.5833333333333334,
+        "target": 0.9,
+        "cases": 48,
+        "trusted_by_check": true
+      }
+    },
+    "confusable_sensor": {
+      "sessions": 171,
+      "faulty_sessions": 162,
+      "healthy_sessions": 9,
+      "detection_rate": 1.0,
+      "healthy_false_incident_rate": 0.0,
+      "policies": {
+        "uncalibrated": {
+          "decisions": 162,
+          "top1_accuracy_all_flagged_faulty": 0.8333333333333334,
+          "abstention_rate": 0.0,
+          "confident_decisions": 162,
+          "false_confident_count": 27,
+          "false_confident_rate_of_decisions": 0.16666666666666666,
+          "accuracy_when_confident": 0.8333333333333334,
+          "macro_f1": 0.7777777777777777,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.5,
+              "recall": 1.0,
+              "f1": 0.6666666666666666,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 0,
+            "sensor_called_looseness": 27,
+            "looseness_total": 27,
+            "sensor_total": 27
+          }
+        },
+        "calibrated_ood": {
+          "decisions": 162,
+          "top1_accuracy_all_flagged_faulty": 0.8333333333333334,
+          "abstention_rate": 0.0,
+          "confident_decisions": 162,
+          "false_confident_count": 27,
+          "false_confident_rate_of_decisions": 0.16666666666666666,
+          "accuracy_when_confident": 0.8333333333333334,
+          "macro_f1": 0.7777777777777777,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.5,
+              "recall": 1.0,
+              "f1": 0.6666666666666666,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 0,
+            "sensor_called_looseness": 27,
+            "looseness_total": 27,
+            "sensor_total": 27
+          }
+        },
+        "calibrated_ood_pair_rule": {
+          "decisions": 162,
+          "top1_accuracy_all_flagged_faulty": 0.8333333333333334,
+          "abstention_rate": 0.3333333333333333,
+          "confident_decisions": 108,
+          "false_confident_count": 0,
+          "false_confident_rate_of_decisions": 0.0,
+          "accuracy_when_confident": 1.0,
+          "macro_f1": 0.7777777777777777,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.5,
+              "recall": 1.0,
+              "f1": 0.6666666666666666,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 0,
+            "sensor_called_looseness": 27,
+            "looseness_total": 27,
+            "sensor_total": 27
+          },
+          "after_T1_for_held_back": {
+            "held_back": 54,
+            "confident_correct": 27,
+            "false_confident": 4,
+            "abstained_or_escalated": 23,
+            "test_outcome_unfamiliar": 23
+          }
+        }
+      },
+      "c2": {
+        "coverage_mean": 0.9033564814814815,
+        "coverage_min": 0.5833333333333334,
+        "target": 0.9,
+        "cases": 48,
+        "trusted_by_check": true
+      }
+    },
+    "intermittent": {
+      "sessions": 171,
+      "faulty_sessions": 162,
+      "healthy_sessions": 9,
+      "detection_rate": 1.0,
+      "healthy_false_incident_rate": 0.0,
+      "policies": {
+        "uncalibrated": {
+          "decisions": 162,
+          "top1_accuracy_all_flagged_faulty": 0.9012345679012346,
+          "abstention_rate": 0.0,
+          "confident_decisions": 162,
+          "false_confident_count": 16,
+          "false_confident_rate_of_decisions": 0.09876543209876543,
+          "accuracy_when_confident": 0.9012345679012346,
+          "macro_f1": 0.8917293233082706,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.627906976744186,
+              "recall": 1.0,
+              "f1": 0.7714285714285715,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": 1.0,
+              "recall": 0.4074074074074074,
+              "f1": 0.5789473684210525,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                16,
+                0,
+                0,
+                0,
+                11
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 0,
+            "sensor_called_looseness": 16,
+            "looseness_total": 27,
+            "sensor_total": 27
+          }
+        },
+        "calibrated_ood": {
+          "decisions": 162,
+          "top1_accuracy_all_flagged_faulty": 0.9012345679012346,
+          "abstention_rate": 0.16666666666666666,
+          "confident_decisions": 135,
+          "false_confident_count": 0,
+          "false_confident_rate_of_decisions": 0.0,
+          "accuracy_when_confident": 1.0,
+          "macro_f1": 0.8917293233082706,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.627906976744186,
+              "recall": 1.0,
+              "f1": 0.7714285714285715,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": 1.0,
+              "recall": 0.4074074074074074,
+              "f1": 0.5789473684210525,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                16,
+                0,
+                0,
+                0,
+                11
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 0,
+            "sensor_called_looseness": 16,
+            "looseness_total": 27,
+            "sensor_total": 27
+          }
+        },
+        "calibrated_ood_pair_rule": {
+          "decisions": 162,
+          "top1_accuracy_all_flagged_faulty": 0.9012345679012346,
+          "abstention_rate": 0.3333333333333333,
+          "confident_decisions": 108,
+          "false_confident_count": 0,
+          "false_confident_rate_of_decisions": 0.0,
+          "accuracy_when_confident": 1.0,
+          "macro_f1": 0.8917293233082706,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.627906976744186,
+              "recall": 1.0,
+              "f1": 0.7714285714285715,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": 1.0,
+              "recall": 0.4074074074074074,
+              "f1": 0.5789473684210525,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                16,
+                0,
+                0,
+                0,
+                11
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 0,
+            "sensor_called_looseness": 16,
+            "looseness_total": 27,
+            "sensor_total": 27
+          },
+          "after_T1_for_held_back": {
+            "held_back": 54,
+            "confident_correct": 22,
+            "false_confident": 0,
+            "abstained_or_escalated": 32,
+            "test_outcome_unfamiliar": 32
+          }
+        }
+      },
+      "c2": {
+        "coverage_mean": 0.8755787037037037,
+        "coverage_min": 0.5833333333333334,
+        "target": 0.9,
+        "cases": 48,
+        "trusted_by_check": true
+      }
+    },
+    "hard": {
+      "sessions": 171,
+      "faulty_sessions": 162,
+      "healthy_sessions": 9,
+      "detection_rate": 1.0,
+      "healthy_false_incident_rate": 1.0,
+      "policies": {
+        "uncalibrated": {
+          "decisions": 171,
+          "top1_accuracy_all_flagged_faulty": 0.6666666666666666,
+          "abstention_rate": 0.0,
+          "confident_decisions": 171,
+          "false_confident_count": 63,
+          "false_confident_rate_of_decisions": 0.3684210526315789,
+          "accuracy_when_confident": 0.631578947368421,
+          "macro_f1": 0.6666666666666666,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                0,
+                27
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 27,
+            "sensor_called_looseness": 27,
+            "looseness_total": 27,
+            "sensor_total": 27
+          }
+        },
+        "calibrated_ood": {
+          "decisions": 171,
+          "top1_accuracy_all_flagged_faulty": 0.6666666666666666,
+          "abstention_rate": 0.6140350877192983,
+          "confident_decisions": 66,
+          "false_confident_count": 26,
+          "false_confident_rate_of_decisions": 0.15204678362573099,
+          "accuracy_when_confident": 0.6060606060606061,
+          "macro_f1": 0.6666666666666666,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                0,
+                27
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 27,
+            "sensor_called_looseness": 27,
+            "looseness_total": 27,
+            "sensor_total": 27
+          }
+        },
+        "calibrated_ood_pair_rule": {
+          "decisions": 171,
+          "top1_accuracy_all_flagged_faulty": 0.6666666666666666,
+          "abstention_rate": 0.7660818713450293,
+          "confident_decisions": 40,
+          "false_confident_count": 0,
+          "false_confident_rate_of_decisions": 0.0,
+          "accuracy_when_confident": 1.0,
+          "macro_f1": 0.6666666666666666,
+          "per_class": {
+            "imbalance": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "looseness": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 27
+            },
+            "overload": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "cooling_failure": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "supply_voltage": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "support": 27
+            },
+            "sensor_fault": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 27
+            }
+          },
+          "confusion": {
+            "order": [
+              "imbalance",
+              "looseness",
+              "overload",
+              "cooling_failure",
+              "supply_voltage",
+              "sensor_fault"
+            ],
+            "matrix": [
+              [
+                27,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                0,
+                27
+              ],
+              [
+                0,
+                0,
+                27,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                27,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                27,
+                0
+              ],
+              [
+                0,
+                27,
+                0,
+                0,
+                0,
+                0
+              ]
+            ]
+          },
+          "looseness_vs_sensor": {
+            "looseness_called_sensor": 27,
+            "sensor_called_looseness": 27,
+            "looseness_total": 27,
+            "sensor_total": 27
+          },
+          "after_T1_for_held_back": {
+            "held_back": 54,
+            "confident_correct": 13,
+            "false_confident": 4,
+            "abstained_or_escalated": 37,
+            "test_outcome_unfamiliar": 28
+          }
+        }
+      },
+      "c2": {
+        "coverage_mean": 0.7355324074074074,
+        "coverage_min": 0.16666666666666666,
+        "target": 0.9,
+        "cases": 48,
+        "trusted_by_check": false
+      }
+    },
+    "_t1_looseness_vs_confusable_sensor": {
+      "accuracy_before_test": 0.5,
+      "accuracy_after_test": 0.5,
+      "n": 12,
+      "note": "T1 signature model fitted on the baseline regime only"
+    }
+  },
+  "calibration": {
+    "chosen_temperature": 1.0,
+    "validation_nll": 1.2123058732323597e-11,
+    "grid_nll": {
+      "1.0": 1.2123058732323597e-11,
+      "2.0": 6.775172258832179e-07,
+      "4.0": 0.0002009323352215301,
+      "8.0": 0.004376378718498521,
+      "16.0": 0.024529326938691864,
+      "32.0": 0.07625457629220758,
+      "64.0": 0.17344126689948824,
+      "128.0": 0.2910026119158753,
+      "256.0": 0.41743754433859454
+    },
+    "validation_cases": 144
+  },
+  "runtime_s": 16.8
+}

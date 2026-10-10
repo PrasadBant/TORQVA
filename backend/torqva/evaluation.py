@@ -24,12 +24,12 @@ import numpy as np
 from .detection import BaselineDetector, ThermalTracker
 from .diagnostics import DiagnosticsModel, run_test_on_sim
 from .dispatch import CommandRecord
-from .hypotheses import HYPS, HypothesisModel, Posterior
+from .hypotheses import HYPS, HypothesisModel, Posterior, calibrate_temperature
 from .prediction import InterventionPredictor, SIGNALS, StateSummary, persistence_prediction
 from .recovery import assess
 from .scenarios import action_cases, posterior_from, warm_session
 from .schemas import ActionType, CommandStatus, Hypothesis, RecoveryOutcome
-from .sim import FEATURES, MotorSim, rollout
+from .sim import FEATURES, REGIMES, MotorSim, rollout
 
 TRAIN_SEEDS = (0, 101, 102, 11, 12)
 SPEEDS_LEARNED = [900, 1200, 1500, 1800, 2100]
@@ -75,6 +75,12 @@ def build_models():
     cal = [c for h in HYPS for sev in (0.3, 0.6, 0.9) for seed in (11, 12) for sp in (1200, 1800)
            for c in action_cases(h, sev, seed, sp, det, tt, hm)]
     pred.calibrate(cal)
+    import copy as _copy
+    hm_uncal = _copy.deepcopy(hm); hm_uncal.use_ood = False; hm_uncal.temp = 1.0       # the pre-change policy
+    val = validation_cases(det, tt)
+    calib = calibrate_temperature(hm, val)
+    det.__dict__.setdefault('_extras', {})['hm_uncalibrated'] = hm_uncal
+    det.__dict__['_extras']['calibration'] = {**calib, 'validation_cases': len(val)}
     return det, tt, hm, dm, pred, {"healthy_windows": len(data), "hypothesis_samples": {h.value: len(v) for h, v in samples.items()},
                                    "c2_calibration_cases": len(cal)}
 
@@ -227,6 +233,151 @@ def eval_c2(det, tt, hm, pred):
             "validated_by_intervention_experiments": pred.validated_by_experiments}
 
 
+
+# ------------------------------------------------------------------ held-out regimes (harder worlds)
+EVAL_REGIMES = ("baseline", "noisy", "session_shift", "confusable_sensor", "intermittent", "hard")
+SEV_REG = (0.3, 0.6, 0.9)
+SEEDS_REG = (8101, 8102, 8103)           # disjoint from training, validation (8001..) and every other test seed
+SPEEDS_REG = (1350, 1650, 1950)
+
+
+def _evidence(det, tt, ws):
+    tt.reset(ws[0].housing)
+    zs, flagged = [], 0
+    for w in ws:
+        tt.update(w)
+        sc = det.score(w)
+        if sc.anomalous and sc.z is not None:
+            zs.append(sc.z); flagged += 1
+    return zs, flagged
+
+
+def validation_cases(det, tt):
+    """Validation set for temperature calibration: mixed shifted regimes, seeds disjoint from train and test."""
+    cases = []
+    for regime in ("baseline", "noisy", "session_shift"):
+        for h in HYPS:
+            for sev in (0.3, 0.6):
+                for seed in (8001, 8002):
+                    for sp in (1200, 1800):
+                        _, ws = warm_session(h, sev, seed, sp, post_s=40 if h != Hypothesis.COOLING_FAILURE else 600, regime=regime)
+                        zs, _ = _evidence(det, tt, ws)
+                        if len(zs) >= 8:
+                            cases.append((zs[-15:], h))
+    return cases
+
+
+def _decide(model: HypothesisModel, zs, pair_rule: bool = False, tests_run: int = 0, test_required=("looseness", "sensor_fault")):
+    p = model.posterior(zs[-15:])
+    needs_test = pair_rule and p.top.value in test_required and tests_run == 0
+    return {"top": p.top, "top_p": p.top_p, "margin": p.margin, "label": p.label(), "needs_test": needs_test,
+            "confident": p.label() == "confident" and not needs_test, "posterior": p}
+
+
+def _prf(conf, order):
+    out = {}
+    f1s = []
+    for i, h in enumerate(order):
+        tp = conf[i, i]; fp = conf[:, i].sum() - tp; fn = conf[i, :].sum() - tp
+        pr = tp / (tp + fp) if tp + fp else None
+        rc = tp / (tp + fn) if tp + fn else None
+        f1 = 2 * pr * rc / (pr + rc) if pr and rc else 0.0
+        f1s.append(f1)
+        out[h] = {"precision": pr, "recall": rc, "f1": f1, "support": int(conf[i, :].sum())}
+    return out, float(np.mean(f1s))
+
+
+def eval_regimes(det, tt, models: Dict[str, HypothesisModel], dm, pred):
+    """models: {'uncalibrated': hm without OOD/temperature, 'calibrated': hm with both}. All numbers SIMULATED."""
+    order = [h.value for h in HYPS]
+    report = {}
+    for regime in EVAL_REGIMES:
+        sessions = []
+        for h in [None] + list(HYPS):
+            for sev in ((0.0,) if h is None else SEV_REG):
+                for seed in SEEDS_REG:
+                    for sp in SPEEDS_REG:
+                        post_s = 40 if h != Hypothesis.COOLING_FAILURE else 600
+                        s, ws = warm_session(h, sev, seed, sp, post_s=post_s, regime=regime)
+                        zs, nflag = _evidence(det, tt, ws)
+                        sessions.append({"truth": h, "sev": sev, "zs": zs, "nflag": nflag, "n": len(ws), "sim": s})
+        faulty = [x for x in sessions if x["truth"] is not None]
+        healthy = [x for x in sessions if x["truth"] is None]
+        flagged_f = [x for x in faulty if len(x["zs"]) >= 8]
+        flagged_h = [x for x in healthy if len(x["zs"]) >= 8]
+        entry = {"sessions": len(sessions), "faulty_sessions": len(faulty), "healthy_sessions": len(healthy),
+                 "detection_rate": len(flagged_f) / len(faulty),
+                 "healthy_false_incident_rate": len(flagged_h) / max(len(healthy), 1), "policies": {}}
+        for name, (model, pair_rule) in models.items():
+            conf = np.zeros((len(HYPS), len(HYPS)), dtype=int)
+            n_conf = conf_wrong = abstain = correct_all = 0
+            decided = [(x, _decide(model, x["zs"], pair_rule)) for x in flagged_f + flagged_h]
+            for x, d in decided:
+                if x["truth"] is None:                              # healthy but flagged: any diagnosis is wrong
+                    n_conf += d["confident"]; conf_wrong += d["confident"]; abstain += (not d["confident"])
+                    continue
+                conf[HYPS.index(x["truth"]), HYPS.index(d["top"])] += 1
+                correct_all += d["top"] == x["truth"]
+                n_conf += d["confident"]
+                conf_wrong += d["confident"] and d["top"] != x["truth"]
+                abstain += (not d["confident"])
+            nd = max(len(decided), 1)
+            per_class, macro_f1 = _prf(conf, order)
+            n_f = max(len(flagged_f), 1)
+            pol = {
+                "decisions": len(decided),
+                "top1_accuracy_all_flagged_faulty": correct_all / n_f,
+                "abstention_rate": abstain / nd,
+                "confident_decisions": n_conf,
+                "false_confident_count": int(conf_wrong),
+                "false_confident_rate_of_decisions": conf_wrong / nd,
+                "accuracy_when_confident": (1 - conf_wrong / n_conf) if n_conf else None,
+                "macro_f1": macro_f1, "per_class": per_class,
+                "confusion": {"order": order, "matrix": conf.tolist()},
+                "looseness_vs_sensor": {
+                    "looseness_called_sensor": int(conf[order.index("looseness"), order.index("sensor_fault")]),
+                    "sensor_called_looseness": int(conf[order.index("sensor_fault"), order.index("looseness")]),
+                    "looseness_total": int(conf[order.index("looseness"), :].sum()),
+                    "sensor_total": int(conf[order.index("sensor_fault"), :].sum())},
+            }
+            if pair_rule:
+                # Follow-up: sessions held back by the pair rule get a T1 speed-step test, then are decided again.
+                held = [(x, d) for x, d in decided if d["needs_test"] and x["truth"] is not None]
+                fc = ab = ood_n = cor = 0
+                for x, d in held:
+                    sim = x["sim"]
+                    obs, _ = run_test_on_sim(sim, "T1", tt)
+                    pst = dm.update(d["posterior"], "T1", obs)
+                    ood_n += pst.ood
+                    is_conf = pst.label() == "confident"
+                    fc += is_conf and pst.top != x["truth"]
+                    cor += is_conf and pst.top == x["truth"]
+                    ab += not is_conf
+                pol["after_T1_for_held_back"] = {"held_back": len(held), "confident_correct": int(cor), "false_confident": int(fc),
+                                                 "abstained_or_escalated": int(ab), "test_outcome_unfamiliar": int(ood_n)}
+            entry["policies"][name] = pol
+        # C2 interval coverage in this regime (predictor calibrated on baseline only)
+        cases = [c for h in HYPS for sev in (0.4, 0.8) for seed in (8201, 8202) for sp in (1500, 2000)
+                 for c in action_cases(h, sev, seed, sp, det, tt, models["calibrated_ood"][0], regime=regime)]
+        cov = pred.evaluate_coverage(cases)
+        entry["c2"] = {"coverage_mean": float(np.mean(list(cov.values()))), "coverage_min": float(np.min(list(cov.values()))),
+                       "target": pred.target_coverage, "cases": len(cases) // 3,
+                       "trusted_by_check": pred.trust(Posterior({h: (0.9 if h == HYPS[0] else 0.02) for h in HYPS}, 10), True).trusted}
+        report[regime] = entry
+    # Does a diagnostic test separate looseness from the confusable sensor fault? (held-out regime, dm fitted on baseline)
+    prior = {h: 0.0 for h in HYPS}
+    prior[Hypothesis.LOOSENESS] = prior[Hypothesis.SENSOR_FAULT] = 0.5
+    ok = n = 0
+    for truth in (Hypothesis.LOOSENESS, Hypothesis.SENSOR_FAULT):
+        for seed in range(8301, 8307):
+            sim = MotorSim(seed, regime=REGIMES["confusable_sensor"]); sim.set_setpoint(1650); sim.run(60); sim.inject(truth, 0.6)
+            obs, _ = run_test_on_sim(sim, "T1", tt)
+            ok += dm.update(Posterior(prior, 10), "T1", obs).top == truth; n += 1
+    report["_t1_looseness_vs_confusable_sensor"] = {"accuracy_before_test": 0.5, "accuracy_after_test": ok / n, "n": n,
+                                                    "note": "T1 signature model fitted on the baseline regime only"}
+    return report
+
+
 # ------------------------------------------------------------------ C5
 def eval_c5(det, tt):
     tp = fp = fn = tn = 0
@@ -277,6 +428,9 @@ def run_all() -> Dict:
         "hypotheses": eval_hypotheses(det, tt, hm, dm),
         "c2": eval_c2(det, tt, hm, pred),
         "c5": eval_c5(det, tt),
+        "regimes": eval_regimes(det, tt, {"uncalibrated": (det._extras["hm_uncalibrated"], False), "calibrated_ood": (hm, False),
+                                       "calibrated_ood_pair_rule": (hm, True)}, dm, pred),
+        "calibration": det._extras["calibration"],
     }
     res["runtime_s"] = round(time.time() - t0, 1)
     return res

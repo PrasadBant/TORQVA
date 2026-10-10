@@ -179,3 +179,58 @@ def test_t1_never_commands_a_higher_speed():
     s = MotorSim(1); s.set_setpoint(1500); s.run(30)
     _, ws = run_test_on_sim(s, "T1", fraction=0.7)
     assert max(w.setpoint for w in ws) <= 1500.0 + 1e-9
+
+
+# ---------------- gate: pair rule + unfamiliar evidence ----------------
+def _post_for(h, p=0.95, ood=False):
+    probs = {x: (1 - p) / (len(HYPS) - 1) for x in HYPS}
+    probs[h] = p
+    return Posterior(probs, 10, ood)
+
+
+def test_gate_requires_a_speed_step_test_before_confident_looseness_or_sensor_fault():
+    for h in (Hypothesis.LOOSENESS, Hypothesis.SENSOR_FAULT):
+        d = decide(gi(posterior=_post_for(h), tests_run=0))
+        assert d.verdict != GateVerdict.ACT and "speed-step test" in d.reason
+        assert d.verdict == GateVerdict.RUN_DIAGNOSTIC_TEST                 # a safe informative test exists in gi()
+        assert decide(gi(posterior=_post_for(h), tests_run=1)).verdict == GateVerdict.ACT   # after the test it may act
+
+
+def test_gate_pair_rule_does_not_affect_other_diagnoses():
+    assert decide(gi(posterior=_post_for(Hypothesis.IMBALANCE), tests_run=0)).verdict == GateVerdict.ACT
+
+
+def test_gate_never_acts_on_unfamiliar_evidence():
+    d = decide(gi(posterior=_post_for(Hypothesis.IMBALANCE, ood=True)))
+    assert d.verdict != GateVerdict.ACT and d.inputs["ood"] is True
+
+
+# ---------------- hypotheses OOD + calibration ----------------
+def test_ood_flags_evidence_unlike_any_signature_but_not_in_distribution_evidence(stack):
+    import numpy as np
+    det, tt, hm, dm, zs_for = stack
+    assert not hm.posterior(zs_for(Hypothesis.IMBALANCE, 0.6, 901)[-15:]).ood
+    weird = [np.array([-25, 25, -25, 25, -25, 25, -25, 25, -25, 25.0])] * 10
+    p = hm.posterior(weird)
+    assert p.ood and p.label() == "unfamiliar"
+
+
+def test_temperature_calibration_picks_the_lowest_validation_nll(stack):
+    import copy
+    from torqva.hypotheses import calibrate_temperature
+    det, tt, hm, dm, zs_for = stack
+    m = copy.deepcopy(hm)
+    cases = [(zs_for(h, 0.5, 950 + i)[-12:], h) for i, h in enumerate(HYPS)]
+    out = calibrate_temperature(m, cases)
+    assert m.temp == out["chosen_temperature"]
+    assert out["validation_nll"] <= min(out["grid_nll"].values()) + 1e-9
+
+
+def test_diagnostic_outcome_unlike_any_learned_signature_is_flagged_unfamiliar(stack):
+    import numpy as np
+    det, tt, hm, dm, zs_for = stack
+    prior = Posterior({h: 1 / 6 for h in HYPS}, 10)
+    assert dm.update(prior, "T1", np.array([5.0, -2.0, 3.0])).ood
+    s = MotorSim(77); s.set_setpoint(1800); s.run(60); s.inject(Hypothesis.IMBALANCE, 0.6)
+    obs, _ = run_test_on_sim(s, "T1", tt)
+    assert not dm.update(prior, "T1", obs).ood

@@ -27,6 +27,38 @@ class StartSimulation(BaseModel):
     require_human_approval: bool = False
 
 
+class ProfileStep(BaseModel):
+    rpm: float = Field(gt=0, le=3000)
+    hold_s: float = Field(ge=5, le=900)
+
+
+class LabSessionIn(BaseModel):
+    purpose: str = "fault_run"
+    notes: str = ""
+    blind: bool = False
+    regime: str = "baseline"
+    seed: int = 1
+    profile: List[ProfileStep] = Field(default_factory=lambda: [ProfileStep(rpm=1500, hold_s=90)])
+    fault: Optional[str] = None
+    severity: float = Field(default=0.5, ge=0.0, le=1.0)
+    inject_at_s: int = Field(default=30, ge=0, le=1800)
+    clears_below_rpm: Optional[float] = Field(default=None, ge=0)
+    settings: Dict[str, Any] = Field(default_factory=dict, description="Physical injection record: mass g, radius mm, shim, ...")
+
+
+class ChecklistIn(BaseModel):
+    items: Dict[str, bool]
+
+
+class ExperimentIn(BaseModel):
+    fault: str
+    severity: float = Field(default=0.6, gt=0, le=1)
+    speed_rpm: float = Field(default=1800, gt=0, le=3000)
+    regime: str = "baseline"
+    repeats: int = Field(default=3, ge=1, le=10)
+    seed0: int = 100
+
+
 class StepRequest(BaseModel):
     seconds: int = Field(default=1, ge=1, le=600)
 
@@ -180,6 +212,94 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
             d = o._last_decision
             raise HTTPException(409, {"verdict": d.verdict.value, "reasons": d.reasons})
         return {"command_id": rec.id, "note": "device also requires its local button press"}
+
+    # ---------------- lab (simulation) ----------------
+    from . import lab as _lab
+    from .sim import REGIMES as _REGIMES
+
+    def _lab_or_404(sid: str) -> Dict[str, Any]:
+        s = service.lab_get(sid)
+        if s is None:
+            raise HTTPException(404, "no such lab session")
+        return s
+
+    def _lab_guard(fn):
+        try:
+            return fn()
+        except (_lab.LabError, ValueError) as e:
+            raise HTTPException(422, str(e))
+
+    @r.get("/lab/regimes")
+    def lab_regimes(p: Principal = Depends(need(Role.VIEWER))):
+        return [{"name": g.name, "description": g.description, "noise_mult": g.noise_mult, "session_offsets": g.session_offsets,
+                 "sensor_fault_mode": g.sensor_fault_mode, "looseness_mode": g.looseness_mode} for g in _REGIMES.values()]
+
+    @r.get("/lab/checklist")
+    def lab_checklist(p: Principal = Depends(need(Role.VIEWER))):
+        return {"items": [{"key": k, "text": t} for k, t in _lab.CHECKLIST],
+                "note": "A procedure that is logged to the audit trail. It is not a safety mechanism."}
+
+    @r.get("/lab/sessions")
+    def lab_list(p: Principal = Depends(need(Role.VIEWER))):
+        return [_lab.redact({k: v for k, v in s.items() if k != "_provenance"}) for s in service.store.list("lab_session")]
+
+    @r.get("/lab/sessions/{sid}")
+    def lab_one(sid: str, p: Principal = Depends(need(Role.VIEWER))):
+        return _lab.redact(_lab_or_404(sid))
+
+    @r.post("/lab/sessions")
+    def lab_create(body: LabSessionIn, p: Principal = Depends(need(Role.OPERATOR))):
+        s = _lab_guard(lambda: service.lab_create(
+            p.user, purpose=body.purpose, notes=body.notes, blind=body.blind, regime=body.regime, seed=body.seed,
+            profile=[x.model_dump() for x in body.profile], fault=body.fault, severity=body.severity,
+            inject_at_s=body.inject_at_s, clears_below_rpm=body.clears_below_rpm, settings=body.settings))
+        audit(p, "lab_session_created", id=s["id"], blind=s["blind"], regime=s["config"]["regime"], seed=s["config"]["seed"])
+        return _lab.redact(s)
+
+    @r.post("/lab/sessions/{sid}/checklist")
+    def lab_checklist_confirm(sid: str, body: ChecklistIn, p: Principal = Depends(need(Role.OPERATOR))):
+        s = _lab_or_404(sid)
+        _lab_guard(lambda: _lab.confirm_checklist(s, body.items, p.user))
+        service.lab_save(s)
+        audit(p, "lab_checklist", id=sid, complete=s["checklist"]["complete"], items=s["checklist"]["items"])
+        return _lab.redact(s)
+
+    @r.post("/lab/sessions/{sid}/run")
+    def lab_run(sid: str, p: Principal = Depends(need(Role.OPERATOR))):
+        s = _lab_or_404(sid)
+        if s["status"] == "completed":
+            raise HTTPException(409, "session already ran; create a new session or use /reproduce")
+        _lab_guard(lambda: service.lab_run(s))
+        audit(p, "lab_session_run", id=sid, window_hash=s["result"]["window_hash"])
+        return _lab.redact(s)
+
+    @r.post("/lab/sessions/{sid}/reveal")
+    def lab_reveal(sid: str, p: Principal = Depends(need(Role.OPERATOR))):
+        s = _lab_or_404(sid)
+        _lab_guard(lambda: _lab.reveal(s))
+        service.lab_save(s)
+        audit(p, "lab_session_revealed", id=sid, match=s["result"]["truth_match"])
+        return s
+
+    @r.post("/lab/sessions/{sid}/reproduce")
+    def lab_repro(sid: str, p: Principal = Depends(need(Role.OPERATOR))):
+        s = _lab_or_404(sid)
+        if s["status"] != "completed":
+            raise HTTPException(409, "run the session first")
+        out = service.lab_reproduce(s)
+        audit(p, "lab_session_reproduced", id=sid, identical=out["identical"])
+        return out
+
+    @r.get("/lab/experiments")
+    def lab_experiments(p: Principal = Depends(need(Role.VIEWER))):
+        return service.store.list("experiment")
+
+    @r.post("/lab/experiments")
+    def lab_experiment(body: ExperimentIn, p: Principal = Depends(need(Role.OPERATOR))):
+        res = _lab_guard(lambda: service.lab_experiment(p.user, fault=body.fault, severity=body.severity,
+                         speed_rpm=body.speed_rpm, regime=body.regime, repeats=body.repeats, seed0=body.seed0))
+        audit(p, "lab_experiment", id=res["id"], fault=body.fault, repeats=body.repeats)
+        return res
 
     # ---------------- audit (admin) ----------------
     @r.get("/audit")

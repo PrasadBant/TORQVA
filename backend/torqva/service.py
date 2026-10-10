@@ -18,6 +18,8 @@ from .supervisor import SafetySupervisor, SupervisorLimits
 
 DEFAULT_LIMITS = SupervisorLimits(vib_rms_stop_g=2.0, max_rpm=3000.0)
 
+from . import lab as _lab
+
 
 class SimulationService:
     def __init__(self, store: Optional[Store] = None):
@@ -101,3 +103,39 @@ class SimulationService:
                         "score": None if s.value is None else s.value / s.threshold, "score_status": s.status,
                         "provenance": "SIMULATED"})
         return out
+
+
+    # ---------------- lab ----------------
+    def lab_create(self, user: str, **kw) -> Dict[str, Any]:
+        s = _lab.new_session(operator=user, **kw)
+        sid = f"L-{len(self.store.list('lab_session')) + 1:04d}"
+        s["id"] = sid
+        self.store.put("lab_session", sid, s, "SIMULATED")
+        return s
+
+    def lab_get(self, sid: str) -> Optional[Dict[str, Any]]:
+        d = self.store.get("lab_session", sid)
+        if d is not None:
+            d.pop("_provenance", None)
+        return d
+
+    def lab_save(self, s: Dict[str, Any]) -> None:
+        self.store.put("lab_session", s["id"], s, "SIMULATED")
+
+    def lab_run(self, s: Dict[str, Any]) -> Dict[str, Any]:
+        det, tt, hm, dm, pred, sizes = self._ensure_models()
+        r = _lab.run_session(s, det, tt, hm)
+        self.lab_save(s)
+        return r
+
+    def lab_reproduce(self, s: Dict[str, Any]) -> Dict[str, Any]:
+        det, tt, hm, dm, pred, sizes = self._ensure_models()
+        return _lab.reproduce(s, det, tt, hm)
+
+    def lab_experiment(self, user: str, **kw) -> Dict[str, Any]:
+        det, tt, hm, dm, pred, sizes = self._ensure_models()
+        res = _lab.run_experiment(det=det, tt=tt, hm=hm, pred=pred, **kw)
+        eid = f"X-{len(self.store.list('experiment')) + 1:04d}"
+        res["id"], res["operator"] = eid, user
+        self.store.put("experiment", eid, res, "SIMULATED")
+        return res

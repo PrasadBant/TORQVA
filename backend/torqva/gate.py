@@ -19,6 +19,9 @@ class GateConfig:
     min_info_gain_nats: float = 0.15
     risk_high: float = 0.60
     risk_moderate: float = 0.30
+    # Diagnoses that a single speed cannot tell apart physically (mechanical looseness vs a faulty vibration channel):
+    # never 'confident' until a speed-step test has been run in this incident.
+    test_required_for: tuple = ("looseness", "sensor_fault")
 
 
 @dataclass
@@ -57,7 +60,7 @@ def _log(i: GateInputs) -> Dict:
     p = i.posterior
     return {"mandatory_stop": i.mandatory_stop, "risk": round(i.risk, 4), "data_ok": i.data_ok,
             "sensor_unreliable": i.sensor_unreliable, "top": p.top.value, "top_p": round(p.top_p, 4),
-            "margin": round(p.margin, 4), "posterior_label": p.label(), "n_windows": p.n_windows,
+            "margin": round(p.margin, 4), "posterior_label": p.label(), "ood": p.ood, "n_windows": p.n_windows,
             "c2_trusted": i.c2_trusted, "op_point_familiar": i.op_point_familiar,
             "best_test": i.best_test.name if i.best_test else None,
             "best_test_gain": round(i.best_test.info_gain, 4) if i.best_test else None,
@@ -82,14 +85,18 @@ def decide(i: GateInputs, cfg: GateConfig = GateConfig()) -> GateDecision:
         return GateDecision(GateVerdict.REQUEST_MORE_DATA, "Data quality is not sufficient to decide.", None, log)
 
     # 3. Confident posterior and trusted predictions -> act.
-    confident = i.posterior.top_p >= cfg.p_confident and i.posterior.margin >= cfg.margin_confident
+    needs_test = i.posterior.top.value in cfg.test_required_for and i.tests_run == 0
+    confident = (i.posterior.top_p >= cfg.p_confident and i.posterior.margin >= cfg.margin_confident
+                 and not i.posterior.ood and not needs_test)
     if confident and i.c2_trusted and i.op_point_familiar:
         return GateDecision(GateVerdict.ACT, f"Top hypothesis '{i.posterior.top.value}' at {i.posterior.top_p:.2f} "
                             f"with margin {i.posterior.margin:.2f}; predictions trusted.", None, log)
 
     # Why we are not acting (for the plain-language reason).
     why = []
-    if not confident:
+    if needs_test:
+        why.append(f"'{i.posterior.top.value}' cannot be told from its look-alike without a speed-step test")
+    if not confident and not needs_test:
         why.append(f"hypotheses are {i.posterior.label()} (top {i.posterior.top_p:.2f}, margin {i.posterior.margin:.2f})")
     if not i.c2_trusted:
         why.append("intervention predictions are not trusted")

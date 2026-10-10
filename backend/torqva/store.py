@@ -11,7 +11,8 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-KINDS = ("session", "incident", "decision", "prediction", "command", "outcome", "model_version", "case")
+KINDS = ("session", "incident", "decision", "prediction", "command", "outcome", "model_version", "case",
+         "lab_session", "experiment")
 
 
 def _jsonable(o: Any):
