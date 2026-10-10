@@ -1,0 +1,645 @@
+{
+  "schema": "EvaluationRun/1",
+  "data_provenance": "SIMULATED",
+  "WARNING": "Simulation only. The simulator is uncalibrated and self-consistent with the predictors; do not quote as hardware results.",
+  "git_sha": "7b65ab5",
+  "config_hash": "22ffd3b544ae",
+  "config": {
+    "bin_width": 300,
+    "percentile": 99.5,
+    "severities": [
+      0.02,
+      0.05,
+      0.1,
+      0.2,
+      0.4,
+      0.8
+    ],
+    "test_speeds": [
+      1350,
+      1650,
+      1950
+    ],
+    "train_seeds": [
+      0,
+      101,
+      102,
+      11,
+      12
+    ],
+    "confirm_run": 5
+  },
+  "model_versions": {
+    "baseline_detector": 1,
+    "hypothesis_model": 1,
+    "diagnostics": 1,
+    "predictor": 2
+  },
+  "train_dataset": {
+    "healthy_windows": 450,
+    "hypothesis_samples": {
+      "imbalance": 240,
+      "looseness": 240,
+      "overload": 240,
+      "cooling_failure": 240,
+      "supply_voltage": 240,
+      "sensor_fault": 240
+    },
+    "c2_calibration_cases": 216
+  },
+  "test_protocol": "test sessions use seeds and speeds disjoint from training; labels hidden until scoring",
+  "measured": {
+    "status": "NO MEASURED DATA: no real labelled sessions recorded yet"
+  },
+  "c1": {
+    "healthy": {
+      "c1": {
+        "window_false_alarm_rate": 0.002619047619047619,
+        "confirmed_false_incidents": 0,
+        "windows": 4200
+      },
+      "global": {
+        "window_false_alarm_rate": 0.0002380952380952381,
+        "confirmed_false_incidents": 0,
+        "windows": 4200
+      },
+      "legacy": {
+        "window_false_alarm_rate": 0.0,
+        "confirmed_false_incidents": 0,
+        "windows": 4200
+      }
+    },
+    "detection": {
+      "imbalance@0.02": {
+        "c1": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "imbalance@0.05": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 2.0
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "imbalance@0.1": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 0.5555555555555556,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "imbalance@0.2": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "imbalance@0.4": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "imbalance@0.8": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.4444444444444444,
+          "median_delay_s": 0.0
+        }
+      },
+      "looseness@0.02": {
+        "c1": {
+          "detected_fraction": 0.6666666666666666,
+          "median_delay_s": 4.0
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "looseness@0.05": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 1.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "looseness@0.1": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "looseness@0.2": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "looseness@0.4": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "looseness@0.8": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "overload@0.02": {
+        "c1": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "overload@0.05": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "overload@0.1": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "overload@0.2": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "overload@0.4": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "overload@0.8": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        }
+      },
+      "supply_voltage@0.02": {
+        "c1": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "supply_voltage@0.05": {
+        "c1": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "supply_voltage@0.1": {
+        "c1": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "supply_voltage@0.2": {
+        "c1": {
+          "detected_fraction": 0.4444444444444444,
+          "median_delay_s": 12.0
+        },
+        "global": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "supply_voltage@0.4": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "supply_voltage@0.8": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        }
+      },
+      "sensor_fault@0.02": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "sensor_fault@0.05": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "sensor_fault@0.1": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "sensor_fault@0.2": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "sensor_fault@0.4": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      },
+      "sensor_fault@0.8": {
+        "c1": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "global": {
+          "detected_fraction": 1.0,
+          "median_delay_s": 0.0
+        },
+        "legacy": {
+          "detected_fraction": 0.0,
+          "median_delay_s": null
+        }
+      }
+    }
+  },
+  "hypotheses": {
+    "decided": 144,
+    "not_decided_no_anomaly_evidence": 0,
+    "top1_accuracy": 0.9513888888888888,
+    "random_baseline": 0.16666666666666666,
+    "confident_decisions": 143,
+    "false_confident_rate": 0.04895104895104895,
+    "confusion": {
+      "order": [
+        "imbalance",
+        "looseness",
+        "overload",
+        "cooling_failure",
+        "supply_voltage",
+        "sensor_fault"
+      ],
+      "matrix": [
+        [
+          23,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          21,
+          0,
+          0,
+          0,
+          3
+        ],
+        [
+          0,
+          0,
+          24,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          24,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          24,
+          0
+        ],
+        [
+          0,
+          3,
+          0,
+          0,
+          0,
+          21
+        ]
+      ]
+    },
+    "test_value": {
+      "imbalance_vs_looseness:T1": {
+        "accuracy_before_test": 0.5,
+        "accuracy_after_test": 1.0,
+        "n": 10
+      },
+      "overload_vs_cooling_failure:T4": {
+        "accuracy_before_test": 0.5,
+        "accuracy_after_test": 1.0,
+        "n": 10
+      }
+    }
+  },
+  "c2": {
+    "mae": {
+      "CONTINUE_MONITORING/rpm": {
+        "model": 1.6625823710993017,
+        "persistence": 1.6625823710993037
+      },
+      "CONTINUE_MONITORING/vib_rms": {
+        "model": 0.008888719190026127,
+        "persistence": 0.008888719190026127
+      },
+      "CONTINUE_MONITORING/current": {
+        "model": 0.01635479648524337,
+        "persistence": 0.016354796485243375
+      },
+      "CONTINUE_MONITORING/housing": {
+        "model": 0.09626474986859541,
+        "persistence": 1.4551041733514654
+      },
+      "REDUCE_SPEED/rpm": {
+        "model": 4.028996861619081,
+        "persistence": 524.5347012519568
+      },
+      "REDUCE_SPEED/vib_rms": {
+        "model": 0.007581499862452938,
+        "persistence": 0.05484405499133586
+      },
+      "REDUCE_SPEED/current": {
+        "model": 0.018536683364035567,
+        "persistence": 0.302667202211303
+      },
+      "REDUCE_SPEED/housing": {
+        "model": 0.09557701527875788,
+        "persistence": 0.8862211940294645
+      },
+      "STOP/rpm": {
+        "model": 3.041496732661065,
+        "persistence": 1695.6132278695875
+      },
+      "STOP/vib_rms": {
+        "model": 0.016094229322650824,
+        "persistence": 0.11301569110199554
+      },
+      "STOP/current": {
+        "model": 0.0,
+        "persistence": 1.4796366528346063
+      },
+      "STOP/housing": {
+        "model": 0.09956866749384276,
+        "persistence": 0.1697113294491909
+      }
+    },
+    "coverage_mean": 0.8813657407407407,
+    "coverage_min": 0.5833333333333334,
+    "coverage_target": 0.9,
+    "n_cases": 48,
+    "ranking_vs_measured_best": {
+      "agree": 6,
+      "total": 9,
+      "scenarios_where_all_actions_equal_on_limits": 3
+    },
+    "validated_by_intervention_experiments": false
+  },
+  "c5": {
+    "cases": 40,
+    "true_recoveries_declared": 20,
+    "FALSE_RECOVERY_DECLARATIONS": 0,
+    "missed_recoveries": 0,
+    "correct_non_recoveries": 20
+  },
+  "runtime_s": 4.5
+}

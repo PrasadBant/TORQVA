@@ -1,59 +1,73 @@
 # TORQVA — Progress
 
-## Phase status
+Direction (latest human instruction): **software first, hardware last.** Do not flash or run the motor. Hardware integration (Phase 8) starts only after software acceptance and needs explicit human authorization.
+
+## Phase status (software-first plan)
 | Phase | Status |
 |---|---|
-| 0 Audit | **done** (2026-10-10): audit, wiring draft, baseline results written. Awaiting human review of Decisions + H-tasks |
-| 1 Hardware safety & firmware core | **in progress**: host-tested core logic done (limits, safety monitor, ramp/PI/drive, command validator, test executor; 40/40 native tests pass). Not yet done: Arduino/hardware app layer (`src/main.cpp`), frames, NVS limits, device build. Nothing flashed |
-| 2–15 | not started |
+| 1 Firmware foundation | **Done except the ESP32 compile result** (see below). Core logic, device layer, protocol, deterministic sim plant, 65 host tests. `src/main.cpp` written; `pio run -e esp32s3` was still downloading the toolchain when this was written |
+| 2 Software architecture | **Done** (`docs/TORQVA_ARCHITECTURE.md`; modules under `backend/torqva/`) |
+| 3 Intelligence pipeline C1–C6 | **Done in simulation.** C1, C2, C3, C4 (T1/T3/T4), C5, C6 implemented and tested. C2 is *unvalidated*; C6 never run on real data |
+| 4 Backend + data layer | **Partial.** Done: typed schemas, SQLite document store, append-only audit (DB triggers block update/delete), command dispatcher with ack/timeout/TTL/resend/idempotency, Safety Supervisor. **Not done:** FastAPI routes for TORQVA, authentication/authorization (supervisor has roles but nothing authenticates a caller yet), WebSocket push, serial bridge, wiring into legacy `main.py` |
+| 5 UI/UX | **Not started** |
+| 6 Research validation | **Done for simulation** (`docs/TORQVA_EVAL_SIM.md`); real/measured section empty by design |
+| 7 End-to-end software acceptance | **Done in simulation** (`tests/test_torqva_e2e.py`, 11 tests incl. failure paths). Gaps listed below |
+| 8 Hardware integration | **Not started, deliberately last** |
 
-## Current checklist (Phase 1 prep)
-- [x] Audit, capability matrix, baseline run
-- [x] `git init`, snapshot commit `855f282`, branch `torqva/phase-0-audit`
-- [ ] Human answers D-03 (pin map option) and confirms what is physically wired today
-- [x] D-01 resolved: PlatformIO approved; D-03 resolved: Option B
-- [x] Core logic as host-testable library `esp32/torqva_fw/lib/torqva_core` + 40 unit tests (`pio test -e native`)
-- [ ] Device layer `src/main.cpp`: FreeRTOS tasks (safety/control/rpm/slow sensors/comms), EN/relay GPIO, 20 kHz LEDC PWM, NVS limits, JSON-lines frames over USB-CDC, command dispatch
-- [ ] `pio run -e esp32s3` compile check (no flash)
-- [ ] Human: H-01 is now replaced by the PlatformIO compile (I will run it); H-03..H-09 still needed before motor tests
+## Test / build results (actually run, this session)
+| Check | Command | Result |
+|---|---|---|
+| Firmware host tests | `cd esp32/torqva_fw && pio test -e native` | **65 / 65 passed** (41 core logic, 24 protocol + device-with-sim-plant) |
+| Backend | `cd backend && python -m pytest -q` | **209 passed, 2 failed.** The 2 failures are the pre-existing `[trio]` parametrisations (`ModuleNotFoundError: No module named 'trio'`); unrelated to TORQVA |
+| Frontend | `cd frontend && npm test` | 24 / 24 passed (unchanged legacy UI) |
+| Simulation evaluation | `cd backend && python -m torqva.evaluation` | runs in ~5 s; results in `docs/TORQVA_EVAL_SIM.md` |
+| ESP32-S3 compile | `pio run -e esp32s3` | **NOT YET CONFIRMED** (see "ESP32 compile" below) |
+| Lint / typecheck | – | none configured (not run) |
 
-## Human tasks
-Never assume done until you confirm.
+## What was built
+- **Firmware** (`esp32/torqva_fw`): versioned limits, latching safety monitor, soft-start/ramp/PI/drive, command validator (idempotent; STOP never refused), on-device test executor (T1/T3/T4), JSON-lines protocol, `Device` (hardware-agnostic), `SimPlant`, Arduino hardware layer. **Motor commands are rejected unless built with `-DTORQVA_CONTROL_ENABLED=1`** (not set anywhere). Outputs forced OFF first thing in `setup()`.
+- **Backend** (`backend/torqva`): `supervisor` (deterministic; mints the only executable type `ApprovedAction`), `dispatch`, `incident` (table-driven state machine, 46 tests), `detection` (C1 + drift guard + thermal tracker), `hypotheses`, `gate` (C3), `diagnostics` (C4), `prediction` (C2), `recovery` (C5), `learning` (C6 registry), `sim`, `simdevice`, `pipeline` (orchestrator), `store`, `evaluation`.
 
-- [ ] **H-01 Compile check.** In Arduino IDE (ESP32S3 Dev Module, esp32 core 3.3.8) install: Adafruit ADXL345, Adafruit INA219, Adafruit Unified Sensor, OneWire, DallasTemperature, U8g2, ArduinoJson. Compile `smart_motor_monitor.ino` and paste the result (or error). *Verification:* "Done uploading"-free compile success message. (I only need a compile, not a flash.)
-- [ ] **H-02 Treat firmware 2.0.0 as unsafe.** Until H-03..H-06 are done, do not run the motor from the dashboard unattended; keep a hand on the PSU switch. Reason: Audit R-1.
-- [ ] **H-03 EN pull-downs.** 10 kΩ from BTS7960 R_EN and from L_EN to GND. *Verify:* unplug the ESP32 USB with PSU on → motor must stay off; multimeter reads ~0 V on EN pins.
-- [ ] **H-04 Relay + latching E-stop** in series with motor +24 V; relay coil fed through E-stop; 1N4007 across coil. *Verify:* with motor spinning at low duty, pressing E-stop cuts power with the ESP32 running AND with the ESP32 unplugged. Check relay contact rating ≥ 6 A DC at 24 V.
-- [ ] **H-05 INA219 shunt swap to 0.05 Ω** (≥ 1 W) and place after the bulk capacitor; add ≥ 470 µF / ≥ 35 V electrolytic at BTS7960 input; SS34 on the 24 V input. *Verify:* with a known load, compare INA219 reading to a clamp/multimeter reading.
-- [ ] **H-06 BTS7960 IS pins.** Measure R_IS/L_IS voltage at the highest allowed duty with a multimeter: must be ≤ 3.3 V before connecting to GPIO 1/2; add a divider if not.
-- [ ] **H-07 Buy/fit second DS18B20** (ambient) on the 1-wire bus; 4.7 kΩ pull-up.
-- [ ] **H-08 Hall supply:** power A3144 from 5 V, 10 kΩ pull-up to 3.3 V on the output, 1 kΩ + 1 nF filter. *Verify:* output swings 0 ↔ 3.3 V (not 5 V) on a multimeter/scope.
-- [ ] **H-09 Guard around the disc;** safety glasses; magnet epoxied.
-- [ ] **H-10 Tell me the real PSU model/current limit and whether it has a voltage trim** (decides whether the supply-voltage fault is real or sim-only).
+## Bugs the tests caught (kept so they are not repeated)
+1. Firmware: duplicate command id returned the original ack but **re-executed the command**. Fixed (`last_was_duplicate`), regression test added.
+2. Supervisor: a mandatory stop blocked even the admin RESET_ESTOP, so a latched e-stop could never be reset. Fixed; reset still blocked while a physical limit (temp/current/voltage/vibration) is exceeded.
+3. C1: healthy motor at a speed between training points scored as anomalous (single-speed bins). Fixed with anchor-based interpolation + per-feature scale floors. **Implication for commissioning: sweep speeds *inside* each bin.**
+4. Hypotheses: healthy pre-onset windows were used as evidence and flipped a correct imbalance diagnosis to sensor-fault. Fixed (only anomalous windows are evidence).
+5. T1 could not tell imbalance from looseness (both have the same 1× exponent). Added the 2×/3× harmonic exponent as an observation.
+6. C2 trust check initially required every signal×action cell ≥ 80 % coverage, which blocked all autonomous action on small test sets; relaxed to mean ≥ 80 % and worst cell ≥ 50 % (a judgement call: see Decisions).
 
 ## Decisions
-| ID | Decision | Rationale |
-|---|---|---|
-| D-01 | **PlatformIO approved** by the human. New project in `esp32/torqva_fw/`; legacy Arduino sketch in `esp32/firmware/` left untouched. | Headless build + host unit tests. |
-| D-02 | **Keep the existing backend and frontend stack** (FastAPI/SQLite/pydantic; React+JS+Vite+Recharts). Add modules beside it. Not migrating to SQLModel/Alembic/TypeScript/uPlot/TanStack yet. | §0.3: replacing frameworks needs approval. Adding TypeScript/uPlot/TanStack Query later counts as heavy dependencies → will ask in Phase 3. |
-| D-03 | **Option B** chosen by the human (keep legacy pins, change only what safety needs). | Avoids a full rewire. |
-| D-07 | Header named `torqva_limits.h`, not `limits.h` (collided with the system header). Limit defaults: ramp 30 %/s, max duty 70 %, 4 A/2 s, 5 A instant (**assumed PSU limit, see H-10**), temp 50/60 °C, 20–25.5 V, heartbeat 2 s, RPM-loss 1 s. `max_rpm` and `vib_rms_stop_g` default to 0 = not commissioned: SET_SPEED and all RUN_TESTs are refused until you set them. | Fail-safe defaults. |
-| D-08 | STOP bypasses auth/TTL/sequence checks and is never refused; RESET_ESTOP needs authorized command AND local button; abort of a test holds the current (lower) speed, never returns to the faster one. | Safety properties, covered by tests. |
-| D-04 | Existing `health_engine` thresholds stay as the "(a) existing thresholds" arm of the ablation ladder and are not modified. | Needed for honest comparison. |
-| D-05 | Old `docs/HARDWARE_WIRING.md` left untouched but marked superseded in the audit; I did not delete it. | §0.3: no deleting existing files without asking. |
-| D-06 | Local git repo created (not a repo when found). No remote, no push. | Section 18. |
+| ID | Decision |
+|---|---|
+| D-01 | PlatformIO approved by the human; project in `esp32/torqva_fw/`, legacy Arduino sketch untouched |
+| D-02 | Existing backend/frontend stacks kept; TORQVA added beside them (`backend/torqva/`) |
+| D-03 | Pin map Option B chosen by the human (`config_pins.h`, wiring ID reported as `W0-optionB-UNVERIFIED`) |
+| D-04 | Legacy `health_engine` kept as the "fixed thresholds" baseline |
+| D-05 | Old `docs/HARDWARE_WIRING.md` left in place, marked unreliable (Audit R-2) |
+| D-06 | Local git repo; branch `torqva/phase-0-audit` carries all work so far; no remote |
+| D-07/08 | Fail-safe defaults: `max_rpm` and vibration stop limit = 0 ⇒ SET_SPEED and all diagnostic tests refused until a human commissions them; STOP bypasses auth/TTL/seq; test abort holds the lower speed |
+| D-09 | numpy only (no new heavy deps; scikit-learn unused). `numpy>=1.26` added to `backend/requirements.txt` (it was in the original default stack) |
+| D-10 | Python `SimDevice` re-implements firmware rules for the e2e simulation; **conformance with the C++ core is not proven** (see gaps) |
+| D-11 | Lost ack ≠ not executed on the device. The pipeline conservatively records an un-acked command as EXPIRED/TIMEOUT (not executed) and re-decides from fresh telemetry |
+| D-12 | In simulation, supervisor auto-approves (configurable `auto_approve_in_simulation`); in HARDWARE mode every motion command needs `human_approved` |
 
-## Known gaps / risks
-- No firmware build verified in this environment (no CLI toolchain / libraries).
-- 2 backend tests fail only because `trio` isn't installed (anyio param). Fix = `pip install trio` or restrict anyio backend to asyncio; not touched yet.
-- No auth on any endpoint; firmware 2.0.0 has no safety layer (Audit R-1).
-- Old wiring doc is contradictory (Audit R-2).
+## Known gaps / risks (honest list)
+1. **ESP32 compile unverified.** Device code (`src/main.cpp`) has never been compiled for the S3; may need small API fixes.
+2. **No authentication anywhere** in the backend API; TORQVA has no API yet. The shared `k` key on the serial protocol is a placeholder.
+3. **Sim-only evidence.** Simulator uncalibrated and too easy (faults detected at 2–5 % severity). False-confident hypothesis rate 4.9 % is too high for autonomous action on a real rig.
+4. **C2 not validated** (no Intervention Outcome Experiments); intervals under-cover slightly (mean 88 % vs 90 %, worst cell 58 %). UI must say "Intervention Outcome Prediction (unvalidated)".
+5. **Python SimDevice vs C++ firmware conformance** not tested. Next safety-relevant task: a native CLI wrapping `torqva_core::Device` and a backend test that replays the same command scripts through both.
+6. Legacy dashboard still presents "health %" values from single-point baselines; not changed.
+7. Accelerometer: current firmware layer reports vibration as invalid (no ADXL345 task yet) — vibration limit and all tests stay disabled on hardware until implemented and commissioned.
+8. Wiring doc, pin map and hardware ratings are unverified drafts (by design, Phase 8).
+9. No FFT/raw-burst path, no Wi-Fi transport, no OLED in the new firmware.
 
-## Open design gaps (core logic)
-- `Command.authorized` is a flag set by the comms layer; the real auth mechanism (token/HMAC) is not designed yet (Phase 2).
-- `age_ms` TTL relies on the serial bridge stamping queue age; the device cannot detect transit delay itself.
-- No current-limit foldback; trip only. Over-current thresholds are tied to the INA219 range (H-05 shunt swap).
+## Human tasks (all deferred to Phase 8, none blocks software work)
+Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, IS wiring, 2nd DS18B20, Hall 5 V supply, guard, PSU model/limits). **Do not run the motor with legacy firmware unattended** until the hardware safety items are done.
 
-## Next step
-1. Me: write `src/main.cpp` device layer + `docs/TORQVA_ARCHITECTURE.md` (frame/command schema), then `pio run -e esp32s3` (compile only). Will not flash.
-2. You: H-10 (PSU model/current limit, voltage trim?) and which of H-03..H-09 are physically done; approve before any flash.
+## Next steps (in order)
+1. Confirm `pio run -e esp32s3` compiles; fix any errors (compile-only, no flashing).
+2. Build the native firmware-in-the-loop CLI and the Python↔C++ conformance test (gap 5).
+3. Phase 4: FastAPI TORQVA routes (read: incidents/decisions/predictions/outcomes/models; write: approve/reject/stop/reset) with authentication + roles + audit, simulated vs device data clearly separated; WebSocket push; serial bridge.
+4. Phase 5: UI per `TORQVA_ARCHITECTURE.md` (provenance badges on every value; simulation banner; unvalidated-C2 label).
+5. Re-run the evaluation after improving the false-confident rate (e.g. an explicit "none of the above / sensor" check); add harder simulator regimes.
