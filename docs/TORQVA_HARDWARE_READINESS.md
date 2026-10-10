@@ -339,3 +339,26 @@ Every `fast`, `slow` and `status` line emitted by the real firmware core (host b
 9. **Only then** treat the device as `PHYSICAL DEVICE` (the website does this automatically after a valid status frame with `mode: HW`); physical START and speed commands stay blocked.
 
 Remaining blockers are unchanged (secure transport/session, independent E-stop and reset-safe driver circuitry, approved limits, watchdog on-target verification, legacy sketch retirement, board model confirmation).
+
+## Phase 18 addendum - the sketch currently on the board shows the real pin map, and it does NOT match `torqva_fw` (flash gate)
+
+The operator supplied the sketch running on the board (header: "TORQVA - ESP32-S3 N16R8", Arduino-ESP32 core 3.x, `SPEED_DEMO_MODE`). Its pin map is the best available evidence of the real wiring (it is the operator's own sketch, not a verified wiring contract). `esp32/torqva_fw/src/config_pins.h` is explicitly a **DRAFT** ("W0-optionB-UNVERIFIED"). Comparison:
+
+| Signal | Operator's sketch | `torqva_fw` draft | Effect if `torqva_fw` were flashed on this wiring |
+|---|---|---|---|
+| Hall RPM | GPIO 9 | 9 | same |
+| DS18B20 | GPIO 6 (one sensor read: index 0) | 6 (index 0 housing, index 1 ambient) | same pin; ambient would be invalid (non-critical) |
+| INA219 (I2C bus 1) | SDA 7 / SCL 8 | 7 / 8 | same |
+| BTS7960 **RPWM** | **38** | 15 (not connected) | firmware PWM goes to an unconnected pin; **pin 38 is configured as a pulled-up button input, which pulls the real RPWM input HIGH** |
+| BTS7960 LPWM | 39 | 16 | firmware drives **16 LOW = the sketch's ADXL345 SDA** |
+| BTS7960 R_EN | 18 | 18 (as EN2) | enable line |
+| BTS7960 L_EN | 21 | 21 (as motor relay) | drives L_EN |
+| (draft R_EN) | - | 17 | drives **17 = the sketch's ADXL345 SCL** |
+| ADXL345 | SDA 16 / SCL 17 | not implemented | firmware does not read it |
+| OLED SH1106 (software I2C) | SDA 4 / SCL 5 | not implemented | - |
+| Status LEDs / buzzer | 10-13 / 14 | not implemented | - |
+| Motor relay, local reset button | **not present in the sketch** | relay 21, button 38 | the firmware's reset needs the local button: **none is wired**; latched faults could only be cleared by power-cycling |
+
+Consequences: (1) with control disabled (the default) the shipped firmware only drives the enable lines LOW and leaves RPWM pulled up with the driver disabled, so it would not start the motor, but it would hold the ADXL345 I2C lines low; (2) if control were ever enabled before the map is reconciled, R_EN/L_EN would be enabled while RPWM is pulled HIGH by the button input pull-up, i.e. a full-duty forward drive command with no PWM control; (3) the latch/reset design assumes hardware that is not present. **Gate: do not flash `torqva_fw` onto this wired board until a person confirms the real wiring and `config_pins.h` is reconciled (including the missing relay/button decision).** Flashing it on a bare ESP32 with nothing connected remains harmless. The sketch also confirms an N16R8 module (unverified).
+
+Hazards in the sketch itself (it remains quarantined for TORQVA): serial `START`/`SPEED` energise the driver with no interlocks; `readTemperature()` waits ~750 ms synchronously each second, so `STOP` can be delayed by that long; no automatic stop on over-temperature, over-current, invalid sensors or lost communication (status text and buzzer only); `SPEED_DEMO_MODE` classifies commanded PWM, not shaft speed; no watchdog; blocking `delay(50)` and software I2C OLED in the main loop.
