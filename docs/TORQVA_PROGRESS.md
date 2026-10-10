@@ -9,7 +9,7 @@ Direction (latest human instruction): **software first, hardware last.** Do not 
 | 2 Software architecture | **Done** (`docs/TORQVA_ARCHITECTURE.md`; modules under `backend/torqva/`) |
 | 3 Intelligence pipeline C1–C6 | **Done in simulation.** C1, C2, C3, C4 (T1/T3/T4), C5, C6 implemented and tested. C2 is *unvalidated*; C6 never run on real data |
 | 4 Backend + data layer | **Mostly done for simulation.** Done: typed schemas, SQLite document store (records scoped per simulation session), append-only audit (DB triggers block update/delete), dispatcher with ack/timeout/TTL/resend/idempotency, Safety Supervisor, **token auth with roles (fail closed)**, `/api/torqva/*` routes (status, telemetry, incidents, decisions, predictions, commands, outcomes, cases, approve/reject, stop, reset-estop, audit, simulation start/step), mounted in `main.py`. Legacy `POST /api/motor` now requires an operator token **once `TORQVA_TOKENS` is set** (unchanged otherwise). **Not done:** WebSocket push, serial bridge for a real device, rate limiting, token rotation/expiry, HTTPS/CORS tightening (CORS is still `*`), learning/model-registry endpoints |
-| 5 UI/UX | **Not started** |
+| 5 UI/UX | **First slice done** at `/#/torqva` (legacy dashboard remains the default): sign-in, persistent SIMULATION banner on every view, provenance badges, Overview (scenario control, STOP, device state), Live (speed, anomaly score ÷ threshold with gaps, thermal/vibration), Investigation (posterior bars, gate verdict + inputs, test result, state history), Decisions (C2 table labelled *Intervention Outcome Prediction (unvalidated)*, supervisor decisions, approve/reject gated by role, commands with device-ack status), Recovery (criteria pass/fail, observed vs predicted), Learning & Evaluation (reads the latest EvaluationRun), Audit (admin). **Not built:** Motors list, Lab (sessions, commissioning wizard, pre-run checklist, fault-injection records), Cases/Timeline, model registry/promotion/rollback screen, System Health, Settings, WebSocket push (UI polls), light theme, mobile/keyboard/contrast audit beyond basics, Playwright e2e |
 | 6 Research validation | **Done for simulation** (`docs/TORQVA_EVAL_SIM.md`); real/measured section empty by design |
 | 7 End-to-end software acceptance | **Done in simulation** (`tests/test_torqva_e2e.py`, 11 tests incl. failure paths). Gaps listed below |
 | 8 Hardware integration | **Not started, deliberately last** |
@@ -18,8 +18,9 @@ Direction (latest human instruction): **software first, hardware last.** Do not 
 | Check | Command | Result |
 |---|---|---|
 | Firmware host tests | `cd esp32/torqva_fw && pio test -e native` | **65 / 65 passed** (41 core logic, 24 protocol + device-with-sim-plant) |
-| Backend | `cd backend && python -m pytest -q` | **227 passed, 2 failed** (includes 4 firmware-in-the-loop conformance tests and 14 API/auth tests). The 2 failures are the pre-existing `[trio]` parametrisations (`ModuleNotFoundError: No module named 'trio'`); unrelated to TORQVA |
-| Frontend | `cd frontend && npm test` | 24 / 24 passed (unchanged legacy UI) |
+| Backend | `cd backend && python -m pytest -q` | **228 passed, 2 failed** (includes 4 firmware-in-the-loop conformance tests and 16 API/auth tests). The 2 failures are the pre-existing `[trio]` parametrisations (`ModuleNotFoundError: No module named 'trio'`); unrelated to TORQVA |
+| Frontend | `cd frontend && npm test` and `npm run build` | **37 / 37 passed** (24 legacy + 13 TORQVA); production build succeeds |
+| Live server smoke | uvicorn `main:app` with `TORQVA_TOKENS` set, curl | no token 401; viewer start 403; legacy `/api/motor` without token 401; operator-started simulation ended `RECOVERED` (SIMULATED); status reports the unvalidated-C2 label |
 | Simulation evaluation | `cd backend && python -m torqva.evaluation` | runs in ~5 s; results in `docs/TORQVA_EVAL_SIM.md` |
 | ESP32-S3 compile | `pio run -e esp32s3` | **NOT YET CONFIRMED** (see "ESP32 compile" below) |
 | Lint / typecheck | – | none configured (not run) |
@@ -69,5 +70,5 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 1. Confirm `pio run -e esp32s3` compiles; fix any errors (compile-only, no flashing). **First attempt failed: the Xtensa toolchain download broke mid-transfer (`IncompleteRead`, flaky network). A retry was started; result not yet known.**
 2. Extend conformance to test execution (T1/T3/T4 timelines) and telemetry frames.
 3. Phase 4 remainder: WebSocket push, serial bridge, token expiry, learning/model-registry endpoints.
-4. Phase 5: UI per `TORQVA_ARCHITECTURE.md` (provenance badges on every value; simulation banner; unvalidated-C2 label).
+4. Phase 5 remainder: Lab screen + session/fault-injection records (needed before any real data), model registry/rollback screen, System Health, WebSocket push, accessibility/mobile audit, Playwright e2e; look at the UI in a real browser (only unit-tested so far — never visually inspected).
 5. Re-run the evaluation after improving the false-confident rate (e.g. an explicit "none of the above / sensor" check); add harder simulator regimes.
