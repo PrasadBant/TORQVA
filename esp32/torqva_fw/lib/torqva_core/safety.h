@@ -16,6 +16,11 @@ enum class TripReason : uint8_t {
 
 const char* trip_reason_name(TripReason r);
 
+// A NaN or infinite reading compares false against every limit; it must never be treated as a healthy value.
+inline bool finite_f(float x) { return x == x && x <= 3.0e38f && x >= -3.0e38f; }
+
+inline uint32_t trip_bit(TripReason r) { return 1u << (uint8_t)r; }
+
 struct SafetyInputs {
     uint32_t now_ms;
     float current_a;      bool current_valid;
@@ -46,6 +51,8 @@ public:
     bool reset_trip(bool authorized_command, bool local_button);
     SafetyState state() const { return state_; }
     TripReason reason() const { return reason_; }
+    // Every distinct condition that tripped since the last reset (reason() keeps only the FIRST cause). Bit = trip_bit(TripReason).
+    uint32_t fault_mask() const { return fault_mask_; }
     const Limits& limits() const { return lim_; }
     // Replaces limits. Caller must have human approval; learning code must not call this.
     void set_limits(const Limits& l) { lim_ = l; }
@@ -55,6 +62,7 @@ private:
     Limits lim_;
     SafetyState state_;
     TripReason reason_;
+    uint32_t fault_mask_;
     bool oc_active_; uint32_t oc_start_;
     bool rl_active_; uint32_t rl_start_;
     bool inv_active_; uint32_t inv_start_;

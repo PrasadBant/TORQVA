@@ -4,6 +4,7 @@
 #include "control.h"
 #include "commands.h"
 #include "testexec.h"
+#include "interlock.h"
 
 using namespace torqva;
 
@@ -150,6 +151,50 @@ void test_non_finite_non_critical_signal_does_not_trip_and_cannot_mask_a_real_li
     SafetyMonitor m2(default_limits());
     SafetyInputs in2 = healthy(0); in2.voltage_v = NAN; in2.current_a = 5.5f;   // NaN voltage must not hide an instantaneous over-current
     TEST_ASSERT_EQUAL(TripReason::OVER_CURRENT_INSTANT, m2.update(in2).reason);
+}
+
+// ---------------- Start interlock (pure logic) ----------------
+static StartInterlockInputs all_ok() {
+    StartInterlockInputs i = {};
+    i.initialized = i.limits_approved = i.estop_input_wired = i.watchdog_active = true;
+    i.estop_active = false; i.safety_state = SafetyState::OK;
+    i.required_sensors_valid = i.telemetry_fresh = i.link_ok = true;
+    return i;
+}
+void test_interlock_permits_only_when_everything_is_verified() {
+    TEST_ASSERT_NULL(start_interlock_reason(all_ok()));
+}
+void test_interlock_blocks_each_unverified_condition_with_its_own_reason() {
+    StartInterlockInputs i;
+    i = all_ok(); i.initialized = false;            TEST_ASSERT_EQUAL_STRING("NOT_INITIALIZED", start_interlock_reason(i));
+    i = all_ok(); i.limits_approved = false;        TEST_ASSERT_EQUAL_STRING("LIMITS_NOT_APPROVED", start_interlock_reason(i));
+    i = all_ok(); i.estop_input_wired = false;      TEST_ASSERT_EQUAL_STRING("ESTOP_INPUT_NOT_VERIFIED", start_interlock_reason(i));
+    i = all_ok(); i.estop_active = true;            TEST_ASSERT_EQUAL_STRING("ESTOP_ACTIVE", start_interlock_reason(i));
+    i = all_ok(); i.watchdog_active = false;        TEST_ASSERT_EQUAL_STRING("WATCHDOG_NOT_ACTIVE", start_interlock_reason(i));
+    i = all_ok(); i.safety_state = SafetyState::WARN;            TEST_ASSERT_EQUAL_STRING("SAFETY_NOT_OK", start_interlock_reason(i));
+    i = all_ok(); i.safety_state = SafetyState::EMERGENCY_STOP;  TEST_ASSERT_EQUAL_STRING("SAFETY_NOT_OK", start_interlock_reason(i));
+    i = all_ok(); i.required_sensors_valid = false; TEST_ASSERT_EQUAL_STRING("SENSOR_NOT_VALID", start_interlock_reason(i));
+    i = all_ok(); i.telemetry_fresh = false;        TEST_ASSERT_EQUAL_STRING("TELEMETRY_STALE", start_interlock_reason(i));
+    i = all_ok(); i.link_ok = false;                TEST_ASSERT_EQUAL_STRING("NO_HEARTBEAT", start_interlock_reason(i));
+    StartInterlockInputs z = {};                    // an all-zero (unverified) input must never permit a start
+    TEST_ASSERT_NOT_NULL(start_interlock_reason(z));
+}
+
+// ---------------- Fault mask: every cause is preserved ----------------
+void test_fault_mask_keeps_every_simultaneous_cause_while_reason_keeps_the_first() {
+    SafetyMonitor m(default_limits());
+    SafetyInputs in = healthy(0);
+    in.current_a = 5.5f; in.housing_c = 65.0f; in.voltage_v = 18.0f;
+    SafetyOutput o = m.update(in);
+    TEST_ASSERT_FALSE(o.drive_allowed);
+    TEST_ASSERT_EQUAL(TripReason::OVER_CURRENT_INSTANT, m.reason());
+    const uint32_t want = trip_bit(TripReason::OVER_CURRENT_INSTANT) | trip_bit(TripReason::TEMP_STOP) | trip_bit(TripReason::VOLTAGE_LOW);
+    TEST_ASSERT_EQUAL_HEX32(want, m.fault_mask());
+    in = healthy(10);                                               // everything normal again: the latch and the mask persist
+    TEST_ASSERT_FALSE(m.update(in).drive_allowed);
+    TEST_ASSERT_EQUAL_HEX32(want, m.fault_mask());
+    TEST_ASSERT_TRUE(m.reset_trip(true, true));
+    TEST_ASSERT_EQUAL_HEX32(0, m.fault_mask());
 }
 
 void test_heartbeat_enforced_only_in_hardware_mode() {
@@ -488,6 +533,9 @@ int main(int, char**) {
     RUN_TEST(test_rpm_loss_when_driving_without_pulses);
     RUN_TEST(test_no_rpm_loss_when_idle);
     RUN_TEST(test_critical_sensor_invalid_trips_after_500ms);
+    RUN_TEST(test_interlock_permits_only_when_everything_is_verified);
+    RUN_TEST(test_interlock_blocks_each_unverified_condition_with_its_own_reason);
+    RUN_TEST(test_fault_mask_keeps_every_simultaneous_cause_while_reason_keeps_the_first);
     RUN_TEST(test_non_finite_critical_signal_is_invalid_and_trips_after_500ms);
     RUN_TEST(test_non_finite_non_critical_signal_does_not_trip_and_cannot_mask_a_real_limit);
     RUN_TEST(test_heartbeat_enforced_only_in_hardware_mode);

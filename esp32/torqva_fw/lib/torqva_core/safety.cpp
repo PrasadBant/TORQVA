@@ -2,9 +2,6 @@
 
 namespace torqva {
 
-// A NaN or infinite reading compares false against every limit, i.e. it would read as "no limit crossed". Such a value is treated as INVALID, never as healthy.
-static inline bool finite_f(float x) { return x == x && x <= 3.0e38f && x >= -3.0e38f; }
-
 const char* trip_reason_name(TripReason r) {
     switch (r) {
         case TripReason::NONE: return "NONE";
@@ -24,11 +21,12 @@ const char* trip_reason_name(TripReason r) {
 }
 
 SafetyMonitor::SafetyMonitor(const Limits& l)
-    : lim_(l), state_(SafetyState::OK), reason_(TripReason::NONE),
+    : lim_(l), state_(SafetyState::OK), reason_(TripReason::NONE), fault_mask_(0),
       oc_active_(false), oc_start_(0), rl_active_(false), rl_start_(0),
       inv_active_(false), inv_start_(0), last_hb_ms_(0), hb_seen_(false) {}
 
 void SafetyMonitor::trip(TripReason r) {
+    fault_mask_ |= trip_bit(r);                      // record every cause, even when a first cause is already latched
     if (state_ != SafetyState::EMERGENCY_STOP) {   // keep the FIRST cause
         state_ = SafetyState::EMERGENCY_STOP;
         reason_ = r;
@@ -40,6 +38,7 @@ bool SafetyMonitor::reset_trip(bool authorized_command, bool local_button) {
     if (!authorized_command || !local_button) return false;
     state_ = SafetyState::OK;
     reason_ = TripReason::NONE;
+    fault_mask_ = 0;
     oc_active_ = rl_active_ = inv_active_ = false;
     hb_seen_ = false;          // heartbeat must be re-established after a reset
     return true;

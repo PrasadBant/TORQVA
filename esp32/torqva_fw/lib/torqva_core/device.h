@@ -10,6 +10,7 @@
 #include "commands.h"
 #include "testexec.h"
 #include "protocol.h"
+#include "interlock.h"
 
 namespace torqva {
 
@@ -20,6 +21,11 @@ struct DeviceConfig {
     char key[32];                // shared secret expected in command field "k"
     bool control_enabled;        // false: motor commands rejected (default on real hardware until Phase 8)
     float kp, ki;
+    // Start interlocks (see interlock.h). Zero-initialised = STRICT: motor-energising commands are refused until a human approves the limits and an
+    // independent E-stop input is wired and declared. Only host simulation (SimPlant / fitl / tests) sets relaxed_interlocks.
+    bool limits_approved;
+    bool estop_input_wired;
+    bool relaxed_interlocks;
 };
 
 // Sensor / input snapshot supplied by the platform (real HAL or SimPlant).
@@ -57,6 +63,10 @@ public:
     const SafetyMonitor& safety() const { return safety_; }
     const DriveController& drive() const { return drive_; }
     const TestExecutor& tests() const { return tests_; }
+    // The platform tells the device whether the task watchdog is actually registered for the control task (strict mode refuses to start otherwise).
+    void set_watchdog_active(bool v) { watchdog_active_ = v; }
+    // Whether a motor-energising command would currently be permitted, and if not why (static string). Same logic the command path uses.
+    const char* start_blocked_reason(uint32_t now_ms) const;
     // Only for host-side simulation/commissioning code, not reachable over the wire.
     void set_limits(const Limits& l);
 
@@ -75,6 +85,7 @@ private:
     CommandValidator validator_;
     TestExecutor tests_;
 
+    HalIn last_in_; bool have_in_; bool watchdog_active_;
     uint32_t last_step_ms_; bool stepped_;
     uint32_t last_hb_ms_; bool hb_seen_;
     uint32_t seq_;

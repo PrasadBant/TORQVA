@@ -223,3 +223,8 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 * Native firmware tests 67/67; ESP32-S3 default build SUCCESS (toolchain download now works); control-enabled build with the placeholder key fails by design (new `#error` guard), with an explicit key it compiles (compile check only). Conformance 4/4; new telemetry/command contract tests (9) run against the real C++ frames.
 * Firmware safety logic now treats NaN/infinite readings as invalid (mutation-checked); no thresholds changed.
 * Not verified: any backend consumer of firmware frames, wiring/electrical assumptions, target runtime behaviour, a task watchdog. See `docs/TORQVA_HARDWARE_READINESS.md` for the checklist before supervised commissioning.
+
+## Session 12 - Phase 15: firmware safety remediation (no hardware, nothing flashed)
+
+* The code quoted in the brief is not in the repository; the PlatformIO firmware (`torqva_fw`) already had a latching monitor. Added start interlocks (strict by default; stock hardware build cannot energise the motor), all-cause fault mask, sensor freshness, task watchdog with progress-based feeding, bounded lock, serial remainder discard. Details and open blockers: `docs/TORQVA_HARDWARE_READINESS.md` (Phase 15). No independent E-stop pin exists, so none was invented.
+* Native 81/81, fitl contract 16/16, conformance 4/4, ESP32-S3 compile OK (compile only). Legacy Arduino sketch unauthenticated `MOTOR_ON` documented as unusable for actuation.

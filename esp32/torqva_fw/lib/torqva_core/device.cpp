@@ -7,10 +7,12 @@ static const uint32_t kFastPeriodMs = 100;
 static const uint32_t kSlowPeriodMs = 1000;
 static const uint32_t kStatusPeriodMs = 1000;
 static const uint32_t kResetWindowMs = 10000;
+// A sensor snapshot older than this is stale for start purposes. ASSUMPTION: the control loop runs at >= 100 Hz, so 250 ms is 25 missed cycles. Review during commissioning.
+static const uint32_t kFreshMs = 250;
 
 Device::Device(const Limits& l, const DeviceConfig& c)
     : cfg_(c), lim_(l), safety_(l), drive_(l, c.kp, c.ki), validator_(l), tests_(l),
-      last_step_ms_(0), stepped_(false), last_hb_ms_(0), hb_seen_(false), seq_(0),
+      last_in_(), have_in_(false), watchdog_active_(false), last_step_ms_(0), stepped_(false), last_hb_ms_(0), hb_seen_(false), seq_(0),
       last_fast_ms_(0), last_slow_ms_(0), last_status_ms_(0),
       last_state_(SafetyState::OK), last_reason_(TripReason::NONE),
       test_cmd_id_(0), test_cmd_valid_(false), reset_cmd_id_(0), reset_pending_(false),
@@ -89,7 +91,28 @@ void Device::on_line(const char* line, uint32_t now_ms) {
     }
 }
 
+const char* Device::start_blocked_reason(uint32_t now_ms) const {
+    StartInterlockInputs s;
+    s.initialized = have_in_;
+    s.limits_approved = cfg_.limits_approved;
+    s.estop_input_wired = cfg_.estop_input_wired;
+    s.estop_active = have_in_ && last_in_.external_estop;
+    s.watchdog_active = watchdog_active_;
+    s.safety_state = safety_.state();
+    s.required_sensors_valid = have_in_ &&
+        last_in_.current_valid && finite_f(last_in_.current_a) && last_in_.voltage_valid && finite_f(last_in_.voltage_v) &&
+        last_in_.housing_valid && finite_f(last_in_.housing_c) && last_in_.rpm_valid && finite_f(last_in_.rpm);
+    s.telemetry_fresh = have_in_ && (uint32_t)(now_ms - last_in_.now_ms) <= kFreshMs;      // wrap-safe
+    s.link_ok = hb_seen_ && (uint32_t)(now_ms - last_hb_ms_) < lim_.heartbeat_timeout_ms;
+    return start_interlock_reason(s);
+}
+
 const char* Device::execute(const Command& c, uint32_t now_ms) {
+    // Motor-energising commands need every interlock verified. STOP, HEARTBEAT, ABORT_TEST and RESET_ESTOP are never blocked here.
+    if (!cfg_.relaxed_interlocks &&
+        (c.type == CmdType::START || c.type == CmdType::SET_SPEED || c.type == CmdType::RUN_TEST)) {
+        if (const char* why = start_blocked_reason(now_ms)) return why;
+    }
     switch (c.type) {
         case CmdType::HEARTBEAT:
             if (c.authorized) { safety_.heartbeat(now_ms); last_hb_ms_ = now_ms; hb_seen_ = true; }
@@ -136,6 +159,7 @@ HalOut Device::step(const HalIn& in) {
     if (dt < 0.001f) dt = 0.001f;
     if (dt > 0.1f) dt = 0.1f;
     stepped_ = true;
+    last_in_ = in; have_in_ = true;
     last_step_ms_ = in.now_ms;
     last_dt_s_ = dt;
 

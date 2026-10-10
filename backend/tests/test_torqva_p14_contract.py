@@ -18,8 +18,8 @@ Q_BITS = {"current": 1, "voltage": 2, "housing": 4, "ambient": 8, "rpm": 16, "vi
 
 
 class Fw:
-    def __init__(self, control=True):
-        self.p = subprocess.Popen([str(EXE)] + ([] if control else ["--no-control"]), stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+    def __init__(self, control=True, *flags):
+        self.p = subprocess.Popen([str(EXE)] + ([] if control else ["--no-control"]) + list(flags), stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
         self.n = 0
 
     def io(self, line):
@@ -149,3 +149,70 @@ def test_command_with_wrong_key_or_expired_ttl_is_rejected_and_never_moves_the_m
     fw.n += 1
     aged = fw.io(json.dumps({"id": fw.n, "type": "START", "p": 30, "p2": 0, "p3": 0, "ttl": 1000, "age": 1000, "seq": fw.n, "k": KEY}, separators=(",", ":")))
     assert aged[0]["status"] == "REJECTED"
+
+
+# ---------------------------------------------------------------------------------------------------- Phase 15: strict start interlocks on the real C++ core
+def acks(frames):
+    return [f for f in frames if f.get("t") == "ack"]
+
+
+def strict_ready(*flags):
+    d = Fw(True, "--strict", *flags)
+    d.cmd("HEARTBEAT")
+    for _ in range(2):
+        d.tick(500)
+        d.cmd("HEARTBEAT")
+    return d
+
+
+def test_strict_firmware_refuses_motor_commands_until_both_commissioning_decisions_are_declared():
+    d = strict_ready()                                                                  # nothing approved, nothing wired
+    try:
+        a = acks(d.cmd("START", 30))
+        assert a[0]["status"] == "REJECTED" and a[0]["reason"] == "LIMITS_NOT_APPROVED"
+    finally:
+        d.close()
+    d = strict_ready("--approved")
+    try:
+        assert acks(d.cmd("SET_SPEED", 1500))[0]["reason"] == "ESTOP_INPUT_NOT_VERIFIED"
+    finally:
+        d.close()
+
+
+def test_strict_firmware_start_requires_an_active_watchdog_and_then_runs_with_every_interlock_verified():
+    d = strict_ready("--approved", "--estop-wired", "--no-wdt")
+    try:
+        assert acks(d.cmd("START", 30))[0]["reason"] == "WATCHDOG_NOT_ACTIVE"
+    finally:
+        d.close()
+    d = strict_ready("--approved", "--estop-wired")
+    try:
+        a = acks(d.cmd("START", 30))
+        assert a[0]["status"] == "ACCEPTED"
+        frames = []
+        for _ in range(3):
+            d.cmd("HEARTBEAT"); frames += d.tick(1000)
+        assert [f for f in frames if f["t"] == "fast"][-1]["duty"] > 0
+    finally:
+        d.close()
+
+
+def test_strict_firmware_never_blocks_stop_and_never_restarts_after_a_fault():
+    d = strict_ready("--approved", "--estop-wired")
+    try:
+        d.cmd("START", 30)
+        for _ in range(2):
+            d.cmd("HEARTBEAT"); d.tick(1000)
+        frames = []
+        for _ in range(3):
+            frames += d.tick(1000, estop=1)                                              # external E-stop input asserted
+        assert [f for f in frames if f["t"] == "status"][-1]["state"] == "EMERGENCY_STOP"
+        frames = []
+        for _ in range(4):
+            d.cmd("HEARTBEAT"); frames += d.tick(1000)                                   # input released; heartbeats continue
+        st = [f for f in frames if f["t"] == "status"][-1]
+        assert st["state"] == "EMERGENCY_STOP" and [f for f in frames if f["t"] == "fast"][-1]["duty"] == 0.0     # no auto-recovery
+        assert acks(d.cmd("START", 30))[0]["status"] == "REJECTED"
+        assert acks(d.cmd("STOP"))[0]["status"] == "ACCEPTED"
+    finally:
+        d.close()
