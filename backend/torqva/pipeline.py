@@ -86,6 +86,8 @@ class Orchestrator:
         self.refs = ReferenceRegistry(audit=lambda e: self._log("c1_reference", **e))
         self._warmup_attested = False
         self._ref_attempted = False
+        self._hold_until: Optional[float] = None         # Phase 9: operator-declared, time-bounded supervised warm-up
+        self.hold_info: Optional[Dict] = None
 
     # ---------------- persistence (all records are scoped by session: ids restart per run) ----------------
     def _put(self, kind: str, id, body: Dict, provenance: str, ts: Optional[float] = None) -> None:
@@ -215,7 +217,7 @@ class Orchestrator:
             self.tt.reset(w.housing)
         self.tt.update(w)
         sc = self.det.score(w)
-        if self._warmup_pending():
+        if self._warmup_pending() or self.hold_active():
             # Attested healthy warm-up (opt-in): scores are not yet evidence. Hard limits are NOT affected: see _advance_incident.
             sc = replace(sc, anomalous=False, status="TRANSIENT")
         self.buf.append(w)
@@ -237,6 +239,28 @@ class Orchestrator:
         """Human attestation that the motor is healthy during the warm-up. Without it no reference is ever proposed."""
         self._warmup_attested = True
         self._log("c1_warmup_attested", by=by)
+
+    # --- Phase 9: supervised warm-up hold (operator action, audited, bounded). It defers only SCORE-triggered incident opening so that a
+    # healthy-but-shifted motor can be observed for attestation; mandatory-stop conditions open an incident immediately, exactly as before.
+    MAX_HOLD_S = 300.0
+
+    def begin_supervised_warmup(self, by: str, seconds: float = 90.0) -> Dict:
+        if not (0 < seconds <= self.MAX_HOLD_S):
+            raise ValueError(f"hold must be in (0, {self.MAX_HOLD_S:.0f}] simulated seconds")
+        if self.inc is not None:
+            raise ValueError("cannot start a supervised warm-up while an incident is open")
+        self._hold_until = self.now + seconds
+        self.hold_info = {"by": by, "from": self.now, "until": self._hold_until, "seconds": seconds}
+        self._log("c1_warmup_hold_started", by=by, seconds=seconds, until=self._hold_until)
+        return dict(self.hold_info)
+
+    def end_supervised_warmup(self, by: str) -> None:
+        if self._hold_until is not None:
+            self._hold_until = None
+            self._log("c1_warmup_hold_ended", by=by)
+
+    def hold_active(self) -> bool:
+        return self._hold_until is not None and self.now < self._hold_until
 
     def _warmup_pending(self) -> bool:
         # Bounded: if no steady warm-up materialises within 3x the requested length the attempt is abandoned (see below), so score-based
@@ -287,7 +311,7 @@ class Orchestrator:
     def _advance_incident(self) -> None:
         if self.inc is None:
             # While a warm-up is pending the score trigger is off; a mandatory-stop condition must still open an incident at once.
-            hard = self._warmup_pending() and bool(mandatory_stop_reasons(self._ctx(), self.sup.limits))
+            hard = (self._warmup_pending() or self.hold_active()) and bool(mandatory_stop_reasons(self._ctx(), self.sup.limits))
             if (self.anom_run >= 1 or hard) and not self.dev.estop:
                 self._new_incident()
                 self._fire(E.SCORE_HIGH)

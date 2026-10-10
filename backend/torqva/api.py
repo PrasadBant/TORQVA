@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
+from .attestation import AttestationError
 from .auth import Principal, TokenAuth
 from .schemas import ActionType, ProposalSource, ProposedAction, Role
 from .service import SimulationService
@@ -57,6 +58,21 @@ class ExperimentIn(BaseModel):
     regime: str = "baseline"
     repeats: int = Field(default=3, ge=1, le=10)
     seed0: int = 100
+
+
+class DecideIn(BaseModel):
+    reason: str = Field(default="", max_length=2000)
+    expected_rev: Optional[int] = None
+    acknowledge: bool = False
+
+
+class HoldIn(BaseModel):
+    seconds: float = Field(default=90.0, gt=0, le=300)
+    reason: str = Field(default="", max_length=2000)
+
+
+class ReasonIn(BaseModel):
+    reason: str = Field(default="", max_length=2000)
 
 
 class StepRequest(BaseModel):
@@ -300,6 +316,96 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
                          speed_rpm=body.speed_rpm, regime=body.regime, repeats=body.repeats, seed0=body.seed0))
         audit(p, "lab_experiment", id=res["id"], fault=body.fault, repeats=body.repeats)
         return res
+
+    # ---------------- healthy-session attestation (Phase 9; experimental adaptive C1) ----------------
+    # Reads: viewer. Every mutation: operator or admin, enforced here AND again inside AttestationService. Attestation is an operator
+    # judgment about a recorded simulated session; it is not proof that the motor is healthy.
+    att = service.attestation
+
+    def _att(fn):
+        try:
+            return fn()
+        except AttestationError as e:
+            raise HTTPException(e.status, e.message)
+        except HTTPException:
+            raise
+        except Exception as e:                      # persistence / audit failure: nothing was changed (atomic), fail closed
+            raise HTTPException(500, f"attestation action not recorded (no change was made): {type(e).__name__}")
+
+    @r.get("/attestation/candidates")
+    def att_list(p: Principal = Depends(need(Role.VIEWER))):
+        return _att(lambda: att.list(service.orch))
+
+    @r.get("/attestation/candidates/{cid}")
+    def att_one(cid: str, p: Principal = Depends(need(Role.VIEWER))):
+        return _att(lambda: att.detail(cid, service.orch))
+
+    @r.get("/attestation/references")
+    def att_refs(p: Principal = Depends(need(Role.VIEWER))):
+        return _att(lambda: att.references(service.orch))
+
+    @r.get("/attestation/events")
+    def att_events(candidate: Optional[str] = None, p: Principal = Depends(need(Role.VIEWER))):
+        return _att(lambda: att.events(candidate))
+
+    @r.get("/attestation/warmup")
+    def att_hold_status(p: Principal = Depends(need(Role.VIEWER))):
+        o = service.orch
+        return {"active": bool(o and o.hold_active()), "info": o.hold_info if o else None,
+                "note": "While a hold is active only score-triggered incident opening is deferred; mandatory-stop conditions are not."}
+
+    @r.post("/attestation/warmup/start")
+    def att_hold_start(body: HoldIn, p: Principal = Depends(need(Role.OPERATOR))):
+        o = service.orch
+        if o is None:
+            raise HTTPException(409, "no simulation running")
+        reason = (body.reason or "").strip()
+        if len(reason) < att.cfg.min_reason_chars:
+            raise HTTPException(422, f"a reason of at least {att.cfg.min_reason_chars} characters is required")
+        try:
+            info = o.begin_supervised_warmup(p.user, body.seconds)
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+        audit(p, "attestation", event="warmup_hold_started", reason=reason, session=o.session, **info)
+        return info
+
+    @r.post("/attestation/warmup/end")
+    def att_hold_end(p: Principal = Depends(need(Role.OPERATOR))):
+        o = service.orch
+        if o is None:
+            raise HTTPException(409, "no simulation running")
+        o.end_supervised_warmup(p.user)
+        audit(p, "attestation", event="warmup_hold_ended", session=o.session)
+        return {"active": False}
+
+    @r.post("/attestation/candidates")
+    def att_capture(p: Principal = Depends(need(Role.OPERATOR))):
+        d = _att(lambda: att.capture(service.orch, service.scenario, p.user, p.role))
+        return att.brief(d)
+
+    @r.post("/attestation/candidates/{cid}/refresh")
+    def att_refresh(cid: str, body: DecideIn, p: Principal = Depends(need(Role.OPERATOR))):
+        return att.brief(_att(lambda: att.refresh(cid, service.orch, service.scenario, p.user, p.role, body.expected_rev)))
+
+    @r.post("/attestation/candidates/{cid}/attest")
+    def att_attest(cid: str, body: DecideIn, p: Principal = Depends(need(Role.OPERATOR))):
+        return att.brief(_att(lambda: att.attest(cid, service.orch, p.user, p.role, body.reason, body.acknowledge, body.expected_rev)))
+
+    @r.post("/attestation/candidates/{cid}/reject")
+    def att_reject(cid: str, body: DecideIn, p: Principal = Depends(need(Role.OPERATOR))):
+        return att.brief(_att(lambda: att.reject(cid, service.orch, p.user, p.role, body.reason, body.expected_rev)))
+
+    @r.post("/attestation/candidates/{cid}/revoke")
+    def att_revoke(cid: str, body: DecideIn, p: Principal = Depends(need(Role.OPERATOR))):
+        return att.brief(_att(lambda: att.revoke(cid, service.orch, p.user, p.role, body.reason, body.expected_rev)))
+
+    @r.post("/attestation/references/{version}/activate")
+    def att_activate(version: int, body: ReasonIn, p: Principal = Depends(need(Role.OPERATOR))):
+        return _att(lambda: att.activate(version, service.orch, p.user, p.role, body.reason))
+
+    @r.post("/attestation/references/rollback")
+    def att_rollback(body: ReasonIn, p: Principal = Depends(need(Role.OPERATOR))):
+        return _att(lambda: att.rollback(service.orch, p.user, p.role, body.reason))
 
     # ---------------- audit (admin) ----------------
     @r.get("/audit")

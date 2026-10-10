@@ -185,3 +185,9 @@ In the shift-free baseline regime B+C and the control make **identical** decisio
   6. The design assumption (healthy sensor shifts are common-mode, faults are channel-selective) is untested outside the simulator; a real sensor-gain fault is by construction indistinguishable from a healthy gain shift and is escalated, not diagnosed.
   7. Warm-up attestation is a human act; an unhealthy warm-up that is also coherent across channels and inside the envelope could be absorbed (floor: a 1.6× 1x-amplitude fault must still be flagged).
 * **Decision.** B+C is integrated **opt-in** (default off, bit-identical behaviour) and is not claimed for hardware. No physical-hardware validation is claimed.
+
+
+---
+
+# Phase 9 note (no change to the evaluation methodology)
+Phase 9 (healthy-session attestation, `TORQVA_ARCHITECTURE.md` section 5) adds a workflow, not a new evaluation: the Phase 8 results, seeds, splits and frozen selection above are unchanged, and the attestation code cannot import the final-test seeds. The "hold-out" validation inside the workflow checks a candidate reference on the last 25 % of the *same recorded warm-up*; it is a per-recording sanity check and says nothing about detection performance. No new performance claim is made, and nothing here is hardware evidence.

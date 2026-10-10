@@ -8,6 +8,7 @@ import copy
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from .attestation import AttestationService
 from .evaluation import build_models
 from .pipeline import Orchestrator, PipelineConfig
 from .schemas import Hypothesis, Mode, Role
@@ -24,6 +25,7 @@ from . import lab as _lab
 class SimulationService:
     def __init__(self, store: Optional[Store] = None):
         self.store = store or Store()
+        self.attestation = AttestationService(self.store)
         self._models = None
         self.orch: Optional[Orchestrator] = None
         self.scenario: Dict[str, Any] = {}

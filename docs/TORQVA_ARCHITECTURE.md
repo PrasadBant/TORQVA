@@ -67,6 +67,7 @@ New package `backend/torqva/`, alongside (not replacing) the existing `main.py`,
 | `opstate` | Operating-point bins, steady-state detection, device-state mirror |
 | `detection` (C1) | Per-bin robust Gaussian baselines (Mahalanobis, percentile thresholds), drift guard, versioned. **The control; unchanged.** |
 | `c1_robust` (C1, Phase 8, opt-in) | `AdaptiveBaselineDetector` (bit-identical to `detection` unless a session reference is set), a validated / versioned / reversible `ReferenceRegistry` (per-session vibration gain + noise from a *human-attested* healthy warm-up; trained bins are never modified), and `assess_session` → HEALTHY / FAULT / **UNFAMILIAR**. Enabled by `PipelineConfig.adaptive_warmup_s > 0` plus `Orchestrator.attest_healthy_warmup()`; default off. The Safety Supervisor is untouched and a mandatory-stop condition still opens an incident while a warm-up is pending |
+| `attestation` (Phase 9) | Operator-authorised, audited healthy-warm-up attestation for the experimental adaptive C1: candidate state machine, deterministic eligibility checks, immutable reference versions, activation/rollback (section 5). No command path |
 | `c1_study` | Phase 8 experiment harness (`python -m torqva.c1_study validate` / `final`): session-level splits, held-out regimes, per-session records |
 | `hypotheses` | Prior × likelihood posterior over {imbalance, looseness, overload, cooling, supply, sensor fault} |
 | `gate` (C3) | Ordered verdict rules; logs inputs |
@@ -89,3 +90,40 @@ Persistence: SQLite (existing `data_storage.py` kept for legacy telemetry); new 
 4. `RECOVERED` requires a fresh post-ack window of VALID samples inside the learned band.
 5. Simulated and measured data are never mixed in training or evaluation without separate reporting.
 6. Learning cannot modify limits, envelopes or supervisor rules.
+
+## 5. Phase 9 — trusted healthy-session attestation (experimental adaptive C1; simulation only)
+Code: `backend/torqva/attestation.py` (logic), routes in `backend/torqva/api.py` (`/api/torqva/attestation/*`), UI `frontend/src/torqva/attestation.jsx` (tab "Attestation"), store primitives in `store.py` (`put_audited`, immutable `ref_versions`).
+
+**What it is.** An operator-authorised, auditable way to approve a *recorded* warm-up of the running simulation as the source of a per-session reference for the opt-in adaptive C1 detector. Attestation records a named operator's judgment about recorded evidence. It is **not** proof that the motor is fault-free; the API, the stored records and the UI all say so, and a session never becomes trusted merely because it looks statistically normal. The shipped detector stays the default; the deterministic Safety Supervisor, the dispatcher and every command path are untouched (the module has no command path; a test asserts it does not reference them).
+
+### 5.1 Candidate state machine
+| State | Meaning | Entered by |
+|---|---|---|
+| `PENDING` | evidence captured but incomplete (fewer than 48 windows, warm-up still short) | system, at capture / refresh |
+| `ELIGIBLE` | every deterministic check passed | system |
+| `ATTESTED` | an operator approved the recorded evidence | **operator only**, with a reason and an explicit acknowledgement |
+| `REJECTED` | not usable as a reference | system (a check failed, or the reference failed validation at attest time) or operator (reason required) |
+| `EXPIRED` | evidence went stale before a decision | system: older than 300 simulated s, source session ended, or an incident / e-stop / mandatory-stop condition since capture |
+| `REVOKED` | an attested candidate was withdrawn | operator (reason required) |
+
+Allowed transitions: `PENDING → {ELIGIBLE, REJECTED, EXPIRED}`, `ELIGIBLE → {ATTESTED, REJECTED, EXPIRED}`, `ATTESTED → REVOKED`. `REJECTED`, `EXPIRED`, `REVOKED` are terminal (a new capture is a new candidate). `ATTESTED` is reachable only from `ELIGIBLE`.
+
+### 5.2 Eligibility checks (fail closed: missing or unreadable evidence fails)
+telemetry complete (≥ 48 windows) · valid and finite · contiguous (gap ≤ 1.5 s) · fresh (last window ≤ 3 s old) · steady operating point (≥ 90 % steady) · consistent speed (setpoint spread ≤ 1 %, RPM CV ≤ 3 %) · consistent environment (ambient σ ≤ 1 °C and in range, supply σ ≤ 0.25 V) · source session / model versions / live safety context recorded · no incident open or opened since the window started · no e-stop, mandatory-stop condition or mandatory stop in the interval · operating region inside the learned speed bins · **no suspected fault** (protected channels — current, duty, voltage, power, thermal residual — within 3σ, vibration channels coherent rather than channel-selective) · sensor envelope (gain 0.70–1.40, noise ≤ 3.5×, stationary: gradual drift fails here) · the candidate reference validates on a **held-out final 25 % of the same recording** (not used to fit it) and still flags a synthetic 1.6× 1x-amplitude fault. Checks can only remove eligibility. A common-mode shift (e.g. gain ×1.25) *is* eligible but carries an explicit warning that a sensor gain fault is indistinguishable from a healthy gain shift. The Phase 8 final test seeds are not importable here; no evaluation data is used.
+
+### 5.3 Supervised warm-up hold
+The live pipeline opens an incident within seconds on a healthy but gain-shifted motor, which would make exactly those sessions ineligible. An operator may therefore start a **supervised warm-up hold** (`POST /attestation/warmup/start`, reason required, ≤ 300 s, auto-expires, audited). During a hold only *score-triggered* incident opening is deferred; mandatory-stop conditions open an incident immediately as before (tested). Cost: a real fault would be flagged up to the hold length late. A fault during the hold is still rejected by the evidence checks.
+
+### 5.4 Authorisation (server-side, no second auth system)
+Existing bearer-token roles. Reads (`GET …/candidates`, `…/references`, `…/events`, `…/warmup`): viewer. Every mutation (capture, refresh, attest, reject, revoke, activate, roll back, hold start/end): **operator or admin** — enforced by the route dependency *and again inside `AttestationService`* (defence in depth). No token → 401, no tokens configured → 503, insufficient role → 403 and a `denied` audit row. STOP remains available to any authenticated user. A decision needs `expected_rev` (compare-and-set): a stale or concurrent decision gets 409; repeated attest/reject/revoke gets 409.
+
+### 5.5 Audit schema
+Every state change is committed in **one transaction** with its audit row (`Store.put_audited`); if the audit write fails the change is rolled back and the API answers 500 "no change was made" (tested). Audit `kind = "attestation"`, `actor` = authenticated user, `detail` = `{event, candidate, from_state, to_state, reason, role, session, evidence_hash, versions{detector_class, detector_version, hypothesis_model, attestation_config, scenario}, sim_t, reference_version, operator_judgment_only: true, …}`. Events: `candidate_captured`, `candidate_evaluated`, `candidate_refreshed`, `expired`, `attested`, `rejected`, `revoked`, `attest_blocked_by_validation`, `reference_activated`, `reference_rolled_back`, `warmup_hold_started/ended`. The candidate document also keeps its own revisioned history; the evidence (windows) is stored with a SHA-256 hash that is re-verified at attestation.
+
+### 5.6 Baseline integrity, promotion and rollback
+* A reference version is an **immutable** row (`ref_versions`; DB triggers abort UPDATE/DELETE) created only at attestation, with the fitted gain/noise, the hold-out validation, the detector version and the evidence hash. There is no edit route.
+* The trained bins are never modified. Activation (`POST …/references/{v}/activate`, reason required) only swaps `det.reference` of the **running session that recorded the evidence**; it requires status `VALIDATED` and an `ATTESTED` candidate. Activation and rollback are audited and persisted as an active stack (`reference_state`).
+* `POST …/references/rollback` pops to the previous known-good reference, or to the unadapted trained baseline. Revoking an attested candidate removes its reference from the stack (deactivating it if active); a revoked candidate can never be activated again.
+
+### 5.7 Limitations
+Simulation only; no hardware evidence. A reference applies to one session (no cross-session reuse). A wrongly attested warm-up that is coherent across channels and inside the envelope can still be absorbed — the checks cannot see a fault that looks like a healthy shift. The hold delays score-based detection by up to its length. Attestation is a single-operator decision (no two-person rule). Expiry is lazy (evaluated on read/decision). The UI was verified by component tests and a production build, not by a real-browser inspection in this phase.
