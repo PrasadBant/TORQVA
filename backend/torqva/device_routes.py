@@ -42,7 +42,10 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
 
     @r.get("/device/status")
     def device_status(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
-        return bridge.snapshot()
+        s = bridge.snapshot()
+        if p.at_least(Role.ADMIN):                      # rejected lines can contain device log text (SSID, addresses...): admins only
+            s["rejected_samples"] = list(bridge.model.samples)
+        return s
 
     @r.get("/device/history")
     def device_history(signal: str = Query("rpm", max_length=16), seconds: float = Query(60, gt=0, le=600), p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:

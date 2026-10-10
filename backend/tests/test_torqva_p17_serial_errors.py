@@ -207,6 +207,29 @@ def test_garbage_or_wrong_protocol_data_is_an_invalid_handshake_never_a_device(m
     b.disconnect()
 
 
+def test_rejected_lines_are_kept_as_escaped_bounded_samples_for_admins_only(api):
+    svc, c = api
+    tr = MemoryTransport(); svc.bridge.connect(tr)
+    for i in range(8):
+        tr.feed(b"[WiFi] connecting to MySSID \x00\xff attempt %d " % i + b"x" * 300)
+    assert wait(lambda: svc.bridge.model.counters["malformed"] == 8)
+    adm = c.get("/api/torqva/device/status", headers=H("a")).json()
+    assert len(adm["rejected_samples"]) == 5 and all(len(s) <= 121 and s.isprintable() for s in adm["rejected_samples"]) and "attempt 7" in adm["rejected_samples"][-1]
+    assert "rejected_samples" not in c.get("/api/torqva/device/status", headers=H("v")).json()
+
+
+def test_legacy_sketch_output_is_recognised_as_such_and_never_treated_as_a_device(monkeypatch):
+    monkeypatch.setattr(sb, "HANDSHAKE_TIMEOUT_S", 0.3)
+    b = DeviceBridge(); tr = MemoryTransport(); b.connect(tr)
+    for line in ("--- OVERALL CONDITION ---", "STATUS              : MOTOR OFF", "BUZZER              : OFF"):
+        tr.feed(line)
+    assert wait(lambda: b.model.last_error_code == "HANDSHAKE_INVALID", 3)
+    e = b.snapshot()["error"]
+    assert "legacy monitoring sketch" in e["message"] and any("quarantined" in r for r in e["recovery"]) and tr.written == []
+    assert b.snapshot()["handshake"] is False and b.snapshot()["label"] == "SIMULATION"
+    b.disconnect()
+
+
 def test_device_loss_after_a_valid_handshake_is_device_disappeared_and_back_to_simulation():
     class Dying(MemoryTransport):
         def read_line(self, timeout):

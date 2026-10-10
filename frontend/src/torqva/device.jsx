@@ -121,6 +121,9 @@ export function DevicePage({ stream, role }) {
                 <strong>{snap.error.message}</strong> <span className="tq-chip">{snap.error.code}</span>
                 <p className="tq-muted">Technical detail: {snap.error.detail}</p>
                 {Array.isArray(snap.error.recovery) && snap.error.recovery.length > 0 && <ol>{snap.error.recovery.map((r) => <li key={r}>{r}</li>)}</ol>}
+                {Array.isArray(snap.rejected_samples) && snap.rejected_samples.length > 0 && (
+                  <><p className="tq-muted">Last lines received that are not valid TORQVA frames (diagnostic, admin only):</p>
+                    <pre className="tq-num" style={{ whiteSpace: 'pre-wrap', margin: 0 }} data-testid="rejected-samples">{snap.rejected_samples.join('\n')}</pre></>)}
               </div>)}
             <ErrorBox error={error} />
             <p className="tq-muted">Trust boundary: {snap?.usb_trust_boundary || 'USB serial is unauthenticated; it is treated as inside the host computer\'s physical trust boundary.'}</p>

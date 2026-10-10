@@ -43,6 +43,14 @@ MAX_COMMANDS_KEPT = 200
 UINT32 = 2 ** 32 - 1
 
 
+LEGACY_MARKERS = ("OVERALL CONDITION", "[TCP", "[MOTOR]", "BTS7960", "Smart DC Motor", "BUZZER ")
+
+
+def escape_sample(raw: bytes, limit: int = 120) -> str:
+    """Printable, truncated rendering of a rejected line so an operator can recognise what the device is actually sending. Never parsed, never trusted."""
+    return "".join(chr(b) if 32 <= b < 127 else "." for b in bytes(raw)[:limit]) + ("…" if len(raw) > limit else "")
+
+
 class FrameError(Exception):
     def __init__(self, code: str, detail: str = ""):
         super().__init__(f"{code}: {detail}" if detail else code)
@@ -149,10 +157,12 @@ class DeviceModel:
     last_error_code: str = ""
     last_error_detail: str = ""
     connecting_since: Optional[float] = None
+    samples: Deque[str] = field(default_factory=lambda: collections.deque(maxlen=5))     # the last few REJECTED lines, escaped and truncated (diagnostic only)
 
     def reset_session(self) -> None:
         self.status, self.identity, self.last_seq, self.last_rx, self.last_fast_rx, self.last_rx_wall = None, "unknown", None, None, None, None
         self.values = {}
+        self.samples.clear()
 
     def _set(self, name: str, value: Optional[float], valid: bool, ts: int, now: float) -> None:
         self.values[name] = {"value": value if valid else None, "valid": valid, "device_ts_ms": ts, "received_at": now, "origin": "device_measurement"}
@@ -230,7 +240,12 @@ class DeviceModel:
         if not self.last_error_code:
             return None
         summary, steps = ERROR_HELP.get(self.last_error_code, (self.last_error, []))
-        return {"code": self.last_error_code, "message": summary, "detail": self.last_error_detail or self.last_error, "recovery": list(steps)}
+        steps = list(steps)
+        if self.last_error_code in ("HANDSHAKE_INVALID", "HANDSHAKE_TIMEOUT") and any(m in s for s in self.samples for m in LEGACY_MARKERS):
+            summary = "The attached board is running the legacy monitoring sketch, not TORQVA firmware."
+            steps.insert(0, "Its serial output matches the legacy smart_motor_monitor sketch (human-readable status text). That sketch is quarantined: it accepts unauthenticated network motor commands and has no interlocks. TORQVA sent nothing to it.")
+            steps.append("Moving the board to the supported TORQVA firmware (esp32/torqva_fw) is a deliberate human decision; TORQVA never flashes firmware.")
+        return {"code": self.last_error_code, "message": summary, "detail": self.last_error_detail or self.last_error, "recovery": steps}
 
     def history_series(self, signal: str, seconds: float, wall_now: float) -> List[List[Any]]:
         if signal not in ("rpm", "current", "voltage", "power", "duty", "housing"):
@@ -618,6 +633,7 @@ class DeviceBridge:
         except FrameError as e:
             with self._lock:
                 self.model.counters["malformed"] += 1
+                self.model.samples.append(escape_sample(line))
                 if e.code == "UNSUPPORTED_PROTOCOL":
                     self.model.counters["unsupported_protocol"] += 1
                     self.model.last_error = "unsupported firmware protocol version"
