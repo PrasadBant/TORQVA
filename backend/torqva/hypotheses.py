@@ -24,6 +24,7 @@ class Posterior:
     n_windows: int
     ood: bool = False          # evidence does not look like ANY learned signature (unfamiliar): never 'confident'
     conflict: bool = False     # Phase 10: the latest test evidence ALONE confidently disagrees with the prior-driven top hypothesis: never 'confident'
+    uncorroborated: bool = False   # Phase 11: the test's own likelihood does not support the top hypothesis (the prior decided): never 'confident'
 
     def ranked(self):
         return sorted(self.probs.items(), key=lambda kv: kv[1], reverse=True)
@@ -54,6 +55,8 @@ class Posterior:
             return "unfamiliar"
         if self.conflict:
             return "conflicted"
+        if self.uncorroborated:
+            return "uncorroborated"
         return "confident" if (self.top_p >= p_conf and self.margin >= margin) else "ambiguous"
 
 

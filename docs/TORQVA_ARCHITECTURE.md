@@ -156,3 +156,11 @@ Code: `backend/torqva/c2_robust.py` (C2 candidate, support status, specification
 **UI.** Decisions view: status pill and reasons on every prediction, a "Predicted vs observed (simulated)" card (PRED / SIM badges, "not measurements, not a recovery verdict"), a "Diagnostic tests (C4)" card (recommended / result / inconclusive / aborted with the gate's reason and the test's purpose). Evaluation view: "C2 / C4 validation (Phase 10)" with coverage and abstention by regime, C4 value including the confident-wrong rate, the hardware caveat and the limitations (`GET /api/torqva/evaluation/c2c4`). `GET /evaluation/latest` now returns only `EvaluationRun` files (it had been returning the Phase 8 study JSON — see TORQVA_PROGRESS.md).
 
 **Limitations.** See `TORQVA_EVAL_SIM.md` (Phase 10): simulation only, no hardware validation, coverage is marginal not conditional (overload 79 %), the style-aware C4 library is not the default because of residual confident errors in the hard regime.
+
+## 7. Phase 11 - calibration and conditional-coverage additions (simulation only)
+
+* `c4_robust.py`: joint temperature fit, `CalibratedDiagnostics` wrapper (never more extreme than its input), chi-square GOF abstention, ECE, `uncorroborated` classification. Not enabled by default.
+* `hypotheses.py` / `gate.py`: `Posterior.uncorroborated` (last field; positional compatibility kept); ACT additionally requires `not uncorroborated` - strictly tighter.
+* `prediction.py`: additive `StateSummary.trend`. `c2_robust.py`: `_q_at_horizons` hook and `method_name`. `c2_conditional.py`: class-conditional / trend / regime-gated predictors, opt-in through `build_models(c2_variant)`.
+* `c2cov_study.py`, `c4cal_study.py`: seed-partitioned, pre-registered studies. `/evaluation/c2c4` gains a `phase11` block; the Evaluation view shows it.
+* Unchanged: Safety Supervisor, dispatcher, authorization, C1, attestation, firmware and watchdogs. No new component holds a command path.

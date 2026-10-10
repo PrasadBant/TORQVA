@@ -156,14 +156,121 @@ def classify_test_result(prior: Posterior, post: Posterior, truth: Optional[Hypo
                          p_conf: float = 0.70, margin: float = 0.30) -> Dict[str, object]:
     """What a diagnostic test did. Without ground truth only `inconclusive` can be judged; with truth (simulation) also improved / worsened.
     Inconclusive = out-of-distribution outcome, or the posterior is still not confident. A test never forces a diagnosis."""
-    out: Dict[str, object] = {"inconclusive": bool(post.ood or getattr(post, "conflict", False) or not (post.top_p >= p_conf and post.margin >= margin)),
-                              "ood": bool(post.ood), "conflict": bool(getattr(post, "conflict", False)),
+    out: Dict[str, object] = {"inconclusive": bool(post.ood or getattr(post, "conflict", False) or getattr(post, "uncorroborated", False)
+                                                   or not (post.top_p >= p_conf and post.margin >= margin)),
+                              "ood": bool(post.ood), "conflict": bool(getattr(post, "conflict", False)), "uncorroborated": bool(getattr(post, "uncorroborated", False)),
                               "top": post.top.value, "top_p": round(post.top_p, 4), "entropy_change": round(post.entropy - prior.entropy, 4)}
     if truth is not None:
         d = post.probs[truth] - prior.probs[truth]
         out.update({"p_truth_before": round(prior.probs[truth], 4), "p_truth_after": round(post.probs[truth], 4),
                     "effect": "improved" if d >= delta else ("worsened" if d <= -delta else "unchanged"),
                     "top1_before": prior.top == truth, "top1_after": post.top == truth,
-                    "confident_wrong": bool((not post.ood) and (not getattr(post, "conflict", False)) and post.top_p >= p_conf
+                    "confident_wrong": bool((not post.ood) and (not getattr(post, "conflict", False)) and (not getattr(post, "uncorroborated", False)) and post.top_p >= p_conf
                                                 and post.margin >= margin and post.top != truth)})
     return out
+
+
+# ------------------------------------------------------------------------------------------------ Phase 11: calibrated likelihoods
+import math as _math
+
+
+def chi2_sf_df3(x: float) -> float:
+    """Survival function of the chi-square distribution with 3 degrees of freedom (closed form; the T1 observation has 3 components)."""
+    x = max(float(x), 0.0)
+    return float(_math.erfc(_math.sqrt(x / 2.0)) + _math.sqrt(2.0 * x / _math.pi) * _math.exp(-x / 2.0))
+
+
+def fit_temperature(model, samples: Sequence[Tuple[np.ndarray, Hypothesis]], test: str = "T1", grid: Optional[Sequence[float]] = None,
+                    floor: float = 1e-6) -> Tuple[float, Dict[str, float]]:
+    """Temperature T >= 1 minimising the mean negative log-likelihood of the TRUE hypothesis under the LIKELIHOOD-ONLY posterior
+    p_T(h | obs) ~ exp(loglik_h(obs) / T) (uniform prior over all hypotheses: independent of any C1 prior). samples = [(obs, truth)]."""
+    m = model.models[test]
+    L = np.array([[m.loglik(h, o) for h in HYPS] for o, _ in samples])
+    idx = np.array([HYPS.index(t) for _, t in samples])
+    out = {}
+    best = (None, np.inf)
+    for T in (grid if grid is not None else np.geomspace(1.0, 40.0, 81)):
+        z = L / T; z -= z.max(axis=1, keepdims=True)
+        p = np.exp(z); p /= p.sum(axis=1, keepdims=True)
+        nll = float(-np.mean(np.log(np.maximum(p[np.arange(len(idx)), idx], floor))))
+        out[f"{T:.3f}"] = nll
+        if nll < best[1]:
+            best = (float(T), nll)
+    return best[0], {"nll_at_T1": out[f"{1.0:.3f}"], "nll_best": best[1], "n": len(samples)}
+
+
+def fit_joint_temperatures(model, sessions: Sequence[Tuple[Posterior, np.ndarray, Hypothesis]], test: str = "T1", prior_grid: Optional[Sequence[float]] = None,
+                           lik_grid: Optional[Sequence[float]] = None, floor: float = 1e-6) -> Tuple[Tuple[float, float], Dict[str, float]]:
+    """Joint fit of (prior temperature, likelihood temperature) by the mean NLL of the TRUE hypothesis under the POST-TEST posterior
+    p(h | prior, obs) ~ prior_h^(1/Tp) * exp(loglik_h(obs) / T). sessions = [(C1 prior posterior, T1 observation, truth)]. Both sources of evidence are
+    calibrated: the C1 prior is often near-1.0 and wrong under shift, which a likelihood temperature alone cannot repair."""
+    m = model.models[test]
+    L = np.array([[m.loglik(h, o) for h in HYPS] for _, o, _ in sessions])
+    LP = np.array([[np.log(max(p.probs[h], 1e-12)) for h in HYPS] for p, _, _ in sessions])
+    idx = np.array([HYPS.index(t) for _, _, t in sessions])
+    best, grid = ((1.0, 1.0), np.inf), {}
+    for Tp in (prior_grid if prior_grid is not None else (1, 1.5, 2, 3, 5, 8, 12, 20, 30, 50, 80, 120)):
+        for T in (lik_grid if lik_grid is not None else (1, 1.5, 2, 3, 5, 8)):
+            z = LP / Tp + L / T; z -= z.max(axis=1, keepdims=True)
+            p = np.exp(z); p /= p.sum(axis=1, keepdims=True)
+            nll = float(-np.mean(np.log(np.maximum(p[np.arange(len(idx)), idx], floor))))
+            grid[f"{Tp}/{T}"] = nll
+            if nll < best[1]:
+                best = ((float(Tp), float(T)), nll)
+    return best[0], {"nll_at_1_1": grid["1/1"], "nll_best": best[1], "n": len(sessions)}
+
+
+class CalibratedDiagnostics:
+    """Opt-in wrapper around a style-aware model: (1) the test log-likelihood is divided by a temperature fitted on CALIBRATION data;
+    (2) optional goodness-of-fit abstention: if the observation is a poor fit (chi-square p < alpha) to the best component of the winning
+    hypothesis the result is marked unfamiliar (never confident); (3) the conflict guard, computed with the same tempered likelihood.
+    Probabilities of competing hypotheses are never made MORE extreme than the base model's; the wrapper cannot raise confidence."""
+
+    def __init__(self, model, temperature: float = 1.0, gof_alpha: Optional[float] = None, conflict_guard: bool = True, p_conf: float = 0.70,
+                 corroboration: Optional[float] = None, prior_temperature: float = 1.0):
+        self.model, self.temperature, self.gof_alpha, self.conflict_guard, self.p_conf = model, float(temperature), gof_alpha, conflict_guard, p_conf
+        self.prior_temperature = float(prior_temperature)   # >= 1 flattens the (overconfident) C1 prior before it is combined with the test likelihood
+        self.corroboration = corroboration            # if set: confident only when the likelihood-only posterior ALSO names the same top hypothesis with >= this probability
+
+    def __getattr__(self, name):
+        return getattr(self.model, name)
+
+    def _gof_p(self, m, h: Hypothesis, obs: np.ndarray) -> float:
+        d2 = min(float(np.sum((obs - mu) ** 2 / var)) for mu, var in m.comps[h])
+        return chi2_sf_df3(d2)
+
+    def update(self, post: Posterior, test: str, obs: np.ndarray) -> Posterior:
+        m = self.model.models[test]
+        T = self.temperature
+        ll = np.array([m.loglik(h, obs) for h in HYPS])
+        lp = np.array([np.log(max(post.probs[h], 1e-12)) for h in HYPS]) / self.prior_temperature + ll / T
+        lp -= lp.max()
+        p = np.exp(lp); p /= p.sum()
+        probs = {h: float(x) for h, x in zip(HYPS, p)}
+        top = HYPS[int(np.argmax(p))]
+        ood = bool(m.ood_thr is not None and ll.max() < m.ood_thr)
+        if (not ood) and self.gof_alpha is not None and hasattr(m, "comps"):
+            ood = self._gof_p(m, top, obs) < self.gof_alpha
+        conflict = uncorroborated = False
+        if (self.conflict_guard or self.corroboration is not None) and not ood:
+            hs = [h for h in HYPS if post.probs[h] > 0.0]
+            z = np.array([m.loglik(h, obs) for h in hs]) / T
+            pl = np.exp(z - z.max()); pl /= pl.sum()
+            lik_top, lik_p = hs[int(np.argmax(pl))], float(pl.max())
+            conflict = bool(self.conflict_guard and lik_top != top and lik_p >= self.p_conf)
+            if self.corroboration is not None and not conflict:
+                uncorroborated = bool(not (lik_top == top and float(pl[hs.index(top)]) >= self.corroboration))
+        return Posterior(probs, post.n_windows, ood, conflict, uncorroborated)
+
+
+def expected_calibration_error(conf: Sequence[float], correct: Sequence[bool], bins: int = 10) -> float:
+    conf, correct = np.asarray(conf, dtype=float), np.asarray(correct, dtype=float)
+    if len(conf) == 0:
+        return float("nan")
+    edges = np.linspace(0.0, 1.0, bins + 1)
+    e = 0.0
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        sel = (conf > lo) & (conf <= hi) if lo > 0 else (conf >= lo) & (conf <= hi)
+        if sel.any():
+            e += sel.mean() * abs(conf[sel].mean() - correct[sel].mean())
+    return float(e)

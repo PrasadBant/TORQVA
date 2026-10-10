@@ -141,7 +141,19 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
             c2[variant] = {rg: {**{k: e["overall"].get(k) for k in keep}, "worst_cell_coverage": e["worst_cell_coverage"]}
                            for rg, e in v["by_regime"].items()}
         v2 = d / "c2c4_phase10_c4_v2_final.json"
-        return {"schema": full["schema"], "data_provenance": full["data_provenance"], "WARNING": full["WARNING"], "c2": c2,
+        phase11: Dict[str, Any] = {"adopted": False, "status": "opt-in candidates only; shipped defaults unchanged"}
+        cf, c4f = d / "c2cov_phase11_v2_final.json", d / "c4cal_phase11_final.json"
+        if cf.exists():
+            cv = json.loads(cf.read_text())
+            phase11["c2_conditional"] = {"n_test_cases": cv["n_test_cases"], "variants": {
+                vn: {rg: {"n_cases": e["overall"]["n_cases"], "coverage": e["overall"]["coverage_case_level"], "coverage_ci95": e["overall"]["coverage_ci95_case_bootstrap"],
+                          "trusted_frac": e["overall"].get("trusted_frac"), "coverage_when_trusted": e["overall"].get("coverage_when_trusted"),
+                          "worst_fault": e.get("worst_fault_cell"), "overload": e["by_fault"].get("overload", {}).get("coverage_case_level")}
+                     for rg, e in vv.items()} for vn, vv in cv["variants"].items()}}
+        if c4f.exists():
+            c4 = json.loads(c4f.read_text())
+            phase11["c4_calibration"] = {"adopted": bool(c4["adopted_on_validation"]), "closest_to_feasible": c4["closest_to_feasible"], "n_test_sessions": c4["n_test_sessions"]}
+        return {"schema": full["schema"], "data_provenance": full["data_provenance"], "WARNING": full["WARNING"], "c2": c2, "phase11": phase11,
                 "c4_realistic_v1": full["c4"]["realistic_T1"],
                 "c4_realistic_v2": json.loads(v2.read_text())["realistic_T1"] if v2.exists() else None,
                 "prediction_targets": full["prediction_targets"], "test_specs": full["test_specs"],

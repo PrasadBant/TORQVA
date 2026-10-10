@@ -154,9 +154,17 @@ class NoiseAwarePredictor(_Base):
         return "supported", []
 
     # ---------------------------------------------------------------- intervals
-    def _half(self, s: str, action: str, H: int, st: StateSummary, spread: np.ndarray) -> np.ndarray:
+    @property
+    def method_name(self) -> str:
+        return "noise_aware_conformal"
+
+    def _q_at_horizons(self, s: str, action: str, post: Optional[Posterior]) -> np.ndarray:
+        """Conformal residual quantile at the three check horizons (pooled over fault classes here; the conditional subclass overrides it)."""
+        return np.array([self.cells[(s, action, int(h))].q_raw if (s, action, int(h)) in self.cells else np.nan for h in CHECK_HORIZONS])
+
+    def _half(self, s: str, action: str, H: int, st: StateSummary, spread: np.ndarray, post: Optional[Posterior] = None) -> np.ndarray:
         hs = np.array(CHECK_HORIZONS, dtype=float)
-        qs = np.array([self.cells[(s, action, int(h))].q_raw if (s, action, int(h)) in self.cells else np.nan for h in hs])
+        qs = self._q_at_horizons(s, action, post)
         ok = ~np.isnan(qs)
         if not ok.any():
             q_t = np.zeros(H)
@@ -177,7 +185,7 @@ class NoiseAwarePredictor(_Base):
         mean, spread = self._mixture(post, st, action, target_rpm, H)
         lo, hi = {}, {}
         for s in SIGNALS:
-            half = self._half(s, action, H, st, spread[s])
+            half = self._half(s, action, H, st, spread[s], post)
             lo[s], hi[s] = (np.maximum(mean[s] - half, 0.0) if s in NONNEGATIVE else mean[s] - half), mean[s] + half
         risk_by = {}
         from math import erf, sqrt
@@ -187,7 +195,7 @@ class NoiseAwarePredictor(_Base):
             risk_by[s] = float(np.max(0.5 * (1.0 - np.vectorize(erf)(z / sqrt(2)))))
         status, why = self.support(post, st, action, target_rpm)
         return Prediction(action, target_rpm, H, mean, lo, hi, max(risk_by.values()), risk_by, status=status, status_reasons=why,
-                          interval_method="noise_aware_conformal")
+                          interval_method=self.method_name)
 
     def evaluate_coverage(self, cases) -> Dict[Tuple[str, str, int], float]:
         """Coverage of the intervals predict() actually returns (the control's evaluate_coverage ignores the hypothesis-spread term)."""

@@ -1,0 +1,542 @@
+{
+ "stage": "validation",
+ "seeds": {
+  "cal_cases": 432,
+  "val_regimes": [
+   "baseline",
+   "noise_x1.5",
+   "session_shift",
+   "noisy",
+   "hard"
+  ],
+  "partition": "VAL2"
+ },
+ "min_cases_per_subgroup": 30,
+ "min_class_n": 30,
+ "class_sample_counts": {
+  "imbalance": 72,
+  "looseness": 72,
+  "overload": 72,
+  "cooling_failure": 72,
+  "supply_voltage": 72,
+  "sensor_fault": 72
+ },
+ "rule": "feasible = case-level coverage in [0.85, 0.95] in every VALIDATION regime AND baseline median width <= 1.30x the Phase 10 candidate AND baseline trusted fraction not lower by > 0.05 AND (point-prediction change) pooled MAE <= 1.02x and no fault class's MAE worse by > 5 %; best = highest mean worst-fault coverage over the VALIDATION regimes; ADOPTED only if that beats the Phase 10 candidate by >= 3 points; otherwise nothing new is adopted",
+ "worst_fault_coverage": {
+  "shipped": {
+   "baseline": [
+    "overload",
+    0.8081275720164608
+   ],
+   "noise_x1.5": [
+    "overload",
+    0.7515432098765431
+   ],
+   "session_shift": [
+    "overload",
+    0.8173868312757201
+   ],
+   "noisy": [
+    "overload",
+    0.7119341563786008
+   ],
+   "hard": [
+    "looseness",
+    0.690843621399177
+   ]
+  },
+  "phase10_noise_aware": {
+   "baseline": [
+    "overload",
+    0.845164609053498
+   ],
+   "noise_x1.5": [
+    "overload",
+    0.8456790123456791
+   ],
+   "session_shift": [
+    "overload",
+    0.8472222222222221
+   ],
+   "noisy": [
+    "overload",
+    0.8559670781893004
+   ],
+   "hard": [
+    "overload",
+    0.8647119341563786
+   ]
+  },
+  "class_conditional": {
+   "baseline": [
+    "sensor_fault",
+    0.9290123456790123
+   ],
+   "noise_x1.5": [
+    "supply_voltage",
+    0.9063786008230452
+   ],
+   "session_shift": [
+    "sensor_fault",
+    0.9218106995884775
+   ],
+   "noisy": [
+    "sensor_fault",
+    0.8914609053497942
+   ],
+   "hard": [
+    "sensor_fault",
+    0.8292181069958849
+   ]
+  },
+  "trend_state": {
+   "baseline": [
+    "cooling_failure",
+    0.8791152263374487
+   ],
+   "noise_x1.5": [
+    "cooling_failure",
+    0.8683127572016459
+   ],
+   "session_shift": [
+    "cooling_failure",
+    0.8724279835390946
+   ],
+   "noisy": [
+    "cooling_failure",
+    0.8677983539094649
+   ],
+   "hard": [
+    "sensor_fault",
+    0.8713991769547326
+   ]
+  },
+  "trend_state+class_conditional": {
+   "baseline": [
+    "sensor_fault",
+    0.9300411522633744
+   ],
+   "noise_x1.5": [
+    "supply_voltage",
+    0.8950617283950616
+   ],
+   "session_shift": [
+    "overload",
+    0.9171810699588477
+   ],
+   "noisy": [
+    "overload",
+    0.888374485596708
+   ],
+   "hard": [
+    "sensor_fault",
+    0.8297325102880658
+   ]
+  },
+  "regime_gated(trend+class, fallback=phase10)": {
+   "baseline": [
+    "sensor_fault",
+    0.9300411522633744
+   ],
+   "noise_x1.5": [
+    "overload",
+    0.8631687242798356
+   ],
+   "session_shift": [
+    "overload",
+    0.9171810699588477
+   ],
+   "noisy": [
+    "overload",
+    0.8544238683127572
+   ],
+   "hard": [
+    "overload",
+    0.8647119341563786
+   ]
+  }
+ },
+ "validation": {
+  "shipped": {
+   "baseline": {
+    "n_cases": 324,
+    "coverage_case_level": 0.8838305898491083,
+    "coverage_ci95_case_bootstrap": [
+     0.8760952503429354,
+     0.8924082647462277
+    ],
+    "width_median": 1.303587348420005,
+    "mae_norm": 0.7726248384728069,
+    "trusted_frac": 1.0,
+    "overload": 0.8081275720164608
+   },
+   "noise_x1.5": {
+    "n_cases": 324,
+    "coverage_case_level": 0.8231310013717421,
+    "coverage_ci95_case_bootstrap": [
+     0.8142125342935528,
+     0.8323924039780521
+    ],
+    "width_median": 1.3035947549190634,
+    "mae_norm": 0.9422385910203741,
+    "trusted_frac": 1.0,
+    "overload": 0.7515432098765431
+   },
+   "session_shift": {
+    "n_cases": 324,
+    "coverage_case_level": 0.8841735253772292,
+    "coverage_ci95_case_bootstrap": [
+     0.8753407921810701,
+     0.8928433641975309
+    ],
+    "width_median": 1.3116940956445333,
+    "mae_norm": 0.7803063659763341,
+    "trusted_frac": 1.0,
+    "overload": 0.8173868312757201
+   },
+   "noisy": {
+    "n_cases": 324,
+    "coverage_case_level": 0.7675754458161866,
+    "coverage_ci95_case_bootstrap": [
+     0.7573666838134431,
+     0.7780435528120713
+    ],
+    "width_median": 1.30358743388958,
+    "mae_norm": 1.1082061764327356,
+    "trusted_frac": 1.0,
+    "overload": 0.7119341563786008
+   },
+   "hard": {
+    "n_cases": 324,
+    "coverage_case_level": 0.7515432098765432,
+    "coverage_ci95_case_bootstrap": [
+     0.741244427297668,
+     0.7626071673525378
+    ],
+    "width_median": 1.3162836638442126,
+    "mae_norm": 1.3155448493193462,
+    "trusted_frac": 1.0,
+    "overload": 0.7165637860082306
+   }
+  },
+  "phase10_noise_aware": {
+   "baseline": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9290123456790124,
+    "coverage_ci95_case_bootstrap": [
+     0.9213820301783266,
+     0.9363018689986281
+    ],
+    "width_median": 1.2329580075988626,
+    "mae_norm": 0.7726248384728069,
+    "trusted_frac": 0.9598765432098766,
+    "overload": 0.845164609053498
+   },
+   "noise_x1.5": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9203532235939643,
+    "coverage_ci95_case_bootstrap": [
+     0.9132351680384087,
+     0.92755701303155
+    ],
+    "width_median": 1.512430215542615,
+    "mae_norm": 0.9422385910203741,
+    "trusted_frac": 0.941358024691358,
+    "overload": 0.8456790123456791
+   },
+   "session_shift": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9290980795610425,
+    "coverage_ci95_case_bootstrap": [
+     0.9202567729766804,
+     0.9366490912208505
+    ],
+    "width_median": 1.2329580075988626,
+    "mae_norm": 0.7803063659763341,
+    "trusted_frac": 0.7993827160493827,
+    "overload": 0.8472222222222221
+   },
+   "noisy": {
+    "n_cases": 324,
+    "coverage_case_level": 0.917266803840878,
+    "coverage_ci95_case_bootstrap": [
+     0.9099687071330589,
+     0.9240504972565159
+    ],
+    "width_median": 1.906343557212404,
+    "mae_norm": 1.1082061764327356,
+    "trusted_frac": 0.808641975308642,
+    "overload": 0.8559670781893004
+   },
+   "hard": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9150377229080933,
+    "coverage_ci95_case_bootstrap": [
+     0.9069765946502057,
+     0.921900720164609
+    ],
+    "width_median": 1.8816444027317707,
+    "mae_norm": 1.3155448493193462,
+    "trusted_frac": 0.48148148148148145,
+    "overload": 0.8647119341563786
+   }
+  },
+  "class_conditional": {
+   "baseline": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9396433470507545,
+    "coverage_ci95_case_bootstrap": [
+     0.933292609739369,
+     0.9451388888888888
+    ],
+    "width_median": 1.0345763726430321,
+    "mae_norm": 0.7726248384728069,
+    "trusted_frac": 0.9598765432098766,
+    "overload": 0.933641975308642
+   },
+   "noise_x1.5": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9160665294924554,
+    "coverage_ci95_case_bootstrap": [
+     0.9095464677640605,
+     0.922843792866941
+    ],
+    "width_median": 1.402366536450936,
+    "mae_norm": 0.9422385910203741,
+    "trusted_frac": 0.8148148148148148,
+    "overload": 0.9089506172839505
+   },
+   "session_shift": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9315843621399177,
+    "coverage_ci95_case_bootstrap": [
+     0.9240376371742114,
+     0.9385288065843621
+    ],
+    "width_median": 1.0325038425354858,
+    "mae_norm": 0.7803063659763341,
+    "trusted_frac": 0.7993827160493827,
+    "overload": 0.9248971193415637
+   },
+   "noisy": {
+    "n_cases": 324,
+    "coverage_case_level": 0.90869341563786,
+    "coverage_ci95_case_bootstrap": [
+     0.9022612311385461,
+     0.9156421467764061
+    ],
+    "width_median": 1.7819697149240938,
+    "mae_norm": 1.1082061764327356,
+    "trusted_frac": 0.1419753086419753,
+    "overload": 0.89917695473251
+   },
+   "hard": {
+    "n_cases": 324,
+    "coverage_case_level": 0.8942043895747598,
+    "coverage_ci95_case_bootstrap": [
+     0.8855452674897119,
+     0.9019225823045267
+    ],
+    "width_median": 1.770637009118327,
+    "mae_norm": 1.3155448493193462,
+    "trusted_frac": 0.04938271604938271,
+    "overload": 0.9007201646090535
+   }
+  },
+  "trend_state": {
+   "baseline": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9325274348422498,
+    "coverage_ci95_case_bootstrap": [
+     0.9258359053497941,
+     0.9396433470507545
+    ],
+    "width_median": 1.0898325670796567,
+    "mae_norm": 0.6951848095735385,
+    "trusted_frac": 0.9598765432098766,
+    "overload": 0.9495884773662552
+   },
+   "noise_x1.5": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9158093278463649,
+    "coverage_ci95_case_bootstrap": [
+     0.9082626028806584,
+     0.9225865912208503
+    ],
+    "width_median": 1.4608004601935405,
+    "mae_norm": 0.8766110516125819,
+    "trusted_frac": 0.941358024691358,
+    "overload": 0.9295267489711933
+   },
+   "session_shift": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9299554183813443,
+    "coverage_ci95_case_bootstrap": [
+     0.9228395061728395,
+     0.9363876028806585
+    ],
+    "width_median": 1.09418532573221,
+    "mae_norm": 0.7042540453867845,
+    "trusted_frac": 0.7993827160493827,
+    "overload": 0.9475308641975307
+   },
+   "noisy": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9092078189300413,
+    "coverage_ci95_case_bootstrap": [
+     0.9025162894375857,
+     0.9167545438957477
+    ],
+    "width_median": 1.906343557212404,
+    "mae_norm": 1.057861914836724,
+    "trusted_frac": 0.808641975308642,
+    "overload": 0.9207818930041151
+   },
+   "hard": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9069787379972565,
+    "coverage_ci95_case_bootstrap": [
+     0.8984889403292182,
+     0.9152949245541838
+    ],
+    "width_median": 1.8814097664653726,
+    "mae_norm": 1.2638234988609949,
+    "trusted_frac": 0.48148148148148145,
+    "overload": 0.9367283950617283
+   }
+  },
+  "trend_state+class_conditional": {
+   "baseline": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9412722908093277,
+    "coverage_ci95_case_bootstrap": [
+     0.9360382373113857,
+     0.9467656893004116
+    ],
+    "width_median": 0.996170105201899,
+    "mae_norm": 0.6951848095735385,
+    "trusted_frac": 0.9598765432098766,
+    "overload": 0.933641975308642
+   },
+   "noise_x1.5": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9138374485596709,
+    "coverage_ci95_case_bootstrap": [
+     0.9071459190672154,
+     0.9202696330589848
+    ],
+    "width_median": 1.3300900695458813,
+    "mae_norm": 0.8766110516125819,
+    "trusted_frac": 0.8148148148148148,
+    "overload": 0.9012345679012348
+   },
+   "session_shift": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9325274348422498,
+    "coverage_ci95_case_bootstrap": [
+     0.9256601508916324,
+     0.9387860082304526
+    ],
+    "width_median": 0.9895162521150358,
+    "mae_norm": 0.7042540453867845,
+    "trusted_frac": 0.7993827160493827,
+    "overload": 0.9171810699588477
+   },
+   "noisy": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9068930041152264,
+    "coverage_ci95_case_bootstrap": [
+     0.9010631001371743,
+     0.9142746913580245
+    ],
+    "width_median": 1.697871934647216,
+    "mae_norm": 1.057861914836724,
+    "trusted_frac": 0.1419753086419753,
+    "overload": 0.888374485596708
+   },
+   "hard": {
+    "n_cases": 324,
+    "coverage_case_level": 0.8912037037037037,
+    "coverage_ci95_case_bootstrap": [
+     0.8824524176954732,
+     0.8984932270233195
+    ],
+    "width_median": 1.6627316596836885,
+    "mae_norm": 1.2638234988609949,
+    "trusted_frac": 0.04938271604938271,
+    "overload": 0.9027777777777778
+   }
+  },
+  "regime_gated(trend+class, fallback=phase10)": {
+   "baseline": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9412722908093277,
+    "coverage_ci95_case_bootstrap": [
+     0.9360382373113857,
+     0.9467656893004116
+    ],
+    "width_median": 0.996170105201899,
+    "mae_norm": 0.6951848095735385,
+    "trusted_frac": 0.9598765432098766,
+    "overload": 0.933641975308642
+   },
+   "noise_x1.5": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9113511659807956,
+    "coverage_ci95_case_bootstrap": [
+     0.9048289609053496,
+     0.9183877743484224
+    ],
+    "width_median": 1.46341929012969,
+    "mae_norm": 0.9152936929974335,
+    "trusted_frac": 0.941358024691358,
+    "overload": 0.8631687242798356
+   },
+   "session_shift": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9325274348422498,
+    "coverage_ci95_case_bootstrap": [
+     0.9256601508916324,
+     0.9387860082304526
+    ],
+    "width_median": 0.9895162521150358,
+    "mae_norm": 0.7042540453867845,
+    "trusted_frac": 0.7993827160493827,
+    "overload": 0.9171810699588477
+   },
+   "noisy": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9167524005486968,
+    "coverage_ci95_case_bootstrap": [
+     0.9091992455418381,
+     0.9236968449931413
+    ],
+    "width_median": 1.904771655682644,
+    "mae_norm": 1.1079802859753907,
+    "trusted_frac": 0.808641975308642,
+    "overload": 0.8544238683127572
+   },
+   "hard": {
+    "n_cases": 324,
+    "coverage_case_level": 0.9137517146776406,
+    "coverage_ci95_case_bootstrap": [
+     0.9054355281207133,
+     0.9206104252400549
+    ],
+    "width_median": 1.8747106652465415,
+    "mae_norm": 1.3150342800683883,
+    "trusted_frac": 0.48148148148148145,
+    "overload": 0.8647119341563786
+   }
+  }
+ },
+ "feasible": [
+  "class_conditional",
+  "trend_state",
+  "trend_state+class_conditional",
+  "regime_gated(trend+class, fallback=phase10)"
+ ],
+ "best_feasible": "class_conditional",
+ "improves_on_phase10_by_3_points": true,
+ "chosen": "class_conditional"
+}

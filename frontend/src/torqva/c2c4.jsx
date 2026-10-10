@@ -93,6 +93,16 @@ export function C2C4Validation({ data, error }) {
         <tbody>{Object.entries(real).flatMap(([rg, v]) => Object.entries(v).filter(([m, a]) => a.n && ['control', 'style_aware', 'style_aware_guarded'].includes(m)).map(([m, a]) => (
           <tr key={rg + m}><td>{rg}</td><td>{m.replaceAll('_', ' ')}</td><td className="tq-num">{pct(a.no_test_top1)}</td><td className="tq-num">{pct(a.accuracy_after)}</td>
             <td className="tq-num">{pct(a.inconclusive)}</td><td className="tq-num">{pct(a.confident_wrong)}</td></tr>)))}</tbody></table>
+      {data.phase11?.c2_conditional && (<>
+        <h4>Phase 11 (opt-in, not adopted by default): class-conditional C2 coverage, overload and worst fault, fresh seeds</h4>
+        <table className="tq-table"><caption className="tq-sr">Phase 11 class-conditional C2 coverage</caption>
+          <thead><tr><th scope="col">Regime</th><th scope="col">Cases</th><th scope="col">Coverage</th><th scope="col">Overload</th><th scope="col">Trusted</th><th scope="col">Coverage when trusted</th></tr></thead>
+          <tbody>{Object.entries(data.phase11.c2_conditional.variants.class_conditional || {}).map(([rg, e]) => (
+            <tr key={rg}><td>{rg.replaceAll('_', ' ')}</td><td className="tq-num">{e.n_cases}</td>
+              <td className="tq-num">{pct(e.coverage)} <span className="tq-muted">[{pct(e.coverage_ci95[0])}–{pct(e.coverage_ci95[1])}]</span></td>
+              <td className="tq-num">{pct(e.overload)}</td><td className="tq-num">{pct(e.trusted_frac)}</td><td className="tq-num">{pct(e.coverage_when_trusted)}</td></tr>))}</tbody></table>
+        <p className="tq-muted">C4 calibration: {data.phase11.c4_calibration?.adopted ? 'adopted' : 'NOT adopted (failed the pre-registered validation bar)'}; shipped C4 behaviour is unchanged.</p>
+      </>)}
       <h4>Limitations</h4>
       <ul className="tq-list">{(data.limitations || []).map((l) => <li key={l}>{l}</li>)}</ul>
     </Card>

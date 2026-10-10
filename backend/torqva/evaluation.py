@@ -79,6 +79,9 @@ def build_models(c2_variant: str = "control"):
     if c2_variant == "noise_aware":                        # opt-in (Phase 10): same point predictions, noise-aware intervals + support status
         from .c2_robust import build_noise_aware
         pred = build_noise_aware(pred, det, tt, hm)
+    elif c2_variant in ("conditional", "trend_conditional"):        # opt-in (Phase 11): class-conditional intervals (+ trend-corrected housing state)
+        from .c2cov_study import build_conditional_variant
+        pred = build_conditional_variant(pred, det, tt, hm, trend=(c2_variant == "trend_conditional"))
     elif c2_variant != "control":
         raise ValueError(f"unknown c2_variant {c2_variant!r}")
     import copy as _copy

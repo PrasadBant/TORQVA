@@ -190,3 +190,11 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 4. Lab: commissioning wizard (speed-bin coverage, sweeping inside each bin), session-comparison view, export of session records.
 5. WebSocket push + serial bridge; token expiry; model-registry/rollback screen; System Health.
 6. Hardware integration stays last, after your review: verify wiring, PSU and sensor ratings, E-stop/relay; explicit authorization before any flash or energised test.
+
+## Session 7 - Phase 11: C4 calibration and C2 conditional coverage (simulation only)
+
+* Baseline reproduced (evaluation run identical; Phase 10 study JSON unchanged).
+* C4: root cause = unseen-style overconfident likelihood + wrong near-1.0 prior. Joint temperature improves NLL/ECE/Brier but FAILS the pre-registered bar and regresses on an unseen style -> not adopted. Uncorroborated flag added (tightens ACT).
+* C2: overload shortfall = housing-state lag. Class-conditional intervals raise baseline overload coverage 0.834 -> 0.928 (trend state 0.947) on fresh seeds; heavy-shift cells remain 0.80-0.85 and are labelled insufficiently validated. Opt-in only.
+* Tests: backend 386 passed, 2 failed (`trio` absent; pass with trio on PYTHONPATH), frontend 60/60 + build, firmware 65/65, Chrome E2E 22/22.
+* Next: broaden the C4 signature library / real test traces; never claim conditional coverage beyond the validated noise domain.

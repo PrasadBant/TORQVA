@@ -48,13 +48,16 @@ class StateSummary:
     vib_rms: float
     noise: Optional[Dict[str, float]] = None      # estimated measurement noise per signal (used only by the noise-aware predictor)
     n_state: int = 10                             # windows averaged into rpm/current/housing/vib_rms
+    trend: Optional[Dict[str, float]] = None      # least-squares slope per second over the same windows (Phase 11: used only by the opt-in conditional predictor)
 
     @staticmethod
     def from_windows(ws: Sequence[Window], n: int = 10) -> "StateSummary":
         w = list(ws)[-n:]
         m = lambda f: float(np.mean([f(x) for x in w]))
+        t = np.arange(len(w), dtype=float)
+        trend = {s: float(np.polyfit(t, [getattr(x, s) for x in w], 1)[0]) for s in SIGNALS} if len(w) >= 5 else None
         return StateSummary(m(lambda x: x.rpm), w[-1].setpoint, m(lambda x: x.current), m(lambda x: x.housing),
-                            w[-1].ambient, m(lambda x: x.vib_rms), estimate_noise(ws), len(w))
+                            w[-1].ambient, m(lambda x: x.vib_rms), estimate_noise(ws), len(w), trend)
 
 
 @dataclass

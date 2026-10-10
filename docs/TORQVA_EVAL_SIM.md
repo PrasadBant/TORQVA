@@ -281,3 +281,56 @@ The style-aware model trades abstention for **confident errors** in the hard reg
 
 ## 6. Limitations
 Simulation only; the simulator is uncalibrated and the fault models are self-consistent with the predictors. No C2 variant is validated by Intervention Outcome Experiments. Matched-condition (forked) rollouts are a simulator property. Coverage is marginal over fault classes, not conditional (overload 79 %). Fault styles are a handful of simulator modes, not real sensor-failure physics. The v1 test seeds and regimes have been looked at; v2 numbers measure generalisation over seeds only. A prediction check that happens to be inside its interval does not validate the model, and abstention rates describe the simulator's regimes.
+
+## 7. Phase 11 - C4 calibration and C2 conditional coverage (SIMULATION ONLY)
+
+Everything below comes from the uncalibrated simulator, whose faults are structurally consistent with the predictors. No hardware claim is made.
+Nothing in this phase changes a default: the shipped models, the Phase 10 noise-aware C2 and the Phase 10 C4 guard behave as before.
+
+**Reproduce** (from `backend/`): `python -m torqva.c4cal_study validate` then `final`; `python -m torqva.c2cov_study validate`, `final`, and the `v2` stages; `python -m torqva.c2c4_study final` (Phase 10 baseline).
+Outputs: `docs/eval/c4cal_phase11_{selection,final}.json`, `c2cov_phase11_{selection,final,v2_selection,v2_final}.json`. All JSON is byte-identical on re-run. The Phase 10 `.jsonl.gz` is now written with
+`mtime=0` and LF newlines, so it is byte-reproducible too (its contents equal the previously committed file except CRLF -> LF). `python -m torqva.evaluation` is unchanged versus before the phase (only `git_sha` and runtime differ).
+
+**Dataset separation.** Every case/session has a unique seed from partition-specific ranges (C4: calibration 1M, validation 2M, test 3M; C2: development 6M, calibration 7M, validation 8M / 8.5M, test 9M / 9.5M).
+Seed uniqueness, no cross-partition reuse and the +99991 offset-stream collision are asserted; tests check by AST that no test partition is read by calibration or selection, and that the final stages refuse to run
+without a stored selection. Limits: the C2 test sets share the simulator and fault generator with the calibration data; v1 was used to discover that heavy-noise regimes break class-conditional coverage, and v2
+(fresh seeds) was designed afterwards, so v1 is exploratory and v2 is the reported result.
+
+### 7.1 C4 calibration - NOT ADOPTED
+Root cause of the Phase 10 overconfidence: (a) Gaussian likelihoods are overconfident on test-signature styles the library never saw, and (b) the C1 prior is near 1.0 and often wrong, which the test cannot overturn.
+A likelihood-only temperature fits T = 1.0 (a no-op). A joint (prior, likelihood) temperature improves calibration NLL (1.448 -> 0.612 and 5.30 -> 0.283). Also added: an uncorroborated flag (the test's own
+likelihood does not support the top hypothesis; never ACT) and optional chi-square (df = 3) goodness-of-fit abstention.
+
+Held-out test (pooled realistic table, n = 1,296 sessions; 144 per regime):
+
+| pooled | shipped | style-aware | Phase 10 guard | calibrated candidate |
+|---|---|---|---|---|
+| accuracy after test | 59.9 % | 76.5 % | 76.5 % | 80.4 % |
+| confidently wrong | 0.4 % | 12.2 % | 6.8 % | 4.3 % |
+| ECE / Brier (top prob.) | 0.344 / 0.325 | 0.166 / 0.151 | 0.166 / 0.151 | 0.088 / 0.124 |
+| decision worse than prior | 6.2 % | 5.6 % | 5.6 % | 9.0 % |
+
+By regime: hard confidently wrong 39.6 % (style-aware) / 28.5 % (guard) / 11.8 % (candidate); confusable 5.6 / 0.0 / 2.1 %; unseen sensor-intermittent style accuracy 66.7 % (guard) -> 46.5 % (candidate).
+The candidate fails the pre-registered bar (worst per-class confident-wrong <= 2 % pooled and <= 5 % in every validation regime, decision-worse <= 5 %), regresses on the unseen style and worsens the decision more often,
+so it is not adopted. Only the uncorroborated flag (a pure tightening of ACT) ships, inert unless a wrapper sets it. Confident-wrong rates are reported, not tuned away.
+
+### 7.2 C2 conditional coverage - opt-in candidate, heavy-shift gap remains
+Root cause of the overload shortfall (79-84 %): the housing-temperature state is the mean of the last 10 windows, which lags a steadily rising temperature by ~4.5 s x slope; overload heats ~3x faster
+(0.050 vs 0.015 C/s), so the housing prediction is biased low (+0.2 C; correlation of lag with slope 0.95). The posterior is right, an oracle posterior gives the same coverage, and it is not noise.
+Candidates: `class_conditional` (interval-only; posterior-weighted per-fault residual quantiles, >= 30 cases per class else pooled and labelled), `trend_state` (a POINT-PREDICTION change, evaluated separately) and a
+regime-gated variant. A median-over-(rpm, current, housing) noise ratio > 1.75 marks conditional intervals `insufficiently_validated` and untrusted (baseline: 0 % flagged).
+
+Test v2 (3,960 cases; 540 per regime, 90 per fault; case-level coverage, case-bootstrap CIs in the JSON):
+
+| baseline regime | shipped | Phase 10 | class-cond. | trend state | trend + class |
+|---|---|---|---|---|---|
+| coverage | 0.880 | 0.928 | 0.935 | 0.931 | 0.938 |
+| overload coverage | 0.808 | 0.834 | 0.928 | 0.947 | 0.933 |
+
+Median normalised width falls 1.23 -> 1.03 (class-cond.) -> 0.99; baseline MAE 0.78 -> 0.70 for the trend variants. Under heavy shift (noisy / hard / noise x3, unfamiliar speed) some fault x regime cells stay at
+0.81-0.85 and the unfamiliar-speed worst cell (cooling failure) is 0.80, so conditional 90 % coverage is NOT claimed; trusted fractions there are 0.16 / 0.08 / 0.00 / 0.00 and the gated variant falls back to Phase 10.
+Unsupported or insufficiently validated predictions still block ACT. Variants are opt-in via `TORQVA_C2_VARIANT=conditional|trend_conditional`.
+
+### 7.3 Test environment
+The two `test_tcp_server.py[trio]` failures are `ModuleNotFoundError: No module named 'trio'`: trio is in no requirements file and not installed. With trio supplied on `PYTHONPATH` (isolated target dir, nothing
+installed globally) all 8 tests in the file pass; no code was changed.

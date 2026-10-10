@@ -87,7 +87,7 @@ def decide(i: GateInputs, cfg: GateConfig = GateConfig()) -> GateDecision:
     # 3. Confident posterior and trusted predictions -> act.
     needs_test = i.posterior.top.value in cfg.test_required_for and i.tests_run == 0
     confident = (i.posterior.top_p >= cfg.p_confident and i.posterior.margin >= cfg.margin_confident
-                 and not i.posterior.ood and not i.posterior.conflict and not needs_test)
+                 and not i.posterior.ood and not i.posterior.conflict and not i.posterior.uncorroborated and not needs_test)
     if confident and i.c2_trusted and i.op_point_familiar:
         return GateDecision(GateVerdict.ACT, f"Top hypothesis '{i.posterior.top.value}' at {i.posterior.top_p:.2f} "
                             f"with margin {i.posterior.margin:.2f}; predictions trusted.", None, log)

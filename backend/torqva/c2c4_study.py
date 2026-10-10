@@ -17,6 +17,7 @@ import argparse
 import copy
 import gzip
 import hashlib
+import io
 import json
 import os
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -384,8 +385,8 @@ def stage_final() -> Dict:
            "test_cases": len(test), "prediction_targets": PREDICTION_TARGETS, "test_specs": TEST_SPECS, "c2": c2, "c4": c4_final(det, tt, hm, dm)}
     with open(os.path.join(DOCS_EVAL, "c2c4_phase10_final.json"), "w") as f:
         json.dump(res, f, indent=1, default=float)
-    with gzip.open(os.path.join(DOCS_EVAL, "c2c4_phase10_predictions.jsonl.gz"), "wt") as f:
-        for r in records:
+    with open(os.path.join(DOCS_EVAL, "c2c4_phase10_predictions.jsonl.gz"), "wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as gz, io.TextIOWrapper(gz, encoding="utf-8", newline="\n") as f:
+        for r in records:                                    # mtime=0, no filename: regenerating is byte-for-byte reproducible
             f.write(json.dumps(r) + "\n")
     return res
 
