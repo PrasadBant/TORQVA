@@ -45,7 +45,9 @@ def build(stack, predictor, seed=1, fault=None, sev=0.0, clears_below=None, mode
     dev = SimDevice(sim, control_enabled=control)
     o = Orchestrator(dev, copy.deepcopy(det), copy.deepcopy(tt), hm or hm0, dm, copy.deepcopy(predictor),
                      SafetySupervisor(lim), Store(), cfg or PipelineConfig(), mode=mode)
-    sim.set_setpoint(sp)
+    # The operator starts the motor through the device protocol (closed-loop speed), as in real use.
+    dev.send_line('{"id":9999,"type":"SET_SPEED","p":%g,"p2":0,"p3":0,"ttl":5000,"age":0,"seq":0,"k":"%s"}' % (sp, dev.key))
+    dev.poll_lines()
     for _ in range(warm):
         o.step()
     if fault is not None:

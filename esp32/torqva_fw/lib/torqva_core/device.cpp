@@ -72,11 +72,24 @@ void Device::on_line(const char* line, uint32_t now_ms) {
     pc.cmd.authorized = (pc.key[0] != 0) && (strncmp(pc.key, cfg_.key, sizeof(cfg_.key)) == 0);
 
     Ack ack = validator_.validate(pc.cmd, ctx());
+    if (ack.status == AckStatus::ACCEPTED && !validator_.last_was_duplicate()) {
+        // Execution may still refuse (e.g. test envelope). Then the ONLY ack sent is the final REJECTED one.
+        const char* why = execute(pc.cmd, now_ms);
+        if (why) {
+            ack.status = AckStatus::REJECTED;
+            ack.reason = why;
+            validator_.update_cached(ack.id, ack.status, ack.reason);
+        }
+    }
     queue_ack(ack);
-    if (ack.status == AckStatus::ACCEPTED && !validator_.last_was_duplicate()) execute(pc.cmd, now_ms);
+    if (ack.status == AckStatus::ACCEPTED && pc.cmd.type == CmdType::STOP && !validator_.last_was_duplicate()) {
+        Ack done = {pc.cmd.id, AckStatus::COMPLETED, "STOPPED"};
+        validator_.update_cached(done.id, done.status, done.reason);
+        queue_ack(done);
+    }
 }
 
-void Device::execute(const Command& c, uint32_t now_ms) {
+const char* Device::execute(const Command& c, uint32_t now_ms) {
     switch (c.type) {
         case CmdType::HEARTBEAT:
             if (c.authorized) { safety_.heartbeat(now_ms); last_hb_ms_ = now_ms; hb_seen_ = true; }
@@ -84,17 +97,10 @@ void Device::execute(const Command& c, uint32_t now_ms) {
         case CmdType::STOP: {
             drive_.stop();
             tests_.abort("STOP_CMD");
-            Ack done = {c.id, AckStatus::COMPLETED, "STOPPED"};
-            validator_.update_cached(c.id, done.status, done.reason);
-            queue_ack(done);
             break;
         }
         case CmdType::SET_SPEED:
-            if (!drive_.set_speed(c.param)) {
-                Ack r = {c.id, AckStatus::REJECTED, "RPM_OUT_OF_RANGE"};
-                validator_.update_cached(c.id, r.status, r.reason);
-                queue_ack(r);
-            }
+            if (!drive_.set_speed(c.param)) return "RPM_OUT_OF_RANGE";
             break;
         case CmdType::START:
             drive_.start_open_loop(c.param);
@@ -107,13 +113,8 @@ void Device::execute(const Command& c, uint32_t now_ms) {
             const float sp = drive_.target_rpm();
             const bool running = drive_.mode() == DriveMode::CLOSED_LOOP;
             const char* why = tests_.start((TestId)(uint8_t)c.param, p, sp, running, now_ms);
-            if (why) {
-                Ack r = {c.id, AckStatus::REJECTED, why};
-                validator_.update_cached(c.id, r.status, r.reason);
-                queue_ack(r);
-            } else {
-                test_cmd_id_ = c.id; test_cmd_valid_ = true;
-            }
+            if (why) return why;
+            test_cmd_id_ = c.id; test_cmd_valid_ = true;
             break;
         }
         case CmdType::ABORT_TEST:
@@ -127,6 +128,7 @@ void Device::execute(const Command& c, uint32_t now_ms) {
         default:
             break;
     }
+    return nullptr;
 }
 
 HalOut Device::step(const HalIn& in) {

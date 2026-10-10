@@ -37,6 +37,7 @@ class SimDevice:
         self.reject_next: Optional[str] = None
         self.ignore_stop = False          # test hook ONLY: simulates a stuck driver, to exercise "motor still turning"
         self.stuck_sensor = False
+        self._mode = "IDLE"               # IDLE | OPEN | CLOSED  (mirrors firmware DriveMode)
 
     # ------------- protocol -------------
     def _ack(self, cid: int, status: str, reason: str) -> None:
@@ -61,6 +62,7 @@ class SimDevice:
         if typ == "STOP":
             if not self.ignore_stop:
                 self.sim.stop()
+                self._mode = "IDLE"
                 self._abort_test("STOP_CMD")
             self._ack(cid, "ACCEPTED", "OK"); self._ack(cid, "COMPLETED", "STOPPED")
             return
@@ -93,12 +95,15 @@ class SimDevice:
                 return self._ack(cid, "REJECTED", "RPM_OUT_OF_RANGE")
             if self._test:
                 return self._ack(cid, "REJECTED", "TEST_ACTIVE")
-            self.sim.set_setpoint(p) if p > 0 else self.sim.stop()
+            if p > 0:
+                self.sim.set_setpoint(p); self._mode = "CLOSED"
+            else:
+                self.sim.stop(); self._mode = "IDLE"
             return self._ack(cid, "ACCEPTED", "OK")
         if typ == "START":
             if not (0 < p <= 70):
                 return self._ack(cid, "REJECTED", "DUTY_OUT_OF_RANGE")
-            self.sim.set_setpoint(p * self.sim.p.rpm_per_pct)
+            self.sim.set_setpoint(p * self.sim.p.rpm_per_pct); self._mode = "OPEN"
             return self._ack(cid, "ACCEPTED", "OK")
         if typ == "RUN_TEST":
             return self._start_test(cid, int(p), p2, p3)
@@ -128,13 +133,16 @@ class SimDevice:
 
     # ------------- on-device test executor -------------
     def _start_test(self, cid: int, test: int, p2: float, p3: float) -> None:
-        sp = self.sim.setpoint
+        # Same check order as torqva_core: validator (known id, no active test), then TestExecutor::start.
+        if test not in (1, 3, 4):
+            return self._ack(cid, "REJECTED", "UNKNOWN_TEST")
         if self._test:
             return self._ack(cid, "REJECTED", "TEST_ACTIVE")
+        sp = self.sim.setpoint
+        if self._mode != "CLOSED" or sp <= 0:
+            return self._ack(cid, "REJECTED", "NOT_RUNNING")
         if not self.vib_ok:
             return self._ack(cid, "REJECTED", "VIB_LIMIT_NOT_SET")
-        if sp <= 0:
-            return self._ack(cid, "REJECTED", "NOT_RUNNING")
         if test == 1:
             if not (0.3 <= p2 <= 1.0):
                 return self._ack(cid, "REJECTED", "FRACTION_OUT_OF_RANGE")
@@ -146,11 +154,9 @@ class SimDevice:
             if not (1000 <= p2 <= 600000):
                 return self._ack(cid, "REJECTED", "DURATION_OUT_OF_RANGE")
             self._test = {"id": 3, "end": self.sim.t + p2 / 1000.0, "start_sp": sp}
-        elif test == 4:
+        else:
             self._test = {"id": 4, "end": self.sim.t + 60.0, "start_sp": sp}
             self.sim.stop()
-        else:
-            return self._ack(cid, "REJECTED", "UNKNOWN_TEST")
         self._test_cmd = cid
         self._ack(cid, "ACCEPTED", "OK")
 

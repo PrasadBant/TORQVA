@@ -64,7 +64,8 @@ private:
     void queue_line(const char* s, size_t len);
     void queue_ack(const Ack& a);
     void emit_frames(const HalIn& in);
-    void execute(const Command& c, uint32_t now_ms);
+    // Returns nullptr on success, else a static reason the execution layer refused the (already validated) command.
+    const char* execute(const Command& c, uint32_t now_ms);
     CommandContext ctx() const;
 
     DeviceConfig cfg_;

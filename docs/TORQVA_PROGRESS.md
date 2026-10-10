@@ -18,7 +18,7 @@ Direction (latest human instruction): **software first, hardware last.** Do not 
 | Check | Command | Result |
 |---|---|---|
 | Firmware host tests | `cd esp32/torqva_fw && pio test -e native` | **65 / 65 passed** (41 core logic, 24 protocol + device-with-sim-plant) |
-| Backend | `cd backend && python -m pytest -q` | **209 passed, 2 failed.** The 2 failures are the pre-existing `[trio]` parametrisations (`ModuleNotFoundError: No module named 'trio'`); unrelated to TORQVA |
+| Backend | `cd backend && python -m pytest -q` | **213 passed, 2 failed** (includes 4 firmware-in-the-loop conformance tests). The 2 failures are the pre-existing `[trio]` parametrisations (`ModuleNotFoundError: No module named 'trio'`); unrelated to TORQVA |
 | Frontend | `cd frontend && npm test` | 24 / 24 passed (unchanged legacy UI) |
 | Simulation evaluation | `cd backend && python -m torqva.evaluation` | runs in ~5 s; results in `docs/TORQVA_EVAL_SIM.md` |
 | ESP32-S3 compile | `pio run -e esp32s3` | **NOT YET CONFIRMED** (see "ESP32 compile" below) |
@@ -47,7 +47,7 @@ Direction (latest human instruction): **software first, hardware last.** Do not 
 | D-06 | Local git repo; branch `torqva/phase-0-audit` carries all work so far; no remote |
 | D-07/08 | Fail-safe defaults: `max_rpm` and vibration stop limit = 0 ⇒ SET_SPEED and all diagnostic tests refused until a human commissions them; STOP bypasses auth/TTL/seq; test abort holds the lower speed |
 | D-09 | numpy only (no new heavy deps; scikit-learn unused). `numpy>=1.26` added to `backend/requirements.txt` (it was in the original default stack) |
-| D-10 | Python `SimDevice` re-implements firmware rules for the e2e simulation; **conformance with the C++ core is not proven** (see gaps) |
+| D-10 | Python `SimDevice` re-implements firmware rules for the e2e simulation; ack-level conformance with the C++ core is tested (gap 5). The C++ firmware now sends a single final ack when execution refuses a validated command (previously ACCEPTED then REJECTED) |
 | D-11 | Lost ack ≠ not executed on the device. The pipeline conservatively records an un-acked command as EXPIRED/TIMEOUT (not executed) and re-decides from fresh telemetry |
 | D-12 | In simulation, supervisor auto-approves (configurable `auto_approve_in_simulation`); in HARDWARE mode every motion command needs `human_approved` |
 
@@ -56,7 +56,7 @@ Direction (latest human instruction): **software first, hardware last.** Do not 
 2. **No authentication anywhere** in the backend API; TORQVA has no API yet. The shared `k` key on the serial protocol is a placeholder.
 3. **Sim-only evidence.** Simulator uncalibrated and too easy (faults detected at 2–5 % severity). False-confident hypothesis rate 4.9 % is too high for autonomous action on a real rig.
 4. **C2 not validated** (no Intervention Outcome Experiments); intervals under-cover slightly (mean 88 % vs 90 %, worst cell 58 %). UI must say "Intervention Outcome Prediction (unvalidated)".
-5. **Python SimDevice vs C++ firmware conformance** not tested. Next safety-relevant task: a native CLI wrapping `torqva_core::Device` and a backend test that replays the same command scripts through both.
+5. **Python SimDevice vs C++ firmware conformance**: now tested for the command/ack protocol (`tests/test_torqva_conformance.py`, built from `pio run -e fitl`; skipped if the CLI is not built). It found and fixed one divergence (tests need closed-loop running). Coverage is the validation matrix + e-stop/reset flow only, not telemetry or timing of test execution.
 6. Legacy dashboard still presents "health %" values from single-point baselines; not changed.
 7. Accelerometer: current firmware layer reports vibration as invalid (no ADXL345 task yet) — vibration limit and all tests stay disabled on hardware until implemented and commissioned.
 8. Wiring doc, pin map and hardware ratings are unverified drafts (by design, Phase 8).
@@ -67,7 +67,7 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 
 ## Next steps (in order)
 1. Confirm `pio run -e esp32s3` compiles; fix any errors (compile-only, no flashing).
-2. Build the native firmware-in-the-loop CLI and the Python↔C++ conformance test (gap 5).
+2. Extend conformance to test execution (T1/T3/T4 timelines) and telemetry frames.
 3. Phase 4: FastAPI TORQVA routes (read: incidents/decisions/predictions/outcomes/models; write: approve/reject/stop/reset) with authentication + roles + audit, simulated vs device data clearly separated; WebSocket push; serial bridge.
 4. Phase 5: UI per `TORQVA_ARCHITECTURE.md` (provenance badges on every value; simulation banner; unvalidated-C2 label).
 5. Re-run the evaluation after improving the false-confident rate (e.g. an explicit "none of the above / sensor" check); add harder simulator regimes.
