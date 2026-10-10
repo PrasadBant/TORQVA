@@ -79,17 +79,17 @@ def test_full_loop_detect_rank_gate_predict_supervise_dispatch_ack_verify_record
                  S.COMMAND_SENT, S.AWAITING_ACK, S.VERIFYING_RECOVERY, S.RECOVERED, S.CLOSED):
         assert must in seq, (must, seq)
     # 1) detected + hypotheses ranked with a stored plain-language gate reason and inputs
-    gate = [d for d in o.store.list("decision") if "inputs" in d]
+    gate = [d for d in o.records("decision") if "inputs" in d]
     assert gate and gate[0]["reason"] and "top_p" in gate[0]["inputs"]
     # 2) predictions are stored separately, labelled PREDICTED and unvalidated
-    preds = o.store.list("prediction")
+    preds = o.records("prediction")
     assert len(preds) == 3 and all(p["_provenance"] == "PREDICTED" for p in preds)
     assert all(p["validated_by_experiments"] is False for p in preds)
     # 3) supervisor decision recorded before dispatch; command acked by the device
-    cmds = [c for c in o.store.list("command") if c["action"] != "HEARTBEAT"]
+    cmds = [c for c in o.records("command") if c["action"] != "HEARTBEAT"]
     assert cmds and cmds[0]["status"] in ("ACCEPTED", "COMPLETED") and cmds[0]["counts_as_executed"]
     # 4) outcome is MEASURED-in-simulation (SIMULATED provenance), separate from predictions
-    out = o.store.get("outcome", inc.id)
+    out = o.get("outcome", inc.id)
     assert out["outcome"] == "RECOVERED" and out["command_executed"] and out["_provenance"] == "SIMULATED"
     assert out["n_fresh"] >= 60
     # 5) learning dataset gets exactly one eligible case, SIMULATED, system-labelled
@@ -100,7 +100,7 @@ def test_full_loop_detect_rank_gate_predict_supervise_dispatch_ack_verify_record
 def test_unresolved_when_the_problem_persists_is_not_recovery(stack, predictor):
     o = build(stack, predictor, fault=Hypothesis.IMBALANCE, sev=0.5, clears_below=None)
     assert run(o, lambda x: len(x.incidents_done) >= 1, 1500)
-    out = o.store.get("outcome", o.incidents_done[0].id)
+    out = o.get("outcome", o.incidents_done[0].id)
     assert out["outcome"] != "RECOVERED"
 
 
@@ -111,7 +111,7 @@ def test_diagnostic_test_path_updates_posterior_then_acts(stack, predictor):
     assert run(o, lambda x: len(x.incidents_done) >= 1 or (x.inc and x.inc.state == S.HUMAN_INSPECTION_REQUIRED), 2500)
     kinds = [l["kind"] for l in o.log]
     assert "test_result" in kinds, [l for l in o.log if l["kind"] == "gate"]
-    run_test_cmds = [c for c in o.store.list("command") if c["action"] == "RUN_TEST"]
+    run_test_cmds = [c for c in o.records("command") if c["action"] == "RUN_TEST"]
     assert run_test_cmds and run_test_cmds[0]["counts_as_executed"]    # only a COMPLETED test counts
     tr = next(l for l in o.log if l["kind"] == "test_result")
     assert tr["test"] in ("T1", "T3")
@@ -125,7 +125,7 @@ def test_device_rejection_is_not_a_recovery_and_is_not_executed(stack, predictor
                                 for h in i.history), 300)
     for _ in range(3):
         o.step()
-    failed = [c for c in o.store.list("command") if c["status"] == "REJECTED"]
+    failed = [c for c in o.records("command") if c["status"] == "REJECTED"]
     assert failed and not any(c["counts_as_executed"] for c in failed)
     # the failed command never reached recovery verification
     inc = o.incidents_done[0] if o.incidents_done else o.inc
@@ -138,10 +138,10 @@ def test_device_rejection_is_not_a_recovery_and_is_not_executed(stack, predictor
 def test_lost_acks_time_out_and_never_count_as_executed(stack, predictor):
     o = build(stack, predictor, fault=Hypothesis.IMBALANCE, sev=0.5, clears_below=1500.0)
     o.dev.drop_acks = True
-    run(o, lambda x: any(c["status"] in ("TIMEOUT", "EXPIRED") for c in x.store.list("command")), 600)
-    to = [c for c in o.store.list("command") if c["status"] in ("TIMEOUT", "EXPIRED")]
+    run(o, lambda x: any(c["status"] in ("TIMEOUT", "EXPIRED") for c in x.records("command")), 600)
+    to = [c for c in o.records("command") if c["status"] in ("TIMEOUT", "EXPIRED")]
     assert to and not any(c["counts_as_executed"] for c in to)
-    assert not any(o.store.get("outcome", i.id) and o.store.get("outcome", i.id)["outcome"] == "RECOVERED"
+    assert not any(o.get("outcome", i.id) and o.get("outcome", i.id)["outcome"] == "RECOVERED"
                    for i in o.incidents_done)
 
 

@@ -49,7 +49,8 @@ class Orchestrator:
     def __init__(self, device: SimDevice, det: BaselineDetector, tt: ThermalTracker, hm: HypothesisModel,
                  dm: DiagnosticsModel, pred: InterventionPredictor, sup: SafetySupervisor, store: Store,
                  cfg: Optional[PipelineConfig] = None, mode: Mode = Mode.SIMULATION, role: Role = Role.OPERATOR,
-                 gate_cfg: GateConfig = GateConfig()):
+                 gate_cfg: GateConfig = GateConfig(), session: str = "S0"):
+        self.session = session
         self.dev, self.det, self.tt, self.hm, self.dm, self.pred = device, det, tt, hm, dm, pred
         self.sup, self.store, self.cfg, self.mode, self.role, self.gate_cfg = sup, store, cfg or PipelineConfig(), mode, role, gate_cfg
         self.disp = CommandDispatcher(device.send_line, device.key)
@@ -78,6 +79,16 @@ class Orchestrator:
         self.last_status = "OK"
         self.tt.reset(device.sim.housing)
 
+    # ---------------- persistence (all records are scoped by session: ids restart per run) ----------------
+    def _put(self, kind: str, id, body: Dict, provenance: str, ts: Optional[float] = None) -> None:
+        self.store.put(kind, f"{self.session}/{id}", {**body, "session": self.session}, provenance, ts)
+
+    def get(self, kind: str, id):
+        return self.store.get(kind, f"{self.session}/{id}")
+
+    def records(self, kind: str) -> List[Dict]:
+        return [d for d in self.store.list(kind) if d.get("session") == self.session]
+
     # ---------------- logging ----------------
     @property
     def now(self) -> float:
@@ -93,7 +104,7 @@ class Orchestrator:
         after = self.inc.fire(ev)
         self._log("transition", frm=before.value, event=ev.value, to=after.value)
         if self.inc:
-            self.store.put("incident", self.inc.id, {"state": self.inc.state.value, "history":
+            self._put("incident", self.inc.id, {"state": self.inc.state.value, "history":
                            [(a.value, b.value, c.value) for a, b, c in self.inc.history]}, Provenance.SIMULATED.value, self.now)
         return after
 
@@ -112,7 +123,7 @@ class Orchestrator:
     # ---------------- command path (ONLY via supervisor) ----------------
     def _propose(self, p: ProposedAction) -> Optional[CommandRecord]:
         d = self.sup.check(p, self._ctx())
-        self.store.put("decision", f"{self.now:.0f}-{p.action.value}-{len(self.log)}",
+        self._put("decision", f"{self.now:.0f}-{p.action.value}-{len(self.log)}",
                        {"proposal": p.model_dump(mode="json"), "verdict": d.verdict.value, "reasons": d.reasons,
                         "mandatory_stop": d.mandatory_stop}, Provenance.SIMULATED.value, self.now)
         self._log("supervisor", action=p.action.value, verdict=d.verdict.value, reasons=d.reasons)
@@ -124,7 +135,7 @@ class Orchestrator:
         return None
 
     def _persist_cmd(self, rec: CommandRecord) -> None:
-        self.store.put("command", str(rec.id), {"action": rec.action.value, "params": rec.params, "status": rec.status.value,
+        self._put("command", str(rec.id), {"action": rec.action.value, "params": rec.params, "status": rec.status.value,
                        "reason": rec.reason, "history": rec.history, "incident": rec.incident_id,
                        "counts_as_executed": rec.counts_as_executed()}, Provenance.SIMULATED.value, self.now)
 
@@ -315,7 +326,7 @@ class Orchestrator:
                         op_point_familiar=self.last_status in ("OK", "INTERPOLATED", "FROZEN"))
         dec = decide(gi, self.gate_cfg)
         self.last_gate = dec
-        self.store.put("decision", f"gate-{self.now:.0f}", {"verdict": dec.verdict.value, "reason": dec.reason, "test": dec.test,
+        self._put("decision", f"gate-{self.now:.0f}", {"verdict": dec.verdict.value, "reason": dec.reason, "test": dec.test,
                        "inputs": dec.inputs, "c2_trust": trust.reasons}, Provenance.SIMULATED.value, self.now)
         self._log("gate", verdict=dec.verdict.value, reason=dec.reason, test=dec.test)
         v = dec.verdict
@@ -350,7 +361,7 @@ class Orchestrator:
         ranked = self.pred.compare(self.post, st, self.cfg.reduce_fraction * sp)
         self.last_comparison = ranked
         for p in ranked:
-            self.store.put("prediction", f"{self.now:.0f}-{p.action}", {
+            self._put("prediction", f"{self.now:.0f}-{p.action}", {
                 "action": p.action, "target_rpm": p.target_rpm, "risk": p.risk, "risk_by_signal": p.risk_by_signal,
                 "mean_at_30_60_120": {s: [float(p.mean[s][i - 1]) for i in (30, 60, 120)] for s in p.mean},
                 "lo_120": {s: float(p.lo[s][-1]) for s in p.lo}, "hi_120": {s: float(p.hi[s][-1]) for s in p.hi},
@@ -460,7 +471,7 @@ class Orchestrator:
                "observed": a.observed, "n_fresh": a.n_fresh, "command": cmd.id if cmd else None,
                "command_executed": executed, "action": cmd.action.value if cmd else None,
                "predicted_top": self.last_comparison[0].action if self.last_comparison else None}
-        self.store.put("outcome", self.inc.id, out, Provenance.SIMULATED.value, self.now)
+        self._put("outcome", self.inc.id, out, Provenance.SIMULATED.value, self.now)
         if self.post is None or a.outcome not in (RecoveryOutcome.RECOVERED, RecoveryOutcome.UNRESOLVED):
             return
         zs = self._evidence()
@@ -471,7 +482,7 @@ class Orchestrator:
         case = CaseRecord(self.inc.id, Provenance.SIMULATED, label, src, a.outcome, executed,
                           all(w.valid for w in self.buf[-30:]), zs)
         self.cases.append(case)
-        self.store.put("case", case.id, {"label": label.value, "label_source": src.value, "outcome": a.outcome.value,
+        self._put("case", case.id, {"label": label.value, "label_source": src.value, "outcome": a.outcome.value,
                        "executed": executed}, Provenance.SIMULATED.value, self.now)
 
 

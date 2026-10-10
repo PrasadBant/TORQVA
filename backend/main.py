@@ -286,6 +286,37 @@ app.add_middleware(
 
 
 # ==========================================
+# TORQVA (simulation-first intelligence layer). Fail closed: disabled until TORQVA_TOKENS is configured.
+# ==========================================
+try:
+    from torqva.api import create_router as _torqva_router
+    from torqva.auth import TokenAuth as _TokenAuth
+    from torqva.service import SimulationService as _SimService
+    try:
+        _torqva_auth = _TokenAuth.from_env()
+    except Exception as _e:          # malformed config must never open the API
+        logger.error(f"TORQVA_TOKENS invalid ({_e}); TORQVA API stays disabled")
+        _torqva_auth = _TokenAuth([])
+    app.include_router(_torqva_router(_SimService(), _torqva_auth))
+except ImportError as _e:             # numpy etc. missing: legacy monitor keeps working
+    logger.warning(f"TORQVA layer not loaded: {_e}")
+    _torqva_auth = None
+
+
+def _require_operator_if_auth_configured(request: Request) -> None:
+    """Opt-in hardening of the legacy motor endpoint: once TORQVA_TOKENS is set, motor control needs an operator token.
+    With no tokens configured the legacy (unauthenticated) behaviour is unchanged."""
+    if _torqva_auth is None or not _torqva_auth.configured:
+        return
+    h = request.headers.get("authorization", "")
+    p = _torqva_auth.authenticate(h[7:].strip() if h.lower().startswith("bearer ") else None)
+    if p is None:
+        raise HTTPException(status_code=401, detail="motor control requires a bearer token", headers={"WWW-Authenticate": "Bearer"})
+    if not p.at_least(__import__("torqva.schemas", fromlist=["Role"]).Role.OPERATOR):
+        raise HTTPException(status_code=403, detail="motor control requires role operator")
+
+
+# ==========================================
 # REST API ENDPOINTS
 # ==========================================
 
@@ -490,12 +521,13 @@ async def ingest_telemetry(payload: TelemetryPayload, request: Request):
 # ==========================================
 
 @app.post("/api/motor", response_model=Dict[str, Any])
-async def control_motor(req: MotorControlRequest):
+async def control_motor(req: MotorControlRequest, request: Request):
     """
     Dispatches motor ON/OFF command to ESP32 over the existing TCP 5001 socket stream.
     Validates command, verifies active TCP connection, sends 'MOTOR_ON\n' or 'MOTOR_OFF\n',
     awaits ESP32 ACK, and broadcasts result over WebSocket.
     """
+    _require_operator_if_auth_configured(request)
     cmd_clean = req.command.strip().upper()
     if cmd_clean in ["ON", "MOTOR_ON", "1"]:
         tcp_cmd = "MOTOR_ON"
