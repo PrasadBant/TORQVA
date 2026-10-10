@@ -253,3 +253,7 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 
 * Root cause (evidence): not TORQVA. With the backend stopped, a minimal pyserial open of COM7 failed identically; `SERIALCOMM` maps `\Device\Serial2` to COM7 and a read-only handle scan showed the Arduino IDE helper `serial-monitor.exe` (PID 34684, child of the arduino-cli daemon) holding it. Driver status was OK (`CM_PROB_NONE`). Operator action: quit the Arduino IDE (or disconnect its Serial Monitor), then reconnect from the Device page.
 * TORQVA fixes found while auditing: connect requests are serialised (a concurrent second request used to be able to overwrite the first one's state), open errors are classified from the exact error text with recovery steps (no false "port in use"), handshake timeout/invalid diagnostics, backend shutdown releases the port, 409 for repeated connects. Tests: 22 new backend, 2 frontend. Handshake with the real board NOT verified (the port could not be opened).
+
+## Session 18 - firmware bring-up preparation (no upload)
+
+* New env `esp32s3_uart` (serial on UART0 = CH343 port): with `esp32s3` the frames would go to the native USB port and COM7 would stay silent. Both build; artifacts and hashes in `docs/TORQVA_HARDWARE_READINESS.md` (Phase 18). Frames from the real firmware core pass the real backend validator; legacy text is still rejected. Board model unconfirmed; nothing flashed, COM7 not opened. Backend 602 passed.

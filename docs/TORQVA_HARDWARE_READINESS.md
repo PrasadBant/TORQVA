@@ -303,3 +303,39 @@ Opening a real COM port, USB-CDC reconnect behaviour, real frame rates and timin
 
 ### Remaining blockers (unchanged)
 Secure device transport/session (TLS client on the device), independent hardware E-stop and wiring contract, default-off driver/relay hardware across reset, approved current/voltage/temperature/overspeed limits, approved watchdog timeout and an executed on-target test, retiring or porting the legacy sketch. **Physical START and speed commands stay blocked.**
+
+## Phase 18 - moving the board from the legacy sketch to the supported firmware (preparation only; NOTHING flashed, COM7 not opened)
+
+**Status: `TARGET COMPILE VERIFIED`, `SOFTWARE TESTED` (frames from the real C++ core pass the real backend validator). `ON-TARGET BEHAVIOR UNVERIFIED`, board model UNCONFIRMED, `PHYSICAL OPERATION PROHIBITED`.**
+
+### Which PlatformIO environment
+| Env | Serial goes to | Use when |
+|---|---|---|
+| `esp32s3` | the ESP32-S3's **native USB** port (`ARDUINO_USB_CDC_ON_BOOT=1`) | you connect the board's native USB connector; it appears as a *different* COM port ("USB JTAG/serial" or similar), not the CH343 one |
+| `esp32s3_uart` (new) | **UART0 = the CH343 bridge port** (`ARDUINO_USB_CDC_ON_BOOT=0`) | you connect through the "UART/COM" connector, i.e. the port Windows names `USB-Enhanced-SERIAL CH343 (COM7)`, which is where the legacy sketch's text appeared |
+Reason for the new environment: with `esp32s3` the TORQVA frames would be sent to the native USB port and the CH343/COM7 line would stay **silent**. Everything else is identical (control disabled, interlocks strict, no secrets). Both environments declare `board = esp32-s3-devkitc-1`, 16 MB flash and `qio_opi` (octal PSRAM) memory: that matches an **N16R8** module only. The CH343 name identifies the USB-to-serial chip, not the ESP32 module, so **the board model is not confirmed**. A mismatch (for example an 8 MB / no-PSRAM module) can make the image fail to boot; do not change the target to make a build pass.
+
+### Build results (this session; no upload)
+`python -m platformio test -e native`: 101/101. `python -m platformio run -e esp32s3`: SUCCESS (flash 9.6 %). `python -m platformio run -e esp32s3_uart`: SUCCESS (RAM 6.2 %, flash 10.0 %). Artifact for COM7 (UART bridge): `esp32/torqva_fw/.pio/build/esp32s3_uart/firmware.bin`, 334 192 bytes, SHA-256 `136e81366d4e52d576477061a27bada1306ed10f44e2c014698893788186eefc` (also `bootloader.bin`, `partitions.bin` and `firmware.elf` in the same folder). Native-USB variant: `.pio/build/esp32s3/firmware.bin`, 320 256 bytes, SHA-256 `ebfa20011caa1b2b4ec5420ecb9560d1451c174f4dfce5d4629ae137435c6a74`. The `.pio` folder is git-ignored; re-run the hash after any rebuild. The ELF contains `"proto":%u`, `NO_SECURE_SESSION`, `LIMITS_NOT_APPROVED`, `RESET_FAULT` and the device id `UNPROVISIONED`, and contains no `MOTOR_ON`, `smart_motor` or `BTS7960` strings (test `test_built_artifact_is_torqva_firmware_not_the_legacy_sketch`). It does contain the placeholder key `dev-key-change-me` (default; control is disabled and a control-enabled build with it is a compile error).
+
+### Protocol compatibility (verified in software)
+Every `fast`, `slow` and `status` line emitted by the real firmware core (host build) passes `parse_frame`; the status frame carries `proto` 1, `dev`, `blk` and `fm`; the sequence is gapless; frames are <= 287 bytes. The legacy text (`--- OVERALL CONDITION ---`, `STATUS : MOTOR OFF`, `[MOTOR] ...`) and status frames without `proto` are rejected, and nothing was loosened. This is a **protocol test, not a USB connection**: the fitl host build runs the firmware logic, not the ESP32 image. Identity: the default id is `UNPROVISIONED`, so the backend reports the identity as *unverified* until a per-unit `-DTORQVA_DEVICE_ID=\"...\"` and a matching expected id are used.
+
+### Expected behaviour right after a future flash (so it is not misread)
+* The ROM boot log on UART0 appears first and is rejected as malformed lines: normal.
+* Control is disabled and the interlocks refuse START/speed (`blk` shows `LIMITS_NOT_APPROVED`, then others); the motor outputs are off.
+* **A bare board with no sensors wired will latch `SENSOR_INVALID`** after 500 ms (critical signals current/voltage/housing are invalid): that is the fail-safe working, not a bug. The Device page will show the latched fault and `PHYSICAL DEVICE` only because the status frame says `mode: HW`.
+* A watchdog/brown-out reset latches `RESET_FAULT` until an intentional reset.
+
+### Procedure (nothing below was executed)
+1. **Confirm the module.** Read the label on the metal shield (for example `ESP32-S3-WROOM-1-N16R8`: 16 MB flash, 8 MB octal PSRAM). Note which USB connector you use (UART/COM versus native USB). Optional read-only check after step 2: `python -m esptool --port COM7 flash_id` and `chip_id` (these enter the bootloader and read; they do not write).
+2. **Free the port.** Quit the Arduino IDE completely (its `serial-monitor.exe` holds COM7), close other serial programs, disconnect the TORQVA Device page (Disconnect) so the backend releases the port.
+3. **Isolate the motor.** Motor-driver power supply physically disconnected (not just switched off); the BTS7960 and relay must not be powered. Prefer a bare ESP32 on the bench.
+4. **Select the artifact.** UART bridge (COM7): `esp32s3_uart`. Re-run `python -m platformio run -e esp32s3_uart` and compare the SHA-256 above.
+5. **Verify upload settings** for your module: board, 16 MB flash and `qio_opi` for an N16R8; if the module differs, stop and decide the correct settings first.
+6. **Pre-flash checklist:** steps 1-5 done; motor power isolated; no other program owns COM7; you accept that the legacy sketch will be overwritten (optionally back it up first with `esptool read_flash`); an independent person or a written note records the authorisation.
+7. **Authorisation gate:** the upload command is `python -m platformio run -e esp32s3_uart -t upload --upload-port COM7`. It is **not to be run until you explicitly authorise it in a separate message**.
+8. **After an authorised upload:** open the Device page, Connect COM7, wait for the handshake; check that the identity, firmware 3.0.0, wire protocol 1, `blk` and the latched `SENSOR_INVALID` (bare board) are shown; confirm no command was sent.
+9. **Only then** treat the device as `PHYSICAL DEVICE` (the website does this automatically after a valid status frame with `mode: HW`); physical START and speed commands stay blocked.
+
+Remaining blockers are unchanged (secure transport/session, independent E-stop and reset-safe driver circuitry, approved limits, watchdog on-target verification, legacy sketch retirement, board model confirmation).

@@ -32,7 +32,7 @@ def test_no_platformio_environment_builds_the_legacy_sketch():
     assert "firmware/" not in INI and "smart_motor_monitor" not in INI
     assert "src_dir" not in INI and "src_filter" not in INI.replace("build_src_filter", "")
     for env in re.findall(r"^\[env:(\w+)\]", INI, re.M):
-        assert env in ("native", "fitl", "esp32s3"), env
+        assert env in ("native", "fitl", "esp32s3", "esp32s3_uart"), env
 
 
 def test_user_facing_docs_that_describe_uploading_the_sketch_carry_the_warning():
