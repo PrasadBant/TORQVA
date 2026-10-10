@@ -56,6 +56,21 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
         service.store.audit(kind, p.user, {"role": p.role.value, **detail})
 
     # ---------------- reads (viewer) ----------------
+    @r.get("/me")
+    def me(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        return {"user": p.user, "role": p.role.value}
+
+    @r.get("/evaluation/latest")
+    def evaluation_latest(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        """Newest EvaluationRun JSON from docs/eval (read-only artifact). SIMULATED unless it says otherwise."""
+        import json
+        from pathlib import Path
+        d = Path(__file__).resolve().parents[2] / "docs" / "eval"
+        files = sorted(d.glob("*.json"), key=lambda f: f.stat().st_mtime) if d.exists() else []
+        if not files:
+            raise HTTPException(404, "no evaluation run found")
+        return {"file": files[-1].name, "run": json.loads(files[-1].read_text())}
+
     @r.get("/status")
     def get_status(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         return service.state()

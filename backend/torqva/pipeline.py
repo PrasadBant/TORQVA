@@ -297,7 +297,8 @@ class Orchestrator:
         if len(zs) < n:
             return
         self.post = self.hm.posterior(zs)
-        self._log("hypotheses", ranked=[(h.value, round(p, 3)) for h, p in self.post.ranked()[:3]], label=self.post.label())
+        self._log("hypotheses", ranked=[(h.value, round(p, 4)) for h, p in self.post.ranked()], label=self.post.label(),
+                  n_windows=self.post.n_windows)
         self._fire(E.HYPOTHESES_RANKED)
 
     def _state_summary(self) -> StateSummary:
@@ -392,7 +393,7 @@ class Orchestrator:
             name = self.test_running
             obs = self._test_observation(name)
             self.post = self.dm.update(self.post, name, obs)
-            self._log("test_result", test=name, obs=obs.tolist(), posterior=[(h.value, round(p, 3)) for h, p in self.post.ranked()[:3]])
+            self._log("test_result", test=name, obs=obs.tolist(), posterior=[(h.value, round(p, 4)) for h, p in self.post.ranked()])
             self.test_running = None
             self.post_override = True
             self._fire(E.TEST_COMPLETED)

@@ -162,3 +162,10 @@ def test_legacy_motor_endpoint_unchanged_when_auth_not_configured(monkeypatch):
     from fastapi.testclient import TestClient as TC
     monkeypatch.setattr(main, "_torqva_auth", TokenAuth([]))
     assert TC(main.app).post("/api/motor", json={"command": "ON"}).status_code == 503
+
+
+def test_me_and_evaluation_endpoints(service):
+    c = client(service, ENTRIES)
+    assert c.get("/api/torqva/me", headers=H("o-tok")).json() == {"user": "olga", "role": "operator"}
+    r = c.get("/api/torqva/evaluation/latest", headers=H("v-tok"))
+    assert r.status_code == 200 and r.json()["run"]["data_provenance"] == "SIMULATED"
