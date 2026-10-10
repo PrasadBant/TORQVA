@@ -27,6 +27,11 @@ using namespace torqva;
 #ifndef TORQVA_LIMITS_APPROVED
 #define TORQVA_LIMITS_APPROVED 0
 #endif
+//  TORQVA_TRANSPORT_SECURED   1 only when the command link runs over an authenticated, confidential, replay-protected channel. The built-in protocol does NOT
+//                             provide that (plaintext shared key; a captured command can be replayed after a reboot), so this stays 0 and motor commands are refused.
+#ifndef TORQVA_TRANSPORT_SECURED
+#define TORQVA_TRANSPORT_SECURED 0
+#endif
 #ifndef TORQVA_ESTOP_INPUT_WIRED
 #define TORQVA_ESTOP_INPUT_WIRED 0
 #endif
@@ -198,6 +203,9 @@ void setup() {
     outputs_off();                                     // FIRST: motor off before anything can fail
     pinMode(PIN_BUTTON, INPUT_PULLUP);
     Serial.begin(115200);
+#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+    Serial.setTxTimeoutMs(0);                          // a stalled or absent USB host must never block the loop that parses STOP: telemetry is dropped instead
+#endif
     pwm_begin();
     pwm_write(0);
 
@@ -223,6 +231,7 @@ void setup() {
     cfg.kp = 0.01f; cfg.ki = 0.03f;                    // placeholders: tune during commissioning
     cfg.limits_approved = (TORQVA_LIMITS_APPROVED != 0);
     cfg.estop_input_wired = (TORQVA_ESTOP_INPUT_WIRED != 0);
+    cfg.transport_secured = (TORQVA_TRANSPORT_SECURED != 0);
     cfg.relaxed_interlocks = false;                    // strict: hardware builds never relax the start interlocks
     // max_rpm and vib_rms_stop_g stay 0 (= not commissioned) until a human sets them.
     g_dev = new Device(default_limits(), cfg);

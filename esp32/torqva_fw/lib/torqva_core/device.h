@@ -25,6 +25,7 @@ struct DeviceConfig {
     // independent E-stop input is wired and declared. Only host simulation (SimPlant / fitl / tests) sets relaxed_interlocks.
     bool limits_approved;
     bool estop_input_wired;
+    bool transport_secured;      // declared by the deployment; the serial/TCP protocol itself has a plaintext shared key and no challenge, so this stays false until a secured channel exists
     bool relaxed_interlocks;
 };
 

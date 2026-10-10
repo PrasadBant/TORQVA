@@ -228,3 +228,8 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 
 * The code quoted in the brief is not in the repository; the PlatformIO firmware (`torqva_fw`) already had a latching monitor. Added start interlocks (strict by default; stock hardware build cannot energise the motor), all-cause fault mask, sensor freshness, task watchdog with progress-based feeding, bounded lock, serial remainder discard. Details and open blockers: `docs/TORQVA_HARDWARE_READINESS.md` (Phase 15). No independent E-stop pin exists, so none was invented.
 * Native 81/81, fitl contract 16/16, conformance 4/4, ESP32-S3 compile OK (compile only). Legacy Arduino sketch unauthenticated `MOTOR_ON` documented as unusable for actuation.
+
+## Session 13 - Phase 15 follow-up: traceability, legacy quarantine, transport interlock (no hardware)
+
+* Traceability table (property -> production function -> test) in `docs/TORQVA_HARDWARE_READINESS.md`. New `TRANSPORT_NOT_SECURED` interlock (default build refuses motor commands: plaintext shared key, no nonce, replay possible across a reboot). 7 more native tests (88 total), legacy sketch `#error` quarantine + README + doc warnings + 9 static tests, fail-closed config checks, USB TX timeout so a stalled host cannot block STOP parsing.
+* Classification: software tested, ESP32-S3 compile verified, hardware NOT validated, physical operation prohibited until blockers are closed.

@@ -10,6 +10,10 @@ The Smart Motor Condition Monitoring System continuously measures motor health a
 
 ---
 
+> **WARNING - the legacy sketch is quarantined.** `smart_motor_monitor.ino` accepts an unauthenticated TCP `MOTOR_ON` and energises the motor with no interlocks or watchdog.
+> It will not compile unless `TORQVA_LEGACY_UNSAFE_ACKNOWLEDGED` is defined, and must not be uploaded to a rig with motor power connected. The supported firmware is
+> `esp32/torqva_fw` (PlatformIO). See `esp32/firmware/README_LEGACY_UNSAFE.md` and `docs/TORQVA_HARDWARE_READINESS.md`.
+
 ## 2. Hardware Used & ESP32-S3 Details
 
 ### Core Processing Unit

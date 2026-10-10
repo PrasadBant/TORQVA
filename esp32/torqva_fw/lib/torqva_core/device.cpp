@@ -95,6 +95,7 @@ const char* Device::start_blocked_reason(uint32_t now_ms) const {
     StartInterlockInputs s;
     s.initialized = have_in_;
     s.limits_approved = cfg_.limits_approved;
+    s.transport_secured = cfg_.transport_secured;
     s.estop_input_wired = cfg_.estop_input_wired;
     s.estop_active = have_in_ && last_in_.external_estop;
     s.watchdog_active = watchdog_active_;

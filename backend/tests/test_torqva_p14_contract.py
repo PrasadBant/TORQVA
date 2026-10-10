@@ -172,7 +172,7 @@ def test_strict_firmware_refuses_motor_commands_until_both_commissioning_decisio
         assert a[0]["status"] == "REJECTED" and a[0]["reason"] == "LIMITS_NOT_APPROVED"
     finally:
         d.close()
-    d = strict_ready("--approved")
+    d = strict_ready("--approved", "--secured")
     try:
         assert acks(d.cmd("SET_SPEED", 1500))[0]["reason"] == "ESTOP_INPUT_NOT_VERIFIED"
     finally:
@@ -180,12 +180,12 @@ def test_strict_firmware_refuses_motor_commands_until_both_commissioning_decisio
 
 
 def test_strict_firmware_start_requires_an_active_watchdog_and_then_runs_with_every_interlock_verified():
-    d = strict_ready("--approved", "--estop-wired", "--no-wdt")
+    d = strict_ready("--approved", "--estop-wired", "--secured", "--no-wdt")
     try:
         assert acks(d.cmd("START", 30))[0]["reason"] == "WATCHDOG_NOT_ACTIVE"
     finally:
         d.close()
-    d = strict_ready("--approved", "--estop-wired")
+    d = strict_ready("--approved", "--estop-wired", "--secured")
     try:
         a = acks(d.cmd("START", 30))
         assert a[0]["status"] == "ACCEPTED"
@@ -198,7 +198,7 @@ def test_strict_firmware_start_requires_an_active_watchdog_and_then_runs_with_ev
 
 
 def test_strict_firmware_never_blocks_stop_and_never_restarts_after_a_fault():
-    d = strict_ready("--approved", "--estop-wired")
+    d = strict_ready("--approved", "--estop-wired", "--secured")
     try:
         d.cmd("START", 30)
         for _ in range(2):

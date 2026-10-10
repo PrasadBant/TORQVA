@@ -156,7 +156,7 @@ void test_non_finite_non_critical_signal_does_not_trip_and_cannot_mask_a_real_li
 // ---------------- Start interlock (pure logic) ----------------
 static StartInterlockInputs all_ok() {
     StartInterlockInputs i = {};
-    i.initialized = i.limits_approved = i.estop_input_wired = i.watchdog_active = true;
+    i.initialized = i.limits_approved = i.transport_secured = i.estop_input_wired = i.watchdog_active = true;
     i.estop_active = false; i.safety_state = SafetyState::OK;
     i.required_sensors_valid = i.telemetry_fresh = i.link_ok = true;
     return i;
@@ -168,6 +168,7 @@ void test_interlock_blocks_each_unverified_condition_with_its_own_reason() {
     StartInterlockInputs i;
     i = all_ok(); i.initialized = false;            TEST_ASSERT_EQUAL_STRING("NOT_INITIALIZED", start_interlock_reason(i));
     i = all_ok(); i.limits_approved = false;        TEST_ASSERT_EQUAL_STRING("LIMITS_NOT_APPROVED", start_interlock_reason(i));
+    i = all_ok(); i.transport_secured = false;     TEST_ASSERT_EQUAL_STRING("TRANSPORT_NOT_SECURED", start_interlock_reason(i));
     i = all_ok(); i.estop_input_wired = false;      TEST_ASSERT_EQUAL_STRING("ESTOP_INPUT_NOT_VERIFIED", start_interlock_reason(i));
     i = all_ok(); i.estop_active = true;            TEST_ASSERT_EQUAL_STRING("ESTOP_ACTIVE", start_interlock_reason(i));
     i = all_ok(); i.watchdog_active = false;        TEST_ASSERT_EQUAL_STRING("WATCHDOG_NOT_ACTIVE", start_interlock_reason(i));

@@ -10,13 +10,13 @@
 
 using namespace torqva;
 
-static DeviceConfig sim_cfg(bool control = true, bool relaxed = true, bool approved = false, bool wired = false) {
+static DeviceConfig sim_cfg(bool control = true, bool relaxed = true, bool approved = false, bool wired = false, bool secured = false) {
     DeviceConfig c = {};
     c.fw_version = "3.0.0-test"; c.wiring_id = "SIM"; c.mode = "SIM";
     strcpy(c.key, "sim-key");
     c.control_enabled = control; c.kp = 0.01f; c.ki = 0.03f;
     c.relaxed_interlocks = relaxed;                    // host simulation relaxes the start interlocks; the strict tests below do not
-    c.limits_approved = approved; c.estop_input_wired = wired;
+    c.limits_approved = approved; c.estop_input_wired = wired; c.transport_secured = secured;
     return c;
 }
 static Limits sim_limits() {
@@ -35,8 +35,8 @@ struct Rig {
     uint32_t last_hb_t;
     std::vector<std::string> out;
 
-    explicit Rig(bool control = true, const Limits& l = sim_limits(), bool relaxed = true, bool approved = false, bool wired = false)
-        : dev(l, sim_cfg(control, relaxed, approved, wired)), t(0), next_id(1), next_seq(1), button(false), auto_hb(true), last_hb_t(0) {
+    explicit Rig(bool control = true, const Limits& l = sim_limits(), bool relaxed = true, bool approved = false, bool wired = false, bool secured = false)
+        : dev(l, sim_cfg(control, relaxed, approved, wired, secured)), t(0), next_id(1), next_seq(1), button(false), auto_hb(true), last_hb_t(0) {
         act.driver_enable = false; act.duty_pct = 0; act.relay_on = false;
     }
     void drain() {
@@ -93,7 +93,7 @@ static std::string start_reason(Rig& r) {
 static void ready(Rig& r) { r.dev.set_watchdog_active(true); r.run(300); r.send("HEARTBEAT"); r.last_hb_t = r.t; }   // a few control cycles, then an authorised heartbeat
 
 void test_strict_start_refused_until_limits_approved() {
-    Rig r(true, sim_limits(), false, /*approved*/ false, /*wired*/ true); ready(r);
+    Rig r(true, sim_limits(), false, /*approved*/ false, /*wired*/ true, /*secured*/ true); ready(r);
     TEST_ASSERT_EQUAL_STRING("LIMITS_NOT_APPROVED", start_reason(r).c_str());
     r.run(500);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, r.act.duty_pct);                 // nothing was energised
@@ -101,32 +101,32 @@ void test_strict_start_refused_until_limits_approved() {
 }
 
 void test_strict_start_refused_until_an_estop_input_is_declared_wired() {
-    Rig r(true, sim_limits(), false, true, /*wired*/ false); ready(r);
+    Rig r(true, sim_limits(), false, true, /*wired*/ false, /*secured*/ true); ready(r);
     TEST_ASSERT_EQUAL_STRING("ESTOP_INPUT_NOT_VERIFIED", start_reason(r).c_str());
 }
 
 void test_strict_start_refused_while_the_watchdog_is_not_active() {
-    Rig r(true, sim_limits(), false, true, true); r.run(300);       // watchdog NOT reported active
+    Rig r(true, sim_limits(), false, true, true, /*secured*/ true); r.run(300);       // watchdog NOT reported active
     TEST_ASSERT_EQUAL_STRING("WATCHDOG_NOT_ACTIVE", start_reason(r).c_str());
 }
 
 void test_strict_start_refused_before_the_first_control_cycle() {
-    Rig r(true, sim_limits(), false, true, true); r.dev.set_watchdog_active(true);
+    Rig r(true, sim_limits(), false, true, true, /*secured*/ true); r.dev.set_watchdog_active(true);
     TEST_ASSERT_EQUAL_STRING("NOT_INITIALIZED", start_reason(r).c_str());
 }
 
 void test_strict_start_refused_without_an_authorised_heartbeat() {
-    Rig r(true, sim_limits(), false, true, true); r.dev.set_watchdog_active(true);
+    Rig r(true, sim_limits(), false, true, true, /*secured*/ true); r.dev.set_watchdog_active(true);
     r.auto_hb = false; r.run(300);
     TEST_ASSERT_EQUAL_STRING("NO_HEARTBEAT", start_reason(r).c_str());
 }
 
 void test_strict_start_refused_on_stale_telemetry_and_wrap_safe() {
-    Rig r(true, sim_limits(), false, true, true); ready(r);
+    Rig r(true, sim_limits(), false, true, true, /*secured*/ true); ready(r);
     r.t += 600;                                                      // control loop silent for 600 ms; heartbeat window (2 s) still open
     TEST_ASSERT_EQUAL_STRING("TELEMETRY_STALE", start_reason(r).c_str());
     // millis() rollover: a snapshot taken just before the wrap and a start request just after it is fresh; 600 ms later is stale.
-    Device d(sim_limits(), sim_cfg(true, false, true, true));
+    Device d(sim_limits(), sim_cfg(true, false, true, true, true));
     d.set_watchdog_active(true);
     HalIn in = {};
     in.now_ms = 0xFFFFFFF0u; in.current_valid = in.voltage_valid = in.housing_valid = in.rpm_valid = true;
@@ -139,7 +139,7 @@ void test_strict_start_refused_on_stale_telemetry_and_wrap_safe() {
 
 void test_strict_start_refused_for_invalid_nan_or_infinite_required_sensors() {
     for (int mode = 0; mode < 5; mode++) {
-        Rig r(true, sim_limits(), false, true, true); ready(r);
+        Rig r(true, sim_limits(), false, true, true, /*secured*/ true); ready(r);
         HalIn in = r.plant.step(10, r.act, false); r.t = in.now_ms;
         if (mode == 0) in.housing_c = NAN;
         else if (mode == 1) in.current_a = INFINITY;
@@ -153,7 +153,7 @@ void test_strict_start_refused_for_invalid_nan_or_infinite_required_sensors() {
 }
 
 void test_strict_start_permitted_only_when_every_interlock_passes_and_then_ramps() {
-    Rig r(true, sim_limits(), false, true, true); ready(r);
+    Rig r(true, sim_limits(), false, true, true, /*secured*/ true); ready(r);
     TEST_ASSERT_EQUAL_STRING("OK", start_reason(r).c_str());
     r.run(2000);
     TEST_ASSERT_TRUE(r.act.driver_enable);
@@ -161,14 +161,14 @@ void test_strict_start_permitted_only_when_every_interlock_passes_and_then_ramps
 }
 
 void test_stop_is_never_blocked_by_the_interlocks() {
-    Rig r(true, sim_limits(), false, false, false);                 // nothing approved, nothing initialised
+    Rig r(true, sim_limits(), false, false, false, /*secured*/ true);                 // nothing approved, nothing initialised
     r.out.clear(); r.send("STOP");
     TEST_ASSERT_TRUE(r.has("\"status\":\"ACCEPTED\""));
     TEST_ASSERT_TRUE(r.has("STOPPED"));
 }
 
 void test_latched_trip_blocks_start_and_does_not_restart_after_reset() {
-    Rig r(true, sim_limits(), false, true, true); ready(r);
+    Rig r(true, sim_limits(), false, true, true, /*secured*/ true); ready(r);
     r.send("START", 30); r.run(2000);
     TEST_ASSERT_TRUE(r.act.driver_enable);
     r.plant.faults.estop_pressed = true; r.run(100);                 // external E-stop input -> device trips
@@ -187,11 +187,96 @@ void test_latched_trip_blocks_start_and_does_not_restart_after_reset() {
 }
 
 void test_duplicate_stop_and_rejected_start_are_harmless() {
-    Rig r(true, sim_limits(), false, false, false); ready(r);
+    Rig r(true, sim_limits(), false, false, false, /*secured*/ true); ready(r);
     for (int i = 0; i < 3; i++) { r.send("STOP"); r.send("START", 30); }
     r.run(500);
     TEST_ASSERT_FALSE(r.act.driver_enable);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, r.act.duty_pct);
+}
+
+static void raw(Rig& r, const char* line) { r.dev.on_line(line, r.t); r.drain(); }
+
+void test_strict_start_refused_until_the_transport_is_declared_secured() {
+    Rig r(true, sim_limits(), false, true, true, /*secured*/ false); ready(r);
+    TEST_ASSERT_EQUAL_STRING("TRANSPORT_NOT_SECURED", start_reason(r).c_str());
+    r.run(500);
+    TEST_ASSERT_FALSE(r.act.driver_enable);
+}
+
+void test_asserted_estop_input_inhibits_start() {
+    Rig r(true, sim_limits(), false, true, true, true); ready(r);
+    r.plant.faults.estop_pressed = true; r.run(30);
+    const std::string why = start_reason(r);
+    TEST_ASSERT_TRUE(why == "ESTOP_LATCHED" || why == "ESTOP_ACTIVE");
+    TEST_ASSERT_FALSE(r.act.driver_enable);
+}
+
+void test_power_up_state_is_off_and_never_starts_by_itself() {
+    Rig r(true, sim_limits(), false, true, true, true);                // everything permitted, but nobody asked for motion
+    r.dev.set_watchdog_active(true);
+    r.run(5000);
+    TEST_ASSERT_FALSE(r.act.driver_enable);
+    TEST_ASSERT_FALSE(r.act.relay_on);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, r.act.duty_pct);
+    TEST_ASSERT_EQUAL(DriveMode::IDLE, r.dev.drive().mode());
+}
+
+void test_stop_takes_effect_even_when_the_telemetry_queue_is_full_and_never_drained() {
+    Rig r(true, sim_limits(), false, true, true, true); ready(r);
+    r.send("START", 30); r.run(1500);
+    TEST_ASSERT_TRUE(r.act.driver_enable);
+    for (int i = 0; i < 800; i++) {                                    // 8 s of control cycles with NOBODY reading the output queue (slow/stalled logging)
+        if (i % 50 == 0) r.dev.on_line("{\"id\":9000,\"type\":\"HEARTBEAT\",\"p\":0,\"p2\":0,\"p3\":0,\"ttl\":5000,\"age\":0,\"seq\":1,\"k\":\"sim-key\"}", r.t);
+        HalIn in = r.plant.step(10, r.act, false); r.t = in.now_ms; r.act = r.dev.step(in);
+    }
+    r.dev.on_line("{\"id\":9100,\"type\":\"STOP\",\"p\":0,\"p2\":0,\"p3\":0,\"ttl\":1000,\"age\":0,\"seq\":0,\"k\":\"\"}", r.t);   // no key, no seq: STOP is never refused
+    HalIn in = r.plant.step(10, r.act, false); r.t = in.now_ms; r.act = r.dev.step(in);
+    TEST_ASSERT_FALSE(r.act.driver_enable);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, r.act.duty_pct);
+}
+
+void test_unauthenticated_malformed_oversized_and_stale_commands_are_rejected() {
+    Rig r(true, sim_limits(), false, true, true, true); ready(r);
+    r.out.clear();
+    r.send("START", 30, 0, 0, "wrong-key");
+    TEST_ASSERT_TRUE(r.has("UNAUTHORIZED"));
+    raw(r, "not json at all"); raw(r, "{\"type\":\"START\"}"); raw(r, "{\"id\":5,\"type\":\"START\",\"p\":30,\"ttl\":5000,\"seq\":50,\"k\":");   // truncated
+    std::string big(600, 'A');
+    raw(r, ("{\"id\":6,\"type\":\"START\",\"p\":30,\"ttl\":5000,\"seq\":51,\"k\":\"" + big + "\"}").c_str());                                   // oversized key
+    raw(r, "{\"id\":7,\"type\":\"START\",\"p\":30,\"p2\":0,\"p3\":0,\"ttl\":1000,\"age\":1000,\"seq\":60,\"k\":\"sim-key\"}");                     // already expired
+    raw(r, "{\"id\":8,\"type\":\"START\",\"p\":30,\"p2\":0,\"p3\":0,\"ttl\":99999,\"age\":0,\"seq\":61,\"k\":\"sim-key\"}");                        // ttl beyond the 30 s cap
+    r.run(300);
+    TEST_ASSERT_FALSE(r.act.driver_enable);                           // none of them moved the motor
+    TEST_ASSERT_TRUE(r.has("EXPIRED")); TEST_ASSERT_TRUE(r.has("BAD_TTL"));
+}
+
+void test_replayed_commands_are_not_executed_twice_and_old_sequence_numbers_are_refused() {
+    Rig r(true, sim_limits(), false, true, true, true); ready(r);
+    const char* start = "{\"id\":500,\"type\":\"START\",\"p\":30,\"p2\":0,\"p3\":0,\"ttl\":5000,\"age\":0,\"seq\":500,\"k\":\"sim-key\"}";
+    raw(r, start); r.run(1500);
+    TEST_ASSERT_TRUE(r.act.driver_enable);
+    r.send("STOP"); r.run(300);
+    TEST_ASSERT_FALSE(r.act.driver_enable);
+    raw(r, start); r.run(1500);                                       // exact replay while its id is still remembered: original ack, NOT re-executed
+    TEST_ASSERT_FALSE(r.act.driver_enable);
+    for (int i = 0; i < 20; i++) r.send("HEARTBEAT");                  // evict the id from the 16-entry duplicate cache
+    r.out.clear(); raw(r, start); r.run(500);                         // now only the sequence rule protects: seq 500 <= last
+    TEST_ASSERT_FALSE(r.act.driver_enable);
+}
+
+void test_known_limitation_a_replay_after_a_reboot_is_not_stopped_by_the_protocol_but_by_the_commissioning_interlock() {
+    const char* hb = "{\"id\":1,\"type\":\"HEARTBEAT\",\"p\":0,\"p2\":0,\"p3\":0,\"ttl\":5000,\"age\":0,\"seq\":1,\"k\":\"sim-key\"}";
+    const char* start = "{\"id\":2,\"type\":\"START\",\"p\":30,\"p2\":0,\"p3\":0,\"ttl\":5000,\"age\":0,\"seq\":2,\"k\":\"sim-key\"}";
+    Rig first(true, sim_limits(), false, true, true, /*secured*/ false); first.dev.set_watchdog_active(true);
+    first.run(300); raw(first, hb);
+    Rig rebooted(true, sim_limits(), false, true, true, false); rebooted.dev.set_watchdog_active(true);   // a fresh Device = a power cycle: sequence memory is gone
+    rebooted.run(300); rebooted.out.clear();
+    raw(rebooted, hb);
+    TEST_ASSERT_TRUE(rebooted.has("\"status\":\"ACCEPTED\""));        // the captured heartbeat IS accepted again: the protocol has no boot nonce or MAC
+    rebooted.out.clear(); raw(rebooted, start);
+    TEST_ASSERT_TRUE(rebooted.has("TRANSPORT_NOT_SECURED"));          // ... which is exactly why motion stays refused until a secured transport is declared
+    rebooted.run(500);
+    TEST_ASSERT_FALSE(rebooted.act.driver_enable);
 }
 
 // ---------- protocol ----------
@@ -528,5 +613,12 @@ int main(int, char**) {
     RUN_TEST(test_stop_is_never_blocked_by_the_interlocks);
     RUN_TEST(test_latched_trip_blocks_start_and_does_not_restart_after_reset);
     RUN_TEST(test_duplicate_stop_and_rejected_start_are_harmless);
+    RUN_TEST(test_strict_start_refused_until_the_transport_is_declared_secured);
+    RUN_TEST(test_asserted_estop_input_inhibits_start);
+    RUN_TEST(test_power_up_state_is_off_and_never_starts_by_itself);
+    RUN_TEST(test_stop_takes_effect_even_when_the_telemetry_queue_is_full_and_never_drained);
+    RUN_TEST(test_unauthenticated_malformed_oversized_and_stale_commands_are_rejected);
+    RUN_TEST(test_replayed_commands_are_not_executed_twice_and_old_sequence_numbers_are_refused);
+    RUN_TEST(test_known_limitation_a_replay_after_a_reboot_is_not_stopped_by_the_protocol_but_by_the_commissioning_interlock);
     return UNITY_END();
 }

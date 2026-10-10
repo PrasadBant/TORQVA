@@ -9,6 +9,7 @@ namespace torqva {
 struct StartInterlockInputs {
     bool initialized;            // the control loop has run at least once
     bool limits_approved;        // a human approved the safety-trip limits for THIS motor/driver/PSU (commissioning decision)
+    bool transport_secured;      // the command link is authenticated, confidential and replay-protected (the plaintext shared key alone is NOT sufficient)
     bool estop_input_wired;      // an independent emergency-stop input exists with a documented wiring contract
     bool estop_active;           // that input currently asserts stop
     bool watchdog_active;        // the task watchdog is registered for the control task

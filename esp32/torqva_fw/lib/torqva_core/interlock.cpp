@@ -5,6 +5,7 @@ namespace torqva {
 const char* start_interlock_reason(const StartInterlockInputs& in) {
     if (!in.initialized) return "NOT_INITIALIZED";
     if (!in.limits_approved) return "LIMITS_NOT_APPROVED";
+    if (!in.transport_secured) return "TRANSPORT_NOT_SECURED";
     if (!in.estop_input_wired) return "ESTOP_INPUT_NOT_VERIFIED";
     if (in.estop_active) return "ESTOP_ACTIVE";
     if (!in.watchdog_active) return "WATCHDOG_NOT_ACTIVE";

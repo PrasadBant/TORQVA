@@ -25,6 +25,16 @@
  * =========================================================================
  */
 
+// ====================== QUARANTINED LEGACY SKETCH - DO NOT UPLOAD TO A MOTOR RIG ======================
+// This sketch executes "MOTOR_ON" received over an UNAUTHENTICATED TCP socket straight into setMotorState(true) (BTS7960 enabled, PWM 200/255, no ramp),
+// and has no task watchdog, no finite-value checks, no start interlocks and no emergency-stop input. It is NOT the supported TORQVA firmware.
+// The supported firmware is esp32/torqva_fw (PlatformIO). See esp32/firmware/README_LEGACY_UNSAFE.md.
+// To compile this file anyway (bench only, motor and driver power DISCONNECTED) define TORQVA_LEGACY_UNSAFE_ACKNOWLEDGED explicitly.
+#ifndef TORQVA_LEGACY_UNSAFE_ACKNOWLEDGED
+#error "Legacy sketch quarantined: unauthenticated TCP motor control. Use esp32/torqva_fw. Define TORQVA_LEGACY_UNSAFE_ACKNOWLEDGED to override (motor power disconnected only)."
+#endif
+// ======================================================================================================
+
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_ADXL345_U.h>
