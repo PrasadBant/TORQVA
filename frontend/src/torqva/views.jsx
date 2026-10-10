@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ReferenceLine, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Play, Pause, StopCircle, Check, X } from 'lucide-react';
 import { Card, Empty, ErrorBox, Pill, PosteriorBars, ProvBadge, fmt, stateTone } from './components.jsx';
 
@@ -13,6 +13,7 @@ export function Overview({ d, role, actions, running, setRunning, busy, error })
   const s = d.status || {};
   const inc = s.incident;
   const w = s.last_window;
+  const hasSim = s.t !== undefined && s.t !== null;      // sim time is 0 right after start: do not test truthiness
   const start = () => actions.start({
     fault: form.fault === 'none' ? null : form.fault, severity: Number(form.severity), seed: Number(form.seed),
     clears_below_rpm: form.transient ? 1500 : null, require_human_approval: form.approval,
@@ -41,10 +42,10 @@ export function Overview({ d, role, actions, running, setRunning, busy, error })
           <button type="submit" className="tq-btn" disabled={!canControl(role) || busy}>Start new simulation</button>
         </form>
         <div className="tq-row">
-          <button className="tq-btn" onClick={() => setRunning(!running)} disabled={!canControl(role) || !s.t}>
+          <button className="tq-btn" onClick={() => setRunning(!running)} disabled={!canControl(role) || !hasSim}>
             {running ? <><Pause size={14} aria-hidden="true" /> Pause</> : <><Play size={14} aria-hidden="true" /> Run</>}
           </button>
-          <button className="tq-btn tq-danger" onClick={actions.stop} disabled={!s.t} aria-label="Stop motor (coast)">
+          <button className="tq-btn tq-danger" onClick={actions.stop} disabled={!hasSim} aria-label="Stop motor (coast)">
             <StopCircle size={14} aria-hidden="true" /> STOP
           </button>
         </div>
@@ -52,7 +53,7 @@ export function Overview({ d, role, actions, running, setRunning, busy, error })
       </Card>
 
       <Card title="Device" id="c-dev" right={<ProvBadge kind="SIMULATED" />}>
-        {!s.t && s.t !== 0 ? <Empty>No simulation running. Start one to see data.</Empty> : (
+        {!hasSim ? <Empty>No simulation running. Start one to see data.</Empty> : (
           <dl className="tq-kv">
             <dt>Sim time</dt><dd className="tq-num">{fmt(s.t, 0)} s</dd>
             <dt>Device safety state</dt>
@@ -85,22 +86,23 @@ export function Overview({ d, role, actions, running, setRunning, busy, error })
 export function Live({ d }) {
   const t = d.telemetry?.samples || [];
   if (!t.length) return <Card title="Live telemetry" id="c-live"><Empty>No telemetry yet. Start a simulation.</Empty></Card>;
-  const data = t.map((x) => ({ ...x, score: x.score == null ? null : Number(x.score.toFixed(3)) }));
+  const data = t.map((x) => ({ ...x, score: x.score == null || x.score <= 0 ? null : Number(x.score.toFixed(3)) }));
   const anomalous = data.filter((x) => x.score != null && x.score > 1).length;
   return (
     <div className="tq-grid">
       <Card title="Speed" id="c-rpm" right={<ProvBadge kind="SIMULATED" />}>
         <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={data}><CartesianGrid stroke="var(--tq-border)" /><XAxis dataKey="t" /><YAxis />
-            <Tooltip /><Line dataKey="rpm" stroke="var(--tq-text)" dot={false} isAnimationActive={false} name="rpm (sim)" />
+          <LineChart data={data}><CartesianGrid stroke="var(--tq-border)" /><XAxis dataKey="t" minTickGap={28} tickFormatter={(x) => `${Math.round(x)}s`} /><YAxis />
+            <Tooltip /><Legend /><Line dataKey="rpm" stroke="var(--tq-text)" dot={false} isAnimationActive={false} name="rpm (sim)" />
             <Line dataKey="setpoint" stroke="var(--tq-accent)" strokeDasharray="4 3" dot={false} isAnimationActive={false} name="setpoint" />
           </LineChart>
         </ResponsiveContainer>
       </Card>
-      <Card title="Anomaly score ÷ learned threshold" id="c-score" right={<ProvBadge kind="DERIVED" />}>
+      <Card title="Anomaly score ÷ learned threshold (log scale)" id="c-score" right={<ProvBadge kind="DERIVED" />}>
         <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={data}><CartesianGrid stroke="var(--tq-border)" /><XAxis dataKey="t" /><YAxis />
-            <Tooltip /><ReferenceLine y={1} stroke="var(--tq-crit)" label="threshold" />
+          <LineChart data={data}><CartesianGrid stroke="var(--tq-border)" /><XAxis dataKey="t" minTickGap={28} tickFormatter={(x) => `${Math.round(x)}s`} />
+            <YAxis scale="log" domain={[0.05, 'auto']} allowDataOverflow tickFormatter={(x) => (x >= 1 ? x.toFixed(0) : x.toFixed(2))} />
+            <Tooltip /><Legend /><ReferenceLine y={1} stroke="var(--tq-crit)" strokeDasharray="4 3" label={{ value: 'threshold = 1', position: 'insideTopRight', fill: 'var(--tq-crit)', fontSize: 11 }} />
             <Line dataKey="score" stroke="var(--tq-learning)" dot={false} isAnimationActive={false} connectNulls={false} name="score ratio" />
           </LineChart>
         </ResponsiveContainer>
@@ -108,8 +110,8 @@ export function Live({ d }) {
       </Card>
       <Card title="Housing temperature and vibration" id="c-th" right={<ProvBadge kind="SIMULATED" />}>
         <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={data}><CartesianGrid stroke="var(--tq-border)" /><XAxis dataKey="t" /><YAxis yAxisId="a" /><YAxis yAxisId="b" orientation="right" />
-            <Tooltip /><Line yAxisId="a" dataKey="housing" stroke="var(--tq-warn)" dot={false} isAnimationActive={false} name="housing °C" />
+          <LineChart data={data}><CartesianGrid stroke="var(--tq-border)" /><XAxis dataKey="t" minTickGap={28} tickFormatter={(x) => `${Math.round(x)}s`} /><YAxis yAxisId="a" /><YAxis yAxisId="b" orientation="right" />
+            <Tooltip /><Legend /><Line yAxisId="a" dataKey="housing" stroke="var(--tq-warn)" dot={false} isAnimationActive={false} name="housing °C" />
             <Line yAxisId="b" dataKey="vib_rms" stroke="var(--tq-accent)" dot={false} isAnimationActive={false} name="vibration g" />
           </LineChart>
         </ResponsiveContainer>
@@ -207,8 +209,8 @@ export function Decisions({ d, role, actions, error }) {
       <Card title="Commands and device acknowledgements" id="c-cmd">
         {!cmds.length ? <Empty>No commands sent.</Empty> : (
           <table className="tq-table"><thead><tr><th scope="col">#</th><th scope="col">Action</th><th scope="col">Device status</th><th scope="col">Took effect</th></tr></thead>
-            <tbody>{cmds.filter((c) => c.action !== 'HEARTBEAT').map((c) => (<tr key={c.session + c.history.join()}>
-              <td className="tq-num">{c.history.length}</td><td>{c.action}</td>
+            <tbody>{cmds.filter((c) => c.action !== 'HEARTBEAT').map((c) => (<tr key={c.session + c.id}>
+              <td className="tq-num">{c.id}</td><td>{c.action}</td>
               <td><Pill tone={['ACCEPTED', 'COMPLETED'].includes(c.status) ? 'ok' : c.status === 'PENDING' ? 'wait' : 'crit'}>{c.status}</Pill> {c.reason && <span className="tq-muted">{c.reason}</span>}</td>
               <td>{c.counts_as_executed ? 'yes (acknowledged by device)' : 'no'}</td></tr>))}</tbody></table>
         )}

@@ -18,7 +18,7 @@
 
 .tq-top { display: flex; align-items: center; gap: 14px; padding: 10px 16px; background: var(--tq-s1); border-bottom: 1px solid var(--tq-border); flex-wrap: wrap; }
 .tq-wordmark { letter-spacing: .14em; }
-.tq-body { display: grid; grid-template-columns: 210px 1fr; gap: 0; }
+.tq-body { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 0; min-height: calc(100vh - 92px); }
 .tq-body nav { border-right: 1px solid var(--tq-border); padding: 12px 8px; background: var(--tq-s1); }
 .tq-body nav ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .tq-body main { padding: 16px; min-width: 0; }
@@ -28,7 +28,7 @@
 .tq-nav:focus-visible, .tq-btn:focus-visible, .tq-shell input:focus-visible, .tq-shell select:focus-visible { outline: 2px solid var(--tq-accent); outline-offset: 2px; }
 
 .tq-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; align-items: start; }
-.tq-card { background: var(--tq-s1); border: 1px solid var(--tq-border); border-radius: 8px; padding: 14px; min-width: 0; }
+.tq-card { overflow-x: auto; background: var(--tq-s1); border: 1px solid var(--tq-border); border-radius: 8px; padding: 14px; min-width: 0; }
 .tq-card > header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
 .tq-card h3 { margin: 0; font-size: 14px; font-weight: 600; }
 .tq-card h4 { margin: 0 0 6px; font-size: 14px; }
@@ -77,11 +77,11 @@
 .tq-login label { display: grid; gap: 4px; color: var(--tq-muted); }
 
 @media (max-width: 760px) {
-  .tq-body { grid-template-columns: 1fr; }
+  .tq-body { grid-template-columns: minmax(0, 1fr); min-height: 0; }
   .tq-body nav { border-right: 0; border-bottom: 1px solid var(--tq-border); }
   .tq-body nav ul { display: flex; overflow-x: auto; }
   .tq-nav { white-space: nowrap; }
-  .tq-grid { grid-template-columns: 1fr; }
+  .tq-grid { grid-template-columns: minmax(0, 1fr); }
   .tq-bars li { grid-template-columns: 90px 1fr 54px; }
 }
 @media (prefers-reduced-motion: reduce) { .tq-shell * { transition: none !important; animation: none !important; } }

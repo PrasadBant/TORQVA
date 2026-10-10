@@ -90,6 +90,22 @@ describe('TORQVA workspace', () => {
     }
   });
 
+  it('Run and STOP are enabled when a simulation exists at sim time 0 (regression: 0 is not "no simulation")', async () => {
+    makeServer({ role: 'operator', overrides: {} });
+    setToken('tok');
+    // status with t = 0
+    const f = global.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url, o) => {
+      const r = await f(url, o);
+      if (String(url).endsWith('/status')) { const j = await r.json(); return { ok: true, status: 200, json: async () => ({ ...j, t: 0 }) }; }
+      return r;
+    }));
+    render(<TorqvaApp pollMs={100000} />);
+    await screen.findByText(/tester · /);
+    await waitFor(() => expect(screen.getByRole('button', { name: /Run/ })).toBeEnabled());
+    expect(screen.getByRole('button', { name: /Stop motor/ })).toBeEnabled();
+  });
+
   it('viewer cannot start a simulation but can always press STOP', async () => {
     await signedIn({ role: 'viewer' });
     expect(screen.getByRole('button', { name: 'Start new simulation' })).toBeDisabled();

@@ -193,7 +193,7 @@ class InterventionPredictor:
                 ok = ~np.isnan(qs)
                 q_t = np.interp(np.arange(1, H + 1), np.concatenate([[0.0], hs[ok]]), np.concatenate([[0.0], qs[ok]]))
             half = np.sqrt(np.nan_to_num(q_t, nan=0.0) ** 2 + spread[s] ** 2)
-            lo[s], hi[s] = mean[s] - half, mean[s] + half
+            lo[s], hi[s] = np.maximum(mean[s] - half, 0.0), mean[s] + half     # rpm, vibration, current, deg C-above-zero cannot be negative
         risk_by = {}
         for s, lim in self.risk_limits.items():
             sd = (hi[s] - mean[s]) / 1.645 + 1e-9

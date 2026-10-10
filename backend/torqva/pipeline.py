@@ -135,7 +135,7 @@ class Orchestrator:
         return None
 
     def _persist_cmd(self, rec: CommandRecord) -> None:
-        self._put("command", str(rec.id), {"action": rec.action.value, "params": rec.params, "status": rec.status.value,
+        self._put("command", str(rec.id), {"id": rec.id, "action": rec.action.value, "params": rec.params, "status": rec.status.value,
                        "reason": rec.reason, "history": rec.history, "incident": rec.incident_id,
                        "counts_as_executed": rec.counts_as_executed()}, Provenance.SIMULATED.value, self.now)
 
