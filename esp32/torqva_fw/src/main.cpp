@@ -15,6 +15,10 @@
 
 using namespace torqva;
 
+// A build that can drive the motor must not carry the placeholder key below: control needs an explicit -DTORQVA_KEY="...". (Compile-time guard only; no behaviour change otherwise.)
+#if defined(TORQVA_CONTROL_ENABLED) && !defined(TORQVA_KEY)
+#error "TORQVA_CONTROL_ENABLED requires an explicit -DTORQVA_KEY=\"...\": the built-in placeholder key must never be used with motor control enabled"
+#endif
 #ifndef TORQVA_KEY
 #define TORQVA_KEY "dev-key-change-me"     // TODO(Phase 4): load from NVS, never commit a real key
 #endif

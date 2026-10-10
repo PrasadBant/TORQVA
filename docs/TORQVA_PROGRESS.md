@@ -217,3 +217,9 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 * Audit and fixes in `docs/TORQVA_SECURITY_AUDIT.md`: input validation (no 500 on malformed/non-finite input, bounded payloads), service lock taken per simulated second (STOP never queued), dispatcher ack hardening (no re-open/re-send, malformed acks ignored), `measurement_not_finite` mandatory-stop reason, legacy device/baseline route credentials (opt-in `TORQVA_DEVICE_KEY`, operator for baseline), CORS allow-list, frontend out-of-order polling guard.
 * `trio`: not a dependency; the TCP-server tests run on the asyncio backend only (the server is asyncio-only). The two previously failing tests now pass. Backend suite: 446 passed.
 * Residual: legacy open mode and the unauthenticated TCP port remain until the hardware phase; listed in the audit.
+
+## Session 11 - Phase 14: firmware and integration readiness (no hardware, nothing flashed)
+
+* Native firmware tests 67/67; ESP32-S3 default build SUCCESS (toolchain download now works); control-enabled build with the placeholder key fails by design (new `#error` guard), with an explicit key it compiles (compile check only). Conformance 4/4; new telemetry/command contract tests (9) run against the real C++ frames.
+* Firmware safety logic now treats NaN/infinite readings as invalid (mutation-checked); no thresholds changed.
+* Not verified: any backend consumer of firmware frames, wiring/electrical assumptions, target runtime behaviour, a task watchdog. See `docs/TORQVA_HARDWARE_READINESS.md` for the checklist before supervised commissioning.

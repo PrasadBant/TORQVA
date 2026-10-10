@@ -122,6 +122,36 @@ void test_critical_sensor_invalid_trips_after_500ms() {
     TEST_ASSERT_EQUAL(TripReason::SENSOR_INVALID, m.update(in).reason);
 }
 
+// A NaN / infinite value flagged "valid" must be treated as invalid (it compares false against every limit, so it would otherwise read as healthy).
+void test_non_finite_critical_signal_is_invalid_and_trips_after_500ms() {
+    const float bad[] = {(float)NAN, (float)INFINITY, (float)-INFINITY};
+    for (float v : bad) {
+        for (int sig = 0; sig < 4; sig++) {
+            SafetyMonitor m(default_limits());
+            SafetyInputs in = healthy(0);
+            if (sig == 0) in.current_a = v; else if (sig == 1) in.voltage_v = v; else if (sig == 2) in.housing_c = v; else in.rpm = v;
+            TEST_ASSERT_TRUE(m.update(in).drive_allowed);          // the 500 ms debounce applies, as for any invalid signal
+            in.now_ms = 499;
+            TEST_ASSERT_TRUE(m.update(in).drive_allowed);
+            in.now_ms = 500;
+            SafetyOutput o = m.update(in);
+            TEST_ASSERT_FALSE(o.drive_allowed);
+            TEST_ASSERT_EQUAL(TripReason::SENSOR_INVALID, o.reason);
+        }
+    }
+}
+
+void test_non_finite_non_critical_signal_does_not_trip_and_cannot_mask_a_real_limit() {
+    SafetyMonitor m(default_limits());
+    SafetyInputs in = healthy(0); in.ambient_c = NAN; in.vib_rms_g = NAN;
+    TEST_ASSERT_TRUE(m.update(in).drive_allowed);                  // ambient / vibration are not critical signals
+    in.now_ms = 10; in.housing_c = 65.0f;                          // a finite over-temperature is still caught
+    TEST_ASSERT_EQUAL(TripReason::TEMP_STOP, m.update(in).reason);
+    SafetyMonitor m2(default_limits());
+    SafetyInputs in2 = healthy(0); in2.voltage_v = NAN; in2.current_a = 5.5f;   // NaN voltage must not hide an instantaneous over-current
+    TEST_ASSERT_EQUAL(TripReason::OVER_CURRENT_INSTANT, m2.update(in2).reason);
+}
+
 void test_heartbeat_enforced_only_in_hardware_mode() {
     SafetyMonitor sim(default_limits());
     SafetyInputs in = healthy(0);
@@ -458,6 +488,8 @@ int main(int, char**) {
     RUN_TEST(test_rpm_loss_when_driving_without_pulses);
     RUN_TEST(test_no_rpm_loss_when_idle);
     RUN_TEST(test_critical_sensor_invalid_trips_after_500ms);
+    RUN_TEST(test_non_finite_critical_signal_is_invalid_and_trips_after_500ms);
+    RUN_TEST(test_non_finite_non_critical_signal_does_not_trip_and_cannot_mask_a_real_limit);
     RUN_TEST(test_heartbeat_enforced_only_in_hardware_mode);
     RUN_TEST(test_heartbeat_timer_is_wraparound_safe);
     RUN_TEST(test_external_estop);

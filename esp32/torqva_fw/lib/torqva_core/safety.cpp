@@ -2,6 +2,9 @@
 
 namespace torqva {
 
+// A NaN or infinite reading compares false against every limit, i.e. it would read as "no limit crossed". Such a value is treated as INVALID, never as healthy.
+static inline bool finite_f(float x) { return x == x && x <= 3.0e38f && x >= -3.0e38f; }
+
 const char* trip_reason_name(TripReason r) {
     switch (r) {
         case TripReason::NONE: return "NONE";
@@ -44,6 +47,12 @@ bool SafetyMonitor::reset_trip(bool authorized_command, bool local_button) {
 
 SafetyOutput SafetyMonitor::update(const SafetyInputs& in) {
     const uint32_t now = in.now_ms;
+    const bool current_ok = in.current_valid && finite_f(in.current_a);
+    const bool voltage_ok = in.voltage_valid && finite_f(in.voltage_v);
+    const bool housing_ok = in.housing_valid && finite_f(in.housing_c);
+    const bool ambient_ok = in.ambient_valid && finite_f(in.ambient_c);
+    const bool rpm_ok = in.rpm_valid && finite_f(in.rpm);
+    const bool vib_ok = in.vib_valid && finite_f(in.vib_rms_g);
 
     if (state_ != SafetyState::EMERGENCY_STOP) {
         state_ = SafetyState::OK;
@@ -51,8 +60,7 @@ SafetyOutput SafetyMonitor::update(const SafetyInputs& in) {
         if (in.external_estop_active) trip(TripReason::EXTERNAL_ESTOP);
 
         // Critical signal validity (fail safe: no data -> no motion)
-        const bool critical_invalid = !in.current_valid || !in.voltage_valid ||
-                                      !in.housing_valid || !in.rpm_valid;
+        const bool critical_invalid = !current_ok || !voltage_ok || !housing_ok || !rpm_ok;
         if (critical_invalid) {
             if (!inv_active_) { inv_active_ = true; inv_start_ = now; }
             if ((uint32_t)(now - inv_start_) >= lim_.sensor_invalid_ms) trip(TripReason::SENSOR_INVALID);
@@ -61,7 +69,7 @@ SafetyOutput SafetyMonitor::update(const SafetyInputs& in) {
         }
 
         // Current
-        if (in.current_valid) {
+        if (current_ok) {
             if (in.current_a > lim_.current_inst_a) trip(TripReason::OVER_CURRENT_INSTANT);
             if (in.current_a > lim_.current_stop_a) {
                 if (!oc_active_) { oc_active_ = true; oc_start_ = now; }
@@ -72,21 +80,21 @@ SafetyOutput SafetyMonitor::update(const SafetyInputs& in) {
         }
 
         // Voltage
-        if (in.voltage_valid) {
+        if (voltage_ok) {
             if (in.voltage_v < lim_.volt_min_v) trip(TripReason::VOLTAGE_LOW);
             if (in.voltage_v > lim_.volt_max_v) trip(TripReason::VOLTAGE_HIGH);
         }
 
         // Temperature
-        if (in.housing_valid) {
+        if (housing_ok) {
             if (in.housing_c > lim_.temp_stop_c) trip(TripReason::TEMP_STOP);
             else if (in.housing_c > lim_.temp_warn_c) state_ = SafetyState::WARN;
-            if (lim_.temp_rise_stop_c > 0.0f && in.ambient_valid &&
+            if (lim_.temp_rise_stop_c > 0.0f && ambient_ok &&
                 (in.housing_c - in.ambient_c) > lim_.temp_rise_stop_c) trip(TripReason::TEMP_RISE);
         }
 
         // Vibration (only once the human has commissioned a limit)
-        if (lim_.vib_rms_stop_g > 0.0f && in.vib_valid && in.vib_rms_g > lim_.vib_rms_stop_g)
+        if (lim_.vib_rms_stop_g > 0.0f && vib_ok && in.vib_rms_g > lim_.vib_rms_stop_g)
             trip(TripReason::VIBRATION);
 
         // RPM loss: driving but no hall pulses

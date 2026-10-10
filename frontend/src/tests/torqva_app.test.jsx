@@ -60,6 +60,17 @@ describe('redesigned application shell', () => {
     expect(await screen.findByText('not connected')).toBeInTheDocument();
   });
 
+  it('no page ever labels simulator data as physical-device data (no HW badge while the backend says SIMULATED)', async () => {
+    server(); setToken('t'); render(<TorqvaApp pollMs={100000} />);
+    await screen.findByText(/tester · /);
+    for (const n of ['Overview', 'Live Monitor', 'AI Diagnostics', 'Predictions', 'Diagnostic Tests', 'Interventions', 'Recovery', 'Learning', 'Evaluation', 'Devices & Settings']) {
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${n}`) }));
+      await waitFor(() => expect(screen.getByRole('button', { name: new RegExp(`^${n}`) })).toHaveAttribute('aria-current', 'page'));
+      expect(screen.queryAllByText('HW'), n).toHaveLength(0);
+      expect(screen.getByTestId('sim-banner')).toHaveTextContent(/No physical motor is connected or controlled/);
+    }
+  });
+
   it('evaluation page tolerates an older run without regime sections and lists the available runs', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url) => {
       const path = String(url).replace('/api/torqva', '').split('?')[0];
