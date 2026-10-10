@@ -77,4 +77,26 @@ describe('redesigned application shell', () => {
     expect(screen.getAllByText('unavailable').length).toBeGreaterThan(3);      // missing metrics are labelled, never blank or zero
     expect(screen.getByText(/there is no longer history/)).toBeInTheDocument();
   });
+
+  it('a slow older response never overwrites a newer one (out-of-order polling)', async () => {
+    let statusCalls = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const path = String(url).replace('/api/torqva', '').split('?')[0];
+      if (path === '/me') return ok({ user: 'tester', role: 'viewer' });
+      if (path === '/status') {
+        statusCalls += 1;
+        const n = statusCalls;
+        if (n === 1) await new Promise((r) => setTimeout(r, 400));          // the FIRST request is slow and carries the OLD value
+        if (n >= 3) await new Promise(() => {});                              // later polls never answer, so only the two responses above can reach the screen
+        return ok({ mode: 'SIMULATION', t: n, device: {}, last_window: { ...window60, rpm: n === 1 ? 1111 : 2222 }, models: {} });
+      }
+      return ok(path === '/telemetry' ? { samples: [] } : []);
+    }));
+    setToken('t'); render(<TorqvaApp pollMs={40} />);
+    await screen.findByText(/tester · /);
+    await screen.findByText('2222');
+    await new Promise((r) => setTimeout(r, 600));                             // let the slow first response land
+    expect(screen.queryByText('1111')).toBeNull();
+    expect(screen.getByText('2222')).toBeInTheDocument();
+  });
 });

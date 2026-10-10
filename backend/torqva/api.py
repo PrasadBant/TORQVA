@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .attestation import AttestationError
 from .auth import Principal, TokenAuth
@@ -18,46 +18,57 @@ from .schemas import ActionType, ProposalSource, ProposedAction, Role
 from .service import SimulationService
 
 
+SEED = Field(default=1, ge=0, le=2**32 - 1, description="numpy-compatible seed")
+
+
 class StartSimulation(BaseModel):
-    fault: Optional[str] = Field(default=None, description="imbalance|looseness|overload|cooling_failure|supply_voltage|sensor_fault")
-    severity: float = Field(default=0.5, ge=0.0, le=1.0)
-    clears_below_rpm: Optional[float] = Field(default=None, ge=0)
-    seed: int = 1
-    setpoint_rpm: float = Field(default=1800.0, gt=0, le=3000)
+    fault: Optional[str] = Field(default=None, max_length=40, description="imbalance|looseness|overload|cooling_failure|supply_voltage|sensor_fault")
+    severity: float = Field(default=0.5, ge=0.0, le=1.0, allow_inf_nan=False)
+    clears_below_rpm: Optional[float] = Field(default=None, ge=0, le=100000, allow_inf_nan=False)
+    seed: int = SEED
+    setpoint_rpm: float = Field(default=1800.0, gt=0, le=3000, allow_inf_nan=False)
     inject_after_s: int = Field(default=40, ge=0, le=3600)
     require_human_approval: bool = False
 
 
 class ProfileStep(BaseModel):
-    rpm: float = Field(gt=0, le=3000)
-    hold_s: float = Field(ge=5, le=900)
+    rpm: float = Field(gt=0, le=3000, allow_inf_nan=False)
+    hold_s: float = Field(ge=5, le=900, allow_inf_nan=False)
 
 
 class LabSessionIn(BaseModel):
-    purpose: str = "fault_run"
-    notes: str = ""
+    purpose: str = Field(default="fault_run", max_length=40)
+    notes: str = Field(default="", max_length=4000)
     blind: bool = False
-    regime: str = "baseline"
-    seed: int = 1
-    profile: List[ProfileStep] = Field(default_factory=lambda: [ProfileStep(rpm=1500, hold_s=90)])
-    fault: Optional[str] = None
-    severity: float = Field(default=0.5, ge=0.0, le=1.0)
+    regime: str = Field(default="baseline", max_length=60)
+    seed: int = SEED
+    profile: List[ProfileStep] = Field(default_factory=lambda: [ProfileStep(rpm=1500, hold_s=90)], max_length=50)
+    fault: Optional[str] = Field(default=None, max_length=40)
+    severity: float = Field(default=0.5, ge=0.0, le=1.0, allow_inf_nan=False)
     inject_at_s: int = Field(default=30, ge=0, le=1800)
-    clears_below_rpm: Optional[float] = Field(default=None, ge=0)
+    clears_below_rpm: Optional[float] = Field(default=None, ge=0, le=100000, allow_inf_nan=False)
     settings: Dict[str, Any] = Field(default_factory=dict, description="Physical injection record: mass g, radius mm, shim, ...")
+
+    @field_validator("settings")
+    @classmethod
+    def _settings_small(cls, v):
+        import json as _json
+        if len(v) > 40 or len(_json.dumps(v, default=str)) > 8192:
+            raise ValueError("settings is limited to 40 keys and 8 KB")
+        return v
 
 
 class ChecklistIn(BaseModel):
-    items: Dict[str, bool]
+    items: Dict[str, bool] = Field(max_length=100)
 
 
 class ExperimentIn(BaseModel):
-    fault: str
-    severity: float = Field(default=0.6, gt=0, le=1)
-    speed_rpm: float = Field(default=1800, gt=0, le=3000)
-    regime: str = "baseline"
+    fault: str = Field(max_length=40)
+    severity: float = Field(default=0.6, gt=0, le=1, allow_inf_nan=False)
+    speed_rpm: float = Field(default=1800, gt=0, le=3000, allow_inf_nan=False)
+    regime: str = Field(default="baseline", max_length=60)
     repeats: int = Field(default=3, ge=1, le=10)
-    seed0: int = 100
+    seed0: int = Field(default=100, ge=0, le=2**32 - 1000)
 
 
 class DecideIn(BaseModel):
@@ -77,6 +88,17 @@ class ReasonIn(BaseModel):
 
 class StepRequest(BaseModel):
     seconds: int = Field(default=1, ge=1, le=600)
+
+
+def install_error_handlers(app) -> None:
+    """Validation errors must never become a 500: pydantic echoes the offending input, and a non-finite float (NaN / Infinity, which Python's JSON parser accepts)
+    cannot be serialised back, so FastAPI's default 422 body raised. The handler returns location, message and type only."""
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.responses import JSONResponse
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation(request, exc):
+        return JSONResponse(status_code=422, content={"detail": [{"loc": list(e.get("loc", ())), "msg": e.get("msg"), "type": e.get("type")} for e in exc.errors()]})
 
 
 def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
@@ -252,51 +274,55 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
     # ---------------- approvals / stop (operator) ----------------
     @r.post("/approvals/approve")
     def approve(p: Principal = Depends(need(Role.OPERATOR))):
-        o = service.orch
-        if o is None or o.pending is None:
-            raise HTTPException(409, "nothing is awaiting approval")
-        pend = {"action": o.pending.action.value, "params": o.pending.params}
-        audit(p, "approve", **pend)
-        o.approve(p.role)
-        return {"approved": pend, "note": "dispatch accepted; read /commands for the device acknowledgement"}
+        with service.lock:                      # serialise with step() / start() (the lock is taken per simulated second there)
+            o = service.orch
+            if o is None or o.pending is None:
+                raise HTTPException(409, "nothing is awaiting approval")
+            pend = {"action": o.pending.action.value, "params": o.pending.params}
+            audit(p, "approve", **pend)
+            o.approve(p.role)
+            return {"approved": pend, "note": "dispatch accepted; read /commands for the device acknowledgement"}
 
     @r.post("/approvals/reject")
     def reject(p: Principal = Depends(need(Role.OPERATOR))):
-        o = service.orch
-        if o is None or o.pending is None:
-            raise HTTPException(409, "nothing is awaiting approval")
-        audit(p, "reject", action=o.pending.action.value)
-        o.reject()
-        return {"rejected": True}
+        with service.lock:                      # serialise with step() / start() (the lock is taken per simulated second there)
+            o = service.orch
+            if o is None or o.pending is None:
+                raise HTTPException(409, "nothing is awaiting approval")
+            audit(p, "reject", action=o.pending.action.value)
+            o.reject()
+            return {"rejected": True}
 
     @r.post("/commands/stop")
     def stop(p: Principal = Depends(need(Role.VIEWER))):
         """STOP is available to any authenticated user: it can only make the system safer."""
-        o = service.orch
-        if o is None:
-            raise HTTPException(409, "no simulation running")
-        audit(p, "stop_requested")
-        prop = ProposedAction(action=ActionType.STOP, source=ProposalSource.HUMAN, role=p.role, requested_by=p.user,
-                              human_approved=True, incident_id=o.inc.id if o.inc else None)
-        rec = o._propose(prop)
-        if rec is None:
-            raise HTTPException(500, "stop was not dispatched")
-        o.cmd = rec
-        return {"command_id": rec.id, "status": rec.status.value, "note": "dispatched, not yet acknowledged by the device"}
+        with service.lock:                      # serialise with step() / start() (the lock is taken per simulated second there)
+            o = service.orch
+            if o is None:
+                raise HTTPException(409, "no simulation running")
+            audit(p, "stop_requested")
+            prop = ProposedAction(action=ActionType.STOP, source=ProposalSource.HUMAN, role=p.role, requested_by=p.user,
+                                  human_approved=True, incident_id=o.inc.id if o.inc else None)
+            rec = o._propose(prop)
+            if rec is None:
+                raise HTTPException(500, "stop was not dispatched")
+            o.cmd = rec
+            return {"command_id": rec.id, "status": rec.status.value, "note": "dispatched, not yet acknowledged by the device"}
 
     @r.post("/commands/reset-estop")
     def reset_estop(p: Principal = Depends(need(Role.ADMIN))):
-        o = service.orch
-        if o is None:
-            raise HTTPException(409, "no simulation running")
-        audit(p, "reset_estop_requested")
-        prop = ProposedAction(action=ActionType.RESET_ESTOP, source=ProposalSource.HUMAN, role=p.role,
-                              requested_by=p.user, human_approved=True)
-        rec = o._propose(prop)
-        if rec is None:
-            d = o._last_decision
-            raise HTTPException(409, {"verdict": d.verdict.value, "reasons": d.reasons})
-        return {"command_id": rec.id, "note": "device also requires its local button press"}
+        with service.lock:                      # serialise with step() / start() (the lock is taken per simulated second there)
+            o = service.orch
+            if o is None:
+                raise HTTPException(409, "no simulation running")
+            audit(p, "reset_estop_requested")
+            prop = ProposedAction(action=ActionType.RESET_ESTOP, source=ProposalSource.HUMAN, role=p.role,
+                                  requested_by=p.user, human_approved=True)
+            rec = o._propose(prop)
+            if rec is None:
+                d = o._last_decision
+                raise HTTPException(409, {"verdict": d.verdict.value, "reasons": d.reasons})
+            return {"command_id": rec.id, "note": "device also requires its local button press"}
 
     # ---------------- lab (simulation) ----------------
     from . import lab as _lab

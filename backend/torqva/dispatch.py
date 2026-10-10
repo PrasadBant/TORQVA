@@ -90,7 +90,13 @@ class CommandDispatcher:
         return rec
 
     def on_ack(self, ack: dict, now: float) -> Optional[CommandRecord]:
-        rec = self.records.get(int(ack.get("id", -1)))
+        try:
+            cid = ack.get("id", -1)
+            if isinstance(cid, bool) or not isinstance(cid, (int, float, str)):
+                return None
+            rec = self.records.get(int(cid))
+        except (ValueError, TypeError, OverflowError):
+            return None                          # a malformed ack is ignored, never an exception on the control loop
         if rec is None:
             return None
         if rec.status in (CommandStatus.REJECTED, CommandStatus.TIMEOUT, CommandStatus.EXPIRED):
@@ -99,6 +105,10 @@ class CommandDispatcher:
             new = CommandStatus(ack.get("status"))
         except ValueError:
             return rec
+        if new in (CommandStatus.PENDING, CommandStatus.TIMEOUT, CommandStatus.EXPIRED):
+            return rec           # those are dispatcher-side states: a device ack cannot re-open (and so re-send) or time out a command
+        if new == rec.status:
+            return rec           # duplicate ack: idempotent
         # COMPLETED/ABORTED are final; an ACCEPTED replay after COMPLETED must not downgrade.
         if rec.status in (CommandStatus.COMPLETED, CommandStatus.ABORTED):
             return rec

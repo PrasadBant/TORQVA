@@ -6,6 +6,7 @@ with a reason, and recorded.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -82,6 +83,9 @@ def mandatory_stop_reasons(ctx: SupervisorContext, lim: SupervisorLimits) -> Lis
     r: List[str] = []
     if ctx.device_state == DeviceSafetyState.EMERGENCY_STOP:
         r.append("device_emergency_stop")
+    # A NaN / infinite measurement compares False against every limit, so it would otherwise read as "no limit crossed". Missing or garbled data is never a healthy reading.
+    if any(v is not None and not math.isfinite(v) for v in (ctx.housing_c, ctx.current_a, ctx.voltage_v, ctx.vib_rms_g)):
+        r.append("measurement_not_finite")
     if ctx.housing_c is not None and ctx.housing_c >= lim.temp_stop_c:
         r.append("housing_temp_at_stop_limit")
     if ctx.current_a is not None and ctx.current_a >= lim.current_stop_a:

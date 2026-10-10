@@ -67,14 +67,18 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5 }) {
   useEffect(() => { alive.current = true; const t = getToken() || DEV_TOKEN; if (t) { if (!getToken()) devLogin.current = true; onLogin(t); } return () => { alive.current = false; }; }, [onLogin]);
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
 
+  const reqSeq = useRef(0);               // responses can arrive out of order: only the newest request may update the screen
+  const applied = useRef(0);
+  const ticking = useRef(false);          // never start a second simulation step while the previous one is still running
   const refresh = useCallback(async () => {
+    const mine = ++reqSeq.current;
     try {
       const [status, telemetry, incidents, decisions, predictions, commands, outcomes, cases, log, predictionChecks] = await Promise.all([
         api.status(), api.telemetry(300), api.incidents(), api.decisions(), api.predictions(), api.commands(), api.outcomes(), api.cases(), api.log(),
         api.predictionChecks().catch(() => [])]);       // a secondary panel must never break the polling loop (older backends lack the route)
-      if (alive.current) { setD({ status, telemetry, incidents, decisions, predictions, commands, outcomes, cases, log, predictionChecks }); setError(null); setLastOk(Date.now()); setOffline(false); }
+      if (alive.current && mine > applied.current) { applied.current = mine; setD({ status, telemetry, incidents, decisions, predictions, commands, outcomes, cases, log, predictionChecks }); setError(null); setLastOk(Date.now()); setOffline(false); }
     } catch (e) {
-      if (!alive.current) return;
+      if (!alive.current || mine < applied.current) return;
       if (e instanceof ApiError && e.status === 401) { setToken(''); setUser(null); } else { setError(e); if (!(e instanceof ApiError)) setOffline(true); }
     }
   }, []);
@@ -93,8 +97,12 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5 }) {
     if (!user) return undefined;
     refresh();
     const id = setInterval(async () => {
-      if (running) { try { await api.step(stepSeconds); } catch (e) { setError(e); setRunning(false); } }
-      refresh();
+      if (ticking.current) return;
+      ticking.current = true;
+      try {
+        if (running) { try { await api.step(stepSeconds); } catch (e) { setError(e); setRunning(false); } }
+        await refresh();
+      } finally { ticking.current = false; }
     }, pollMs);
     return () => clearInterval(id);
   }, [user, running, refresh, pollMs, stepSeconds]);

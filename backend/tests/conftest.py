@@ -55,3 +55,8 @@ def stack():
     return det, tt, hm, dm, zs_for
 
 
+@pytest.fixture(params=["asyncio"])
+def anyio_backend(request):
+    """The TCP server is written against asyncio (asyncio.get_running_loop / start_server / StreamWriter) and the project's dependencies do not include trio.
+    `@pytest.mark.anyio` tests therefore run on the asyncio backend only: a trio run would exercise asyncio-specific code outside an asyncio loop, which tests nothing real."""
+    return request.param

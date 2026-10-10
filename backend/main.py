@@ -5,13 +5,14 @@ heartbeat state machine (CONNECTED -> STALE -> OFFLINE), and real-time WebSocket
 """
 
 import asyncio
+import os
 import time
 import uuid
 import logging
 from typing import Dict, Any, List, Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, status, Request, Query
+from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect, HTTPException, status, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import config, AppConfig
@@ -275,13 +276,15 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Enable CORS for React/Vite frontend development server
+# CORS: only the listed origins (default: the local Vite dev server). The API uses bearer tokens, not cookies, so credentials are not allowed cross-origin.
+# Set TORQVA_CORS_ORIGINS="https://a.example,https://b.example" to change it; a wildcard is ignored on purpose.
+_cors_origins = [o.strip() for o in os.environ.get("TORQVA_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if o.strip() and o.strip() != "*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type", "X-Device-Key"],
 )
 
 
@@ -298,9 +301,25 @@ try:
         logger.error(f"TORQVA_TOKENS invalid ({_e}); TORQVA API stays disabled")
         _torqva_auth = _TokenAuth([])
     app.include_router(_torqva_router(_SimService(), _torqva_auth))
+    from torqva.api import install_error_handlers as _install_handlers
+    _install_handlers(app)
+    if not os.environ.get("TORQVA_DEVICE_KEY"):
+        logger.warning("TORQVA_DEVICE_KEY is not set: legacy device routes (/api/ingest, /api/device/*, /api/baseline/result) and the TCP port are unauthenticated. "
+                       "Acceptable for local simulation only; required before any supervised hardware use.")
 except ImportError as _e:             # numpy etc. missing: legacy monitor keeps working
     logger.warning(f"TORQVA layer not loaded: {_e}")
     _torqva_auth = None
+
+
+def _require_device_key_if_configured(request: Request) -> None:
+    """Opt-in credential for DEVICE-originated legacy HTTP routes (ingest, command polling/ack, baseline result). When TORQVA_DEVICE_KEY is set the request must carry the
+    same value in X-Device-Key (constant-time compare). Unset = the legacy open behaviour, which is NOT acceptable for supervised hardware use (see docs/TORQVA_HARDWARE_READINESS.md)."""
+    key = os.environ.get("TORQVA_DEVICE_KEY", "")
+    if not key:
+        return
+    import hmac as _hmac
+    if not _hmac.compare_digest(request.headers.get("x-device-key", "").encode(), key.encode()):
+        raise HTTPException(status_code=401, detail="device key required")
 
 
 def _require_operator_if_auth_configured(request: Request) -> None:
@@ -311,9 +330,16 @@ def _require_operator_if_auth_configured(request: Request) -> None:
     h = request.headers.get("authorization", "")
     p = _torqva_auth.authenticate(h[7:].strip() if h.lower().startswith("bearer ") else None)
     if p is None:
-        raise HTTPException(status_code=401, detail="motor control requires a bearer token", headers={"WWW-Authenticate": "Bearer"})
+        raise HTTPException(status_code=401, detail="this operation requires a bearer token", headers={"WWW-Authenticate": "Bearer"})
     if not p.at_least(__import__("torqva.schemas", fromlist=["Role"]).Role.OPERATOR):
-        raise HTTPException(status_code=403, detail="motor control requires role operator")
+        raise HTTPException(status_code=403, detail="this operation requires role operator")
+
+
+def _require_operator_if_auth_configured_or_device(request: Request) -> None:
+    """Baseline results come from the device (X-Device-Key) or from an operator. When bearer auth is configured and no device key is, an operator token is required."""
+    if os.environ.get("TORQVA_DEVICE_KEY"):
+        return                                               # already verified by _require_device_key_if_configured
+    _require_operator_if_auth_configured(request)
 
 
 # ==========================================
@@ -410,7 +436,7 @@ async def get_config():
     return config
 
 
-@app.post("/api/ingest", response_model=IngestResponse)
+@app.post("/api/ingest", response_model=IngestResponse, dependencies=[Depends(_require_device_key_if_configured)])
 async def ingest_telemetry(payload: TelemetryPayload, request: Request):
     """
     Ingests live telemetry from the ESP32-S3 or synthetic telemetry from Demo Simulator.
@@ -520,14 +546,13 @@ async def ingest_telemetry(payload: TelemetryPayload, request: Request):
 # DEVICE COMMAND PROTOCOL & MOTOR CONTROL
 # ==========================================
 
-@app.post("/api/motor", response_model=Dict[str, Any])
+@app.post("/api/motor", response_model=Dict[str, Any], dependencies=[Depends(_require_operator_if_auth_configured)])
 async def control_motor(req: MotorControlRequest, request: Request):
     """
     Dispatches motor ON/OFF command to ESP32 over the existing TCP 5001 socket stream.
     Validates command, verifies active TCP connection, sends 'MOTOR_ON\n' or 'MOTOR_OFF\n',
     awaits ESP32 ACK, and broadcasts result over WebSocket.
     """
-    _require_operator_if_auth_configured(request)
     cmd_clean = req.command.strip().upper()
     if cmd_clean in ["ON", "MOTOR_ON", "1"]:
         tcp_cmd = "MOTOR_ON"
@@ -567,7 +592,7 @@ async def control_motor(req: MotorControlRequest, request: Request):
 
     return result
 
-@app.get("/api/device/commands", response_model=List[DeviceCommand])
+@app.get("/api/device/commands", response_model=List[DeviceCommand], dependencies=[Depends(_require_device_key_if_configured)])
 async def get_pending_commands(device_id: str = "ESP32-MOTOR-01"):
     """
     Polled by ESP32 to retrieve pending non-control commands (e.g. baseline triggers).
@@ -579,7 +604,7 @@ async def get_pending_commands(device_id: str = "ESP32-MOTOR-01"):
     return pending
 
 
-@app.post("/api/device/command-ack", response_model=Dict[str, Any])
+@app.post("/api/device/command-ack", response_model=Dict[str, Any], dependencies=[Depends(_require_device_key_if_configured)])
 async def acknowledge_command(ack: CommandAck):
     """Received from ESP32 to acknowledge execution of a previously dispatched command."""
     for cmd in command_queue:
@@ -595,7 +620,7 @@ async def acknowledge_command(ack: CommandAck):
 # BASELINE CALIBRATION ENDPOINTS
 # ==========================================
 
-@app.post("/api/baseline/start", response_model=Dict[str, Any])
+@app.post("/api/baseline/start", response_model=Dict[str, Any], dependencies=[Depends(_require_operator_if_auth_configured)])
 async def start_baseline():
     """Initiates baseline data collection procedure by queuing a START_BASELINE command for the ESP32."""
     global current_baseline_state
@@ -614,7 +639,7 @@ async def start_baseline():
     return {"status": "STARTED", "command_id": cmd.command_id}
 
 
-@app.post("/api/baseline/cancel", response_model=Dict[str, Any])
+@app.post("/api/baseline/cancel", response_model=Dict[str, Any], dependencies=[Depends(_require_operator_if_auth_configured)])
 async def cancel_baseline():
     """Cancels active baseline calibration session."""
     global current_baseline_state
@@ -632,7 +657,7 @@ async def cancel_baseline():
     return {"status": "CANCELLED"}
 
 
-@app.post("/api/baseline/reset", response_model=Dict[str, Any])
+@app.post("/api/baseline/reset", response_model=Dict[str, Any], dependencies=[Depends(_require_operator_if_auth_configured)])
 async def reset_baseline():
     """Resets saved baseline calibration back to default NOT_CONFIGURED state."""
     global current_baseline_state
@@ -650,8 +675,9 @@ async def reset_baseline():
     return {"status": "RESET"}
 
 
-@app.post("/api/baseline/result", response_model=Dict[str, Any])
+@app.post("/api/baseline/result", response_model=Dict[str, Any], dependencies=[Depends(_require_device_key_if_configured), Depends(_require_operator_if_auth_configured_or_device)])
 async def save_baseline_result(result: BaselineState):
+
     """
     Receives calculated baseline reference parameters from ESP32 or calibration runner,
     persists to SQLite, and updates baseline state to SAVED.

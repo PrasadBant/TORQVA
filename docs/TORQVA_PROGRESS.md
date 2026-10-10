@@ -211,3 +211,9 @@ Unchanged from the earlier list (E-stop + relay, EN pull-downs, 0.05 Ω shunt, I
 * Phase 8-11 studies reproduce byte-for-byte (except a gzip header timestamp). New `generalization_study.py` re-evaluates the frozen Phase 11 decisions on fresh seeds (CONF): Phase 11 conclusions replicate; C4 calibration still fails the bar and is not adopted; the C2 heavy-shift gap remains (worst cell 0.795, cooling failure at an unfamiliar speed).
 * Evaluation page fixed: run selection by run number (was file mtime), run history list, "unavailable" for missing metrics, Phase 12 tables.
 * Details and tables: `docs/TORQVA_EVAL_SIM.md` section 8.
+
+## Session 10 - Phase 13: security, reliability and safety hardening (simulation only)
+
+* Audit and fixes in `docs/TORQVA_SECURITY_AUDIT.md`: input validation (no 500 on malformed/non-finite input, bounded payloads), service lock taken per simulated second (STOP never queued), dispatcher ack hardening (no re-open/re-send, malformed acks ignored), `measurement_not_finite` mandatory-stop reason, legacy device/baseline route credentials (opt-in `TORQVA_DEVICE_KEY`, operator for baseline), CORS allow-list, frontend out-of-order polling guard.
+* `trio`: not a dependency; the TCP-server tests run on the asyncio backend only (the server is asyncio-only). The two previously failing tests now pass. Backend suite: 446 passed.
+* Residual: legacy open mode and the unauthenticated TCP port remain until the hardware phase; listed in the audit.

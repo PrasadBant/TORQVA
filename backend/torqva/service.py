@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import copy
 import os
+import threading
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -33,6 +34,9 @@ class SimulationService:
         self.scenario: Dict[str, Any] = {}
         self.running = False
         self._n = 0
+        # Serialises every state change and every read of the live orchestrator (HTTP handlers run in a thread pool). The lock is taken per simulated
+        # second inside step(), never for a whole multi-second step, so a STOP is never queued behind a long run.
+        self.lock = threading.RLock()
 
     def _ensure_models(self):
         if self._models is None:
@@ -43,6 +47,10 @@ class SimulationService:
     def start(self, fault: Optional[str], severity: float, clears_below_rpm: Optional[float], seed: int,
               setpoint_rpm: float, inject_after_s: int, hardware_like_approval: bool = False) -> Dict[str, Any]:
         det, tt, hm, dm, pred, sizes = self._ensure_models()
+        with self.lock:
+            return self._start_locked(det, tt, hm, dm, pred, fault, severity, clears_below_rpm, seed, setpoint_rpm, inject_after_s, hardware_like_approval)
+
+    def _start_locked(self, det, tt, hm, dm, pred, fault, severity, clears_below_rpm, seed, setpoint_rpm, inject_after_s, hardware_like_approval):
         self._n += 1
         sim = MotorSim(seed)
         dev = SimDevice(sim)
@@ -68,16 +76,23 @@ class SimulationService:
             raise RuntimeError("no simulation")
         done = 0
         for _ in range(max(0, min(n, 600))):
-            if not self._injected and self.scenario.get("fault") and self.orch.now >= self.scenario["inject_after_s"]:
-                self.orch.dev.sim.inject(Hypothesis(self.scenario["fault"]), self.scenario["severity"],
-                                         self.scenario["clears_below_rpm"])
-                self._injected = True
-            self.orch.step()
-            done += 1
+            with self.lock:                                           # one simulated second at a time (see __init__)
+                if self.orch is None:
+                    break
+                if not self._injected and self.scenario.get("fault") and self.orch.now >= self.scenario["inject_after_s"]:
+                    self.orch.dev.sim.inject(Hypothesis(self.scenario["fault"]), self.scenario["severity"],
+                                             self.scenario["clears_below_rpm"])
+                    self._injected = True
+                self.orch.step()
+                done += 1
         return done
 
     # ---------------- views (all tagged SIMULATED) ----------------
     def state(self) -> Dict[str, Any]:
+        with self.lock:
+            return self._state_locked()
+
+    def _state_locked(self) -> Dict[str, Any]:
         o = self.orch
         if o is None:
             return {"mode": "SIMULATION", "provenance": "SIMULATED", "simulation": None}
@@ -98,6 +113,10 @@ class SimulationService:
         }
 
     def telemetry(self, last: int = 300) -> List[Dict[str, Any]]:
+        with self.lock:
+            return self._telemetry_locked(last)
+
+    def _telemetry_locked(self, last: int) -> List[Dict[str, Any]]:
         if self.orch is None:
             return []
         out = []
