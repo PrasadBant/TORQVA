@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import TorqvaApp from '../torqva/TorqvaApp.jsx';
 import { C2C4Validation, DiagnosticTests, PredictionChecks, StatusPill } from '../torqva/c2c4.jsx';
 import { setToken } from '../torqva/api.js';
+import { TestsPage, TEST_SPECS } from '../torqva/pages.jsx';
 
 const row = (o = {}) => ({ signal: 'housing', horizon_s: 60, observed: 25.4, predicted: 25.1, lo: 24.8, hi: 25.4, covered: true, ...o });
 const check = (o = {}) => ({ comparison: 'available', action: 'REDUCE_SPEED', interval_method: 'noise_aware_conformal', status: 'supported',
@@ -106,3 +107,57 @@ describe('Predictions and Evaluation views', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
+
+describe('Diagnostic Tests (C4) interactive execution engine', () => {
+  it('provides comprehensive specifications for T1, T3, and T4 with diagnostic isolation mechanisms', () => {
+    expect(TEST_SPECS.T1).toBeDefined();
+    expect(TEST_SPECS.T3).toBeDefined();
+    expect(TEST_SPECS.T4).toBeDefined();
+    expect(TEST_SPECS.T1.signals).toContain('1x Vibration Exponent');
+    expect(TEST_SPECS.T3.signals).toContain('Housing Thermal Drift Slope (°C / 100 s)');
+    expect(TEST_SPECS.T4.signals).toContain('Deceleration Time Constant tau');
+  });
+
+  it('renders available tests, switches test selection, and shows test preconditions', () => {
+    const d = { status: { mode: 'PHYSICAL', rpm: 1300 }, log: [] };
+    const device = { snap: { origin: 'physical_device', values: { rpm: { valid: true, value: 1300 } }, drive: 'CLOSED_LOOP' } };
+    render(<TestsPage d={d} device={device} role="operator" isPhys={true} />);
+
+    // Renders the 3 test options
+    expect(screen.getAllByText(/Speed-Step Dynamic Response/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Thermal Equilibrium Observation/i)).toBeInTheDocument();
+    expect(screen.getByText(/Inertial Coast-Down Deceleration/i)).toBeInTheDocument();
+
+    // Check preconditions are reported
+    expect(screen.getByText(/1300 rpm/i)).toBeInTheDocument();
+    expect(screen.getByText(/Hard Limits Armed/i)).toBeInTheDocument();
+
+    // Switch to T4
+    fireEvent.click(screen.getByText(/Inertial Coast-Down Deceleration/i));
+    expect(screen.getByText(/Selected Test Profile: T4/i)).toBeInTheDocument();
+  });
+
+  it('executes the confirmation dialog and enables emergency abort during test execution', () => {
+    const d = { status: { mode: 'PHYSICAL', rpm: 1300 }, log: [] };
+    const device = { snap: { origin: 'physical_device', values: { rpm: { valid: true, value: 1300 } }, drive: 'CLOSED_LOOP' } };
+    render(<TestsPage d={d} device={device} role="admin" isPhys={true} />);
+
+    // Click execute
+    const runBtn = screen.getByTestId('btn-run-diagnostic');
+    fireEvent.click(runBtn);
+
+    // Shows confirmation dialog
+    expect(screen.getByText(/Confirm Execution of/i)).toBeInTheDocument();
+    const confirmBtn = screen.getByTestId('btn-confirm-test');
+    fireEvent.click(confirmBtn);
+
+    // Enters RUNNING state
+    expect(screen.getByText(/Emergency Abort Test/i)).toBeInTheDocument();
+
+    // Trigger emergency abort
+    fireEvent.click(screen.getByText(/Emergency Abort Test/i));
+    expect(screen.getByText('TEST ABORTED')).toBeInTheDocument();
+    expect(screen.getByText('Run Another Test')).toBeInTheDocument();
+  });
+});
+

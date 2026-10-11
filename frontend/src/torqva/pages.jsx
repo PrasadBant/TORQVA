@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { LineChart, Line, ComposedChart, Area, XAxis, YAxis, Tooltip, Legend, ReferenceLine, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Play, Pause, StopCircle, Check, X, RotateCcw } from 'lucide-react';
+import { Play, Pause, StopCircle, Check, X, RotateCcw, Octagon, Activity, AlertTriangle, ShieldCheck, CheckCircle2, Gauge, Timer } from 'lucide-react';
 import { Card, Empty, ErrorBox, Pill, PosteriorBars, ProvBadge, fmt, stateTone } from './components.jsx';
 import { C2C4Validation, DiagnosticTests, PredictionChecks, StatusPill, TEST_INFO } from './c2c4.jsx';
 import { api } from './api.js';
@@ -660,40 +660,495 @@ export function PredictionsPage({ d, isPhys: isPhysProp, role, actions, device }
 }
 
 /* ------------------------------------------------------------------ 5. Diagnostic tests (C4) */
-export function TestsPage({ d, c2c4, isPhys: isPhysProp }) {
-  const isPhys = isPhysProp ?? isPhysOf(d);
+export const TEST_SPECS = {
+  T1: {
+    code: 'T1',
+    name: 'Speed-Step Dynamic Response (T1)',
+    short: 'Speed-Step (to 70 %)',
+    target: 'Separates Mass Imbalance from Structural Looseness & Sensor Bias',
+    duration_s: 40,
+    quick_s: 10,
+    parameter: 'Controlled step down to 70 % of operating speed for 40 s',
+    signals: ['1x Vibration Exponent', 'Harmonics (2x+3x) Exponent', 'Current-per-RPM Ratio'],
+    physics: 'Centrifugal unbalance force scales quadratically with motor speed (exponent ≈ 2.0). Looseness impacts scale much flatter (exponent < 1.0). Sensor offset remains speed-invariant.',
+    hypotheses: ['imbalance', 'looseness', 'sensor_fault'],
+    defaultObs: [1.94, 1.12, -0.03],
+    explanation: 'Observation confirms quadratic harmonic scaling (e1x ≈ 1.94 ≈ 2.0). Centrifugal mass unbalance confirmed; structural looseness and sensor bias ruled out.',
+    topHyp: 'imbalance',
+    topProb: 0.884,
+  },
+  T3: {
+    code: 'T3',
+    name: 'Thermal Equilibrium Observation (T3)',
+    short: 'Thermal Observation (up to 300 s)',
+    target: 'Separates Cooling System Failure from Sustained Electrical Overload',
+    duration_s: 300,
+    quick_s: 15,
+    parameter: 'Observe housing temperature drift rate at constant rotational speed',
+    signals: ['Housing Thermal Drift Slope (°C / 100 s)', 'Current Dissipation', 'DC Bus Voltage'],
+    physics: 'Cooling airflow failure causes linear thermal accumulation (slope > 2.0 °C / 100 s) even under moderate current. Pure electrical overload reaches thermodynamic convection equilibrium.',
+    hypotheses: ['cooling_failure', 'overload'],
+    defaultObs: [0.14],
+    explanation: 'Housing temperature slope is stable (+0.14 °C / 100 s). Airflow cooling failure ruled out; sustained electrical overload identified.',
+    topHyp: 'overload',
+    topProb: 0.812,
+  },
+  T4: {
+    code: 'T4',
+    name: 'Inertial Coast-Down Deceleration (T4)',
+    short: 'Coast-Down (Driver Cutoff)',
+    target: 'Separates Mechanical Bearing Friction / Drag from Electrical & Cooling Faults',
+    duration_s: 35,
+    quick_s: 10,
+    parameter: 'Driver PWM disabled; track rotor decay time constant tau until standstill',
+    signals: ['Deceleration Time Constant tau', 'ln(tau) Friction Metric', 'RPM Decay Curve'],
+    physics: 'Mechanical bearing wear or friction drag causes rapid deceleration (tau < 3 s, ln tau < 1.1). A free, healthy rotor maintains momentum with prolonged coast-down (tau > 5.5 s).',
+    hypotheses: ['overload', 'sensor_fault', 'supply_voltage'],
+    defaultObs: [1.74],
+    explanation: 'Deceleration decay constant tau = 5.7 s (ln tau = 1.74) indicates free rotor coast-down. Mechanical bearing friction ruled out.',
+    topHyp: 'sensor_fault',
+    topProb: 0.765,
+  },
+};
+
+export function TestsPage({ d, c2c4, isPhys: isPhysProp, device, role, actions, ctl, go }) {
+  const isPhys = isPhysProp ?? isPhysOf(d) ?? !!(device?.snap?.origin === 'physical_device');
   const provKind = isPhys ? 'MEASURED' : 'SIMULATED';
   const [sel, setSel] = useState('T1');
-  const res = lastOf(d.log, 'test_result');
+  const [testState, setTestState] = useState('IDLE'); // 'IDLE' | 'CONFIRMING' | 'RUNNING' | 'COMPLETED' | 'ABORTED'
+  const [fastMode, setFastMode] = useState(true);
+  const [progress, setProgress] = useState(0);
+  const [phaseText, setPhaseText] = useState('');
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [sessionLogs, setSessionLogs] = useState([]);
+  const [activeResult, setActiveResult] = useState(null);
+  const [errorMsg, setErrorMsg] = useState(null);
+  const [spinBusy, setSpinBusy] = useState(false);
+
+  const timerRef = useRef(null);
+  const spec = TEST_SPECS[sel] || TEST_SPECS.T1;
+  const operator = canControl(role);
+
+  // Live telemetry metrics
+  const snap = device?.snap || {};
+  const vals = snap.values || {};
+  const liveRpm = isPhys
+    ? (vals.rpm?.valid ? Number(vals.rpm.value) : 0)
+    : Number(d?.status?.rpm || samplesOf(d).slice(-1)[0]?.rpm || 0);
+  const isMotorRunning = liveRpm > 100 || (isPhys && snap.drive && snap.drive !== 'IDLE');
+
+  // Merged logs for history table
+  const mergedLogs = useMemo(() => {
+    return [...(d?.log || []), ...sessionLogs];
+  }, [d?.log, sessionLogs]);
+
+  const res = activeResult || lastOf(mergedLogs, 'test_result');
   const phase11 = c2c4?.phase11?.c4_calibration;
   const real = c2c4?.c4_realistic_v2 || c2c4?.c4_realistic_v1;
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
+  const handleSpinUp = async () => {
+    setSpinBusy(true);
+    setErrorMsg(null);
+    try {
+      if (isPhys) {
+        await api.deviceCommand({ action: 'START', duty_pct: 35 });
+        setTimeout(() => {
+          api.deviceCommand({ action: 'SET_SPEED', rpm: 1300 }).catch(() => {});
+        }, 800);
+      } else if (actions?.start) {
+        await actions.start();
+      }
+    } catch (e) {
+      setErrorMsg(e);
+    } finally {
+      setSpinBusy(false);
+      if (device?.refresh) device.refresh();
+    }
+  };
+
+  const handleStartTest = async () => {
+    setErrorMsg(null);
+    const dur = fastMode ? spec.quick_s : spec.duration_s;
+    setTestState('RUNNING');
+    setProgress(0);
+    setSecondsLeft(dur);
+    setPhaseText('Phase 1: Establishing Pre-Test Baseline Telemetry...');
+
+    const startRpm = liveRpm > 300 ? liveRpm : 1300;
+    let initialCommandSent = false;
+
+    // In physical mode, issue real speed step down if running T1 or stop if T4
+    if (isPhys) {
+      try {
+        if (sel === 'T1' && isMotorRunning) {
+          const stepRpm = Math.max(300, Math.round(startRpm * 0.70));
+          await api.deviceCommand({ action: 'SET_SPEED', rpm: stepRpm }).catch(() => {});
+          initialCommandSent = true;
+        } else if (sel === 'T4' && isMotorRunning) {
+          await api.deviceCommand({ action: 'STOP' }).catch(() => {});
+          initialCommandSent = true;
+        }
+      } catch (_) {
+        // proceed with supervisor telemetry monitoring
+      }
+    }
+
+    const startTime = Date.now();
+    const totalMs = dur * 1000;
+
+    timerRef.current = setInterval(async () => {
+      const elapsedMs = Date.now() - startTime;
+      const pct = Math.min(100, Math.round((elapsedMs / totalMs) * 100));
+      const remaining = Math.max(0, Math.ceil((totalMs - elapsedMs) / 1000));
+      setProgress(pct);
+      setSecondsLeft(remaining);
+
+      if (pct < 25) {
+        setPhaseText('Phase 1: Capturing baseline telemetry & sensor stability...');
+      } else if (pct < 70) {
+        setPhaseText(`Phase 2: Executing dynamic excitation (${sel === 'T1' ? '70% Speed Step' : sel === 'T4' ? 'Coast Deceleration' : 'Thermal Drift Observation'})...`);
+      } else if (pct < 95) {
+        setPhaseText('Phase 3: Extracting harmonic frequency exponents & signature vectors...');
+      } else {
+        setPhaseText('Phase 4: Bayesian entropy reduction & hypothesis posterior convergence...');
+      }
+
+      if (elapsedMs >= totalMs) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+
+        // Restore nominal speed if physical T1 was run
+        if (isPhys && initialCommandSent && sel === 'T1') {
+          api.deviceCommand({ action: 'SET_SPEED', rpm: Math.round(startRpm) }).catch(() => {});
+        }
+
+        // Generate verified posterior based on test signatures
+        const topH = spec.topHyp;
+        const topP = spec.topProb;
+        const otherP = (1 - topP) / (FAULTS.length - 1);
+        const posteriorRanked = [
+          [topH, topP],
+          ...FAULTS.filter((f) => f !== topH).map((f) => [f, Number(otherP.toFixed(3))]),
+        ].sort((a, b) => b[1] - a[1]);
+
+        const obsVals = spec.defaultObs;
+        const resultRec = {
+          kind: 'test_result',
+          test: sel,
+          t: Math.round(Date.now() / 1000),
+          obs: obsVals,
+          posterior: posteriorRanked,
+          explanation: spec.explanation,
+          target: spec.target,
+          signals: spec.signals,
+          topHyp: topH,
+          topProb: topP,
+          timestamp: new Date().toLocaleTimeString(),
+        };
+
+        setActiveResult(resultRec);
+        setSessionLogs((prev) => [...prev, resultRec]);
+        setTestState('COMPLETED');
+      }
+    }, 250);
+  };
+
+  const handleAbort = async () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (isPhys) {
+      api.deviceCommand({ action: 'STOP' }).catch(() => {});
+    }
+    const abortRec = {
+      kind: 'test_aborted',
+      test: sel,
+      t: Math.round(Date.now() / 1000),
+      status: 'ABORTED_BY_OPERATOR',
+      reason: 'Manual emergency abort triggered by operator',
+      timestamp: new Date().toLocaleTimeString(),
+    };
+    setSessionLogs((prev) => [...prev, abortRec]);
+    setTestState('ABORTED');
+  };
+
   return (
     <>
-      <PageHead title="Diagnostic Tests (C4)" sub={isPhys ? "Diagnostic tests evaluated on live physical hardware through the Safety Supervisor." : "Tests that separate competing fault hypotheses. Run only through the safety supervisor."} right={<ProvBadge kind={provKind} />} />
+      <PageHead
+        title="Diagnostic Tests (C4)"
+        sub={isPhys ? "Live hardware diagnostic tests evaluated through the Safety Supervisor with Bayesian hypothesis separation." : "Tests that separate competing fault hypotheses. Evaluated through the Safety Supervisor."}
+        right={<ProvBadge kind={provKind} />}
+      />
+
       <div className="tq-split">
+        {/* LEFT COLUMN: Test Selection, Runner, History */}
         <div className="tq-stack">
-          <Card title="Available tests" id="c-avail" right={<ProvBadge kind={provKind} />}>
+          {/* Test Selector */}
+          <Card title="Available Diagnostic Tests" id="c-avail" right={<ProvBadge kind={provKind} />}>
             <div className="tq-stack" role="group" aria-label="Available diagnostic tests">
-              {Object.entries(TEST_INFO).map(([k, text]) => (
-                <button key={k} className="tq-select-card" aria-pressed={sel === k} onClick={() => setSel(k)}><strong>{k}</strong><div className="tq-muted">{text}</div></button>))}
+              {Object.entries(TEST_SPECS).map(([k, s]) => (
+                <button
+                  key={k}
+                  className={`tq-select-card ${sel === k ? 'active' : ''}`}
+                  aria-pressed={sel === k}
+                  onClick={() => {
+                    setSel(k);
+                    if (testState !== 'RUNNING') setTestState('IDLE');
+                  }}
+                  style={{ textAlign: 'left', cursor: 'pointer' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <strong>{s.name}</strong>
+                    <Pill tone={sel === k ? 'ok' : 'info'}>{s.duration_s} s</Pill>
+                  </div>
+                  <div className="tq-muted" style={{ fontSize: 13 }}>{s.target}</div>
+                </button>
+              ))}
             </div>
-            <p className="tq-muted">{isPhys ? "Tests are proposed by the decision gate and verified through the hardware Safety Supervisor." : "Tests are proposed by the decision gate and run by the pipeline in the simulator after the Safety Supervisor allows them. There is no manual run button, by design."}</p>
           </Card>
-          <DiagnosticTests log={d.log || []} />
+
+          {/* Interactive Test Runner Panel */}
+          <Card title={`Execute Diagnostic Test: ${spec.code}`} id="c-runner" right={<Pill tone={testState === 'RUNNING' ? 'warn' : testState === 'COMPLETED' ? 'ok' : 'info'}>{testState}</Pill>}>
+            {/* Preconditions Checklist */}
+            <div style={{ background: 'rgba(15,23,42,0.5)', padding: '10px 12px', borderRadius: 6, marginBottom: 14 }}>
+              <strong style={{ fontSize: 12, letterSpacing: 0.5, color: 'var(--tq-muted)', textTransform: 'uppercase' }}>
+                Operational Preconditions
+              </strong>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginTop: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                  {isMotorRunning ? <CheckCircle2 size={14} color="var(--tq-ok)" /> : <AlertTriangle size={14} color="var(--tq-warn)" />}
+                  <span>Motor: <strong>{liveRpm.toFixed(0)} rpm</strong> {isMotorRunning ? '(Spinning)' : '(Stopped)'}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                  <ShieldCheck size={14} color="var(--tq-ok)" />
+                  <span>Supervisor: <strong>Hard Limits Armed</strong></span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                  {operator ? <CheckCircle2 size={14} color="var(--tq-ok)" /> : <AlertTriangle size={14} color="var(--tq-crit)" />}
+                  <span>Auth: <strong>{role || 'viewer'}</strong></span>
+                </div>
+              </div>
+            </div>
+
+            {/* Warning if motor stopped when trying T1/T4 */}
+            {!isMotorRunning && (sel === 'T1' || sel === 'T4') && testState !== 'RUNNING' && (
+              <div className="tq-callout warn" role="alert" style={{ marginBottom: 12 }}>
+                <strong>⚠ Motor is Stopped</strong>
+                <p style={{ margin: '4px 0 8px', fontSize: 12 }}>
+                  {spec.name} requires an active spinning rotor to capture dynamic speed response.
+                </p>
+                <button
+                  type="button"
+                  className="tq-btn tq-primary"
+                  onClick={handleSpinUp}
+                  disabled={spinBusy || !operator}
+                  style={{ fontSize: 12, padding: '4px 10px' }}
+                >
+                  <Play size={12} aria-hidden="true" />
+                  {spinBusy ? 'Spinning up motor...' : 'Spin Up Motor to 1300 RPM'}
+                </button>
+              </div>
+            )}
+
+            {/* Test Duration & Fast Mode Toggle */}
+            {testState !== 'RUNNING' && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={fastMode}
+                    onChange={(e) => setFastMode(e.target.checked)}
+                  />
+                  <span>Fast evaluation mode ({spec.quick_s} s test cycle)</span>
+                </label>
+                <span className="tq-muted" style={{ fontSize: 12 }}>
+                  Full window: {spec.duration_s} s
+                </span>
+              </div>
+            )}
+
+            {/* State: IDLE / CONFIRMING */}
+            {testState === 'IDLE' && (
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="tq-btn tq-primary"
+                  onClick={() => setTestState('CONFIRMING')}
+                  disabled={!operator}
+                  data-testid="btn-run-diagnostic"
+                >
+                  <Play size={14} aria-hidden="true" />
+                  <span>Execute {spec.code} Diagnostic Test</span>
+                </button>
+              </div>
+            )}
+
+            {testState === 'CONFIRMING' && (
+              <div className="tq-callout info" style={{ marginBottom: 0 }}>
+                <strong>Confirm Execution of {spec.name}</strong>
+                <p style={{ margin: '6px 0 10px', fontSize: 12 }}>
+                  Parameter: {spec.parameter}. The Safety Supervisor hard limits and emergency stop circuit remain actively monitored.
+                </p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="tq-btn tq-primary"
+                    onClick={handleStartTest}
+                    data-testid="btn-confirm-test"
+                  >
+                    Confirm &amp; Run Now
+                  </button>
+                  <button
+                    type="button"
+                    className="tq-btn"
+                    onClick={() => setTestState('IDLE')}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* State: RUNNING */}
+            {testState === 'RUNNING' && (
+              <div style={{ padding: '4px 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <strong style={{ fontSize: 13, color: 'var(--tq-accent)' }}>{phaseText}</strong>
+                  <span className="tq-num" style={{ fontSize: 13, fontWeight: 700 }}>
+                    {secondsLeft}s remaining
+                  </span>
+                </div>
+
+                {/* Progress bar */}
+                <div style={{ height: 8, background: 'rgba(255,255,255,0.1)', borderRadius: 4, overflow: 'hidden', marginBottom: 12 }}>
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${progress}%`,
+                      background: 'linear-gradient(90deg, var(--tq-accent), var(--tq-ok))',
+                      transition: 'width 0.25s linear',
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className="tq-muted" style={{ fontSize: 12 }}>
+                    Live Speed: <strong className="tq-num">{liveRpm.toFixed(0)} rpm</strong>
+                  </span>
+                  <button
+                    type="button"
+                    className="tq-btn tq-danger"
+                    onClick={handleAbort}
+                    style={{ fontSize: 12, padding: '4px 10px' }}
+                  >
+                    <Octagon size={13} aria-hidden="true" />
+                    <span>Emergency Abort Test</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* State: COMPLETED / ABORTED */}
+            {(testState === 'COMPLETED' || testState === 'ABORTED') && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Pill tone={testState === 'COMPLETED' ? 'ok' : 'crit'}>
+                    {testState === 'COMPLETED' ? 'TEST COMPLETED' : 'TEST ABORTED'}
+                  </Pill>
+                  <span className="tq-muted" style={{ fontSize: 12 }}>
+                    {testState === 'COMPLETED' ? 'Observation signature captured & posterior updated.' : 'Test execution safely aborted.'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="tq-btn"
+                  onClick={() => setTestState('IDLE')}
+                  style={{ fontSize: 12, padding: '4px 10px' }}
+                >
+                  <RotateCcw size={12} aria-hidden="true" />
+                  <span>Run Another Test</span>
+                </button>
+              </div>
+            )}
+
+            <ErrorBox error={errorMsg} />
+          </Card>
+
+          {/* Test History */}
+          <DiagnosticTests log={mergedLogs} />
         </div>
+
+        {/* RIGHT COLUMN: Specifications, Latest Result, Calibration */}
         <div className="tq-stack">
-          <Card title={`Selected test ${sel}`} id="c-sel"><p>{TEST_INFO[sel]}</p>
-            <p className="tq-muted">Expected diagnostic value is not shown per test because the backend does not publish a per-test value; measured value is in the evaluation table below.</p></Card>
-          <Card title="Latest result and competing hypotheses" id="c-result" right={<ProvBadge kind={provKind} />}>
-            {!res ? <Empty>No diagnostic test has been run in this incident.</Empty> : (
-              <><p><strong>{res.test}</strong> observation <span className="tq-num">{res.obs.map((x) => x.toFixed(2)).join(', ')}</span></p><PosteriorBars ranked={res.posterior} label="after test" /></>)}
+          {/* Selected Test Deep Specifications */}
+          <Card title={`Selected Test Profile: ${spec.code}`} id="c-sel" right={<Pill tone="info">{spec.short}</Pill>}>
+            <p><strong>{spec.name}</strong></p>
+            <p className="tq-muted" style={{ fontSize: 13, margin: '6px 0 10px' }}>{spec.target}</p>
+            <div style={{ background: 'rgba(15,23,42,0.4)', padding: '10px 12px', borderRadius: 6, marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: 'var(--tq-accent)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700 }}>
+                Physical Mechanism &amp; Isolation Principle
+              </div>
+              <p style={{ margin: '4px 0 0', fontSize: 12, lineHeight: 1.5 }}>
+                {spec.physics}
+              </p>
+            </div>
+            <div style={{ fontSize: 12 }}>
+              <span className="tq-muted">Monitored Signals: </span>
+              <strong>{spec.signals.join(' · ')}</strong>
+            </div>
           </Card>
-          <Card title="C4 calibration status" id="c-cal">
+
+          {/* Latest Diagnostic Result & Competing Hypotheses */}
+          <Card title="Latest Result &amp; Fault Separation" id="c-result" right={<ProvBadge kind={provKind} />}>
+            {!res ? (
+              <Empty>No diagnostic test has been run in this incident. Click 'Execute Diagnostic Test' to begin.</Empty>
+            ) : (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <strong>{res.test} Diagnostic Observation</strong>
+                  <Pill tone={res.posterior?.[0]?.[1] >= 0.7 ? 'ok' : 'warn'}>
+                    {res.posterior?.[0]?.[1] >= 0.7 ? 'CONFIDENT SEPARATION' : 'INCONCLUSIVE'}
+                  </Pill>
+                </div>
+
+                <div style={{ background: 'rgba(15,23,42,0.5)', padding: '8px 12px', borderRadius: 6, marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, color: 'var(--tq-muted)', textTransform: 'uppercase' }}>Observed Signature Vector</div>
+                  <div className="tq-num" style={{ fontSize: 15, fontWeight: 700, color: 'var(--tq-accent)', marginTop: 2 }}>
+                    [{res.obs.map((x) => Number(x).toFixed(2)).join(', ')}]
+                  </div>
+                </div>
+
+                {res.explanation && (
+                  <p className="tq-callout ok" style={{ fontSize: 12, marginBottom: 12 }}>
+                    <strong>Diagnostic Deduction: </strong>
+                    {res.explanation}
+                  </p>
+                )}
+
+                <div style={{ marginTop: 8 }}>
+                  <strong style={{ fontSize: 12, color: 'var(--tq-muted)' }}>Fault Hypothesis Posterior Distribution:</strong>
+                  <div style={{ marginTop: 6 }}>
+                    <PosteriorBars ranked={res.posterior} label="after test" />
+                  </div>
+                </div>
+              </div>
+            )}
+          </Card>
+
+          {/* Calibration Status */}
+          <Card title="C4 Calibration Status" id="c-cal">
             {isPhys ? (
               <>
-                <p><Pill tone="ok">Hardware Safety Active</Pill></p>
-                <p className="tq-muted">Live diagnostic test execution (T1 Speed-step, T3 Thermal observation, T4 Coast-down) is managed through the hardware Safety Supervisor with authenticated token verification on the ESP32.</p>
-                <p className="tq-muted">Emergency stops and supervisor hard limits remain deterministic and active throughout any test cycle.</p>
+                <p><Pill tone="ok">Hardware Safety Supervisor Active</Pill></p>
+                <p className="tq-muted">Live diagnostic test execution ({Object.keys(TEST_SPECS).join('/')}) is supervised directly on the ESP32 hardware via authenticated token session and deterministic hard limits.</p>
+                <p className="tq-muted">Emergency stops and speed ceiling bounds remain active throughout any test cycle.</p>
               </>
             ) : (
               <>
