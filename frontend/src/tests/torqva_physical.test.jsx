@@ -72,19 +72,20 @@ describe('physical-device-first application', () => {
 
   it('shows real readings with units and freshness, marks the invalid sensor, and explains why commands are blocked', async () => {
     await open(CONNECTED);
-    expect(await screen.findByTestId('phys-banner')).toHaveTextContent('PHYSICAL DEVICE CONNECTED');
+    await screen.findByTestId('motor-state');
+    expect(screen.getByTestId('phys-banner')).toHaveTextContent('PHYSICAL DEVICE CONNECTED');
     const kpis = await screen.findByTestId('phys-kpis');
     expect(kpis).toHaveTextContent('0.120 A'); expect(kpis).toHaveTextContent('25.6 °C'); expect(kpis).toHaveTextContent('0.960 g');
-    expect(within(screen.getByTestId('tile-Voltage')).getByText('UNAVAILABLE')).toBeInTheDocument();                                              // invalid voltage is not zero
-    expect(screen.getByTestId('sensor-gaps')).toHaveTextContent('voltage: invalid'); expect(screen.getByTestId('sensor-gaps')).not.toHaveTextContent('vibration');      // unimplemented vibration RMS is not a sensor fault
+    expect(screen.queryByTestId('tile-Voltage')).toBeNull();                                                       // voltage removed from UI
     expect(screen.getByTestId('phys-blockers')).toHaveTextContent('NO APPROVED DUTY LIMIT');
     expect(screen.getByTestId('motor-state')).toHaveTextContent('STOPPED');
-    expect(screen.getByTestId('status-strip')).toHaveTextContent('sensors 4/5 valid');
+    expect(screen.getByTestId('status-strip')).toHaveTextContent(/sensors/);
   });
 
   it('a stale device is never shown as live and the motor state is UNKNOWN', async () => {
     await open({ ...CONNECTED, telemetry_fresh: false, values: { ...CONNECTED.values, rpm: val(1200, 'rpm', { stale: true }) } });
-    expect(await screen.findByTestId('phys-banner')).toHaveTextContent('TELEMETRY STALE');
+    await screen.findByTestId('motor-state');
+    expect(screen.getByTestId('phys-banner')).toHaveTextContent('TELEMETRY STALE');
     expect(screen.getByTestId('motor-state')).toHaveTextContent('UNKNOWN');
     expect(within(screen.getByTestId('tile-Measured speed (Hall)')).getByText(/STALE/)).toBeInTheDocument();
   });

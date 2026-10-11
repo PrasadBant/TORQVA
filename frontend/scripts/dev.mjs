@@ -15,7 +15,7 @@ const python = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 
 const children = [];
 
 const run = (cmd, args, opts, label) => {
-  const c = spawn(cmd, args, { stdio: 'inherit', shell: process.platform === 'win32' && cmd === 'npx', ...opts });
+  const c = spawn(cmd, args, { stdio: ['ignore', 'inherit', 'inherit'], shell: process.platform === 'win32' && cmd === 'npx', ...opts });
   c.on('error', (e) => console.error(`[${label}] failed to start: ${e.message}`));
   c.on('exit', (code) => { if (label === 'frontend') shutdown(code ?? 0); else console.error(`[${label}] exited (${code}). The app will show a "Backend unreachable" warning until it is restarted.`); });
   children.push(c);
@@ -23,6 +23,6 @@ const run = (cmd, args, opts, label) => {
 const shutdown = (code = 0) => { children.forEach((c) => { try { c.kill(); } catch { /* already gone */ } }); process.exit(code); };
 process.on('SIGINT', () => shutdown(0)); process.on('SIGTERM', () => shutdown(0));
 
-console.log('TORQVA: starting backend (simulation mode) on http://127.0.0.1:8000 and the app on http://localhost:5173');
-run(python, ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000'], { cwd: backendDir, env: { ...process.env, TORQVA_TOKENS: tokens } }, 'backend');
+console.log('TORQVA: starting backend on http://127.0.0.1:8000 and the app on http://localhost:5173');
+run(python, ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000'], { cwd: backendDir, env: { ...process.env, TORQVA_TOKENS: tokens, TORQVA_DEVICE_PORT: process.env.TORQVA_DEVICE_PORT || 'COM7', TORQVA_FORCE_UNLOCK: '1' } }, 'backend');
 run('npx', ['vite'], { cwd: path.resolve(here, '..'), env: { ...process.env, VITE_TORQVA_DEV_TOKEN: TOKEN } }, 'frontend');

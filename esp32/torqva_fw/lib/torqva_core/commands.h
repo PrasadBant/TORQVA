@@ -46,6 +46,7 @@ public:
     // True if the most recent validate() call was a replay of an already-seen id (must NOT be re-executed).
     bool last_was_duplicate() const { return duplicate_; }
     void update_cached(uint32_t id, AckStatus s, const char* reason);
+    void reset_sequence() { seq_seen_ = false; last_seq_ = 0; }
 
 private:
     static const int kCache = 16;

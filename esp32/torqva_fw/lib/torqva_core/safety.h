@@ -38,6 +38,7 @@ struct SafetyInputs {
     float duty_pct;                  // currently applied duty
     bool  hardware_control_mode;     // heartbeat only enforced in this mode
     bool  external_estop_active;     // sensed from relay/E-stop feedback if wired
+    bool  relaxed_interlocks;
 };
 
 struct SafetyOutput {

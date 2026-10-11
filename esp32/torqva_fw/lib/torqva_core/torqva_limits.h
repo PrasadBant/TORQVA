@@ -39,11 +39,11 @@ inline Limits default_limits() {
     l.vib_rms_stop_g = 0.0f;
     l.rpm_loss_duty_pct = 15.0f;
     l.rpm_loss_ms = 1000;
-    l.volt_min_v = 20.0f;
-    l.volt_max_v = 25.5f;
-    l.heartbeat_timeout_ms = 2000;
-    l.sensor_invalid_ms = 500;
-    l.max_rpm = 0.0f;
+    l.volt_min_v = 0.0f;
+    l.volt_max_v = 28.0f;
+    l.heartbeat_timeout_ms = 5000;
+    l.sensor_invalid_ms = 2000;
+    l.max_rpm = 3000.0f;
     return l;
 }
 

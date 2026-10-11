@@ -135,7 +135,6 @@ export default function Attestation({ role }) {
             <dt>Windows</dt><dd className="tq-num">{s.n} ({fmt(s.t_start, 0)}–{fmt(s.t_end, 0)} s)</dd>
             <dt>Setpoint / speed</dt><dd className="tq-num">{fmt(s.setpoint_rpm_mean, 0)} / {fmt(s.rpm_mean, 0)} rpm (CV {fmt(s.rpm_cv * 100, 1)}%)</dd>
             <dt>Ambient</dt><dd className="tq-num">{fmt(s.ambient_c_mean, 1)} ± {fmt(s.ambient_c_std, 2)} °C</dd>
-            <dt>Supply</dt><dd className="tq-num">{fmt(s.voltage_v_mean, 2)} ± {fmt(s.voltage_v_std, 2)} V</dd>
             <dt>Current / housing / vibration</dt><dd className="tq-num">{fmt(s.current_a_mean, 2)} A · {fmt(s.housing_c_mean, 1)} °C · {fmt(s.vib_rms_g_mean, 3)} g</dd>
           </dl>
           <h4>Eligibility checks</h4>
@@ -185,10 +184,10 @@ export default function Attestation({ role }) {
         {ctl && (
           <label>Reason for activate / roll back (at least {MIN_REASON} characters)
             <input type="text" value={refReason} onChange={(e) => setRefReason(e.target.value)} aria-label="Reference change reason" /></label>)}
-        {!refs.versions.length ? <Empty>No reference versions yet. A version is created only when an operator attests an eligible candidate.</Empty> : (
+        {!(refs?.versions?.length) ? <Empty>No reference versions yet. A version is created only when an operator attests an eligible candidate.</Empty> : (
           <table className="tq-table"><caption className="tq-sr">Reference versions</caption>
             <thead><tr><th scope="col">Version</th><th scope="col">Candidate</th><th scope="col">Gain</th><th scope="col">Hold-out check</th><th scope="col">Status</th><th scope="col"><span className="tq-sr">Actions</span></th></tr></thead>
-            <tbody>{refs.versions.map((v) => (
+            <tbody>{(refs.versions || []).map((v) => (
               <tr key={v.version}><td className="tq-num">v{v.version}</td><td>{v.candidate}</td><td className="tq-num">{fmt(v.gain, 2)}</td>
                 <td>{v.validation?.ok ? <Pill tone="ok">passed</Pill> : <Pill tone="crit">failed</Pill>}</td>
                 <td>{v.version === refs.active_version ? <Pill tone="ok">active</Pill> : v.status}</td>

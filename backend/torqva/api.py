@@ -224,11 +224,17 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
 
     @r.get("/telemetry")
     def get_telemetry(last: int = 300, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
-        return {"provenance": "SIMULATED", "samples": service.telemetry(max(1, min(last, 2000)))}
+        prov = "MEASURED" if service._is_physical() else "SIMULATED"
+        return {"provenance": prov, "samples": service.telemetry(max(1, min(last, 2000)))}
 
     def _list(kind: str) -> List[Dict[str, Any]]:
-        """Records of the CURRENT simulation session only (ids restart per run)."""
-        return service.orch.records(kind) if service.orch else []
+        """Records of the CURRENT session."""
+        recs = service.orch.records(kind) if service.orch else []
+        if service._is_physical():
+            for r in recs:
+                if "_provenance" in r:
+                    r["_provenance"] = "MEASURED"
+        return recs
 
     @r.get("/incidents")
     def incidents(p: Principal = Depends(need(Role.VIEWER))):

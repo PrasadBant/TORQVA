@@ -39,6 +39,8 @@ def shutdown_torqva_bridge(reason: str = "backend shutdown") -> None:
         ac = getattr(svc.bridge, "autoconnect", None)
         if ac is not None:
             ac.stop()
+        if hasattr(svc, "stop_bg"):
+            svc.stop_bg()
     except Exception as e:                   # shutdown must never raise
         logger.warning(f"serial bridge shutdown: {e}")
 

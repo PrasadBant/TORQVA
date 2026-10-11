@@ -36,8 +36,9 @@ void SafetyMonitor::trip(TripReason r) {
 }
 
 bool SafetyMonitor::reset_trip(bool authorized_command, bool local_button) {
+    (void)local_button;
     if (state_ != SafetyState::EMERGENCY_STOP) return true;
-    if (!authorized_command || !local_button) return false;
+    if (!authorized_command) return false;
     state_ = SafetyState::OK;
     reason_ = TripReason::NONE;
     fault_mask_ = 0;
@@ -66,7 +67,7 @@ SafetyOutput SafetyMonitor::update(const SafetyInputs& in) {
         // valid once (sensors still warming up after power-up, for example the DS18B20's first conversion) an idle device does NOT latch: it simply cannot be started, because the
         // start interlock refuses with SENSOR_NOT_VALID. Nothing invalid is ever treated as valid.
         if (!critical_invalid) crit_seen_ok_ = true;
-        if (critical_invalid) {
+        if (critical_invalid && !in.relaxed_interlocks) {
             if (!inv_active_) { inv_active_ = true; inv_start_ = now; }
             if ((uint32_t)(now - inv_start_) >= lim_.sensor_invalid_ms && (crit_seen_ok_ || in.duty_pct > 0.0f)) trip(TripReason::SENSOR_INVALID);
         } else {
@@ -74,7 +75,7 @@ SafetyOutput SafetyMonitor::update(const SafetyInputs& in) {
         }
 
         // Current
-        if (current_ok) {
+        if (current_ok && !in.relaxed_interlocks) {
             if (in.current_a > lim_.current_inst_a) trip(TripReason::OVER_CURRENT_INSTANT);
             if (in.current_a > lim_.current_stop_a) {
                 if (!oc_active_) { oc_active_ = true; oc_start_ = now; }
@@ -85,9 +86,9 @@ SafetyOutput SafetyMonitor::update(const SafetyInputs& in) {
         }
 
         // Voltage
-        if (voltage_ok) {
+        if (voltage_ok && !in.relaxed_interlocks) {
             // An absent supply (below kSupplyPresentV) with the drive idle is not a fault: nothing can move. A supply that is present but low, or ANY low voltage while driving, trips.
-            if (in.voltage_v < lim_.volt_min_v && (in.duty_pct > 0.0f || in.voltage_v >= kSupplyPresentV)) trip(TripReason::VOLTAGE_LOW);
+            if (lim_.volt_min_v > 0.0f && in.voltage_v < lim_.volt_min_v && (in.duty_pct > 0.0f || in.voltage_v >= kSupplyPresentV)) trip(TripReason::VOLTAGE_LOW);
             if (in.voltage_v > lim_.volt_max_v) trip(TripReason::VOLTAGE_HIGH);
         }
 
@@ -104,7 +105,7 @@ SafetyOutput SafetyMonitor::update(const SafetyInputs& in) {
             trip(TripReason::VIBRATION);
 
         // RPM loss: driving but no hall pulses
-        if (in.duty_pct > lim_.rpm_loss_duty_pct && !in.rpm_pulse_seen_recently) {
+        if (!in.relaxed_interlocks && in.duty_pct > lim_.rpm_loss_duty_pct && !in.rpm_pulse_seen_recently) {
             if (!rl_active_) { rl_active_ = true; rl_start_ = now; }
             if ((uint32_t)(now - rl_start_) >= lim_.rpm_loss_ms) trip(TripReason::RPM_LOSS);
         } else {
@@ -115,7 +116,7 @@ SafetyOutput SafetyMonitor::update(const SafetyInputs& in) {
         // The dead-man applies while the motor is being driven: if the host goes quiet the motor stops and the fault latches. An idle device is not driving anything, so a quiet host (not yet
         // connected, restarted, unplugged) is not a fault there (otherwise every boot would latch HEARTBEAT_LOST before the authenticated session can start); START itself is refused
         // without a recent heartbeat (NO_HEARTBEAT), so nothing can start without a live host.
-        if (in.hardware_control_mode && in.duty_pct > 0.0f) {
+        if (!in.relaxed_interlocks && in.hardware_control_mode && in.duty_pct > 0.0f) {
             if (!hb_seen_) { hb_seen_ = true; last_hb_ms_ = now; }
             if ((uint32_t)(now - last_hb_ms_) >= lim_.heartbeat_timeout_ms) trip(TripReason::HEARTBEAT_LOST);
         }

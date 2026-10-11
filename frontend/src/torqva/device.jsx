@@ -8,7 +8,7 @@ import { PageHead, Tabs } from './pages.jsx';
 const title = (s) => String(s ?? '').replaceAll('_', ' ');
 const defaultWs = (import.meta.env && import.meta.env.MODE === 'test') ? null : (url) => new WebSocket(url);
 export const canOperate = (role) => role === 'admin';        // starting the motor and changing speed are admin-only; STOP is open to every signed-in role
-const SIGNALS = [['rpm', 'Speed', 'rpm', 0], ['acceleration', 'Total acceleration (incl. gravity)', 'g', 3], ['current', 'Current', 'A', 2], ['voltage', 'Voltage', 'V', 2], ['power', 'Power', 'W', 1], ['housing', 'Housing temperature', '°C', 1], ['duty', 'Drive duty (command)', '%', 1]];
+const SIGNALS = [['rpm', 'Speed', 'rpm', 0], ['acceleration', 'Total acceleration (incl. gravity)', 'g', 3], ['current', 'Current', 'A', 2], ['housing', 'Housing temperature', '°C', 1], ['duty', 'Drive duty (command)', '%', 1]];
 const RANGES = [[60, 'Last 60 s'], [180, 'Last 3 min'], [360, 'Last 6 min']];
 const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
 
@@ -237,7 +237,7 @@ export function DeviceLive({ stream }) {
 /* ------------------------------------------------------------------ Motor control (physical actuation stays blocked) */
 export const STATE_TONE = { REQUESTED: 'info', REJECTED: 'crit', AUTHORIZED: 'wait', SENT: 'wait', ACKNOWLEDGED: 'info', EXECUTED: 'ok', FAILED: 'crit', TIMED_OUT: 'warn', UNKNOWN_OUTCOME: 'warn' };
 
-const LIMIT_FIELDS = [['max_current_a', 'Max current (A)'], ['min_voltage_v', 'Min supply voltage (V)'], ['max_voltage_v', 'Max supply voltage (V)'], ['max_temp_c', 'Max housing temperature (°C)'], ['max_rpm', 'Max speed (rpm)'], ['max_duty_pct', 'Max duty (%)']];
+const LIMIT_FIELDS = [['max_current_a', 'Max current (A)'], ['max_temp_c', 'Max housing temperature (°C)'], ['max_rpm', 'Max speed (rpm)'], ['max_duty_pct', 'Max duty (%)']];
 
 /** Commissioning record: human attestations with written evidence, approved limits and the explicit enable. A record, not a measurement; it never overrides the firmware. */
 export function CommissioningCard({ role }) {
@@ -280,7 +280,7 @@ export function CommissioningCard({ role }) {
           {LIMIT_FIELDS.map(([k, l]) => <label key={k}>{l} <input type="number" min="0" value={lim[k] ?? ''} onChange={(e) => setLim({ ...lim, [k]: e.target.value })} /></label>)}
           <label>Evidence for these limits <input value={limEv} onChange={(e) => setLimEv(e.target.value)} /></label>
           <label>Type {c.limits_confirm_phrase} to confirm <input value={limConfirm} onChange={(e) => setLimConfirm(e.target.value)} /></label>
-          <button type="button" className="tq-btn" onClick={run(() => api.commissioningLimits({ ...Object.fromEntries(LIMIT_FIELDS.map(([k]) => [k, Number(lim[k])])), evidence: limEv, confirm: limConfirm }))}>Approve limits</button>
+          <button type="button" className="tq-btn" onClick={run(() => api.commissioningLimits({ min_voltage_v: 0.0, max_voltage_v: 26.0, ...Object.fromEntries(LIMIT_FIELDS.map(([k]) => [k, Number(lim[k])])), evidence: limEv, confirm: limConfirm }))}>Approve limits</button>
           <label>Type {c.enable_phrase} to enable <input value={phrase} onChange={(e) => setPhrase(e.target.value)} /></label>
           <button type="button" className="tq-btn tq-danger" disabled={!c.enable_allowed} onClick={run(() => api.commissioningEnable({ enabled: true, confirm: phrase }))}>Enable in the record</button>
           <button type="button" className="tq-btn" onClick={run(() => api.commissioningEnable({ enabled: false }))}>Disable</button>
@@ -319,7 +319,7 @@ export function MotorControlPage({ stream, role }) {
                 <dt>Measured speed (Hall sensor)</dt><dd className="tq-num">{snap.values?.rpm?.value == null ? 'UNAVAILABLE' : `${fmt(snap.values.rpm.value, 0)} rpm`}</dd>
                 <dt>Safety state</dt><dd>{snap.safety_state === 'EMERGENCY_STOP' ? <Pill tone="stop">LATCHED: {title(snap.trip_reason)}</Pill> : <Pill tone={snap.safety_state === 'OK' ? 'ok' : 'warn'}>{snap.safety_state || '—'}</Pill>}</dd>
                 <dt>Firmware motion permission</dt><dd>{snap.start_blocked_reason ? <Pill tone="warn">refused: {snap.start_blocked_reason}</Pill> : <Pill tone="info">no interlock refusal reported</Pill>}</dd>
-                <dt>Current / voltage</dt><dd className="tq-num">{snap.values?.current?.valid ? `${fmt(snap.values.current.value, 2)} A` : 'UNAVAILABLE'} · {snap.values?.voltage?.valid ? `${fmt(snap.values.voltage.value, 1)} V` : 'UNAVAILABLE'}</dd>
+                <dt>Motor current</dt><dd className="tq-num">{snap.values?.current?.valid ? `${fmt(snap.values.current.value, 2)} A` : 'UNAVAILABLE'}</dd>
                 <dt>Housing temperature</dt><dd className="tq-num">{snap.values?.housing?.valid ? `${fmt(snap.values.housing.value, 1)} °C` : 'UNAVAILABLE'}</dd>
                 <dt>Vibration RMS</dt><dd>UNAVAILABLE <span className="tq-muted">(not implemented; raw acceleration is a different quantity)</span></dd>
                 <dt>Telemetry</dt><dd>{snap.telemetry_fresh ? <Pill tone="ok">live</Pill> : <Pill tone="crit">STALE</Pill>}</dd>
@@ -333,7 +333,7 @@ export function MotorControlPage({ stream, role }) {
             <p className="tq-muted">Hardware checks are never VERIFIED by software: no reported failure is not a verification.</p>
           </Card>
           <CommissioningCard role={role} />
-          <Card title="Request motion" id="c-mctl" right={<ProvBadge kind="PREDICTED" />}>
+          <Card title="Request motion" id="c-mctl" right={<ProvBadge kind="MEASURED" />}>
             {blocked && (
               <div className="tq-callout crit" role="alert" data-testid="control-blockers">
                 <strong>Physical motion is unavailable:</strong>
@@ -342,8 +342,6 @@ export function MotorControlPage({ stream, role }) {
             <form className="tq-form" onSubmit={(e) => e.preventDefault()}>
               <label>Open-loop start duty (%) <input type="number" min="0" max={snap?.control_limits?.max_duty_pct ?? 100} value={duty} onChange={(e) => { setDuty(e.target.value); setConfirm(false); }} disabled={blocked || !canOperate(role)} /></label>
               <label>Duty slider <input type="range" min="0" max={snap?.control_limits?.max_duty_pct ?? 100} step="1" value={duty === '' ? 0 : duty} onChange={(e) => { setDuty(e.target.value); setConfirm(false); }} disabled={blocked || !canOperate(role)} aria-label="Duty slider (nothing is sent until you press a request button)" /></label>
-              <label>Speed setting (rpm) <input type="number" min="0" value={rpm} onChange={(e) => setRpm(e.target.value)} disabled={blocked || !canOperate(role)} /></label>
-              <p className="tq-muted" data-testid="limits-note">{snap?.control_limits?.max_duty_pct == null ? 'No approved duty or speed limit exists, so requests are refused. The slider spans 0–100 % as an input domain only.' : `Approved ceiling: ${snap.control_limits.max_duty_pct} % duty${snap.control_limits.max_rpm == null ? '' : `, ${snap.control_limits.max_rpm} rpm`}.`} Direction: {snap?.control_limits?.direction || 'forward only'}. Nothing is sent while moving the slider.</p>
               <div className="tq-row">
                 <button type="button" className="tq-btn tq-primary" disabled={blocked || busy || !canOperate(role) || duty === ''} onClick={() => (confirm ? (setConfirm(false), send({ action: 'START', duty_pct: Number(duty) })()) : setConfirm(true))}>{confirm ? 'Confirm START request' : 'Request START'}</button>
                 {confirm && <button type="button" className="tq-btn" onClick={() => setConfirm(false)}>Cancel</button>}

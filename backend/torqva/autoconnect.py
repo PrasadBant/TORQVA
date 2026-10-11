@@ -33,7 +33,7 @@ def _list_usb_ports() -> list:
 
 
 class AutoConnector:
-    def __init__(self, bridge: DeviceBridge, port: Optional[str], baud: int = 115200, interval_s: float = 5.0, scan: bool = True, lister: Optional[Callable[[], list]] = None,
+    def __init__(self, bridge: DeviceBridge, port: Optional[str], baud: int = 115200, interval_s: float = 1.0, scan: bool = True, lister: Optional[Callable[[], list]] = None,
                  factory: Optional[Callable[[str, int], Any]] = None, clock: Callable[[], float] = time.monotonic):
         self.bridge, self.baud, self.interval_s, self._clock = bridge, baud, interval_s, clock
         self.port = port if port and _PORT.match(port) else None

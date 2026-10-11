@@ -17,7 +17,7 @@ function useAsync() {
   return { busy, error, run };
 }
 
-export default function Lab({ role }) {
+export default function Lab({ role, isPhys = false }) {
   const [regimes, setRegimes] = useState([]);
   const [checklist, setChecklist] = useState(null);
   const [sessions, setSessions] = useState([]);
@@ -67,6 +67,11 @@ export default function Lab({ role }) {
 
   return (
     <div className="tq-grid">
+      {isPhys && (
+        <p className="tq-callout warn" role="note" data-testid="lab-sim-note">
+          <strong>SIMULATION ONLY</strong> — Lab synthetic experiments operate on matched software simulation models.
+        </p>
+      )}
       <Card title="New recording session" id="c-lab-new" right={<ProvBadge kind="SIMULATED" />}>
         {!ctl && <Empty>Your role ({role}) can view the Lab but not create sessions.</Empty>}
         <form className="tq-form" onSubmit={(e) => { e.preventDefault(); create(); }} aria-label="New session">

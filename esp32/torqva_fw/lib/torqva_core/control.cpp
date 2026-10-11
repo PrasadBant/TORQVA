@@ -23,13 +23,13 @@ float PIController::step(float setpoint, float measured, float dt_s) {
 }
 
 DriveController::DriveController(const Limits& l, float kp, float ki)
-    : lim_(l), ramp_(l.ramp_pct_per_s), pi_(kp, ki, 0.0f, l.max_duty_pct),
+    : lim_(l), ramp_(l.ramp_pct_per_s), pi_(kp, ki, -15.0f, l.max_duty_pct),
       kp_(kp), ki_(ki), mode_(DriveMode::IDLE), target_duty_(0.0f), target_rpm_(0.0f) {}
 
 void DriveController::set_limits(const Limits& l) {
     lim_ = l;
     ramp_.set_rate(l.ramp_pct_per_s);
-    pi_ = PIController(kp_, ki_, 0.0f, l.max_duty_pct);
+    pi_ = PIController(kp_, ki_, -15.0f, l.max_duty_pct);
 }
 
 void DriveController::stop() {
@@ -42,7 +42,9 @@ void DriveController::stop() {
 
 void DriveController::start_open_loop(float duty_pct) {
     mode_ = DriveMode::OPEN_LOOP;
-    target_duty_ = clampf(duty_pct, 0.0f, lim_.max_duty_pct);
+    float d = clampf(duty_pct, 0.0f, lim_.max_duty_pct);
+    if (d > 0.0f && d < 10.0f) d = 10.0f;              // minimum breakaway duty floor so motor reliably starts
+    target_duty_ = d;
     target_rpm_ = 0.0f;
 }
 
@@ -71,7 +73,12 @@ DriveOutput DriveController::update(float dt_s, float measured_rpm, bool drive_a
     switch (mode_) {
         case DriveMode::IDLE:        demand = 0.0f; break;
         case DriveMode::OPEN_LOOP:   demand = target_duty_; break;
-        case DriveMode::CLOSED_LOOP: demand = pi_.step(target_rpm_, measured_rpm, dt_s); break;
+        case DriveMode::CLOSED_LOOP: {
+            float base = (target_rpm_ > 0.0f) ? (12.0f + (target_rpm_ / (lim_.max_rpm > 0.0f ? lim_.max_rpm : 3000.0f)) * 30.0f) : 0.0f;
+            float pi_out = pi_.step(target_rpm_, measured_rpm, dt_s);
+            demand = base + pi_out;
+            break;
+        }
     }
     demand = clampf(demand, 0.0f, lim_.max_duty_pct);
     const float duty = ramp_.step(demand, dt_s);

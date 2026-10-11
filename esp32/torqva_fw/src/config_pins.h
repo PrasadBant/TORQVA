@@ -14,4 +14,4 @@
 
 #define PWM_FREQ_HZ     20000
 #define PWM_RES_BITS    10
-#define HALL_MIN_PERIOD_US 2000   // ignore pulses faster than 30 000 rpm (bounce / noise)
+#define HALL_MIN_PERIOD_US 12000  // ignore electrical noise faster than 5 000 rpm (motor max is 3 000 rpm)

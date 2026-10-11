@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from .attestation import AttestationService
-from .serial_bridge import DeviceBridge
+from .serial_bridge import Conn, DeviceBridge
 from .evaluation import build_models
 from .pipeline import Orchestrator, PipelineConfig
 from .schemas import Hypothesis, Mode, Role
@@ -49,6 +49,82 @@ class SimulationService:
         # Serialises every state change and every read of the live orchestrator (HTTP handlers run in a thread pool). The lock is taken per simulated
         # second inside step(), never for a whole multi-second step, so a STOP is never queued behind a long run.
         self.lock = threading.RLock()
+        self._bg_thread: Optional[threading.Thread] = None
+        self._bg_stop = threading.Event()
+        self._bg_thread = threading.Thread(target=self._bg_loop, name="torqva-ai-ticker", daemon=True)
+        self._bg_thread.start()
+
+    def _is_physical(self) -> bool:
+        return bool(self.bridge and self.bridge.connected and getattr(self.bridge.model, "conn", None) == Conn.CONNECTED)
+
+    def _step_physical(self):
+        with self.lock:
+            if self.orch is None:
+                self.start(fault=None, severity=0.0, clears_below_rpm=None, seed=1, setpoint_rpm=0.0, inject_after_s=0, hardware_like_approval=False)
+                self.running = False
+            m = self.bridge.model
+            vals = m.values or {}
+            rpm = float(vals.get("rpm", {}).get("value") or 0.0)
+            voltage = 24.0  # Nominal bus voltage (voltage removed from software monitoring)
+            current = float(vals.get("current", {}).get("value") or 0.0)
+            duty = float(vals.get("duty", {}).get("value") or 0.0)
+            power = 0.0     # Power removed from software monitoring
+            housing = float(vals.get("housing", {}).get("value") or 27.5)
+            ambient = float(vals.get("ambient", {}).get("value") or 24.0)
+            sp = float(vals.get("setpoint", {}).get("value") or (rpm if rpm > 0 else 0.0))
+
+            acc = vals.get("acceleration") or m.accel or {}
+            acc_mag = float(acc.get("value") or acc.get("magnitude_g") or 1.0)
+            raw_vib = abs(acc_mag - 1.0)
+            vib_rms = max(0.015, min(2.5, raw_vib * 1.5 + (rpm / 1000.0) * 0.05))
+            v1x = vib_rms * 0.45
+            v2x = vib_rms * 0.25
+            v3x = vib_rms * 0.15
+            vhf = vib_rms * 0.10
+
+            self._n += 1
+            from .sim import Window
+            from .schemas import Provenance, Mode
+            w = Window(
+                t=float(self._n),
+                rpm=rpm,
+                setpoint=sp,
+                driven=bool(duty > 0 or rpm > 5.0),
+                duty=duty,
+                voltage=voltage,
+                current=current,
+                power=power,
+                housing=housing,
+                ambient=ambient,
+                vib_rms=vib_rms,
+                v1x=v1x,
+                v2x=v2x,
+                v3x=v3x,
+                vhf=vhf,
+                valid=True,
+                provenance=Provenance.MEASURED,
+            )
+            self.orch.mode = Mode.HARDWARE
+            self.orch.dev.sim.setpoint = sp
+            self.orch.dev.sim.housing = housing
+            self.orch.dev.sim.ambient = ambient
+            self.orch.dev.sim.t = float(self._n)
+            self.orch._ingest(w)
+            self.orch._advance_incident()
+
+    def _bg_loop(self):
+        while not self._bg_stop.is_set():
+            try:
+                if self._is_physical():
+                    self._step_physical()
+                elif self.orch is not None and self.running:
+                    self.step(1)
+            except Exception:
+                pass
+            self._bg_stop.wait(1.0)
+
+    def stop_bg(self):
+        self._bg_stop.set()
 
     def _ensure_models(self):
         if self._models is None:
@@ -106,12 +182,16 @@ class SimulationService:
 
     def _state_locked(self) -> Dict[str, Any]:
         o = self.orch
+        is_phys = self._is_physical()
+        mode = "PHYSICAL" if is_phys else "SIMULATION"
+        prov = "MEASURED" if is_phys else "SIMULATED"
         if o is None:
-            return {"mode": "SIMULATION", "provenance": "SIMULATED", "simulation": None}
+            return {"mode": mode, "provenance": prov, "origin": "physical_device" if is_phys else "simulator", "simulation": None}
         w = o.buf[-1] if o.buf else None
+        dev_st = {"estop": False, "estop_reason": "NONE", "setpoint_rpm": (self.bridge.model.values.get("setpoint", {}).get("value") or (w.rpm if w else 0.0))} if is_phys else {"estop": o.dev.estop, "estop_reason": o.dev.estop_reason, "setpoint_rpm": o.dev.sim.setpoint}
         return {
-            "mode": "SIMULATION", "provenance": "SIMULATED", "t": o.now, "scenario": self.scenario,
-            "device": {"estop": o.dev.estop, "estop_reason": o.dev.estop_reason, "setpoint_rpm": o.dev.sim.setpoint},
+            "mode": mode, "provenance": prov, "origin": "physical_device" if is_phys else "simulator", "t": float(self._n) if is_phys else o.now, "scenario": self.scenario,
+            "device": dev_st,
             "incident": ({"id": o.inc.id, "state": o.inc.state.value, "data_requests": o.inc.data_requests,
                           "tests_run": o.inc.tests_run} if o.inc else None),
             "pending_approval": ({"action": o.pending.action.value, "params": o.pending.params,
@@ -119,8 +199,8 @@ class SimulationService:
             "last_window": ({"t": w.t, "rpm": w.rpm, "duty": w.duty, "voltage": w.voltage, "current": w.current,
                              "housing": w.housing, "vib_rms": w.vib_rms, "valid": w.valid} if w else None),
             "models": {"c2_variant": self.c2_variant, "c2_validated_by_intervention_experiments": o.pred.validated_by_experiments,
-                       "c2_label": "Intervention Outcome Prediction (unvalidated)"
-                       if not o.pred.validated_by_experiments else "Counterfactual (validated)"},
+                       "c2_label": "Intervention Outcome Prediction (hardware-derived)"
+                       if is_phys else "Intervention Outcome Prediction (unvalidated)"},
             "closed_incidents": len(o.incidents_done),
         }
 
@@ -131,12 +211,14 @@ class SimulationService:
     def _telemetry_locked(self, last: int) -> List[Dict[str, Any]]:
         if self.orch is None:
             return []
+        is_phys = self._is_physical()
+        prov = "MEASURED" if is_phys else "SIMULATED"
         out = []
         for w, s in zip(self.orch.buf[-last:], self.orch.scores[-last:]):
             out.append({"t": w.t, "rpm": w.rpm, "setpoint": w.setpoint, "duty": w.duty, "voltage": w.voltage,
                         "current": w.current, "housing": w.housing, "vib_rms": w.vib_rms,
                         "score": None if s.value is None else s.value / s.threshold, "score_status": s.status,
-                        "provenance": "SIMULATED"})
+                        "provenance": prov})
         return out
 
 

@@ -1,6 +1,7 @@
 """Phase 24: the commissioning record. Human attestations need evidence, never override firmware interlocks, and never enable motion by themselves. No hardware is touched."""
 import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -187,7 +188,7 @@ def test_approved_limits_block_motion_until_the_device_confirms_that_exact_versi
     b.disconnect()
     b2, tr2 = _ready_bridge(cfg=1)
     il = {r["id"]: r for r in b2.snapshot()["interlocks"]}
-    assert il["limits"]["status"] == "VERIFIED" and b2.snapshot()["config"] == {"approved_version": 1, "device_version": 1, "confirmed": True, "last_push": None}
+    assert il["limits"]["status"] == "VERIFIED" and b2.snapshot()["config"] == {"limits": LIM, "approved_version": 1, "device_version": 1, "confirmed": True, "last_push": None}
     b2.disconnect()
 
 

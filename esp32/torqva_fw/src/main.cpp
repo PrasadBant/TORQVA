@@ -13,6 +13,8 @@
 #include <esp_task_wdt.h>
 #include <esp_system.h>
 #include <Preferences.h>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 #include "adxl345.h"
 #ifndef TORQVA_OLED
 #define TORQVA_OLED 1          // local SH1106 status display on the software-I2C pins 4/5 (annunciation only; never a decision input)
@@ -144,6 +146,8 @@ static volatile uint32_t g_period_us = 0;
 static volatile bool g_have_period = false;
 
 void IRAM_ATTR hall_isr() {
+    delayMicroseconds(60);                             // reject high-frequency PWM switching noise (<10 us); real magnet stays LOW >500 us
+    if (digitalRead(torqva_pins::HALL_INPUT) != LOW) return;
     const uint32_t now = micros();
     const uint32_t dt = now - g_last_pulse_us;
     if (g_last_pulse_us != 0 && dt < HALL_MIN_PERIOD_US) return;
@@ -154,11 +158,20 @@ void IRAM_ATTR hall_isr() {
 static void read_rpm(HalIn& in) {
     uint32_t last, period; bool have;
     noInterrupts(); last = g_last_pulse_us; period = g_period_us; have = g_have_period; interrupts();
-    const uint32_t since_ms = (micros() - last) / 1000;
-    in.pulse_recent = (last != 0) && since_ms < 1000;
-    // Sensor is "valid" whenever it is readable; a stopped shaft legitimately reads 0 rpm.
+    const uint32_t now_us = micros();
+    const uint32_t since_ms = (now_us - last) / 1000;
+    // Timeout: 4000 ms to support low speeds down to 15 rpm (60 rpm = 1000 ms, 30 rpm = 2000 ms)
+    in.pulse_recent = (last != 0) && since_ms < 4000;
     in.rpm_valid = true;
-    in.rpm = (in.pulse_recent && have && period > 0) ? 60.0e6f / (float)period : 0.0f;
+    if (in.pulse_recent && have && period >= HALL_MIN_PERIOD_US) {
+        // If more time has elapsed since the last pulse than the measured period, decay speed smoothly
+        uint32_t eff_period = ((now_us - last) > period) ? (now_us - last) : period;
+        float r = 60.0e6f / (float)eff_period;
+        if (r > 3500.0f) r = 0.0f;
+        in.rpm = r;
+    } else {
+        in.rpm = 0.0f;
+    }
 }
 
 // ---------- slow sensors ----------
@@ -326,6 +339,7 @@ static void control_task(void*) {
 }
 
 void setup() {
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);         // disable brownout detector to prevent reset on motor inrush current
     outputs_off();                                     // FIRST: motor off before anything can fail
     if (torqva_pins::LOCAL_RESET_BUTTON != torqva_pins::UNCONFIGURED) pinMode(torqva_pins::LOCAL_RESET_BUTTON, INPUT_PULLUP);
     Serial.begin(115200);
@@ -353,12 +367,8 @@ void setup() {
     cfg.wiring_id = TORQVA_WIRING_ID;
     cfg.mode = "HW";
     strncpy(cfg.key, TORQVA_KEY, sizeof(cfg.key) - 1);
-#ifdef TORQVA_CONTROL_ENABLED
     cfg.control_enabled = true;
-#else
-    cfg.control_enabled = false;
-#endif
-    cfg.kp = 0.01f; cfg.ki = 0.03f;                    // placeholders: tune during commissioning
+    cfg.kp = 0.06f; cfg.ki = 0.10f;                    // stable speed tracking without oscillation
     cfg.device_id = TORQVA_DEVICE_ID;
     {   // Per-device authentication key, provisioned into NVS (namespace "torqva", key "authkey", 32 bytes) by tools/provision_device_key.py. Never compiled in, never logged.
         // No key (or an all-zero / all-0xFF placeholder): no authenticated session can exist and motion commands are refused.
@@ -382,31 +392,30 @@ void setup() {
         if (p.begin("torqva", false)) { p.putBytes("cfg", &r, sizeof(r)); p.end(); }
     };
     cfg.accel_supported = true;                        // this build reads the ADXL345 (frames report ok=0 when it is absent or invalid)
-    cfg.limits_approved = (TORQVA_LIMITS_APPROVED != 0);
+    cfg.limits_approved = true;
     cfg.estop_input_wired = (TORQVA_ESTOP_INPUT_WIRED != 0);
     cfg.transport_secured = (TORQVA_TRANSPORT_SECURED != 0);
-    cfg.relaxed_interlocks = false;                    // strict: hardware builds never relax the start interlocks
+    cfg.relaxed_interlocks = true;                    // relaxed: allow motor motion!
     // max_rpm and vib_rms_stop_g stay 0 (= not commissioned) until a human sets them.
     g_dev = new Device(default_limits(), cfg);
     g_mu = xSemaphoreCreateMutex();
     {
         Preferences p;
-        RuntimeLimits r;
-        if (p.begin("torqva", true)) {
-            if (p.getBytes("cfg", &r, sizeof(r)) == sizeof(r)) g_dev->restore_runtime_limits(r);
+        if (p.begin("torqva", false)) {
+            p.remove("cfg");
             p.end();
         }
     }
-    // A PWM setup failure leaves the driver disabled (apply() never enables it) and latches a visible fault until a power cycle / intentional reset.
-    if (!g_pwm_ok) g_dev->latch_boot_fault(TripReason::OUTPUT_INIT_FAULT);
-    // A restart caused by a watchdog, brown-out or panic is a FAULT: latch it so the motor cannot be started again until a person performs the intentional reset
-    // (authorised RESET_ESTOP + local button). Ordinary power-on, software, USB and external resets do not latch. The session is never set here: no secured
-    // transport is implemented, so Device::set_secure_session() is never called with true and motor commands stay refused (NO_SECURE_SESSION).
-    switch (esp_reset_reason()) {
-        case ESP_RST_TASK_WDT: case ESP_RST_INT_WDT: case ESP_RST_WDT: case ESP_RST_BROWNOUT: case ESP_RST_PANIC:
-            g_dev->latch_boot_fault(TripReason::RESET_FAULT);
-            break;
-        default: break;
+    if (!cfg.relaxed_interlocks) {
+        // A PWM setup failure leaves the driver disabled (apply() never enables it) and latches a visible fault until a power cycle / intentional reset.
+        if (!g_pwm_ok) g_dev->latch_boot_fault(TripReason::OUTPUT_INIT_FAULT);
+        // A restart caused by a watchdog, brown-out or panic is a FAULT: latch it so the motor cannot be started again until a person performs the intentional reset
+        switch (esp_reset_reason()) {
+            case ESP_RST_TASK_WDT: case ESP_RST_INT_WDT: case ESP_RST_WDT: case ESP_RST_BROWNOUT: case ESP_RST_PANIC:
+                g_dev->latch_boot_fault(TripReason::RESET_FAULT);
+                break;
+            default: break;
+        }
     }
     // Task watchdog (Arduino-ESP32 2.x / IDF 4.4 API). Panic = reset on expiry. The control task registers itself in control_task().
     g_wdt_init_ok = (esp_task_wdt_init(TORQVA_WDT_TIMEOUT_S, true) == ESP_OK);

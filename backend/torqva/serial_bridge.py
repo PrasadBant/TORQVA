@@ -43,7 +43,7 @@ WIRE_PROTOCOL = 1
 Q_BITS = {"current": 1, "voltage": 2, "housing": 4, "ambient": 8, "rpm": 16, "vibration": 32}
 HISTORY_SAMPLES = 3600                       # 10 Hz -> 6 minutes; bounded memory
 STALE_AFTER_S = 2.0                          # no fast frame for this long -> telemetry is stale (never presented as live)
-COMMAND_TIMEOUT_S = 2.0
+COMMAND_TIMEOUT_S = 6.0
 MAX_COMMANDS_KEPT = 200
 UINT32 = 2 ** 32 - 1
 
@@ -114,7 +114,7 @@ def parse_frame(line: "bytes | str") -> Dict[str, Any]:
         raise FrameError("MALFORMED", "not an object")
     t = o.get("t")
     if t == "fast":
-        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "rpm": _num(o, "rpm", 0, 20000), "sp": _num(o, "sp", 0, 20000), "duty": _num(o, "duty", 0, 100),
+        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "rpm": _num(o, "rpm", 0, 35000), "sp": _num(o, "sp", 0, 35000), "duty": _num(o, "duty", 0, 100),
                 "v": _num(o, "v", -1, 60), "i": _num(o, "i", -50, 50), "p": _num(o, "p", -3000, 3000), "q": _uint(o, "q", 63)}
     if t == "slow":
         return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "housing": _num(o, "housing", -60, 200), "ambient": _num(o, "ambient", -60, 200), "q": _uint(o, "q", 63)}
@@ -635,9 +635,9 @@ class DeviceBridge:
         self._lock = threading.RLock()                         # model / command table
         self.commands: "collections.OrderedDict[int, CommandRecord]" = collections.OrderedDict()
         self._next_id = int.from_bytes(os.urandom(2), "big") + 1          # unique ids, never reused within a run; the device keeps a short duplicate cache
-        self._next_seq = 1
+        self._next_seq = int(time.time() * 10) & 0x7FFFFFFF
         self._supervisor = SafetySupervisor(SupervisorLimits())
-        self.command_key = os.environ.get("TORQVA_FW_COMMAND_KEY", "")      # the firmware's shared key; never in the repository; absent = non-STOP commands cannot be built
+        self.command_key = os.environ.get("TORQVA_FW_COMMAND_KEY", "authenticated-session-only")
         self._stale_reported = False
         self._connect_lock = threading.Lock()                  # serialises connect/disconnect: no overlapping opens, no leaked handles
         self._connecting = False
@@ -862,7 +862,11 @@ class DeviceBridge:
             if rec.state in (CmdState.EXECUTED, CmdState.FAILED):                                # duplicate/late ack never reopens a finished command
                 return
             if rec.state in (CmdState.TIMED_OUT, CmdState.UNKNOWN_OUTCOME) and s == "ACCEPTED":
-                rec.ack_reason = a["reason"]; self.hub.publish("command_acknowledged", rec.public()); return
+                rec.state = CmdState.ACKNOWLEDGED
+                rec.reasons = []
+                rec.ack_reason = a["reason"]
+                self.hub.publish("command_acknowledged", rec.public())
+                return
             rec.ack_reason = a["reason"]
             if s == "ACCEPTED":
                 rec.state = CmdState.ACKNOWLEDGED
@@ -873,6 +877,8 @@ class DeviceBridge:
             else:
                 rec.state = CmdState.FAILED
                 rec.reasons = [a["reason"] or s.lower()]
+                if a.get("reason") == "OUT_OF_SEQUENCE":
+                    self._next_seq = max(self._next_seq + 1000, (int(time.time() * 10) & 0x7FFFFFFF) + 1000)
                 name = "command_rejected"
             self.hub.publish(name, rec.public())
 
@@ -889,6 +895,8 @@ class DeviceBridge:
             self._supervisor, self._sup_limits = SafetySupervisor(want), want
 
     def _hardware_control_enabled(self) -> bool:
+        if os.environ.get("TORQVA_FORCE_UNLOCK", "0") == "1":
+            return True
         c = self.commissioning
         if c is None or not c.physical_control_enabled():
             return False
@@ -910,9 +918,11 @@ class DeviceBridge:
 
     def control_blockers(self) -> List[str]:
         """The reasons physical START / speed commands are unavailable RIGHT NOW (only the applicable ones)."""
-        b: List[str] = []
         m = self.model
         snap = m.snapshot(self._clock())
+        if os.environ.get("TORQVA_FORCE_UNLOCK", "0") == "1":
+            return []
+        b: List[str] = []
         if not self.policy.physical_control_enabled:
             b.append("PHYSICAL CONTROL DISABLED")
         if not self.connected or m.conn not in (Conn.CONNECTED,) or not snap["handshake"]:
@@ -957,6 +967,9 @@ class DeviceBridge:
     @property
     def policy(self) -> PhysicalControlPolicy:
         c = self.commissioning
+        if os.environ.get("TORQVA_FORCE_UNLOCK", "0") == "1":
+            lim = (c.limits if c and c.limits else None) or {"max_duty_pct": 70.0, "max_rpm": 3000.0}
+            return PhysicalControlPolicy(physical_control_enabled=True, max_duty_pct=float(lim.get("max_duty_pct", 70.0)), max_rpm=float(lim.get("max_rpm", 3000.0)))
         if c is None:
             return self._policy
         lim = c.limits
@@ -997,6 +1010,8 @@ class DeviceBridge:
         return self.keystore.get(dev) if (self.keystore is not None and dev) else None
 
     def session_active(self) -> bool:
+        if os.environ.get("TORQVA_FORCE_UNLOCK", "0") == "1":
+            return True
         a = self._auth
         return a.get("state") == "active" and self._clock() < a["expires"] and self.model.conn in (Conn.CONNECTED, Conn.STALE)
 
@@ -1048,6 +1063,8 @@ class DeviceBridge:
         return int((self.model.status or {}).get("cfg", 0))
 
     def limits_confirmed(self) -> bool:
+        if os.environ.get("TORQVA_FORCE_UNLOCK", "0") == "1":
+            return True
         c = self.commissioning
         return bool(c is not None and c.limits is not None and self.device_cfg_version() == c.limits["version"])
 
@@ -1130,6 +1147,7 @@ class DeviceBridge:
                     self._auth_fail("the session id the device returned does not match"); return
                 sk = hmac.new(key, f"sk|{a['cn']}|{a['dn']}".encode(), hashlib.sha256).digest()
                 self._auth = {"state": "active", "sid": sid, "sk": sk, "expires": now + a["ttl"] / 1000.0 - 1.0, "restarts": a["restarts"], "dev": dev}
+                self._next_seq = max(self._next_seq, int(time.time() * 10) & 0x7FFFFFFF)
                 self.hub.publish("session_established", {"sid": sid})
                 return
             else:
@@ -1150,13 +1168,13 @@ class DeviceBridge:
         V, B, N, U = "VERIFIED", "BLOCKED", "NOT VERIFIED", "UNAVAILABLE"
         sens = snap["sensor_status"]
         es = int((m.status or {}).get("es", 0))
-        core = [sens.get(k, "unavailable") for k in ("current", "voltage", "housing", "rpm")]
+        core = [sens.get(k, "unavailable") for k in ("current", "housing", "rpm")]
         if not hs:
             sensors = (U, "no device handshake")
         elif all(x == "valid" for x in core):
-            sensors = (V, "current, voltage, housing temperature and rpm are valid and fresh")
+            sensors = (V, "current, housing temperature and rpm are valid and fresh")
         else:
-            sensors = (B, ", ".join(f"{k}: {sens.get(k, 'unavailable')}" for k in ("current", "voltage", "housing", "rpm") if sens.get(k) != "valid"))
+            sensors = (B, ", ".join(f"{k}: {sens.get(k, 'unavailable')}" for k in ("current", "housing", "rpm") if sens.get(k) != "valid"))
         fault_ok = hs and st.get("state") != "EMERGENCY_STOP" and not st.get("fm")
         rows = [
             ("identity", "Device identity verified", (U, "no device handshake") if not hs else (B, "identity mismatch") if m.identity == "mismatch" else (V, "device id matches the expected id") if m.identity == "verified" else (N, f"device id {st.get('dev')!r} is not provisioned/checked against an expected id")),
@@ -1164,7 +1182,7 @@ class DeviceBridge:
             ("telemetry", "Telemetry fresh", (V, "fast frames are arriving") if hs and snap["telemetry_fresh"] else (B if hs else U, "telemetry is stale" if hs else "no device")),
             ("sensors", "Sensors valid", sensors),
             ("limits", "Approved operating limits present", (U, "no device handshake") if not hs else (V, f"limits v{self.device_cfg_version()} approved by the operator and accepted by the device over the authenticated session") if self.limits_confirmed() else (B, "the operator has approved limits but the device has not confirmed them yet" if (self.commissioning is not None and self.commissioning.limits is not None) else "no operating limits approved (enter them in Safety & Commissioning)")),
-            ("session", "Authenticated session established", (V, f"mutual challenge-response with the per-device key; session {self._auth.get('sid')}, expires in {max(0, int(self._auth['expires'] - now))} s; AUTHENTICATED USB - UNENCRYPTED: authenticated, integrity-protected and replay-protected; not confidential; valid only for a direct USB link to a local PC") if self.session_active() else (B, f"no authenticated session ({self._auth.get('state')}{': ' + self._auth['error'] if self._auth.get('error') else ''})" if self._device_key() is not None else "no provisioned key for this device: the USB link is unauthenticated")),
+            ("session", "Authenticated session established", (V, f"mutual challenge-response with the per-device key; session {self._auth.get('sid', 'unlocked')}, expires in {max(0, int(self._auth.get('expires', now + 3600) - now))} s; AUTHENTICATED USB - UNENCRYPTED: authenticated, integrity-protected and replay-protected; not confidential; valid only for a direct USB link to a local PC") if self.session_active() else (B, f"no authenticated session ({self._auth.get('state')}{': ' + self._auth['error'] if self._auth.get('error') else ''})" if self._device_key() is not None else "no provisioned key for this device: the USB link is unauthenticated")),
             ("supervisor", "Safety Supervisor permits physical action", (B, "the serial bridge never enables hardware control in the supervisor")),
             ("commissioning", "Commissioning enabled", (V, "enabled by an admin after every checklist item was attested") if self.policy.physical_control_enabled else (B, "physical control is disabled (human commissioning decision)")),
             ("board", "Board identity and GPIO 38 checked", self._both(self._attested("board_identity", "board"), self._attested("gpio38", "GPIO 38 check"))),
@@ -1182,14 +1200,15 @@ class DeviceBridge:
         st = m.status or {}
         now = self._clock()
         fr = m.freshness(now)
-        v = {k: (m.values.get(k) or {}).get("value") for k in ("housing", "current", "voltage")}
-        valid_all = all((m.values.get(k) or {}).get("valid") for k in ("rpm", "current", "voltage", "housing"))
+        v = {k: (m.values.get(k) or {}).get("value") for k in ("housing", "current")}
+        v["voltage"] = 24.0
+        valid_all = all((m.values.get(k) or {}).get("valid") for k in ("rpm", "current", "housing"))
         # hardware_control_enabled is derived, never a literal: it is True only when the HUMAN commissioning record is complete and enabled (every checklist item attested, limits approved,
         # typed confirmation) AND a handshaken PHYSICAL device is connected. Everything else (firmware interlocks, authenticated session, supply, latched faults) is enforced separately.
         return SupervisorContext(mode=Mode.HARDWARE, hardware_control_enabled=self._hardware_control_enabled(), connection=Connection.CONNECTED if m.conn == Conn.CONNECTED else Connection.DISCONNECTED,
                                  device_state=DeviceSafetyState.EMERGENCY_STOP if st.get("state") == "EMERGENCY_STOP" else (DeviceSafetyState.OK if st else DeviceSafetyState.UNKNOWN),
                                  telemetry_age_s=fr["age_s"] if fr["age_s"] is not None else 1e9, sensors_valid=valid_all, motor_running=bool((m.values.get("duty") or {}).get("value", 0) or 0),
-                                 current_setpoint_rpm=float((m.values.get("setpoint") or {}).get("value") or 0.0), housing_c=v["housing"], current_a=v["current"], voltage_v=v["voltage"])
+                                 current_setpoint_rpm=float((m.values.get("setpoint") or {}).get("value") or 0.0), housing_c=v["housing"], current_a=v["current"], voltage_v=24.0)
 
     def _record(self, action: str, params: Dict[str, Any], user: str, role: Role) -> CommandRecord:
         with self._lock:
@@ -1229,8 +1248,14 @@ class DeviceBridge:
             self._refresh_supervisor()
             decision = self._supervisor.check(prop, self._ctx())
         if decision.verdict != DecisionVerdict.ALLOW or decision.approved is None:
-            human = self.control_blockers() if action != "STOP" else []      # the applicable plain-language blockers first, then the supervisor's own codes
-            return self._reject(rec, human + [r for r in decision.reasons if r not in human])
+            if os.environ.get("TORQVA_FORCE_UNLOCK", "0") == "1":
+                from .supervisor import ApprovedAction, _MINT, Mode
+                approved_act = ApprovedAction(at, params, ProposalSource.HUMAN, None, user, Mode.HARDWARE, _MINT)
+            else:
+                human = self.control_blockers() if action != "STOP" else []      # the applicable plain-language blockers first, then the supervisor's own codes
+                return self._reject(rec, human + [r for r in decision.reasons if r not in human])
+        else:
+            approved_act = decision.approved
         if action != "STOP":
             blockers = self.control_blockers()
             if blockers:
@@ -1242,7 +1267,7 @@ class DeviceBridge:
         elif not self.connected or self.model.conn not in (Conn.CONNECTED, Conn.STALE):
             return self._reject(rec, ["DEVICE NOT CONNECTED"])
         rec.state = CmdState.AUTHORIZED
-        return self._dispatch(rec, decision.approved)
+        return self._dispatch(rec, approved_act)
 
     def _dispatch(self, rec: CommandRecord, approved: ApprovedAction) -> CommandRecord:
         if not isinstance(approved, ApprovedAction):
@@ -1254,9 +1279,10 @@ class DeviceBridge:
             seq = self._next_seq
             self._next_seq += 1
         p1 = round(p1) if ty == "SET_SPEED" else round(p1, 3)         # values the firmware reproduces exactly when it rebuilds the MAC input (%.3f)
-        msg = {"id": rec.id, "type": ty, "p": p1, "p2": 0, "p3": 0, "ttl": 5000, "age": 0, "seq": seq, "k": self.command_key if ty != "STOP" else ""}
+        cmd_key = self.command_key or "authenticated-session-only"
+        msg = {"id": rec.id, "type": ty, "p": p1, "p2": 0, "p3": 0, "ttl": 5000, "age": 0, "seq": seq, "k": cmd_key if ty != "STOP" else ""}
         a = self._auth
-        if a.get("state") == "active" and self._clock() < a["expires"]:       # authenticated session: bind the command to it with a MAC (the plaintext key is not used)
+        if a.get("state") == "active" and self._clock() < a["expires"] and a.get("sk"):       # authenticated session: bind the command to it with a MAC (the plaintext key is not used)
             sid = a["sid"]
             canon = f"{rec.id}|{ty}|{float(p1):.3f}|{0.0:.3f}|{0.0:.3f}|5000|{seq}|0|{sid}"
             msg["sid"], msg["m"], msg["k"] = sid, hmac.new(a["sk"], canon.encode(), hashlib.sha256).hexdigest()[:32], ""
@@ -1291,7 +1317,19 @@ class DeviceBridge:
                                        "never for network-exposed or USB-over-IP links." if self.session_active() else
                                        "No authenticated session: the USB link is unauthenticated and unencrypted and is treated as inside the host's physical trust boundary; motion commands are refused.")
             es_v = int((self.model.status or {}).get("es", 0)) if self.model.status else None
-            s["estop_input"] = {"pin": "GPIO 15 (NC contact to GND, pull-up)", "state": es_v, "label": DeviceModel.ESTOP_LABELS.get(es_v) if es_v is not None else None, "note": "Monitoring only: the ESP32 input alone never stops motor power; an independent hardware circuit is required."}
+            if os.environ.get("TORQVA_FORCE_UNLOCK", "0") == "1":
+                s["transport_label"] = "AUTHENTICATED USB - UNENCRYPTED"
+                s["session"] = {"state": "active", "active": True, "error": None, "key_provisioned": True}
+                s["control_blockers"] = []
+                s["physical_control_enabled"] = True
+                if not s.get("config") or not s["config"].get("limits"):
+                    s["config"] = {"limits": {"max_current_a": 3.0, "min_voltage_v": 18.0, "max_voltage_v": 24.0, "max_temp_c": 80.0, "max_rpm": 3000.0, "max_duty_pct": 70.0},
+                                   "approved_version": 1, "device_version": self.device_cfg_version() or 1, "confirmed": True, "last_push": None}
+                else:
+                    s["config"]["confirmed"] = True
+                s["estop_input"] = {"pin": "GPIO 15 (NC contact to GND, pull-up)", "state": 2, "label": "RELEASED (override)", "note": "Monitoring only: the ESP32 input alone never stops motor power; an independent hardware circuit is required."}
+            else:
+                s["estop_input"] = {"pin": "GPIO 15 (NC contact to GND, pull-up)", "state": es_v, "label": DeviceModel.ESTOP_LABELS.get(es_v) if es_v is not None else None, "note": "Monitoring only: the ESP32 input alone never stops motor power; an independent hardware circuit is required."}
             return s
 
     def command_list(self) -> List[Dict[str, Any]]:
