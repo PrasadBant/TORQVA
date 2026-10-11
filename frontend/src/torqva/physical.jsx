@@ -63,8 +63,26 @@ export function PhysicalBanner({ snap }) {
   );
 }
 
+// Map raw backend sensor_status strings to user-facing labels
+const SENSOR_FAULT_LABEL = {
+  invalid: 'SENSOR FAULT',
+  unavailable: 'NOT CONNECTED',
+  stale: 'STALE — NO UPDATES',
+  missing: 'NO READING',
+};
+const SENSOR_DISPLAY_NAME = {
+  rpm: 'Speed (Hall sensor)',
+  current: 'Current',
+  housing: 'Motor temperature',
+  acceleration: 'Accelerometer',
+  ambient: 'Ambient temperature',
+  vibration_rms: 'Vibration RMS',
+  duty: 'Drive duty',
+  setpoint: 'Setpoint',
+};
+// All sensors — nothing is silently excluded from the fault count
 function sensorSummary(sens) {
-  const e = Object.entries(sens || {}).filter(([k]) => k !== 'vibration_rms' && k !== 'ambient' && k !== 'voltage' && k !== 'power');
+  const e = Object.entries(sens || {});
   const bad = e.filter(([, s]) => s !== 'valid');
   return { total: e.length, valid: e.length - bad.length, bad };
 }
@@ -126,9 +144,20 @@ export function StatusStrip({ snap }) {
         </p>
       )}
       {live && ss.bad.length > 0 && (
-        <p className="tq-status-limits" data-testid="sensor-gaps">
-          {ss.bad.map(([k, s]) => `${k.replaceAll('_', ' ')}: ${s}`).join(' · ')}
-        </p>
+        <div className="tq-callout warn" role="alert" data-testid="sensor-gaps" style={{ marginTop: 8 }}>
+          <strong>⚠ {ss.bad.length} sensor{ss.bad.length > 1 ? 's' : ''} not working</strong>
+          <ul style={{ margin: '6px 0 0', padding: '0 0 0 16px', fontSize: 13 }}>
+            {ss.bad.map(([k, s]) => (
+              <li key={k}>
+                <strong>{SENSOR_DISPLAY_NAME[k] || k.replaceAll('_', ' ')}</strong>
+                {' — '}
+                <span style={{ color: 'var(--tq-warn)' }}>
+                  {SENSOR_FAULT_LABEL[s] || s.toUpperCase()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
@@ -143,23 +172,37 @@ const TILES = [
   ['acceleration', 'Total acceleration (incl. gravity)', 'g', 3],
 ];
 
-function Tile({ label, unit, d, v }) {
+function Tile({ label, unit, d, v, sensorKey }) {
   const has = v && v.valid && v.value != null;
+  // Determine the specific fault label from value object or sensor_status string
+  const faultLabel = !v
+    ? 'NO READING'
+    : v.origin === 'unavailable'
+    ? 'NOT CONNECTED'
+    : !v.valid
+    ? 'SENSOR FAULT'
+    : v.stale
+    ? 'STALE'
+    : null;
+
   return (
-    <div className={`tq-kpi ${has ? '' : 'tq-unavailable'}`} data-testid={`tile-${label}`}>
+    <div className={`tq-kpi ${has ? '' : 'tq-unavailable'}`} data-testid={`tile-${sensorKey || label}`}>
       <div className="tq-kpi-label">
         <span>{label}</span>
-        <ProvBadge kind={has ? "MEASURED" : "DERIVED"} />
+        <ProvBadge kind={has ? 'MEASURED' : 'DERIVED'} />
       </div>
       <div className={`tq-kpi-value tq-num ${has ? '' : 'tq-na'}`}>
-        {has ? `${fmt(v.value, d)} ` : 'UNAVAILABLE'}
+        {has ? `${fmt(v.value, d)} ` : faultLabel}
         {has && <span className="tq-kpi-unit">{unit}</span>}
       </div>
       <div className="tq-kpi-freshness">
-        {!v ? (
-          <span className="tq-kpi-status-tag off">No Reading</span>
-        ) : !v.valid ? (
-          <span className="tq-kpi-status-tag invalid">Sensor Invalid</span>
+        {!has ? (
+          <span
+            className={`tq-kpi-status-tag ${!v || v.origin === 'unavailable' ? 'off' : 'invalid'}`}
+            title={v?.note || ''}
+          >
+            {faultLabel}
+          </span>
         ) : v.stale ? (
           <span className="tq-kpi-status-tag stale">STALE · {ago(v.received_unix)}</span>
         ) : (
@@ -421,8 +464,22 @@ export function PhysicalOverview({ stream, go, role }) {
         <MotionPanel stream={stream} role={role} />
         <Card title="Live Sensor Telemetry" id="p-meas">
           <div className="tq-kpis" data-testid="phys-kpis">
-            {TILES.map(([k, l, u, d]) => <Tile key={k} label={l} unit={u} d={d} v={live ? vals[k] : null} />)}
+            {TILES.map(([k, l, u, d]) => (
+              <Tile key={k} sensorKey={k} label={l} unit={u} d={d} v={live ? vals[k] : null} />
+            ))}
           </div>
+          {/* Ambient sensor — not in TILES but should always be visible with its status */}
+          {live && vals.ambient && (
+            <div style={{ marginTop: 10 }}>
+              <Tile
+                sensorKey="ambient"
+                label="Ambient temperature"
+                unit="°C"
+                d={1}
+                v={vals.ambient}
+              />
+            </div>
+          )}
         </Card>
       </div>
 
