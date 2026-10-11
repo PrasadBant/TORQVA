@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Usb, Octagon, Play, StopCircle, Sliders, AlertTriangle, CheckCircle2, ShieldCheck, Activity } from 'lucide-react';
 import { api } from './api.js';
 import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt } from './components.jsx';
@@ -9,6 +9,161 @@ const WAITING = 'WAITING FOR VALID PHYSICAL TELEMETRY';
 const ago = (unix) => (unix ? `${fmt(Math.max(0, Date.now() / 1000 - unix), 1)} s ago` : 'never');
 const title = (s) => String(s ?? '').replaceAll('_', ' ');
 const isLive = (snap) => !!(snap?.handshake && snap?.origin === 'physical_device');
+
+// ── Speed classification ─────────────────────────────────────────────────────
+// Nominal operating point: 1300 rpm
+//   IDLE     : motor stopped / ready (drive === 'IDLE' and rpm < 50) → silence
+//   NORMAL   : 1100 – 1500 rpm (~1300 rpm nominal)                  → optimal, silence
+//   WARNING  : 700–1099 rpm or 1501–1900 rpm                        → 1 beep every 3 s
+//   CRITICAL : < 700 rpm (stall/overload) or > 1900 rpm (overspeed) → 3 rapid beeps every 1.5 s
+export function classifyRpm(rpm, isRunning) {
+  if (!isRunning || rpm == null) return 'IDLE';
+  const r = Number(rpm);
+  if (r >= 1100 && r <= 1500) return 'NORMAL';
+  if ((r >= 700 && r < 1100) || (r > 1500 && r <= 1900)) return 'WARNING';
+  return 'CRITICAL';
+}
+
+export const ZONE_META = {
+  IDLE:     { label: 'IDLE',     color: 'var(--tq-accent)', desc: 'Motor stopped or ready — no alert active' },
+  NORMAL:   { label: 'NORMAL',   color: 'var(--tq-ok)',    desc: 'Speed in optimal range (~1300 rpm nominal: 1100–1500 rpm)' },
+  WARNING:  { label: 'WARNING',  color: 'var(--tq-warn)',  desc: 'Speed deviating from 1300 rpm normal range (700–1099 or 1501–1900 rpm)' },
+  CRITICAL: { label: 'CRITICAL', color: 'var(--tq-crit)',  desc: 'Speed critically out of range (<700 rpm stall or >1900 rpm overspeed)' },
+};
+
+// ── Web Audio beeper ─────────────────────────────────────────────────────────
+function playBeep(ctx, freq, durationMs, gainVal) {
+  if (!ctx) return;
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = freq;
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(gainVal, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationMs / 1000);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + durationMs / 1000 + 0.05);
+  } catch (_) { /* audio unavailable in environment */ }
+}
+
+function useAlarm(zone) {
+  const ctxRef = useRef(null);
+  const timerRef = useRef(null);
+  const zoneRef = useRef(zone);
+  zoneRef.current = zone;
+
+  useEffect(() => {
+    const getCtx = () => {
+      if (!ctxRef.current) {
+        try {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) ctxRef.current = new AudioCtx();
+        } catch (_) { /**/ }
+      }
+      if (ctxRef.current && ctxRef.current.state === 'suspended') {
+        ctxRef.current.resume().catch(() => {});
+      }
+      return ctxRef.current;
+    };
+    const clear = () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+
+    if (zone === 'WARNING') {
+      clear();
+      // Single warning beep every 3 seconds (660 Hz)
+      timerRef.current = setInterval(() => {
+        if (zoneRef.current !== 'WARNING') { clear(); return; }
+        playBeep(getCtx(), 660, 160, 0.15);
+      }, 3000);
+    } else if (zone === 'CRITICAL') {
+      clear();
+      // Triple urgent beep every 1.5 seconds (1200 Hz)
+      timerRef.current = setInterval(() => {
+        if (zoneRef.current !== 'CRITICAL') { clear(); return; }
+        const ctx = getCtx();
+        playBeep(ctx, 1200, 90, 0.25);
+        setTimeout(() => playBeep(ctx, 1200, 90, 0.25), 150);
+        setTimeout(() => playBeep(ctx, 1200, 90, 0.25), 300);
+      }, 1500);
+    } else {
+      clear();
+    }
+
+    return clear;
+  }, [zone]);
+}
+
+// ── Speed Status banner ───────────────────────────────────────────────────────
+export function SpeedStatus({ rpm, isRunning, muted, onToggleMute }) {
+  const zone = classifyRpm(rpm, isRunning);
+  useAlarm(muted ? 'IDLE' : zone);
+  const meta = ZONE_META[zone];
+  const r = Number(rpm ?? 0);
+
+  const bg = zone === 'CRITICAL' ? 'rgba(220,38,38,0.12)'
+    : zone === 'WARNING' ? 'rgba(234,179,8,0.10)'
+    : zone === 'NORMAL'  ? 'rgba(34,197,94,0.08)'
+    : 'rgba(100,116,139,0.07)';
+
+  return (
+    <div
+      data-testid="speed-status"
+      role="status"
+      aria-live="polite"
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+        padding: '10px 14px', borderRadius: 8, marginBottom: 12,
+        background: bg, border: `1.5px solid ${meta.color}`,
+      }}
+    >
+      {/* Zone dot — pulses on CRITICAL */}
+      <span style={{
+        width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
+        background: meta.color,
+        boxShadow: zone !== 'IDLE' ? `0 0 8px ${meta.color}` : 'none',
+        animation: zone === 'CRITICAL' ? 'tq-pulse 0.6s ease-in-out infinite' : 'none',
+      }} />
+
+      {/* Zone label */}
+      <strong style={{ fontSize: 15, color: meta.color, letterSpacing: 1, minWidth: 80 }}>
+        {meta.label}
+      </strong>
+
+      {/* Live RPM */}
+      <span style={{ fontSize: 22, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: meta.color }}>
+        {r.toFixed(0)}
+        <span style={{ fontSize: 12, fontWeight: 400, marginLeft: 4, color: 'var(--tq-muted)' }}>rpm</span>
+      </span>
+
+      {/* Description */}
+      <span style={{ fontSize: 12, color: 'var(--tq-muted)', flex: 1 }}>{meta.desc}</span>
+
+      {/* Bands reference */}
+      <span style={{ fontSize: 11, color: 'var(--tq-muted)', whiteSpace: 'nowrap' }}>
+        {'Normal 1100–1500 · Warn 700–1099/1501–1900 · Crit <700/>1900'}
+      </span>
+
+      {/* Mute toggle */}
+      <button
+        type="button"
+        className="tq-btn tq-ghost"
+        style={{ fontSize: 11, padding: '2px 8px' }}
+        onClick={onToggleMute}
+        aria-pressed={muted}
+        title={muted ? 'Unmute alarms' : 'Mute alarms'}
+      >
+        {muted ? '🔇 Muted' : '🔔 Alarm on'}
+      </button>
+    </div>
+  );
+}
+
 
 /** Explicit, operator-selected application mode. Physical is the default; simulation is never entered automatically. */
 export function ModeSwitch({ mode, onChange }) {
@@ -174,19 +329,19 @@ const TILES = [
 
 function Tile({ label, unit, d, v, sensorKey }) {
   const has = v && v.valid && v.value != null;
-  // Determine the specific fault label from value object or sensor_status string
+  // Specific fault label when reading is not available
   const faultLabel = !v
-    ? 'NO READING'
+    ? 'UNAVAILABLE'
     : v.origin === 'unavailable'
     ? 'NOT CONNECTED'
     : !v.valid
     ? 'SENSOR FAULT'
     : v.stale
     ? 'STALE'
-    : null;
+    : 'UNAVAILABLE';
 
   return (
-    <div className={`tq-kpi ${has ? '' : 'tq-unavailable'}`} data-testid={`tile-${sensorKey || label}`}>
+    <div className={`tq-kpi ${has ? '' : 'tq-unavailable'}`} data-testid={`tile-${label}`}>
       <div className="tq-kpi-label">
         <span>{label}</span>
         <ProvBadge kind={has ? 'MEASURED' : 'DERIVED'} />
@@ -198,10 +353,10 @@ function Tile({ label, unit, d, v, sensorKey }) {
       <div className="tq-kpi-freshness">
         {!has ? (
           <span
-            className={`tq-kpi-status-tag ${!v || v.origin === 'unavailable' ? 'off' : 'invalid'}`}
+            className={`tq-kpi-status-tag ${!v ? 'off' : v.origin === 'unavailable' ? 'off' : 'invalid'}`}
             title={v?.note || ''}
           >
-            {faultLabel}
+            {!v ? 'No Reading' : faultLabel}
           </span>
         ) : v.stale ? (
           <span className="tq-kpi-status-tag stale">STALE · {ago(v.received_unix)}</span>
@@ -438,14 +593,27 @@ export function MotionPanel({ stream, role }) {
 
 export function PhysicalOverview({ stream, go, role }) {
   const { snap } = stream;
+  const [alarmMuted, setAlarmMuted] = useState(false);
   if (!snap) return <><PageHead title="Motor" /><Empty>Loading device state…</Empty></>;
   const live = isLive(snap);
   const vals = snap.values || {};
+  const rpm = live ? (vals.rpm?.valid ? vals.rpm.value : 0) : null;
+  const isRunning = live && (snap.drive !== 'IDLE' || Number(rpm) > 50);
 
   return (
     <>
-      <PageHead title="Motor Control Dashboard" sub="Real-time physical device monitoring & supervision on ESP32-S3 hardware." />
+      <PageHead title="Motor Control Dashboard" sub="Real-time physical device monitoring &amp; supervision on ESP32-S3 hardware." />
       <StatusStrip snap={snap} />
+
+      {/* Speed status — shows zone and sounds alarm when motor is running */}
+      {live && (
+        <SpeedStatus
+          rpm={rpm}
+          isRunning={isRunning}
+          muted={alarmMuted}
+          onToggleMute={() => setAlarmMuted((m) => !m)}
+        />
+      )}
 
       {!live && (
         <div className="tq-callout crit" role="alert" data-testid="phys-disconnected">

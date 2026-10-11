@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import TorqvaApp from '../torqva/TorqvaApp.jsx';
 import { setToken } from '../torqva/api.js';
+import { classifyRpm, SpeedStatus } from '../torqva/physical.jsx';
 
 // Mocked backend responses (frontend behaviour only: NOT physical-device verification).
 const ok = (j) => ({ ok: true, status: 200, json: async () => j });
@@ -199,6 +200,68 @@ describe('physical-device-first application', () => {
     const strip = await screen.findByTestId('status-strip');
     expect(strip).toHaveTextContent('E-stop input: asserted'); expect(strip).toHaveTextContent('AUTHENTICATED USB - UNENCRYPTED');
     expect(strip).not.toHaveTextContent(/encrypted USB|secure link/i);
+  });
+
+  describe('motor speed classification (normal ~1300 rpm, warning, critical)', () => {
+    it('classifies idle, normal, warning, and critical RPM bands correctly', () => {
+      // Stopped / not running
+      expect(classifyRpm(0, false)).toBe('IDLE');
+      expect(classifyRpm(null, false)).toBe('IDLE');
+
+      // Normal range: around 1300 RPM (1100 – 1500 RPM)
+      expect(classifyRpm(1300, true)).toBe('NORMAL');
+      expect(classifyRpm(1100, true)).toBe('NORMAL');
+      expect(classifyRpm(1500, true)).toBe('NORMAL');
+
+      // Warning range: moderate deviation (700-1099 or 1501-1900 RPM)
+      expect(classifyRpm(1000, true)).toBe('WARNING');
+      expect(classifyRpm(700, true)).toBe('WARNING');
+      expect(classifyRpm(1600, true)).toBe('WARNING');
+      expect(classifyRpm(1900, true)).toBe('WARNING');
+
+      // Critical range: stall (<700 RPM while running) or severe overspeed (>1900 RPM)
+      expect(classifyRpm(500, true)).toBe('CRITICAL');
+      expect(classifyRpm(0, true)).toBe('CRITICAL');
+      expect(classifyRpm(2000, true)).toBe('CRITICAL');
+      expect(classifyRpm(2500, true)).toBe('CRITICAL');
+    });
+
+    it('renders SpeedStatus banner with correct label, live RPM and responds to mute toggle', () => {
+      const onToggleMute = vi.fn();
+      const { rerender } = render(
+        <SpeedStatus rpm={1310} isRunning={true} muted={false} onToggleMute={onToggleMute} />
+      );
+      const status = screen.getByTestId('speed-status');
+      expect(status).toHaveTextContent('NORMAL');
+      expect(status).toHaveTextContent('1310');
+      expect(status).toHaveTextContent('Alarm on');
+
+      // Toggle mute button
+      fireEvent.click(screen.getByRole('button', { name: /Alarm on/i }));
+      expect(onToggleMute).toHaveBeenCalled();
+
+      // Rerender as warning
+      rerender(<SpeedStatus rpm={950} isRunning={true} muted={true} onToggleMute={onToggleMute} />);
+      expect(status).toHaveTextContent('WARNING');
+      expect(status).toHaveTextContent('950');
+      expect(status).toHaveTextContent('Muted');
+
+      // Rerender as critical
+      rerender(<SpeedStatus rpm={2200} isRunning={true} muted={false} onToggleMute={onToggleMute} />);
+      expect(status).toHaveTextContent('CRITICAL');
+      expect(status).toHaveTextContent('2200');
+    });
+
+    it('shows speed status on overview when device is connected and running', async () => {
+      await open({
+        ...CONNECTED,
+        drive: 'CLOSED_LOOP',
+        values: { ...CONNECTED.values, rpm: val(1305, 'rpm') },
+      });
+      const speedStatus = await screen.findByTestId('speed-status');
+      expect(speedStatus).toHaveTextContent('NORMAL');
+      expect(speedStatus).toHaveTextContent('1305');
+    });
   });
 });
 
