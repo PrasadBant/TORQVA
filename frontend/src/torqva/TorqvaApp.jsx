@@ -220,8 +220,11 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   };
   const phys = (layer, fallback) => {
     const l = device.snap?.analysis?.layers?.[layer];
+    // Show waiting page when:
+    // 1. No snap yet (l is undefined - device not connected / snap not loaded)
+    // 2. Layer exists but is in a non-ready state
     const isReady = l && ['ACTIVE', 'AVAILABLE', 'READY', 'VERIFIED'].includes(l.status);
-    if (l && !isReady) {
+    if (!isReady) {
       return <PhysicalAiPage stream={device} layer={layer} go={setView} />;
     }
     return fallback;

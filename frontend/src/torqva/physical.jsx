@@ -483,17 +483,54 @@ const LAYER_TEXT = {
 
 export function PhysicalAiPage({ stream, layer, go }) {
   const { snap } = stream;
-  const [t, sub] = LAYER_TEXT[layer];
+  const layerInfo = LAYER_TEXT[layer] || [layer, ''];
+  const [t, sub] = layerInfo;
   const a = snap?.analysis;
   const l = a?.layers?.[layer];
   const live = isLive(snap);
+  const connected = snap && snap.connection && snap.connection !== 'DISCONNECTED';
+
+  // Determine the correct callout tone from backend layer status
+  const statusTone = !l
+    ? (connected ? 'info' : 'off')
+    : l.status === WAITING || l.status === 'NOT AVAILABLE' || l.status === 'physical motion BLOCKED'
+    ? 'warn'
+    : ['ACTIVE', 'READY', 'AVAILABLE', 'VERIFIED'].includes(l.status)
+    ? 'ok'
+    : 'info';
+
+  const statusMsg = l?.status || (connected ? WAITING : 'DEVICE DISCONNECTED');
+  const reasonMsg = l?.reason
+    || (connected ? 'Device is connected. Waiting for valid telemetry frames to activate this layer.'
+        : 'Connect a physical device on the Device page to activate this layer.');
+
   return (
     <>
-      <PageHead title={t} sub={sub} right={<Pill tone={live ? "ok" : "off"}>physical data basis: {l?.basis || 'none'}</Pill>} />
-      <Card title="Status" id={`p-${layer}`}>
-        <div className="tq-callout" data-testid={`layer-${layer}`}><strong>{l?.status || WAITING}</strong><p>{l?.reason || 'No device state is available yet.'}</p></div>
-        {a?.missing_inputs?.length > 0 && <p className="tq-muted">Inputs the physical device cannot supply: {a.missing_inputs.join(', ')}.</p>}
-        {layer === 'C3' && <button className="tq-btn" onClick={() => go('overview')}>Open the motor controls</button>}
+      <PageHead
+        title={t}
+        sub={sub}
+        right={<Pill tone={live ? 'ok' : 'off'}>physical data basis: {l?.basis || 'none'}</Pill>}
+      />
+      <Card title="Layer Status" id={`p-${layer}`}>
+        <div className={`tq-callout ${statusTone}`} data-testid={`layer-${layer}`}>
+          <strong>{statusMsg}</strong>
+          <p>{reasonMsg}</p>
+        </div>
+        {a?.missing_inputs?.length > 0 && (
+          <p className="tq-muted" style={{ marginTop: 8 }}>
+            Inputs the physical device cannot supply: {a.missing_inputs.join(', ')}.
+          </p>
+        )}
+        {!connected && (
+          <button className="tq-btn tq-primary" onClick={() => go('device')} style={{ marginTop: 10 }}>
+            Connect a device
+          </button>
+        )}
+        {layer === 'C3' && connected && (
+          <button className="tq-btn" onClick={() => go('overview')} style={{ marginTop: 10 }}>
+            Open the motor controls
+          </button>
+        )}
       </Card>
       {live && (
         <Card title="Live physical telemetry streaming" id={`p-${layer}-live`} style={{ marginTop: 14 }}>
