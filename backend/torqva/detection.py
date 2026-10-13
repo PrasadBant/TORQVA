@@ -105,12 +105,16 @@ class BaselineDetector:
         return d, contrib, z
 
     def score(self, w: Window) -> Score:
-        if not w.valid or not w.driven or w.setpoint <= 0:
+        if not w.valid:
+            return Score(None, None, False, -1, "INVALID_INPUT")
+        if not w.driven or w.setpoint <= 0:
             return Score(None, None, False, -1, "UNLEARNED_BIN")
         b = self.bin_of(w.setpoint)
         if not self.steady(w):                       # speed still changing: excluded (master prompt C1.1)
             return Score(None, None, False, b, "TRANSIENT")
         x = w.features()
+        if not np.all(np.isfinite(x)):               # a non-finite reading is missing data: not scored, never an "OK" score
+            return Score(None, None, False, b, "INVALID_INPUT")
         sp = w.setpoint
         near = [m for bb, m in self.bins.items() if abs(bb - b) <= 1]
         lo = max((m for m in near if m.anchor_rpm <= sp), key=lambda m: m.anchor_rpm, default=None)

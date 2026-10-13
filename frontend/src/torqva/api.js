@@ -13,12 +13,27 @@ export class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
+// Reads time out so a backend that stops answering (rather than refusing) cannot leave the polling loop waiting forever. Writes are not timed
+// out: aborting a POST would not undo it on the server, it would only hide whether it happened.
+export const READ_TIMEOUT_MS = 20000;
+
 async function req(path, { method = 'GET', body } = {}) {
-  const res = await fetch(`${BASE}/api/torqva${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  const ctl = method === 'GET' && typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), READ_TIMEOUT_MS) : null;
+  let res;
+  try {
+    res = await fetch(`${BASE}/api/torqva${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: ctl ? ctl.signal : undefined,
+    });
+  } catch (e) {
+    if (ctl && ctl.signal.aborted) throw new Error(`The backend did not answer within ${READ_TIMEOUT_MS / 1000} s`);
+    throw e;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
     const d = j.detail;

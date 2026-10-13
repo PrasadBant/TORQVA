@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Usb, Octagon, Play, StopCircle, Sliders, AlertTriangle, CheckCircle2, ShieldCheck, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, Lock, Unlock } from 'lucide-react';
-import { api } from './api.js';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, useNavContext } from './components.jsx';
-import { PageHead } from './pages.jsx';
+import { api } from '../api.js';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, useNavContext, PageHead } from '../shared/components.jsx';
 import { DeviceLive, CommissioningCard, canOperate, STATE_TONE } from './device.jsx';
 
 const WAITING = 'WAITING FOR VALID PHYSICAL TELEMETRY';

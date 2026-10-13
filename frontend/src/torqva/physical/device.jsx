@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
 import { Octagon } from 'lucide-react';
-import { api, getToken } from './api.js';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, AXIS, GRID, TOOLTIP } from './components.jsx';
-import { PageHead, Tabs, CardLink } from './pages.jsx';
+import { api, getToken, ApiError } from '../api.js';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, PageHead, Tabs, CardLink } from '../shared/components.jsx';
+import { HistoryChart } from '../shared/lazyCharts.jsx';
 
 const title = (s) => String(s ?? '').replaceAll('_', ' ');
 const defaultWs = (import.meta.env && import.meta.env.MODE === 'test') ? null : (url) => new WebSocket(url);
@@ -12,15 +11,20 @@ const SIGNALS = [['rpm', 'Speed', 'rpm', 0], ['acceleration', 'Total acceleratio
 const RANGES = [[60, 'Last 60 s'], [180, 'Last 3 min'], [360, 'Last 6 min']];
 const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
 
-/** Live device state: REST snapshot + read-only WebSocket with reconnection. Telemetry is only ever "live" while the server says it is fresh AND frames keep arriving. */
-export function useDeviceStream(enabled, wsFactory = defaultWs, pollMs = 3000) {
+/** Live device state: REST snapshot + read-only WebSocket with reconnection. Telemetry is only ever "live" while the server says it is fresh AND frames keep arriving.
+ * When the backend cannot be reached (and the socket is not delivering), the last snapshot is kept but reported as NOT fresh: its values are the last ones
+ * received, never live. A rejected session (HTTP 401, or the socket closed with 4401) calls onAuthLost. */
+export function useDeviceStream(enabled, wsFactory = defaultWs, pollMs = 3000, onAuthLost) {
   const [snap, setSnap] = useState(null);
   const [commands, setCommands] = useState([]);
   const [events, setEvents] = useState([]);
   const [ws, setWs] = useState('idle');                 // idle | connecting | open | closed
   const [lastMsg, setLastMsg] = useState(null);
   const [error, setError] = useState(null);
+  const [unreachable, setUnreachable] = useState(false);
   const alive = useRef(true);
+  const authLost = useRef(onAuthLost);
+  authLost.current = onAuthLost;
 
   // Repeated identical events (for example protocol errors from a board that sends non-TORQVA text) are merged into one row with a count, never listed thousands of times.
   const pushEvent = useCallback((e) => setEvents((x) => {
@@ -32,9 +36,14 @@ export function useDeviceStream(enabled, wsFactory = defaultWs, pollMs = 3000) {
     try {
       const [s, c] = await Promise.all([api.deviceStatus(), api.deviceCommands()]);
       if (!alive.current) return;
-      if (isObj(s)) { setSnap(s); setError(null); }
+      if (isObj(s)) { setSnap(s); setError(null); setUnreachable(false); }
       if (isObj(c) && Array.isArray(c.commands)) setCommands(c.commands);
-    } catch (e) { if (alive.current) setError(e); }
+    } catch (e) {
+      if (!alive.current) return;
+      setError(e);
+      if (e instanceof ApiError && e.status === 401) authLost.current?.();
+      else if (!(e instanceof ApiError)) setUnreachable(true);          // network failure or timeout: the server is not answering (an HTTP error means it is)
+    }
   }, []);
 
   useEffect(() => {
@@ -53,6 +62,7 @@ export function useDeviceStream(enabled, wsFactory = defaultWs, pollMs = 3000) {
         let m; try { m = JSON.parse(ev.data); } catch { return; }          // malformed frames are ignored, never trusted
         if (!isObj(m)) return;
         setLastMsg(Date.now());
+        setUnreachable(false);
         if (m.type === 'snapshot' && isObj(m.data)) { retry = 0; setWs('open'); setSnap(m.data); if (Array.isArray(m.commands)) setCommands(m.commands); }
         else if (m.type === 'event' && typeof m.name === 'string') {
           if (m.name === 'telemetry' && isObj(m.data)) setSnap((s) => ({ ...(s || {}), ...m.data }));
@@ -62,9 +72,10 @@ export function useDeviceStream(enabled, wsFactory = defaultWs, pollMs = 3000) {
           }
         }
       };
-      const lost = () => {
+      const lost = (ev) => {
         if (!alive.current) return;
         setWs('closed');
+        if (ev?.code === 4401) { authLost.current?.(); return; }       // the server rejected the session: do not keep reconnecting with it
         retry += 1; timer = setTimeout(open, Math.min(15000, 1000 * 2 ** Math.min(retry, 4)));   // exponential backoff, capped
       };
       sock.onclose = lost;
@@ -74,7 +85,8 @@ export function useDeviceStream(enabled, wsFactory = defaultWs, pollMs = 3000) {
     return () => { alive.current = false; clearInterval(poll); if (timer) clearTimeout(timer); if (sock) { sock.onclose = null; try { sock.close(); } catch { /* closing */ } } };
   }, [enabled, refresh, wsFactory, pollMs, pushEvent]);
 
-  return { snap, commands, events, ws, lastMsg, error, refresh };
+  const shown = useMemo(() => (unreachable && snap ? { ...snap, telemetry_fresh: false } : snap), [unreachable, snap]);
+  return { snap: shown, commands, events, ws, lastMsg, error, unreachable, refresh };
 }
 
 export function originOf(snap) {
@@ -222,12 +234,7 @@ export function DeviceLive({ stream }) {
         <label className="tq-inline">Range <select value={seconds} onChange={(e) => setSeconds(Number(e.target.value))}>{RANGES.map(([s, n]) => <option key={s} value={s}>{n}</option>)}</select></label></>}>
         <ErrorBox error={err} />
         {!data.length ? <Empty>No device history for this range. History exists only while a device is sending telemetry.</Empty> : (
-          <div role="img" aria-label={`${meta[1]} history`} className="tq-chart"><ResponsiveContainer width="100%" height={240}>
-            <LineChart data={data} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}><CartesianGrid {...GRID} />
-              <XAxis dataKey="t" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(x) => new Date(x * 1000).toLocaleTimeString()} minTickGap={40} {...AXIS} />
-              <YAxis width={54} domain={['auto', 'auto']} {...AXIS} axisLine={false} /><Tooltip labelFormatter={(x) => new Date(x * 1000).toLocaleTimeString()} {...TOOLTIP} />
-              <Line dataKey="v" name={`${meta[1]} (${meta[2]})`} stroke="var(--tq-chart-1)" strokeWidth={2} dot={false} activeDot={{ r: 3.5, strokeWidth: 0 }} isAnimationActive={false} connectNulls={false} />
-            </LineChart></ResponsiveContainer></div>)}
+          <div role="img" aria-label={`${meta[1]} history`} className="tq-chart"><HistoryChart data={data} name={`${meta[1]} (${meta[2]})`} height={240} /></div>)}
         <p className="tq-chart-note">Gaps mean invalid readings or a disconnect; they are never drawn as zero.</p>
       </Card>
     </div>
@@ -237,7 +244,7 @@ export function DeviceLive({ stream }) {
 /* ------------------------------------------------------------------ Motor control (physical actuation stays blocked) */
 export const STATE_TONE = { REQUESTED: 'info', REJECTED: 'crit', AUTHORIZED: 'wait', SENT: 'wait', ACKNOWLEDGED: 'info', EXECUTED: 'ok', FAILED: 'crit', TIMED_OUT: 'warn', UNKNOWN_OUTCOME: 'warn' };
 
-const LIMIT_FIELDS = [['max_current_a', 'Max current (A)'], ['max_temp_c', 'Max housing temperature (°C)'], ['max_rpm', 'Max speed (rpm)'], ['max_duty_pct', 'Max duty (%)']];
+const LIMIT_FIELDS = [['max_current_a', 'Max current (A)'], ['min_voltage_v', 'Min supply voltage (V)'], ['max_voltage_v', 'Max supply voltage (V)'], ['max_temp_c', 'Max housing temperature (°C)'], ['max_rpm', 'Max speed (rpm)'], ['max_duty_pct', 'Max duty (%)']];
 
 /** Commissioning record: human attestations with written evidence, approved limits and the explicit enable. A record, not a measurement; it never overrides the firmware. */
 export function CommissioningCard({ role }) {
@@ -249,6 +256,8 @@ export function CommissioningCard({ role }) {
   const [limConfirm, setLimConfirm] = useState('');
   const [phrase, setPhrase] = useState('');
   const admin = role === 'admin';
+  // Every limit is typed by the admin: a blank field is never sent as 0 and no value is filled in on their behalf.
+  const limMissing = LIMIT_FIELDS.filter(([k]) => lim[k] === undefined || String(lim[k]).trim() === '' || !Number.isFinite(Number(lim[k])));
   useEffect(() => { let on = true; api.commissioning().then((x) => on && setC(x)).catch(() => on && setC(false)); return () => { on = false; }; }, []);
   const run = (fn) => async () => { setErr(null); try { setC(await fn()); } catch (e) { setErr(e); } };
   if (c === null) return null;
@@ -283,7 +292,8 @@ export function CommissioningCard({ role }) {
           <div className="tq-form-grid">{LIMIT_FIELDS.map(([k, l]) => <label key={k}>{l} <input type="number" min="0" value={lim[k] ?? ''} onChange={(e) => setLim({ ...lim, [k]: e.target.value })} /></label>)}</div>
           <label>Evidence for these limits <input value={limEv} onChange={(e) => setLimEv(e.target.value)} /></label>
           <label>Type {c.limits_confirm_phrase} to confirm <input value={limConfirm} onChange={(e) => setLimConfirm(e.target.value)} /></label>
-          <div className="tq-row"><button type="button" className="tq-btn tq-primary" onClick={run(() => api.commissioningLimits({ min_voltage_v: 0.0, max_voltage_v: 26.0, ...Object.fromEntries(LIMIT_FIELDS.map(([k]) => [k, Number(lim[k])])), evidence: limEv, confirm: limConfirm }))}>Approve limits</button></div>
+          <div className="tq-row"><button type="button" className="tq-btn tq-primary" disabled={limMissing.length > 0} onClick={run(() => api.commissioningLimits({ ...Object.fromEntries(LIMIT_FIELDS.map(([k]) => [k, Number(lim[k])])), evidence: limEv, confirm: limConfirm }))}>Approve limits</button>
+            {limMissing.length > 0 && <span className="tq-muted" data-testid="limits-missing">Enter every limit to approve: {limMissing.map(([, l]) => l).join(', ')}.</span>}</div>
           </fieldset>
           <fieldset className="tq-fieldset"><legend>Physical control in the record</legend>
           <label>Type {c.enable_phrase} to enable <input value={phrase} onChange={(e) => setPhrase(e.target.value)} /></label>
@@ -342,6 +352,8 @@ export function MotorControlPage({ stream, role }) {
             <form className="tq-form" onSubmit={(e) => e.preventDefault()}>
               <label>Open-loop start duty (%) <input type="number" min="0" max={snap?.control_limits?.max_duty_pct ?? 100} value={duty} onChange={(e) => { setDuty(e.target.value); setConfirm(false); }} disabled={blocked || !canOperate(role)} /></label>
               <label>Duty slider <input type="range" min="0" max={snap?.control_limits?.max_duty_pct ?? 100} step="1" value={duty === '' ? 0 : duty} onChange={(e) => { setDuty(e.target.value); setConfirm(false); }} disabled={blocked || !canOperate(role)} aria-label="Duty slider (nothing is sent until you press a request button)" /></label>
+              <label>Speed setting (rpm) <input type="number" min="0" value={rpm} onChange={(e) => setRpm(e.target.value)} disabled={blocked || !canOperate(role)} /></label>
+              <p className="tq-muted" data-testid="limits-note">{snap?.control_limits?.max_duty_pct == null ? 'No approved duty or speed limit exists, so requests are refused. The slider spans 0–100 % as an input domain only.' : `Approved ceiling: ${snap.control_limits.max_duty_pct} % duty${snap.control_limits.max_rpm == null ? '' : `, ${snap.control_limits.max_rpm} rpm`}.`} Direction: {snap?.control_limits?.direction || 'forward only'}. Nothing is sent while moving the slider.</p>
               <div className="tq-row">
                 <button type="button" className="tq-btn tq-primary" disabled={blocked || busy || !canOperate(role) || duty === ''} onClick={() => (confirm ? (setConfirm(false), send({ action: 'START', duty_pct: Number(duty) })()) : setConfirm(true))}>{confirm ? 'Confirm START request' : 'Request START'}</button>
                 {confirm && <button type="button" className="tq-btn" onClick={() => setConfirm(false)}>Cancel</button>}

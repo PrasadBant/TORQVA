@@ -45,8 +45,8 @@ class ItemIn(BaseModel):
 
 class LimitsIn(BaseModel):
     max_current_a: float = Field(allow_inf_nan=False)
-    min_voltage_v: float = Field(default=0.0, allow_inf_nan=False)
-    max_voltage_v: float = Field(default=26.0, allow_inf_nan=False)
+    min_voltage_v: float = Field(allow_inf_nan=False)              # required like every other limit: an approval never contains a value nobody entered
+    max_voltage_v: float = Field(allow_inf_nan=False)
     max_temp_c: float = Field(allow_inf_nan=False)
     max_rpm: float = Field(allow_inf_nan=False)
     max_duty_pct: float = Field(allow_inf_nan=False)

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useId } from 'react';
-import { AlertTriangle, CheckCircle2, ShieldAlert, Info, XOctagon, Clock, XCircle, FlaskConical, Inbox, Loader2, AlertCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ShieldAlert, Info, XOctagon, Clock, XCircle, FlaskConical, Inbox, Loader2, AlertCircle, ArrowRight } from 'lucide-react';
 
 /** Where the current page sits in the navigation (icon and group), provided by the application shell. */
 export const NavContext = createContext(null);
@@ -16,6 +16,34 @@ export function Logo({ size = 30 }) {
       <path d="M16 16 10.6 11.6" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" />
       <circle cx="16" cy="16" r="2.6" fill="#fff" />
     </svg>
+  );
+}
+
+/** Page title row: the section icon from the navigation, title, subtitle and right-aligned status. */
+export function PageHead({ title: t, sub, right }) {
+  const I = useNavContext()?.icon;
+  return (
+    <div className="tq-page-head">
+      <div className="tq-page-head-main">
+        {I && <span className="tq-page-icon" aria-hidden="true"><I size={20} /></span>}
+        <div><h2>{t}</h2>{sub && <p>{sub}</p>}</div>
+      </div>
+      <div className="tq-row">{right}</div>
+    </div>
+  );
+}
+
+/** A "go to the page with the details" action at the foot of a summary card. */
+export function CardLink({ onClick, children }) {
+  return <div className="tq-card-foot"><button className="tq-link" onClick={onClick}>{children}<ArrowRight size={14} aria-hidden="true" /></button></div>;
+}
+
+export function Tabs({ tabs, value, onChange, label }) {
+  return (
+    <div className="tq-tabs" role="tablist" aria-label={label}>
+      {tabs.map(([k, name]) => (
+        <button key={k} role="tab" className="tq-tab" aria-selected={value === k} onClick={() => onChange(k)}>{name}</button>))}
+    </div>
   );
 }
 

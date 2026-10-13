@@ -111,3 +111,63 @@ describe('redesigned application shell', () => {
     expect(screen.getByText('2222')).toBeInTheDocument();
   });
 });
+
+describe('application shell behaviour (audit)', () => {
+  const NAV_SIM = ['Overview', 'Live Monitor', 'AI Diagnostics', 'Diagnostic Tests', 'Predictions', 'Interventions', 'Recovery', 'Learning', 'Evaluation', 'Device', 'Motor Control', 'Lab', 'Devices & Settings'];
+  const navButton = (n) => screen.getByRole('button', { name: n === 'Device' ? /^Device\s?USB$/ : new RegExp(`^${n.replace('&', '\&')}`) });
+  const simCalls = () => fetch.mock.calls.map(([u]) => String(u)).filter((u) => /\/api\/torqva\/(status|telemetry|simulation)/.test(u)).length;
+
+  it('every page in both modes renders its own heading (no blank page, no silent fallback to another screen)', async () => {
+    for (const mode of ['SIMULATION', 'PHYSICAL']) {
+      window.localStorage.setItem('torqva.mode', mode);
+      server(); setToken('t');
+      const { unmount } = render(<TorqvaApp pollMs={100000} />);
+      await screen.findByText(/tester · /);
+      const seen = new Set();
+      for (const n of NAV_SIM.map((x) => (mode === 'PHYSICAL' && x === 'Motor Control' ? 'Safety & Commissioning' : x))) {
+        fireEvent.click(navButton(n));
+        await waitFor(() => expect(navButton(n)).toHaveAttribute('aria-current', 'page'));
+        const h = document.querySelector('main h2')?.textContent || '';
+        expect(h.trim().length, `${mode} ${n}`).toBeGreaterThan(0);
+        seen.add(h);
+      }
+      expect(seen.size, mode).toBeGreaterThanOrEqual(NAV_SIM.length - 1);                       // distinct pages, not one fallback screen
+      unmount(); vi.unstubAllGlobals(); setToken('');
+    }
+  });
+
+  it('sign-out ends the session: the token is cleared and polling stops', async () => {
+    server(); setToken('t');
+    render(<TorqvaApp pollMs={40} />);
+    await screen.findByText(/tester · /);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(window.sessionStorage.getItem('torqva.token')).toBeNull();
+    const before = fetch.mock.calls.length;
+    await new Promise((r) => setTimeout(r, 250));
+    expect(fetch.mock.calls.length).toBe(before);
+  });
+
+  it('switching the theme keeps the current page', async () => {
+    server(); setToken('t'); render(<TorqvaApp pollMs={100000} />);
+    await screen.findByText(/tester · /);
+    fireEvent.click(navButton('Recovery'));
+    const theme = document.documentElement.getAttribute('data-theme');
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle theme' }));
+    expect(document.documentElement.getAttribute('data-theme')).not.toBe(theme);
+    expect(navButton('Recovery')).toHaveAttribute('aria-current', 'page');
+    expect(document.querySelector('main h2').textContent).toMatch(/Recovery/);
+  });
+
+  it('switching from simulation to physical mode stops polling and stepping the simulator', async () => {
+    server(); setToken('t'); render(<TorqvaApp pollMs={40} />);
+    await screen.findByText(/tester · /);
+    await waitFor(() => expect(simCalls()).toBeGreaterThan(2));                                  // the simulator is polled in simulation mode
+    fireEvent.click(screen.getByRole('button', { name: /Physical mode/ }));
+    await screen.findByTestId('phys-banner');
+    const before = simCalls();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(simCalls()).toBe(before);
+    expect(screen.queryByTestId('sim-banner')).toBeNull();
+  });
+});

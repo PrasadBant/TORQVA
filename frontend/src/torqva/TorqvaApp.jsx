@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Activity, Gauge, ListChecks, Microscope, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap, Usb, SlidersHorizontal, Sun, Moon, ClipboardCheck, Menu, KeyRound, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { api, setToken, getToken, ApiError } from './api.js';
-import { SimulationBanner, Pill, Logo, NavContext } from './components.jsx';
-import { Evaluation } from './views.jsx';
-import { OverviewPage, LivePage, DiagnosticsPage, PredictionsPage, TestsPage, InterventionsPage, RecoveryPage, LearningPage, DevicesPage, PageHead } from './pages.jsx';
-import { useDeviceStream, DevicePage, MotorControlPage, DeviceCard, DeviceLive } from './device.jsx';
-import Lab from './lab.jsx';
-import Attestation from './attestation.jsx';
-import { ModeSwitch, PhysicalBanner, PhysicalOverview, PhysicalLive, PhysicalAiPage, PhysicalSafetyPage } from './physical.jsx';
+import { SimulationBanner, Pill, Logo, NavContext, PageHead } from './shared/components.jsx';
+import { prefetchCharts } from './shared/lazyCharts.jsx';
+import { Evaluation } from './simulation/evaluation.jsx';
+import { OverviewPage, LivePage, DiagnosticsPage, PredictionsPage, TestsPage, InterventionsPage, RecoveryPage, LearningPage, DevicesPage, isPhysOf } from './simulation/pages.jsx';
+import { useDeviceStream, DevicePage, MotorControlPage, DeviceCard, DeviceLive } from './physical/device.jsx';
+import Lab from './simulation/lab.jsx';
+import Attestation from './simulation/attestation.jsx';
+import { ModeSwitch, PhysicalBanner, PhysicalOverview, PhysicalLive, PhysicalAiPage, PhysicalSafetyPage } from './physical/physical.jsx';
 import './torqva.css';
 
 const NAV_GROUPS = [
@@ -164,8 +165,12 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     return () => window.removeEventListener('keydown', onKey);
   }, [navOpen]);
   const [d, setD] = useState({});
-  const device = useDeviceStream(!!user, wsFactory);
-  const isPhys = (device.snap?.origin === 'physical_device' && device.snap?.handshake === true) || d.status?.mode === 'PHYSICAL' || d.status?.provenance === 'MEASURED' || d.telemetry?.provenance === 'MEASURED';
+  // A session the server rejects (HTTP 401) ends the sign-in and says why, so it is never mistaken for a connection problem.
+  const authLost = useCallback(() => { setToken(''); setUser(null); setLoginError('The server no longer accepts this session (HTTP 401). Sign in again.'); }, []);
+  const device = useDeviceStream(!!user, wsFactory, undefined, authLost);
+  // Provenance of `d` (the /status, /telemetry ... records) comes only from what that data says about itself. A connected board does not make
+  // simulator records measured; the board's own readings arrive separately through `device`.
+  const isPhys = isPhysOf(d);
   const physicalMode = appMode === 'PHYSICAL';
   const changeMode = (m) => { setAppMode(m); storeMode(m); setRunning(false); };
   const [error, setError] = useState(null);
@@ -193,6 +198,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
 
   useEffect(() => { alive.current = true; const t = getToken() || DEV_TOKEN; if (t) { if (!getToken()) devLogin.current = true; onLogin(t); } return () => { alive.current = false; }; }, [onLogin]);
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
+  useEffect(() => { if (user) prefetchCharts(); }, [user]);          // fetch the chart code in the background once signed in
 
   const reqSeq = useRef(0);               // responses can arrive out of order: only the newest request may update the screen
   const applied = useRef(0);
@@ -206,9 +212,9 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
       if (alive.current && mine > applied.current) { applied.current = mine; setD({ status, telemetry, incidents, decisions, predictions, commands, outcomes, cases, log, predictionChecks }); setError(null); setLastOk(Date.now()); setOffline(false); }
     } catch (e) {
       if (!alive.current || mine < applied.current) return;
-      if (e instanceof ApiError && e.status === 401) { setToken(''); setUser(null); } else { setError(e); if (!(e instanceof ApiError)) setOffline(true); }
+      if (e instanceof ApiError && e.status === 401) authLost(); else { setError(e); if (!(e instanceof ApiError)) setOffline(true); }
     }
-  }, []);
+  }, [authLost]);
 
   // Development first load: start a healthy run so AI models and telemetry are always active and live.
   useEffect(() => {
@@ -222,10 +228,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
 
   useEffect(() => {
     if (!user) return undefined;
-    const isConn = device.snap?.connection === 'CONNECTED';
-    if (physicalMode && !isConn && (view === 'overview' || view === 'live' || view === 'device' || view === 'control' || view === 'lab')) {
-      return undefined;
-    }
+    if (physicalMode) { if (view === 'devices') refresh(); return undefined; }        // physical mode never polls or steps the simulator
     refresh();
     const id = setInterval(async () => {
       if (ticking.current) return;
@@ -238,7 +241,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
       } finally { ticking.current = false; }
     }, pollMs);
     return () => clearInterval(id);
-  }, [user, running, refresh, pollMs, stepSeconds, physicalMode, view, device.snap?.connection]);
+  }, [user, running, refresh, pollMs, stepSeconds, physicalMode, view]);
 
   useEffect(() => {
     if (!user) return;
@@ -267,10 +270,10 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     overview: <OverviewPage {...ctx} />, live: <LivePage {...ctx} />, diagnostics: <DiagnosticsPage {...ctx} />,
     predictions: <PredictionsPage {...ctx} />, tests: <TestsPage {...ctx} c2c4={c2c4.data} />, interventions: <InterventionsPage {...ctx} />,
     recovery: <RecoveryPage {...ctx} />, learning: <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>,
-    evaluation: (<><PageHead title="Evaluation and Research" sub={physicalMode ? "Live physical hardware evaluation benchmarks and model verification metrics." : "Simulation evaluation artifacts, baselines versus candidates, provenance and known limitations."} />
-      <Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} isPhys={physicalMode} /></>),
+    evaluation: (<><PageHead title="Evaluation and Research" sub="Simulation evaluation artifacts, baselines versus candidates, provenance and known limitations." />
+      <Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} /></>),
     device: <DevicePage stream={device} role={user.role} />, control: <MotorControlPage stream={device} role={user.role} />,
-    lab: <Lab role={user.role} isPhys={physicalMode} />, devices: <DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />,
+    lab: (<><PageHead title="Lab" sub="Reproducible recording sessions, fault-injection records and matched experiments on the software simulator." /><Lab role={user.role} isPhys={physicalMode} /></>), devices: <DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />,
   };
   const phys = (layer, fallback) => {
     const l = device.snap?.analysis?.layers?.[layer];
@@ -306,7 +309,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   };
   const current = navItem(view);
   const drawerHidden = compact && !navOpen;
-  const connText = physicalMode ? (device.snap?.connection === 'CONNECTED' ? `${device.snap.port || 'COM7'} Online` : 'Hardware Disconnected') : 'Environment: software simulator (no hardware)';
+  const connText = physicalMode ? (device.snap?.connection === 'CONNECTED' ? (device.snap.port ? `${device.snap.port} Online` : 'Device Online') : 'Hardware Disconnected') : 'Environment: software simulator (no hardware)';
   return (
     <div className={`tq-shell ${theme === 'light' ? 'tq-theme-light' : 'tq-theme-dark'} ${navOpen ? 'tq-nav-open' : ''} ${collapsed && !compact ? 'tq-nav-collapsed' : ''}`.replace(/\s+/g, ' ').trim()}>
       <div className="tq-body">
@@ -329,6 +332,9 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
         <div className="tq-content">
           <div className="tq-sticky">
             {physicalMode ? <PhysicalBanner snap={device.snap} /> : <SimulationBanner mode={mode} physical={device.snap?.origin === 'physical_device' && device.snap?.handshake === true} />}
+            {physicalMode && device.unreachable && (
+              <div className="tq-conn" role="alert" data-testid="conn-warning"><WifiOff size={16} aria-hidden="true" /><strong>Backend unreachable.</strong>
+                <span>Device readings shown are the last ones received and are not live. Start the backend and this page recovers automatically.</span></div>)}
             {stale && !physicalMode && (
               <div className="tq-conn" role="alert" data-testid="conn-warning"><WifiOff size={16} aria-hidden="true" /><strong>Backend unreachable.</strong>
                 <span>Values shown are STALE{lastOk ? ` (last updated ${Math.round((now - lastOk) / 1000)} s ago)` : ''} and are not live. Start the backend and this page recovers automatically.</span></div>)}
@@ -346,7 +352,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
               <ModeSwitch mode={appMode} onChange={changeMode} />
               <button type="button" className="tq-iconbtn" onClick={toggleTheme} aria-label="Toggle theme" title={theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Cockpit Theme'}>
                 {theme === 'dark' ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}</button>
-              <span className="tq-user"><span className="tq-avatar" aria-hidden="true">{String(user.user || '?').slice(0, 1)}</span><span className="tq-user-name tq-user-badge">{user.user} · {user.role}</span></span>
+              <span className="tq-user" title={`${user.user} · ${user.role}`}><span className="tq-avatar" aria-hidden="true">{String(user.user || '?').slice(0, 1)}</span><span className="tq-user-name tq-user-badge">{user.user} · {user.role}</span></span>
               <button type="button" className="tq-iconbtn" onClick={() => { setToken(''); setUser(null); setRunning(false); }} aria-label="Sign out" title="Sign out"><LogOut size={16} aria-hidden="true" /></button>
             </header>
           </div>

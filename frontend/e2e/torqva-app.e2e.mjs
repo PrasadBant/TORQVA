@@ -89,19 +89,24 @@ await shot('backend-down');
 await page.unroute('**/api/torqva/**');
 await page.waitForSelector('[data-testid="conn-warning"]', { state: 'detached', timeout: 15000 }).then(() => check('app recovers when the backend returns', true)).catch(() => check('app recovers when the backend returns', false));
 
-// responsive layouts
+// responsive layouts. Below 860 px the sections live in a drawer: open it the way a user would before choosing a section.
+const navClick = async (name) => {
+  const toggle = page.locator('[data-testid="nav-toggle"]');
+  if (await toggle.isVisible() && (await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+  await page.click(`nav button:has-text("${name}")`);
+};
 for (const w of [1440, 1024, 768, 390]) {
   await page.setViewportSize({ width: w, height: 900 });
   for (const nav of ['Overview', 'Live Monitor', 'Predictions', 'Evaluation']) {
-    await page.click(`nav button:has-text("${nav}")`); await page.waitForTimeout(400);
+    await navClick(nav); await page.waitForTimeout(400);
     check(`no horizontal overflow at ${w}px: ${nav}`, (await overflow()) <= 1, `(${await overflow()}px)`);
   }
-  await page.click('nav button:has-text("Overview")'); await page.waitForTimeout(400);
+  await navClick('Overview'); await page.waitForTimeout(400);
   await shot(`overview-${w}`);
 }
 check('running a simulation never dispatches a physical device command', deviceCommandPosts.length === 0, String(deviceCommandPosts.length));
 await page.reload(); await page.waitForSelector('nav button:has-text("Overview")', { timeout: 20000 });
-await page.click('nav button:has-text("Motor Control")'); await page.waitForTimeout(800);
+await navClick('Motor Control'); await page.waitForTimeout(800);
 const afterReload = await page.textContent('main');
 check('after a reload the physical controls are still disabled and no command history carried over', afterReload.includes('DEVICE NOT CONNECTED') && await page.isDisabled('button:has-text("Request START")') && afterReload.includes('No commands requested in this session'));
 check('after a reload no physical command was sent', deviceCommandPosts.length === 0);

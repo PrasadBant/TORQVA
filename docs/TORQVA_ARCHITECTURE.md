@@ -93,7 +93,7 @@ Persistence: SQLite (existing `data_storage.py` kept for legacy telemetry); new 
 6. Learning cannot modify limits, envelopes or supervisor rules.
 
 ## 5. Phase 9 — trusted healthy-session attestation (experimental adaptive C1; simulation only)
-Code: `backend/torqva/attestation.py` (logic), routes in `backend/torqva/api.py` (`/api/torqva/attestation/*`), UI `frontend/src/torqva/attestation.jsx` (tab "Attestation"), store primitives in `store.py` (`put_audited`, immutable `ref_versions`).
+Code: `backend/torqva/attestation.py` (logic), routes in `backend/torqva/api.py` (`/api/torqva/attestation/*`), UI `frontend/src/torqva/simulation/attestation.jsx` (tab "Attestation"), store primitives in `store.py` (`put_audited`, immutable `ref_versions`).
 
 **What it is.** An operator-authorised, auditable way to approve a *recorded* warm-up of the running simulation as the source of a per-session reference for the opt-in adaptive C1 detector. Attestation records a named operator's judgment about recorded evidence. It is **not** proof that the motor is fault-free; the API, the stored records and the UI all say so, and a session never becomes trusted merely because it looks statistically normal. The shipped detector stays the default; the deterministic Safety Supervisor, the dispatcher and every command path are untouched (the module has no command path; a test asserts it does not reference them).
 
@@ -141,7 +141,7 @@ Simulation only; no hardware evidence. A reference applies to one session (no cr
 
 
 ## 6. Phase 10 — counterfactual-style prediction quality and diagnostic-test quality (simulation only)
-Code: `backend/torqva/c2_robust.py` (C2 candidate, support status, specification), `c4_robust.py` (C4 library candidate, conflict guard, test specification, result classification), `c2c4_study.py` (reproducible study), additive changes in `prediction.py` / `hypotheses.py` / `gate.py` / `pipeline.py` / `service.py` / `api.py`, UI `frontend/src/torqva/c2c4.jsx`. The shipped C2 and C4 remain the **defaults**; the candidates are opt-in.
+Code: `backend/torqva/c2_robust.py` (C2 candidate, support status, specification), `c4_robust.py` (C4 library candidate, conflict guard, test specification, result classification), `c2c4_study.py` (reproducible study), additive changes in `prediction.py` / `hypotheses.py` / `gate.py` / `pipeline.py` / `service.py` / `api.py`, UI `frontend/src/torqva/simulation/c2c4.jsx`. The shipped C2 and C4 remain the **defaults**; the candidates are opt-in.
 
 **Valid prediction targets.** `PREDICTION_TARGETS` defines, per action (CONTINUE_MONITORING, REDUCE_SPEED, STOP): preconditions, predicted signals (rpm, vibration, current, housing) and horizons (30/60/120 s), the meaning of the 90 % interval ("a single future 1 s measurement under comparable simulated conditions"), the conditions under which the prediction is **unsupported**, and how the observation is recorded. A prediction is an *expected outcome under matched simulated conditions*, not the exact counterfactual of one physical run, not a measurement and never evidence of recovery. Matched conditions are made by forking the simulator (identical starting state for all three actions) — a simulator property that a real motor does not have.
 

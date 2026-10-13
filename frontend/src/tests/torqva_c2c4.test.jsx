@@ -2,9 +2,9 @@ import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import TorqvaApp from '../torqva/TorqvaApp.jsx';
-import { C2C4Validation, DiagnosticTests, PredictionChecks, StatusPill } from '../torqva/c2c4.jsx';
+import { C2C4Validation, DiagnosticTests, PredictionChecks, StatusPill } from '../torqva/simulation/c2c4.jsx';
 import { setToken } from '../torqva/api.js';
-import { TestsPage, TEST_SPECS } from '../torqva/pages.jsx';
+import { TestsPage, TEST_SPECS } from '../torqva/simulation/pages.jsx';
 
 const row = (o = {}) => ({ signal: 'housing', horizon_s: 60, observed: 25.4, predicted: 25.1, lo: 24.8, hi: 25.4, covered: true, ...o });
 const check = (o = {}) => ({ comparison: 'available', action: 'REDUCE_SPEED', interval_method: 'noise_aware_conformal', status: 'supported',
@@ -108,56 +108,83 @@ describe('Predictions and Evaluation views', () => {
   });
 });
 
-describe('Diagnostic Tests (C4) interactive execution engine', () => {
-  it('provides comprehensive specifications for T1, T3, and T4 with diagnostic isolation mechanisms', () => {
+describe('Diagnostic Tests (C4) page', () => {
+  it('describes T1, T3 and T4 with the signals the backend observes', () => {
     expect(TEST_SPECS.T1).toBeDefined();
     expect(TEST_SPECS.T3).toBeDefined();
     expect(TEST_SPECS.T4).toBeDefined();
     expect(TEST_SPECS.T1.signals).toContain('1x Vibration Exponent');
     expect(TEST_SPECS.T3.signals).toContain('Housing Thermal Drift Slope (°C / 100 s)');
     expect(TEST_SPECS.T4.signals).toContain('Deceleration Time Constant tau');
+    for (const t of Object.values(TEST_SPECS)) expect(t).not.toHaveProperty('defaultObs');       // no canned observation or posterior to display as a result
   });
 
-  it('renders available tests, switches test selection, and shows test preconditions', () => {
-    const d = { status: { mode: 'PHYSICAL', rpm: 1300 }, log: [] };
-    const device = { snap: { origin: 'physical_device', values: { rpm: { valid: true, value: 1300 } }, drive: 'CLOSED_LOOP' } };
-    render(<TestsPage d={d} device={device} role="operator" isPhys={true} />);
-
-    // Renders the 3 test options
+  it('lists the tests and switches the selection, but offers no way to run a test or move the motor', () => {
+    render(<TestsPage d={{ status: { mode: 'SIMULATION' }, log: [] }} role="admin" />);
     expect(screen.getAllByText(/Speed-Step Dynamic Response/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Thermal Equilibrium Observation/i)).toBeInTheDocument();
-    expect(screen.getByText(/Inertial Coast-Down Deceleration/i)).toBeInTheDocument();
-
-    // Check preconditions are reported
-    expect(screen.getByText(/1300 rpm/i)).toBeInTheDocument();
-    expect(screen.getByText(/Hard Limits Armed/i)).toBeInTheDocument();
-
-    // Switch to T4
-    fireEvent.click(screen.getByText(/Inertial Coast-Down Deceleration/i));
-    expect(screen.getByText(/Selected Test Profile: T4/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Inertial Coast-Down Deceleration/i }));
+    expect(screen.getByText('Selected test T4')).toBeInTheDocument();
+    expect(screen.getByText('No diagnostic test has been run in this incident.')).toBeInTheDocument();
+    expect(screen.getByText(/There is no manual run button, by design/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /run|execute|spin up|start|abort|confirm/i })).toBeNull();
+    expect(screen.queryByText(/Hard Limits Armed/i)).toBeNull();
   });
 
-  it('executes the confirmation dialog and enables emergency abort during test execution', () => {
-    const d = { status: { mode: 'PHYSICAL', rpm: 1300 }, log: [] };
-    const device = { snap: { origin: 'physical_device', values: { rpm: { valid: true, value: 1300 } }, drive: 'CLOSED_LOOP' } };
-    render(<TestsPage d={d} device={device} role="admin" isPhys={true} />);
-
-    // Click execute
-    const runBtn = screen.getByTestId('btn-run-diagnostic');
-    fireEvent.click(runBtn);
-
-    // Shows confirmation dialog
-    expect(screen.getByText(/Confirm Execution of/i)).toBeInTheDocument();
-    const confirmBtn = screen.getByTestId('btn-confirm-test');
-    fireEvent.click(confirmBtn);
-
-    // Enters RUNNING state
-    expect(screen.getByText(/Emergency Abort Test/i)).toBeInTheDocument();
-
-    // Trigger emergency abort
-    fireEvent.click(screen.getByText(/Emergency Abort Test/i));
-    expect(screen.getByText('TEST ABORTED')).toBeInTheDocument();
-    expect(screen.getByText('Run Another Test')).toBeInTheDocument();
+  it('shows only the result the backend logged and never sends a request, whatever is clicked', () => {
+    const fetchSpy = vi.fn(); vi.stubGlobal('fetch', fetchSpy);
+    try {
+      const log = [{ kind: 'test_result', test: 'T1', t: 5, obs: [1.9, 1.1, -0.02], posterior: [['imbalance', 0.8], ['looseness', 0.2]] }];
+      render(<TestsPage d={{ status: { incident: { id: 'I-1', tests_run: 1 } }, log }} role="admin" />);
+      expect(screen.getByText('1.90, 1.10, -0.02')).toBeInTheDocument();
+      for (const b of screen.getAllByRole('button')) fireEvent.click(b);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); }
   });
 });
 
+describe('Predictions never invent candidates or command the motor', () => {
+  beforeEach(() => { window.localStorage.setItem('torqva.mode', 'SIMULATION'); vi.unstubAllGlobals(); setToken(''); });
+
+  it('shows an empty state, not browser-generated candidates, when the backend has no prediction', async () => {
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const path = String(url).replace('/api/torqva', ''); calls.push([path, init?.method || 'GET']);
+      const ok = (j) => ({ ok: true, status: 200, json: async () => j });
+      if (path === '/me') return ok({ user: 'tester', role: 'admin' });
+      if (path === '/status') return ok({ mode: 'SIMULATION', t: 30, device: { setpoint_rpm: 1500 }, last_window: { rpm: 1500, housing: 30, vib_rms: 0.05 }, models: {} });
+      return ok(path.startsWith('/telemetry') ? { samples: [] } : []);
+    }));
+    setToken('t'); render(<TorqvaApp pollMs={100000} />);
+    await screen.findByText(/tester · /);
+    fireEvent.click(screen.getByRole('button', { name: /^Predictions/ }));
+    expect(await screen.findByText(/No predictions yet/)).toBeInTheDocument();
+    expect(screen.queryByText(/Maintain Current Speed|hardware-verified/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /execute|apply|set safe speed|coast stop/i })).toBeNull();
+    expect(calls.filter(([, m]) => m !== 'GET').map(([p]) => p)).not.toContain('/device/commands');
+  });
+
+  it('offers no execute control next to a backend prediction', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const path = String(url).replace('/api/torqva', '');
+      const ok = (j) => ({ ok: true, status: 200, json: async () => j });
+      if (path === '/me') return ok({ user: 'tester', role: 'admin' });
+      if (path === '/status') return ok({ mode: 'SIMULATION', device: {}, models: {} });
+      if (path === '/predictions') return ok([{ action: 'REDUCE_SPEED', risk: 0, status: 'supported', status_reasons: [], mean_at_30_60_120: { rpm: [1, 1, 1] }, lo_120: {}, hi_120: {} }]);
+      return ok(path.startsWith('/telemetry') ? { samples: [] } : []);
+    }));
+    setToken('t'); render(<TorqvaApp pollMs={100000} />);
+    await screen.findByText(/tester · /);
+    fireEvent.click(screen.getByRole('button', { name: /^Predictions/ }));
+    expect(await screen.findByRole('button', { name: /REDUCE SPEED/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /execute|apply|set safe speed|coast stop/i })).toBeNull();
+  });
+});
+
+describe('Evaluation keeps simulation evidence labelled as simulation', () => {
+  it('never relabels the C2/C4 study as hardware-validated', () => {
+    render(<C2C4Validation data={{ WARNING: 'Simulation only.', c2: { control: {} }, limitations: ['simulated'] }} />);
+    expect(screen.getByText('unvalidated against hardware')).toBeInTheDocument();
+    expect(screen.queryByText(/Hardware validated|COM7|MEASURED/)).toBeNull();
+  });
+});

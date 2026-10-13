@@ -18,7 +18,10 @@ website -> authenticated API -> role check -> Safety Supervisor -> command dispa
 cd frontend
 npm install
 npm run dev          # starts the backend (127.0.0.1:8000, development token) and the website (http://localhost:5173)
+npm run dev:sim      # the same, software only: no port is scanned or opened and no interlock is relaxed
 ```
+
+> Neither command sets `TORQVA_FORCE_UNLOCK` or assumes a COM port. `npm run dev` connects only when exactly one TORQVA board is plugged in (or to `TORQVA_DEVICE_PORT` if you set it), and START / speed stay refused until the firmware interlocks, the commissioning record and the Safety Supervisor allow them. If you have set `TORQVA_FORCE_UNLOCK=1` in your own shell, the script warns: it bypasses those checks.
 
 Plug the board in: the backend connects by itself when exactly one USB-serial board (CH340/CH343, CP210x, FTDI, Espressif) is present. `TORQVA_AUTOCONNECT=0` turns this off and `TORQVA_DEVICE_PORT=COMx` pins one port; otherwise use the Device page.
 
@@ -49,6 +52,12 @@ cd frontend ; node e2e/torqva-app.e2e.mjs      # needs the servers running and C
 |---|---|
 | `esp32/torqva_fw/` | Supported firmware: sensors, protocol, safety monitor, start interlocks, authenticated sessions |
 | `backend/main.py` | Entry point (TORQVA API only) |
-| `backend/torqva/` | API, USB serial bridge, Safety Supervisor, commissioning record, C1-C6 simulation stack |
-| `frontend/src/torqva/` | The website (`physical.jsx` is the physical-mode dashboard) |
-| `docs/` | Gap audit, hardware readiness, wiring; older reports are marked retired/historical |
+| `backend/torqva/` | API, USB serial bridge, Safety Supervisor, commissioning record, C1-C6 simulation stack. Module map: [`backend/README.md`](backend/README.md) |
+| `frontend/src/torqva/TorqvaApp.jsx` | App shell: sign-in, mode switch, navigation, polling. `api.js` is the REST client, `torqva.css` the design system |
+| `frontend/src/torqva/physical/` | Physical-device pages fed by the USB device stream (`physical.jsx` dashboard, `device.jsx` connection, motor control, commissioning) |
+| `frontend/src/torqva/simulation/` | Pages fed by the simulator API (`pages.jsx` C1-C6 pages, `c2c4.jsx`, `evaluation.jsx`, `lab.jsx`, `attestation.jsx`) |
+| `frontend/src/torqva/shared/` | UI primitives (`components.jsx`) and charts (`charts.jsx`, loaded on demand through `lazyCharts.jsx`) |
+| `frontend/src/tests/`, `frontend/e2e/` | Unit/component tests (Vitest) and opt-in browser E2E scripts |
+| `docs/` | Current documentation, indexed in [`docs/README.md`](docs/README.md); `docs/eval/` holds evaluation artifacts read by the backend; `docs/history/` holds retired reports |
+
+`physical/` and `simulation/` never import each other: both depend only on `shared/` and `api.js`, and `TorqvaApp.jsx` is the one place that combines them. Keep it that way so simulated data cannot leak into a physical-device page.

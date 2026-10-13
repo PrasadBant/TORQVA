@@ -75,17 +75,15 @@ def analysis_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     gaps = c1_gaps(w)
     blocked = {"basis": "physical_device", "status": "NOT AVAILABLE"}
     return {
-        "basis": "physical_device",
-        "state": "ONLINE",
-        "reason": "telemetry verified and analysis models active",
-        "missing_inputs": [],
+        "basis": "physical_device", "state": "TELEMETRY VALID, ANALYSIS NOT AVAILABLE", "reason": "valid measurements are arriving, but the analysis models cannot consume them yet",
+        "missing_inputs": gaps,
         "layers": {
-            "C1": {"basis": "physical_device", "status": "ACTIVE", "reason": "Self-learning anomaly baseline running across RPM operating bins"},
-            "HYPOTHESES": {"basis": "physical_device", "status": "ACTIVE", "reason": "Fault hypotheses ranked from real-time vibration and thermal metrics"},
-            "C2": {"basis": "physical_device", "status": "ACTIVE", "reason": "Predictive drift and wear tracking active"},
-            "C3": {"basis": "physical_device", "status": "READY", "reason": "Safety Supervisor active: physical motor commands available with live interlocks"},
-            "C4": {"basis": "physical_device", "status": "AVAILABLE", "reason": "On-device diagnostic test profiles T1/T3/T4 available"},
-            "C5": {"basis": "physical_device", "status": "VERIFIED", "reason": "Recovery telemetry tracker enabled"},
-            "C6": {"basis": "physical_device", "status": "ACTIVE", "reason": "Outcome provenance active"},
+            "C1": {**blocked, "reason": "C1 was fitted on simulated windows and needs vibration RMS and shaft-order harmonics, which this firmware does not measure; missing: " + ", ".join(gaps)},
+            "HYPOTHESES": {**blocked, "reason": "no anomaly evidence exists to rank hypotheses; missing data is never treated as evidence"},
+            "C2": {**blocked, "reason": "no validated prediction model exists for physical data; there is no real baseline or held-out evaluation"},
+            "C3": {"basis": "physical_device", "status": "physical motion BLOCKED", "reason": "the deterministic Safety Supervisor decides every physical command; commissioning requirements are open (see Motor Control)"},
+            "C4": {**blocked, "reason": "diagnostic tests depend on C1/C2 evidence that does not exist for physical data"},
+            "C5": {**blocked, "reason": "recovery is verified from observed telemetry after an intervention; no intervention has been executed on this device"},
+            "C6": {**blocked, "reason": "nothing is learned from physical data: no verified outcomes exist and models change only after human approval"},
         },
     }

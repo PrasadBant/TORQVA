@@ -22,7 +22,7 @@ INI_RAW = (FW / "platformio.ini").read_text()
 INI = "\n".join(l for l in INI_RAW.splitlines() if not l.lstrip().startswith(";"))          # comments are not configuration
 
 # historical records: allowed to MENTION the retired sketch, but only together with the word "retired" (they are annotated, not rewritten)
-HISTORICAL = {"docs/ARCHITECTURE.md", "docs/NEW_LAPTOP_SETUP_REPORT.md", "docs/PHASE_6_HARDWARE_VALIDATION_REPORT.md", "docs/TORQVA_AUDIT.md", "docs/TORQVA_HARDWARE_READINESS.md",
+HISTORICAL = {"docs/history/ARCHITECTURE.md", "docs/history/NEW_LAPTOP_SETUP_REPORT.md", "docs/history/PHASE_6_HARDWARE_VALIDATION_REPORT.md", "docs/history/TORQVA_AUDIT.md", "docs/TORQVA_HARDWARE_READINESS.md",
               "docs/TORQVA_PROGRESS.md"}
 CURRENT_DOCS = ["README.md", "esp32/README.md", "docs/software.md", "docs/hardware.md", "docs/HARDWARE_WIRING.md"]
 

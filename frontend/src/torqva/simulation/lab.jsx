@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, PosteriorBars, fmt } from './components.jsx';
-import { api } from './api.js';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, PosteriorBars, fmt } from '../shared/components.jsx';
+import { api } from '../api.js';
 
 const FAULTS = ['imbalance', 'looseness', 'overload', 'cooling_failure', 'supply_voltage', 'sensor_fault'];
 const PURPOSES = ['commissioning', 'fault_run', 'experiment', 'evaluation'];

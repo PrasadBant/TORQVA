@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import TorqvaApp from '../torqva/TorqvaApp.jsx';
 import { setToken } from '../torqva/api.js';
-import { classifyRpm, SpeedStatus } from '../torqva/physical.jsx';
+import { classifyRpm, SpeedStatus } from '../torqva/physical/physical.jsx';
 
 // Mocked backend responses (frontend behaviour only: NOT physical-device verification).
 const ok = (j) => ({ ok: true, status: 200, json: async () => j });
@@ -265,3 +265,32 @@ describe('physical-device-first application', () => {
   });
 });
 
+
+describe('physical mode never shows frozen readings as live and never hides a rejected session', () => {
+  it('when the backend stops answering, the last device readings are marked STALE and a warning says they are not live', async () => {
+    await open(CONNECTED);
+    expect((await screen.findByTestId('phys-banner')).textContent).toMatch(/PHYSICAL DEVICE CONNECTED/);
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    expect(await screen.findByTestId('conn-warning', {}, { timeout: 6000 })).toHaveTextContent(/not live/);
+    const banner = screen.getByTestId('phys-banner').textContent;
+    expect(banner).toMatch(/TELEMETRY STALE/);
+    expect(banner).not.toMatch(/PHYSICAL DEVICE CONNECTED/);
+  }, 10000);
+
+  it('a 401 from the device API returns to sign-in and says why', async () => {
+    await open(CONNECTED);
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401, json: async () => ({ detail: 'invalid or missing bearer token' }) })));
+    expect(await screen.findByRole('button', { name: 'Sign in' }, { timeout: 6000 })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/no longer accepts this session \(HTTP 401\)/);
+  }, 10000);
+
+  it('a WebSocket closed with 4401 (session rejected) returns to sign-in instead of reconnecting', async () => {
+    server(CONNECTED);
+    setToken('t');
+    const Rejecting = class { constructor() { setTimeout(() => { this.onopen && this.onopen(); setTimeout(() => this.onclose && this.onclose({ code: 4401 }), 300); }, 0); } send() {} close() {} };
+    render(<TorqvaApp pollMs={100000} wsFactory={() => new Rejecting()} />);
+    await screen.findByText(/tester · /);                                                   // signed in first (the sign-in form also shows before /me answers)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
+    expect(screen.getByRole('alert')).toHaveTextContent(/HTTP 401/);
+  });
+});

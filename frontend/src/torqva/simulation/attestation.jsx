@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt } from './components.jsx';
-import { api } from './api.js';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt } from '../shared/components.jsx';
+import { api } from '../api.js';
 
 const canControl = (role) => role === 'operator' || role === 'admin';
 const TONE = { PENDING: 'wait', ELIGIBLE: 'info', ATTESTED: 'ok', REJECTED: 'crit', EXPIRED: 'off', REVOKED: 'warn' };

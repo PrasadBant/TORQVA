@@ -148,6 +148,34 @@ describe('device pages', () => {
     expect(await screen.findByText(/hardware_control_not_enabled/)).toBeInTheDocument();
   });
 
+  it('a speed request needs an entered value, sends exactly that SET_SPEED once, and nothing is sent while typing', async () => {
+    const sent = [];
+    await open('Motor Control', { role: 'admin', snap: { ...SNAP, control_blockers: [] }, onCommand: (b) => sent.push(b), commandResponse: { id: 13, action: 'SET_SPEED', state: 'SENT', reasons: [], requested_by: 'tester' }, commands: [] });
+    await screen.findByText('Motor state');
+    expect(screen.getByRole('button', { name: /Request speed/ })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Speed setting \(rpm\)/), { target: { value: '900' } });
+    expect(sent).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: /Request speed/ }));
+    await waitFor(() => expect(sent).toEqual([{ action: 'SET_SPEED', rpm: 900 }]));
+    expect(screen.getByTestId('limits-note')).toHaveTextContent(/No approved duty or speed limit exists/);
+  });
+
+  it('limits are approved only with every value typed by the admin; nothing is filled in or sent as 0', async () => {
+    const calls = await open('Motor Control', { role: 'admin', commands: [] });
+    await screen.findByTestId('commissioning');
+    const approve = screen.getByRole('button', { name: 'Approve limits' });
+    expect(approve).toBeDisabled();
+    expect(screen.getByTestId('limits-missing')).toHaveTextContent('Min supply voltage (V)');
+    const typed = { 'Max current (A)': '2.5', 'Min supply voltage (V)': '18', 'Max supply voltage (V)': '24', 'Max housing temperature (°C)': '60', 'Max speed (rpm)': '3000' };
+    for (const [l, v] of Object.entries(typed)) fireEvent.change(screen.getByLabelText(l), { target: { value: v } });
+    expect(approve).toBeDisabled();                                                               // max duty still blank
+    fireEvent.change(screen.getByLabelText('Max duty (%)'), { target: { value: '30' } });
+    expect(approve).not.toBeDisabled();
+    fireEvent.click(approve);
+    await waitFor(() => expect(calls.some((c) => c.path === '/device/commissioning/limits')).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.path === '/device/commissioning/limits').body)).toMatchObject({ max_current_a: 2.5, min_voltage_v: 18, max_voltage_v: 24, max_temp_c: 60, max_rpm: 3000, max_duty_pct: 30 });
+  });
+
   it('lists every interlock and never marks hardware checks verified', async () => {
     await open('Motor Control', { snap: { ...SNAP, interlocks: [{ id: 'estop', label: 'Emergency-stop circuit verified', status: 'NOT VERIFIED', detail: 'no E-stop input' }, { id: 'session', label: 'Secure session established', status: 'BLOCKED', detail: 'USB' }] }, commands: [] });
     const t = await screen.findByTestId('interlocks');

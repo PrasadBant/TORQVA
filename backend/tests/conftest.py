@@ -1,10 +1,22 @@
 """Shared, expensive-to-build simulation stack (baseline detector, thermal model, hypotheses, C4 models)."""
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Hardware isolation for the WHOLE session, set at import time. The autouse fixture below repeats it per test, but module- and session-scoped
+# fixtures (for example a module-wide SimulationService) are created before any function-scoped fixture runs, so without this they would start
+# the USB auto-connector (scan=True), inherit a device port or the unlock flag from the shell, and read the operator's real commissioning record.
+_ISOLATED = tempfile.mkdtemp(prefix="torqva-tests-")
+for _k in ("TORQVA_DEVICE_PORT", "TORQVA_FORCE_UNLOCK"):
+    os.environ.pop(_k, None)
+os.environ["TORQVA_AUTOCONNECT"] = "0"
+os.environ["TORQVA_COMMISSIONING_FILE"] = os.path.join(_ISOLATED, "commissioning.json")
+os.environ["TORQVA_DEVICE_KEYS_FILE"] = os.path.join(_ISOLATED, "device_keys.json")
 
 from torqva.detection import BaselineDetector, ThermalTracker
 from torqva.diagnostics import DiagnosticsModel
