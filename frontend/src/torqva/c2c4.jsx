@@ -21,7 +21,7 @@ export function PredictionChecks({ checks = [], isPhys = false }) {
   return (
     <Card title={isPhys ? "Predicted vs observed (hardware)" : "Predicted vs observed (simulated)"} id="c-predcheck" right={<><ProvBadge kind="PREDICTED" /> <ProvBadge kind={isPhys ? "MEASURED" : "SIMULATED"} /></>}>
       {isPhys ? (
-        <p className="tq-callout ok" role="note">Observed values are live hardware measurements from the connected ESP32 motor on COM7.</p>
+        <p className="tq-callout info" role="note">Observed values are live hardware measurements from the connected ESP32 motor on COM7.</p>
       ) : (
         <p className="tq-warnbox" role="note">Observed values are simulated telemetry, not measurements. This comparison is not a recovery verdict, and a prediction that happened to be right does not validate the model.</p>
       )}
@@ -81,11 +81,11 @@ export function C2C4Validation({ data, error, isPhys = false }) {
   return (
     <Card title={isPhys ? "C2 / C4 Model Validation & Performance" : "C2 / C4 validation (Phase 10)"} id="c-c2c4" className="tq-span" right={<ProvBadge kind={isPhys ? "MEASURED" : "SIMULATED"} />}>
       {isPhys ? (
-        <p className="tq-callout ok" role="note">Live Hardware Mode Active: Validation benchmarks verified with real sensor measurements.</p>
+        <p className="tq-callout info" role="note">Live Hardware Mode Active: Validation benchmarks verified with real sensor measurements.</p>
       ) : (
         <p className="tq-warnbox" role="note">{data.WARNING}</p>
       )}
-      <Pill tone={isPhys ? "ok" : "warn"}>{isPhys ? "Hardware validated models" : "unvalidated against hardware"}</Pill>
+      <Pill tone={isPhys ? "info" : "warn"}>{isPhys ? "Hardware validated models" : "unvalidated against hardware"}</Pill>
       <h4>C2: coverage of the intervals actually returned (target 90 %)</h4>
       <table className="tq-table"><caption className="tq-sr">C2 interval coverage by regime</caption>
         <thead><tr><th scope="col">Regime</th>{variants.map(([k, n]) => <th scope="col" key={k}>{n}</th>)}<th scope="col">Width (norm.) control → candidate</th></tr></thead>

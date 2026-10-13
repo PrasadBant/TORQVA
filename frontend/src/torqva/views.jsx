@@ -13,17 +13,17 @@ function Row({ label, value }) {
 
 function RunCard({ evalRun, evalError, loading, isPhys = false }) {
   const r = evalRun?.run;
-  if (!r && loading) return <Card title="Evaluation run" id="c-eval"><Empty>Loading the latest evaluation run…</Empty></Card>;
+  if (!r && loading) return <Card title="Evaluation run" id="c-eval" className="tq-span"><Empty>Loading the latest evaluation run…</Empty></Card>;
   if (!r || typeof r !== 'object') {
-    return <Card title="Evaluation run" id="c-eval" right={<ProvBadge kind={isPhys ? "MEASURED" : "SIMULATED"} />}>
+    return <Card title="Evaluation run" id="c-eval" className="tq-span" right={<ProvBadge kind={isPhys ? "MEASURED" : "SIMULATED"} />}>
       <Empty>{evalError ? `No evaluation run available (${String(evalError.message)}).` : 'No evaluation run available.'}</Empty></Card>;
   }
   const cov = (k) => num(get(r, `c2.${k}`));
   const runs = Array.isArray(evalRun.available_runs) ? evalRun.available_runs : [];
   return (
-    <Card title={isPhys ? "Live Hardware Evaluation & Model Metrics" : "Evaluation run"} id="c-eval" right={<ProvBadge kind={isPhys ? "MEASURED" : "SIMULATED"} />}>
+    <Card title={isPhys ? "Live Hardware Evaluation & Model Metrics" : "Evaluation run"} id="c-eval" className="tq-span" right={<ProvBadge kind={isPhys ? "MEASURED" : "SIMULATED"} />}>
       {isPhys ? (
-        <p role="note" className="tq-callout ok"><strong>Live Hardware Verification Active:</strong> Operating on ESP32-S3 DevKit hardware (COM7). Real-time Hall speed, current, and temperature streams.</p>
+        <p role="note" className="tq-callout info"><strong>Live Hardware Verification Active:</strong> Operating on ESP32-S3 DevKit hardware (COM7). Real-time Hall speed, current, and temperature streams.</p>
       ) : (
         <p role="note" className="tq-warnbox">{r.WARNING || 'Simulation only.'}</p>
       )}
@@ -60,7 +60,7 @@ function Phase12Card({ p, isPhys = false }) {
   return (
     <Card title={isPhys ? "Operating Point Generalization Check" : "Phase 12 generalization check (fresh seeds)"} id="c-p12" className="tq-span" right={<ProvBadge kind={isPhys ? "MEASURED" : "SIMULATED"} />}>
       {isPhys ? (
-        <p className="tq-callout ok" role="note">Live Hardware Mode: Operating point generalization validated against real device measurements.</p>
+        <p className="tq-callout info" role="note">Live Hardware Mode: Operating point generalization validated against real device measurements.</p>
       ) : (
         <p className="tq-warnbox" role="note">{p.WARNING}</p>
       )}
@@ -79,7 +79,7 @@ function Phase12Card({ p, isPhys = false }) {
           <tr key={k}><td>{C4_LABEL[k] || 'Phase 11 calibration candidate (NOT adopted)'}</td><td className="tq-num">{v.n}</td><td className="tq-num">{pct(v.accuracy_after)}</td>
             <td className="tq-num">{pct(v.confident_wrong)} <span className="tq-muted">[{pct(v.confident_wrong_ci95?.[0])}–{pct(v.confident_wrong_ci95?.[1])}]</span></td>
             <td className="tq-num">{pct(v.inconclusive)}</td><td className="tq-num">{pct(v.decision_worse_than_prior)}</td>
-            <td>{isPhys ? <Pill tone="ok">Hardware verified</Pill> : (v.meets_acceptance_bar ? <Pill tone="ok">yes</Pill> : <Pill tone="warn">no (worst regime {v.worst_regime}: {pct(v.worst_regime_confident_wrong)})</Pill>)}</td></tr>); })}</tbody></table>
+            <td>{isPhys ? <Pill tone="info">Hardware verified</Pill> : (v.meets_acceptance_bar ? <Pill tone="ok">yes</Pill> : <Pill tone="warn">no (worst regime {v.worst_regime}: {pct(v.worst_regime_confident_wrong)})</Pill>)}</td></tr>); })}</tbody></table>
       <p className="tq-muted">{isPhys ? "Operating point generalization active under hardware supervisor." : `C4 calibration adopted: ${p.c4_adopt ? 'yes' : 'no'}.`}</p>
     </Card>
   );

@@ -1,11 +1,29 @@
-import React from 'react';
-import { AlertTriangle, CheckCircle2, ShieldAlert, Info, XOctagon, Clock, XCircle, FlaskConical } from 'lucide-react';
+import React, { createContext, useContext, useId } from 'react';
+import { AlertTriangle, CheckCircle2, ShieldAlert, Info, XOctagon, Clock, XCircle, FlaskConical, Inbox, Loader2, AlertCircle } from 'lucide-react';
+
+/** Where the current page sits in the navigation (icon and group), provided by the application shell. */
+export const NavContext = createContext(null);
+export const useNavContext = () => useContext(NavContext);
+
+/** TORQVA mark: a dial with a needle (monitoring) on the brand gradient. */
+export function Logo({ size = 30 }) {
+  const id = `tqlg${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
+  return (
+    <svg className="tq-logo" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <defs><linearGradient id={id} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#4D74F0" /><stop offset="1" stopColor="#7A5AF0" /></linearGradient></defs>
+      <rect width="32" height="32" rx="8" fill={`url(#${id})`} />
+      <path d="M16 7.5a8.5 8.5 0 1 1-8.05 5.75" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" />
+      <path d="M16 16 10.6 11.6" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" />
+      <circle cx="16" cy="16" r="2.6" fill="#fff" />
+    </svg>
+  );
+}
 
 /** Persistent, non-dismissable. TORQVA only serves simulated data in this build. */
 export function SimulationBanner({ mode = 'SIMULATION', physical = false }) {
   return (
-    <div className="tq-banner" role="status" aria-live="polite" data-testid="sim-banner">
-      <FlaskConical size={16} aria-hidden="true" />
+    <div className={`tq-banner ${physical ? 'tq-banner--warn' : ''}`.trim()} role="status" aria-live="polite" data-testid="sim-banner">
+      <FlaskConical size={15} aria-hidden="true" />
       <strong>{physical ? 'PHYSICAL DEVICE CONNECTED' : mode}</strong>
       {physical
         ? <span>A device is connected over USB. Simulated data is labelled SIM and device readings HW. Physical motor control is disabled; this is not hardware validation.</span>
@@ -51,8 +69,25 @@ export function Card({ title, right, children, id, className = '' }) {
   );
 }
 
-export function Empty({ children }) { return <p className="tq-empty">{children}</p>; }
-export function ErrorBox({ error }) { return error ? <p className="tq-error" role="alert">{String(error.message || error)}</p> : null; }
+/** Empty and loading states: say what is missing and when it will appear. */
+export function Empty({ children, loading = false }) {
+  const I = loading ? Loader2 : Inbox;
+  return <p className="tq-empty"><I size={16} aria-hidden="true" className={loading ? 'tq-spin' : undefined} />{children}</p>;
+}
+export function ErrorBox({ error }) {
+  return error ? <p className="tq-error" role="alert"><AlertCircle size={16} aria-hidden="true" />{String(error.message || error)}</p> : null;
+}
+
+/** Shared chart styling so every Recharts chart reads as one system and follows the theme tokens. */
+export const AXIS = { tick: { fontSize: 11, fill: 'var(--tq-muted)' }, tickLine: false, axisLine: { stroke: 'var(--tq-border)' } };
+export const GRID = { stroke: 'var(--tq-grid)', strokeDasharray: '3 4', vertical: false };
+export const TOOLTIP = {
+  contentStyle: { background: 'var(--tq-s1)', border: '1px solid var(--tq-border)', borderRadius: 8, fontSize: 12, color: 'var(--tq-text)', padding: '8px 10px' },
+  labelStyle: { color: 'var(--tq-muted)', marginBottom: 4 },
+  itemStyle: { padding: 0 },
+  cursor: { stroke: 'var(--tq-border-strong)', strokeDasharray: '3 3' },
+};
+export const LEGEND = { iconType: 'plainline', iconSize: 16, wrapperStyle: { fontSize: 12, paddingTop: 6 } };
 
 /** Posterior over fault hypotheses: bars with numbers, plus a confident/ambiguous/insufficient label. */
 export function PosteriorBars({ ranked = [], label }) {

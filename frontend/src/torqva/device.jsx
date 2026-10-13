@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
 import { Octagon } from 'lucide-react';
 import { api, getToken } from './api.js';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt } from './components.jsx';
-import { PageHead, Tabs } from './pages.jsx';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, AXIS, GRID, TOOLTIP } from './components.jsx';
+import { PageHead, Tabs, CardLink } from './pages.jsx';
 
 const title = (s) => String(s ?? '').replaceAll('_', ' ');
 const defaultWs = (import.meta.env && import.meta.env.MODE === 'test') ? null : (url) => new WebSocket(url);
@@ -130,7 +130,7 @@ export function DevicePage({ stream, role }) {
                 {Array.isArray(snap.error.recovery) && snap.error.recovery.length > 0 && <ol>{snap.error.recovery.map((r) => <li key={r}>{r}</li>)}</ol>}
                 {Array.isArray(snap.rejected_samples) && snap.rejected_samples.length > 0 && (
                   <><p className="tq-muted">Last lines received that are not valid TORQVA frames (diagnostic, admin only):</p>
-                    <pre className="tq-num" style={{ whiteSpace: 'pre-wrap', margin: 0 }} data-testid="rejected-samples">{snap.rejected_samples.join('\n')}</pre></>)}
+                    <pre className="tq-num" data-testid="rejected-samples">{snap.rejected_samples.join('\n')}</pre></>)}
               </div>)}
             <ErrorBox error={error} />
             <p className="tq-muted">Trust boundary: {snap?.usb_trust_boundary || 'USB serial is unauthenticated; it is treated as inside the host computer\'s physical trust boundary.'}</p>
@@ -207,28 +207,28 @@ export function DeviceLive({ stream }) {
             <div key={k} className={`tq-kpi ${missing || v?.stale ? 'tq-unavailable' : ''}`}>
               <div className="tq-kpi-label"><span>{name}</span>{v && !missing ? <ProvBadge kind={o.physical ? 'MEASURED' : 'SIMULATED'} /> : null}</div>
               <div className="tq-kpi-value tq-num">{missing ? 'UNAVAILABLE' : fmt(v.value, d)}{!missing && <span className="tq-kpi-unit">{unit}</span>}</div>
-              {v && !missing && v.stale && <div className="tq-muted" style={{ fontSize: 12 }}>stale</div>}
-              {v && missing && <div className="tq-muted" style={{ fontSize: 12 }}>invalid sensor reading</div>}
+              {v && !missing && v.stale && <div className="tq-kpi-note">stale</div>}
+              {v && missing && <div className="tq-kpi-note">invalid sensor reading</div>}
             </div>);
         })}
         {(() => { const a = snap?.values?.acceleration; const ok = a && a.valid && a.value != null; return (
           <div className={`tq-kpi ${!ok || a.stale ? 'tq-unavailable' : ''}`}><div className="tq-kpi-label"><span>Total acceleration</span>{ok ? <ProvBadge kind={o.physical ? 'MEASURED' : 'SIMULATED'} /> : null}</div>
             <div className="tq-kpi-value tq-num">{ok ? fmt(a.value, 3) : 'UNAVAILABLE'}{ok && <span className="tq-kpi-unit">g</span>}</div>
-            <div className="tq-muted" style={{ fontSize: 12 }}>{ok ? 'includes gravity; raw per-axis values; NOT vibration RMS' : (a && a.origin !== 'unavailable' ? 'invalid sensor reading' : 'no accelerometer data')}</div></div>); })()}
+            <div className="tq-kpi-note">{ok ? 'includes gravity; raw per-axis values; NOT vibration RMS' : (a && a.origin !== 'unavailable' ? 'invalid sensor reading' : 'no accelerometer data')}</div></div>); })()}
         <div className="tq-kpi tq-unavailable"><div className="tq-kpi-label"><span>Vibration RMS</span></div><div className="tq-kpi-value tq-num">UNAVAILABLE</div>
-          <div className="tq-muted" style={{ fontSize: 12 }}>the firmware does not compute it</div></div>
+          <div className="tq-kpi-note">the firmware does not compute it</div></div>
       </div>
       <Card title="History" id="c-devhist" right={<><label className="tq-inline">Signal <select value={signal} onChange={(e) => setSignal(e.target.value)}>{SIGNALS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></label>
         <label className="tq-inline">Range <select value={seconds} onChange={(e) => setSeconds(Number(e.target.value))}>{RANGES.map(([s, n]) => <option key={s} value={s}>{n}</option>)}</select></label></>}>
         <ErrorBox error={err} />
         {!data.length ? <Empty>No device history for this range. History exists only while a device is sending telemetry.</Empty> : (
-          <div role="img" aria-label={`${meta[1]} history`}><ResponsiveContainer width="100%" height={220}>
-            <LineChart data={data}><CartesianGrid stroke="var(--tq-border)" />
-              <XAxis dataKey="t" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(x) => new Date(x * 1000).toLocaleTimeString()} minTickGap={40} />
-              <YAxis width={54} domain={['auto', 'auto']} /><Tooltip labelFormatter={(x) => new Date(x * 1000).toLocaleTimeString()} />
-              <Line dataKey="v" name={`${meta[1]} (${meta[2]})`} stroke="var(--tq-accent)" dot={false} isAnimationActive={false} connectNulls={false} />
+          <div role="img" aria-label={`${meta[1]} history`} className="tq-chart"><ResponsiveContainer width="100%" height={240}>
+            <LineChart data={data} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}><CartesianGrid {...GRID} />
+              <XAxis dataKey="t" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(x) => new Date(x * 1000).toLocaleTimeString()} minTickGap={40} {...AXIS} />
+              <YAxis width={54} domain={['auto', 'auto']} {...AXIS} axisLine={false} /><Tooltip labelFormatter={(x) => new Date(x * 1000).toLocaleTimeString()} {...TOOLTIP} />
+              <Line dataKey="v" name={`${meta[1]} (${meta[2]})`} stroke="var(--tq-chart-1)" strokeWidth={2} dot={false} activeDot={{ r: 3.5, strokeWidth: 0 }} isAnimationActive={false} connectNulls={false} />
             </LineChart></ResponsiveContainer></div>)}
-        <p className="tq-muted">Gaps mean invalid readings or a disconnect; they are never drawn as zero.</p>
+        <p className="tq-chart-note">Gaps mean invalid readings or a disconnect; they are never drawn as zero.</p>
       </Card>
     </div>
   );
@@ -257,16 +257,18 @@ export function CommissioningCard({ role }) {
     <Card title="Commissioning (human record)" id="c-comm" right={<Pill tone={c.physical_control_enabled ? 'warn' : 'stop'}>{c.physical_control_enabled ? 'RECORD ENABLED' : 'NOT ENABLED'}</Pill>}>
       <p className="tq-muted">{c.note} Only an admin can change it; every change needs written evidence and is audited.</p>
       {c.load_error && <div className="tq-callout crit" role="alert">{c.load_error}</div>}
-      <table className="tq-table" data-testid="commissioning"><caption className="tq-sr">Commissioning checklist</caption>
+      <table className="tq-table tq-table-wrap" data-testid="commissioning"><caption className="tq-sr">Commissioning checklist</caption>
         <thead><tr><th scope="col">Requirement</th><th scope="col">Status</th><th scope="col">Evidence</th>{admin && <th scope="col">Action</th>}</tr></thead>
         <tbody>{c.items.map((i) => (
           <tr key={i.id}><td>{i.label}</td>
             <td><Pill tone={i.status === 'VERIFIED' ? 'ok' : i.status === 'BLOCKED' ? 'stop' : 'warn'}>{i.status}</Pill></td>
             <td className="tq-muted">{i.evidence ? `${i.evidence} (${i.by})` : '—'}</td>
-            {admin && <td><input aria-label={`Evidence for ${i.label}`} value={ev[i.id] || ''} onChange={(e) => setEv({ ...ev, [i.id]: e.target.value })} placeholder="written evidence" />
-              <button type="button" className="tq-btn" onClick={run(() => api.commissioningItem(i.id, { status: 'VERIFIED', evidence: ev[i.id] || '' }))}>Attest</button>
-              <button type="button" className="tq-btn" onClick={run(() => api.commissioningItem(i.id, { status: 'BLOCKED', evidence: ev[i.id] || '' }))}>Block</button>
-              <button type="button" className="tq-btn" onClick={run(() => api.commissioningItem(i.id, { status: 'NOT VERIFIED', evidence: '' }))}>Clear</button></td>}
+            {admin && <td className="tq-actions-cell"><input aria-label={`Evidence for ${i.label}`} value={ev[i.id] || ''} onChange={(e) => setEv({ ...ev, [i.id]: e.target.value })} placeholder="written evidence" />
+              <div className="tq-row">
+                <button type="button" className="tq-btn" onClick={run(() => api.commissioningItem(i.id, { status: 'VERIFIED', evidence: ev[i.id] || '' }))}>Attest</button>
+                <button type="button" className="tq-btn" onClick={run(() => api.commissioningItem(i.id, { status: 'BLOCKED', evidence: ev[i.id] || '' }))}>Block</button>
+                <button type="button" className="tq-btn tq-ghost" onClick={run(() => api.commissioningItem(i.id, { status: 'NOT VERIFIED', evidence: '' }))}>Clear</button>
+              </div></td>}
           </tr>))}</tbody></table>
       <h4>Approved limits</h4>
       {c.limits ? <p className="tq-muted" data-testid="limits-approved">Version {c.limits.version}, approved by {c.limits.by}: {LIMIT_FIELDS.map(([k, l]) => `${l} ${c.limits[k]}`).join(' · ')}</p> : <p className="tq-muted">No limits are approved. Nothing is assumed.</p>}
@@ -277,13 +279,19 @@ export function CommissioningCard({ role }) {
         </details>)}
       {admin && (
         <form className="tq-form" onSubmit={(e) => e.preventDefault()}>
-          {LIMIT_FIELDS.map(([k, l]) => <label key={k}>{l} <input type="number" min="0" value={lim[k] ?? ''} onChange={(e) => setLim({ ...lim, [k]: e.target.value })} /></label>)}
+          <fieldset className="tq-fieldset"><legend>Propose new limits</legend>
+          <div className="tq-form-grid">{LIMIT_FIELDS.map(([k, l]) => <label key={k}>{l} <input type="number" min="0" value={lim[k] ?? ''} onChange={(e) => setLim({ ...lim, [k]: e.target.value })} /></label>)}</div>
           <label>Evidence for these limits <input value={limEv} onChange={(e) => setLimEv(e.target.value)} /></label>
           <label>Type {c.limits_confirm_phrase} to confirm <input value={limConfirm} onChange={(e) => setLimConfirm(e.target.value)} /></label>
-          <button type="button" className="tq-btn" onClick={run(() => api.commissioningLimits({ min_voltage_v: 0.0, max_voltage_v: 26.0, ...Object.fromEntries(LIMIT_FIELDS.map(([k]) => [k, Number(lim[k])])), evidence: limEv, confirm: limConfirm }))}>Approve limits</button>
+          <div className="tq-row"><button type="button" className="tq-btn tq-primary" onClick={run(() => api.commissioningLimits({ min_voltage_v: 0.0, max_voltage_v: 26.0, ...Object.fromEntries(LIMIT_FIELDS.map(([k]) => [k, Number(lim[k])])), evidence: limEv, confirm: limConfirm }))}>Approve limits</button></div>
+          </fieldset>
+          <fieldset className="tq-fieldset"><legend>Physical control in the record</legend>
           <label>Type {c.enable_phrase} to enable <input value={phrase} onChange={(e) => setPhrase(e.target.value)} /></label>
-          <button type="button" className="tq-btn tq-danger" disabled={!c.enable_allowed} onClick={run(() => api.commissioningEnable({ enabled: true, confirm: phrase }))}>Enable in the record</button>
-          <button type="button" className="tq-btn" onClick={run(() => api.commissioningEnable({ enabled: false }))}>Disable</button>
+          <div className="tq-row">
+            <button type="button" className="tq-btn tq-danger" disabled={!c.enable_allowed} onClick={run(() => api.commissioningEnable({ enabled: true, confirm: phrase }))}>Enable in the record</button>
+            <button type="button" className="tq-btn" onClick={run(() => api.commissioningEnable({ enabled: false }))}>Disable</button>
+          </div>
+          </fieldset>
         </form>)}
       <ErrorBox error={err} />
       <p className="tq-muted">Approved limits are sent to the board over the authenticated session and must be confirmed by it. Enabling the record does not enable motion: the firmware interlocks (E-stop input, secure session) are checked separately and still refuse START and speed.</p>
@@ -325,14 +333,6 @@ export function MotorControlPage({ stream, role }) {
                 <dt>Telemetry</dt><dd>{snap.telemetry_fresh ? <Pill tone="ok">live</Pill> : <Pill tone="crit">STALE</Pill>}</dd>
               </dl>)}
           </Card>
-          <Card title="Safety interlocks" id="c-interlocks">
-            {!snap?.interlocks ? <Empty>No interlock data.</Empty> : (
-              <table className="tq-table" data-testid="interlocks"><caption className="tq-sr">Physical motion interlocks</caption>
-                <thead><tr><th scope="col">Interlock</th><th scope="col">Status</th><th scope="col">Evidence</th></tr></thead>
-                <tbody>{snap.interlocks.map((r) => (<tr key={r.id}><td>{r.label}</td><td><Pill tone={r.status === 'VERIFIED' ? 'ok' : r.status === 'BLOCKED' ? 'stop' : r.status === 'NOT VERIFIED' ? 'warn' : 'info'}>{r.status}</Pill></td><td className="tq-muted">{r.detail}</td></tr>))}</tbody></table>)}
-            <p className="tq-muted">Hardware checks are never VERIFIED by software: no reported failure is not a verification.</p>
-          </Card>
-          <CommissioningCard role={role} />
           <Card title="Request motion" id="c-mctl" right={<ProvBadge kind="MEASURED" />}>
             {blocked && (
               <div className="tq-callout crit" role="alert" data-testid="control-blockers">
@@ -350,21 +350,31 @@ export function MotorControlPage({ stream, role }) {
             </form>
             {!canOperate(role) && <p className="tq-muted">Your role ({role}) can request STOP only.</p>}
             <h4>Protective stop request</h4>
-            <button type="button" className="tq-btn tq-danger" disabled={busy || !connected} onClick={send({ action: 'STOP' })}><Octagon size={14} aria-hidden="true" /> Send STOP to device</button>
+            <button type="button" className="tq-btn tq-danger tq-stop-prominent" disabled={busy || !connected} onClick={send({ action: 'STOP' })}><Octagon size={18} aria-hidden="true" /> Send STOP to device</button>
             <p className="tq-muted">This is a software request, not an independent physical emergency stop. The firmware's own protections run locally and do not depend on this website, the network or any model.</p>
             <ErrorBox error={err} />
             {last && <p className="tq-callout">Last request #{last.id}: <Pill tone={STATE_TONE[last.state] || 'info'}>{last.state}</Pill> {(last.reasons || []).join(' · ')}</p>}
           </Card>
         </div>
-        <Card title="Command history" id="c-mhist">
-          {!commands.length ? <Empty>No commands requested in this session.</Empty> : (
-            <table className="tq-table"><caption className="tq-sr">Device command history</caption>
-              <thead><tr><th scope="col">#</th><th scope="col">Action</th><th scope="col">By</th><th scope="col">State</th><th scope="col">Detail</th></tr></thead>
-              <tbody>{commands.slice(0, 20).map((c) => (<tr key={c.id}><td className="tq-num">{c.id}</td><td>{title(c.action)}</td><td>{c.requested_by}</td>
-                <td><Pill tone={STATE_TONE[c.state] || 'info'}>{title(c.state)}</Pill></td><td className="tq-muted">{(c.reasons || []).join(' · ') || c.ack_reason}</td></tr>))}</tbody></table>)}
-          <p className="tq-muted">SENT and ACKNOWLEDGED are not EXECUTED. Nothing is retried or replayed automatically; after a disconnect or device restart an unfinished command is shown as UNKNOWN OUTCOME and the operator must act again.</p>
-        </Card>
+        <div className="tq-stack">
+          <Card title="Safety interlocks" id="c-interlocks">
+            {!snap?.interlocks ? <Empty>No interlock data.</Empty> : (
+              <table className="tq-table tq-table-wrap" data-testid="interlocks"><caption className="tq-sr">Physical motion interlocks</caption>
+                <thead><tr><th scope="col">Interlock</th><th scope="col">Status</th><th scope="col">Evidence</th></tr></thead>
+                <tbody>{snap.interlocks.map((r) => (<tr key={r.id}><td>{r.label}</td><td><Pill tone={r.status === 'VERIFIED' ? 'ok' : r.status === 'BLOCKED' ? 'stop' : r.status === 'NOT VERIFIED' ? 'warn' : 'info'}>{r.status}</Pill></td><td className="tq-muted">{r.detail}</td></tr>))}</tbody></table>)}
+            <p className="tq-muted">Hardware checks are never VERIFIED by software: no reported failure is not a verification.</p>
+          </Card>
+          <Card title="Command history" id="c-mhist">
+            {!commands.length ? <Empty>No commands requested in this session.</Empty> : (
+              <table className="tq-table"><caption className="tq-sr">Device command history</caption>
+                <thead><tr><th scope="col">#</th><th scope="col">Action</th><th scope="col">By</th><th scope="col">State</th><th scope="col">Detail</th></tr></thead>
+                <tbody>{commands.slice(0, 20).map((c) => (<tr key={c.id}><td className="tq-num">{c.id}</td><td>{title(c.action)}</td><td>{c.requested_by}</td>
+                  <td><Pill tone={STATE_TONE[c.state] || 'info'}>{title(c.state)}</Pill></td><td className="tq-muted">{(c.reasons || []).join(' · ') || c.ack_reason}</td></tr>))}</tbody></table>)}
+            <p className="tq-muted">SENT and ACKNOWLEDGED are not EXECUTED. Nothing is retried or replayed automatically; after a disconnect or device restart an unfinished command is shown as UNKNOWN OUTCOME and the operator must act again.</p>
+          </Card>
+        </div>
       </div>
+      <div className="tq-mt"><CommissioningCard role={role} /></div>
     </>
   );
 }
@@ -382,7 +392,7 @@ export function DeviceCard({ stream, go }) {
         <dt>Safety state</dt><dd>{snap?.safety_state || '—'}</dd>
         <dt>Physical motion</dt><dd>{blockers.length ? <Pill tone="stop">blocked ({blockers.length})</Pill> : <Pill tone="info">no blocker reported</Pill>}</dd>
       </dl>
-      <button className="tq-link" onClick={() => go('device')}>Open Device</button>
+      <CardLink onClick={() => go('device')}>Open Device</CardLink>
     </Card>
   );
 }

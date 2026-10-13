@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Usb, Octagon, Play, StopCircle, Sliders, AlertTriangle, CheckCircle2, ShieldCheck, Activity } from 'lucide-react';
+import { Usb, Octagon, Play, StopCircle, Sliders, AlertTriangle, CheckCircle2, ShieldCheck, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, Lock, Unlock } from 'lucide-react';
 import { api } from './api.js';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt } from './components.jsx';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, useNavContext } from './components.jsx';
 import { PageHead } from './pages.jsx';
 import { DeviceLive, CommissioningCard, canOperate, STATE_TONE } from './device.jsx';
 
@@ -106,59 +106,15 @@ export function SpeedStatus({ rpm, isRunning, muted, onToggleMute }) {
   const meta = ZONE_META[zone];
   const r = Number(rpm ?? 0);
 
-  const bg = zone === 'CRITICAL' ? 'rgba(220,38,38,0.12)'
-    : zone === 'WARNING' ? 'rgba(234,179,8,0.10)'
-    : zone === 'NORMAL'  ? 'rgba(34,197,94,0.08)'
-    : 'rgba(100,116,139,0.07)';
-
   return (
-    <div
-      data-testid="speed-status"
-      role="status"
-      aria-live="polite"
-      style={{
-        display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-        padding: '10px 14px', borderRadius: 8, marginBottom: 12,
-        background: bg, border: `1.5px solid ${meta.color}`,
-      }}
-    >
-      {/* Zone dot — pulses on CRITICAL */}
-      <span style={{
-        width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
-        background: meta.color,
-        boxShadow: zone !== 'IDLE' ? `0 0 8px ${meta.color}` : 'none',
-        animation: zone === 'CRITICAL' ? 'tq-pulse 0.6s ease-in-out infinite' : 'none',
-      }} />
-
-      {/* Zone label */}
-      <strong style={{ fontSize: 15, color: meta.color, letterSpacing: 1, minWidth: 80 }}>
-        {meta.label}
-      </strong>
-
-      {/* Live RPM */}
-      <span style={{ fontSize: 22, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: meta.color }}>
-        {r.toFixed(0)}
-        <span style={{ fontSize: 12, fontWeight: 400, marginLeft: 4, color: 'var(--tq-muted)' }}>rpm</span>
-      </span>
-
-      {/* Description */}
-      <span style={{ fontSize: 12, color: 'var(--tq-muted)', flex: 1 }}>{meta.desc}</span>
-
-      {/* Bands reference */}
-      <span style={{ fontSize: 11, color: 'var(--tq-muted)', whiteSpace: 'nowrap' }}>
-        {'Normal 1100–1500 · Warn 700–1099/1501–1900 · Crit <700/>1900'}
-      </span>
-
-      {/* Mute toggle */}
-      <button
-        type="button"
-        className="tq-btn tq-ghost"
-        style={{ fontSize: 11, padding: '2px 8px' }}
-        onClick={onToggleMute}
-        aria-pressed={muted}
-        title={muted ? 'Unmute alarms' : 'Mute alarms'}
-      >
-        {muted ? '🔇 Muted' : '🔔 Alarm on'}
+    <div data-testid="speed-status" role="status" aria-live="polite" className={`tq-speed tq-speed--${zone}`}>
+      <span className="tq-speed-dot" aria-hidden="true" />
+      <strong className="tq-speed-zone">{meta.label}</strong>
+      <span className="tq-speed-rpm tq-num">{r.toFixed(0)}<small>rpm</small></span>
+      <span className="tq-speed-desc">{meta.desc}</span>
+      <span className="tq-speed-bands">{'Normal 1100–1500 · Warn 700–1099/1501–1900 · Crit <700/>1900'}</span>
+      <button type="button" className="tq-btn tq-ghost" onClick={onToggleMute} aria-pressed={muted} title={muted ? 'Unmute alarms' : 'Mute alarms'}>
+        {muted ? <><BellOff size={14} aria-hidden="true" /> Muted</> : <><Bell size={14} aria-hidden="true" /> Alarm on</>}
       </button>
     </div>
   );
@@ -168,23 +124,9 @@ export function SpeedStatus({ rpm, isRunning, muted, onToggleMute }) {
 /** Explicit, operator-selected application mode. Physical is the default; simulation is never entered automatically. */
 export function ModeSwitch({ mode, onChange }) {
   return (
-    <div className="tq-mode-switch tq-row" role="group" aria-label="Application mode" data-testid="mode-switch">
-      <button
-        type="button"
-        className={`tq-btn tq-mode-btn ${mode === 'PHYSICAL' ? 'active' : ''}`}
-        aria-pressed={mode === 'PHYSICAL'}
-        onClick={() => onChange('PHYSICAL')}
-      >
-        Physical mode
-      </button>
-      <button
-        type="button"
-        className={`tq-btn tq-mode-btn ${mode === 'SIMULATION' ? 'active' : ''}`}
-        aria-pressed={mode === 'SIMULATION'}
-        onClick={() => onChange('SIMULATION')}
-      >
-        Simulation mode (demo)
-      </button>
+    <div className="tq-seg" role="group" aria-label="Application mode" data-testid="mode-switch">
+      <button type="button" className="tq-btn" aria-pressed={mode === 'PHYSICAL'} onClick={() => onChange('PHYSICAL')}><Usb size={14} aria-hidden="true" />Physical mode</button>
+      <button type="button" className="tq-btn" aria-pressed={mode === 'SIMULATION'} onClick={() => onChange('SIMULATION')}><FlaskConical size={14} aria-hidden="true" />Simulation mode (demo)</button>
     </div>
   );
 }
@@ -207,13 +149,11 @@ export function PhysicalBanner({ snap }) {
     : 'Motion permitted through deterministic supervisor.';
 
   return (
-    <div className={`tq-banner ${live ? 'live' : 'offline'}`} role="status" aria-live="polite" data-testid="phys-banner">
-      <div className="tq-banner-content">
-        <span className={`tq-dot ${live ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'crit'}`} />
-        <strong>{label}</strong>
-        <span className="tq-banner-sep">·</span>
-        <span className="tq-banner-detail">{detail}</span>
-      </div>
+    <div className={`tq-banner tq-banner--${live ? (snap.telemetry_fresh ? 'ok' : 'warn') : snap?.handshake ? 'warn' : snap?.connection === 'ERROR' ? 'crit' : 'off'}`} role="status" aria-live="polite" data-testid="phys-banner">
+      <span className="tq-banner-dot" aria-hidden="true" />
+      <strong>{label}</strong>
+      <span className="tq-banner-sep" aria-hidden="true">·</span>
+      <span>{detail}</span>
     </div>
   );
 }
@@ -255,42 +195,51 @@ export function StatusStrip({ snap }) {
     ? ['stop', `LATCHED: ${title(snap.trip_reason)}`]
     : ['warn', snap.safety_state || 'unknown'];
 
+  const connTone = live ? (snap.telemetry_fresh ? 'ok' : 'warn') : snap?.connection === 'ERROR' ? 'crit' : 'off';
+  const sensTone = !live ? 'off' : ss.bad.length ? 'warn' : 'ok';
+  const MotionIcon = blockers.length ? Lock : Unlock;
   return (
-    <div className="tq-status-strip" data-testid="status-strip">
-      <div className="tq-status-row">
-        <Pill tone={live ? (snap.telemetry_fresh ? 'ok' : 'warn') : snap?.connection === 'ERROR' ? 'crit' : 'off'}>
-          {snap?.state_label || (live ? 'Connected' : 'DEVICE DISCONNECTED')}
-        </Pill>
-        {snap?.handshake && (
-          <Pill tone="ok">
-            {`handshake ok · ${snap.device_id || '—'} · fw ${snap.firmware || '—'}`}
-          </Pill>
-        )}
-        <Pill tone={!live ? 'off' : ss.bad.length ? 'warn' : 'ok'}>
-          {!live ? 'sensors unknown' : `sensors ${ss.valid}/${ss.total} valid`}
-        </Pill>
-        <Pill tone={fault[0]}>{fault[1]}</Pill>
-        {live && snap.estop_input && (
-          <Pill tone={snap.estop_input.state === 2 ? 'ok' : snap.estop_input.state === 1 ? 'stop' : 'warn'}>
-            {`E-stop input: ${String(snap.estop_input.label || 'unknown').split(' (')[0].toLowerCase()}`}
-          </Pill>
-        )}
-        {live && snap.transport_label && (
-          <Pill tone={snap.session?.active ? 'info' : 'warn'}>{snap.transport_label}</Pill>
-        )}
-        {live && snap.config && (
-          <Pill tone={snap.config.confirmed ? 'ok' : 'warn'}>
-            {snap.config.confirmed ? `limits v${snap.config.device_version} confirmed by the device` : snap.config.approved_version ? `limits v${snap.config.approved_version} awaiting the device` : 'no limits approved'}
-          </Pill>
-        )}
-        <Pill tone={blockers.length ? 'stop' : 'info'}>
-          {blockers.length ? `motion locked: ${blockers[0]}` : 'motion permitted'}
-        </Pill>
-        {snap?.last_rx_unix ? (
-          <span className="tq-status-time tq-num">
-            last telemetry {ago(snap.last_rx_unix)}
-          </span>
-        ) : null}
+    <div className="tq-status-strip tq-status-v2" data-testid="status-strip">
+      <div className="tq-summary" aria-label="Device status">
+        <div className="tq-summary-cell">
+          <span className={`tq-kpi-icon tq-${connTone}`} aria-hidden="true"><Usb size={15} /></span>
+          <span className="tq-summary-label">Connection</span>
+          <div className="tq-row tq-wrap-pills">
+            <Pill tone={connTone}>{snap?.state_label || (live ? 'Connected' : 'DEVICE DISCONNECTED')}</Pill>
+            {snap?.handshake && <Pill tone="ok">{`handshake ok · ${snap.device_id || '—'} · fw ${snap.firmware || '—'}`}</Pill>}
+          </div>
+          {snap?.last_rx_unix ? <span className="tq-summary-meta tq-num">last telemetry {ago(snap.last_rx_unix)}</span> : null}
+        </div>
+        <div className="tq-summary-cell">
+          <span className={`tq-kpi-icon tq-${sensTone}`} aria-hidden="true"><Activity size={15} /></span>
+          <span className="tq-summary-label">Sensors</span>
+          <div className="tq-row tq-wrap-pills"><Pill tone={sensTone}>{!live ? 'sensors unknown' : `sensors ${ss.valid}/${ss.total} valid`}</Pill></div>
+        </div>
+        <div className="tq-summary-cell">
+          <span className={`tq-kpi-icon tq-${fault[0]}`} aria-hidden="true"><ShieldCheck size={15} /></span>
+          <span className="tq-summary-label">Safety</span>
+          <div className="tq-row tq-wrap-pills">
+            <Pill tone={fault[0]}>{fault[1]}</Pill>
+            {live && snap.estop_input && (
+              <Pill tone={snap.estop_input.state === 2 ? 'ok' : snap.estop_input.state === 1 ? 'stop' : 'warn'}>
+                {`E-stop input: ${String(snap.estop_input.label || 'unknown').split(' (')[0].toLowerCase()}`}
+              </Pill>
+            )}
+          </div>
+        </div>
+        <div className="tq-summary-cell">
+          <span className={`tq-kpi-icon tq-${blockers.length ? 'stop' : 'info'}`} aria-hidden="true"><MotionIcon size={15} /></span>
+          <span className="tq-summary-label">Motion</span>
+          <div className="tq-row tq-wrap-pills">
+            <Pill tone={blockers.length ? 'stop' : 'info'}>{blockers.length ? `motion locked: ${blockers[0]}` : 'motion permitted'}</Pill>
+            {live && snap.transport_label && <Pill tone={snap.session?.active ? 'info' : 'warn'}>{snap.transport_label}</Pill>}
+            {live && snap.config && (
+              <Pill tone={snap.config.confirmed ? 'ok' : 'warn'}>
+                {snap.config.confirmed ? `limits v${snap.config.device_version} confirmed by the device` : snap.config.approved_version ? `limits v${snap.config.approved_version} awaiting the device` : 'no limits approved'}
+              </Pill>
+            )}
+          </div>
+        </div>
       </div>
 
       {live && snap.config?.confirmed && snap.config.limits && (
@@ -299,14 +248,14 @@ export function StatusStrip({ snap }) {
         </p>
       )}
       {live && ss.bad.length > 0 && (
-        <div className="tq-callout warn" role="alert" data-testid="sensor-gaps" style={{ marginTop: 8 }}>
+        <div className="tq-callout warn" role="alert" data-testid="sensor-gaps">
           <strong>⚠ {ss.bad.length} sensor{ss.bad.length > 1 ? 's' : ''} not working</strong>
-          <ul style={{ margin: '6px 0 0', padding: '0 0 0 16px', fontSize: 13 }}>
+          <ul>
             {ss.bad.map(([k, s]) => (
               <li key={k}>
                 <strong>{SENSOR_DISPLAY_NAME[k] || k.replaceAll('_', ' ')}</strong>
                 {' — '}
-                <span style={{ color: 'var(--tq-warn)' }}>
+                <span className="tq-fault-label">
                   {SENSOR_FAULT_LABEL[s] || s.toUpperCase()}
                 </span>
               </li>
@@ -327,7 +276,10 @@ const TILES = [
   ['acceleration', 'Total acceleration (incl. gravity)', 'g', 3],
 ];
 
+const TILE_ICON = { rpm: Gauge, current: Zap, housing: Thermometer, ambient: Thermometer, voltage: Plug, power: Zap, acceleration: Move3d };
+
 function Tile({ label, unit, d, v, sensorKey }) {
+  const I = TILE_ICON[sensorKey] || Activity;
   const has = v && v.valid && v.value != null;
   // Specific fault label when reading is not available
   const faultLabel = !v
@@ -343,7 +295,7 @@ function Tile({ label, unit, d, v, sensorKey }) {
   return (
     <div className={`tq-kpi ${has ? '' : 'tq-unavailable'}`} data-testid={`tile-${label}`}>
       <div className="tq-kpi-label">
-        <span>{label}</span>
+        <span className="tq-kpi-head"><span className="tq-kpi-icon" aria-hidden="true"><I size={15} /></span><span>{label}</span></span>
         <ProvBadge kind={has ? 'MEASURED' : 'DERIVED'} />
       </div>
       <div className={`tq-kpi-value tq-num ${has ? '' : 'tq-na'}`}>
@@ -443,7 +395,7 @@ export function MotionPanel({ stream, role }) {
           <span>STOP MOTOR</span>
         </button>
       </div>
-      {!connected && <p className="tq-muted" style={{ fontSize: 12 }}>STOP cannot be delivered: device is disconnected.</p>}
+      {!connected && <p className="tq-stop-note">STOP cannot be delivered: device is disconnected.</p>}
 
       {/* 2. OPERATIONAL CONTROLS SECOND */}
       <div className="tq-motion-controls-grid">
@@ -454,9 +406,9 @@ export function MotionPanel({ stream, role }) {
             <span className="tq-muted">0 – {maxRpm} rpm</span>
           </div>
           <div className="tq-control-card-inputs">
-            <label className="tq-inline" style={{ width: '100%' }}>
-              <span className="tq-muted" style={{ fontSize: 12 }}>Target Speed (rpm)</span>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <label>
+              <span className="tq-muted">Target Speed (rpm)</span>
+              <div className="tq-input-pair">
                 <input
                   type="number"
                   min="0"
@@ -467,7 +419,6 @@ export function MotionPanel({ stream, role }) {
                   onChange={(e) => setRpm(e.target.value)}
                   aria-label="Speed setpoint rpm"
                   placeholder="e.g. 1200"
-                  style={{ width: '100px' }}
                 />
                 <input
                   type="range"
@@ -478,7 +429,6 @@ export function MotionPanel({ stream, role }) {
                   disabled={blocked || !operator}
                   onChange={(e) => setRpm(e.target.value)}
                   aria-label="Speed slider"
-                  style={{ flex: 1 }}
                 />
               </div>
             </label>
@@ -502,9 +452,9 @@ export function MotionPanel({ stream, role }) {
             <span className="tq-muted">0 – {maxDuty}%</span>
           </div>
           <div className="tq-control-card-inputs">
-            <label className="tq-inline" style={{ width: '100%' }}>
-              <span className="tq-muted" style={{ fontSize: 12 }}>Duty Percentage (%)</span>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <label>
+              <span className="tq-muted">Duty Percentage (%)</span>
+              <div className="tq-input-pair">
                 <input
                   type="number"
                   min="0"
@@ -514,7 +464,6 @@ export function MotionPanel({ stream, role }) {
                   disabled={blocked || !operator}
                   onChange={(e) => { setDuty(e.target.value); setConfirm(false); }}
                   aria-label="Duty percent"
-                  style={{ width: '100px' }}
                 />
                 <input
                   type="range"
@@ -525,11 +474,10 @@ export function MotionPanel({ stream, role }) {
                   disabled={blocked || !operator}
                   onChange={(e) => { setDuty(e.target.value); setConfirm(false); }}
                   aria-label="Duty slider (nothing is sent until you press START)"
-                  style={{ flex: 1 }}
                 />
               </div>
             </label>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div className="tq-row">
               <button
                 type="button"
                 className="tq-btn tq-primary"
@@ -552,24 +500,24 @@ export function MotionPanel({ stream, role }) {
 
       {/* 3. AVAILABILITY, CONDITION AND SAFETY BLOCKERS */}
       <div className={`tq-avail ${blocked ? 'locked' : 'open'}`} role="status" data-testid="availability">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div className="tq-row">
           <Pill tone={blocked ? 'warn' : 'ok'}>
             {blocked ? 'START / speed unavailable' : 'START / speed available'}
           </Pill>
           {blocked ? (
-            <strong data-testid="why-disabled" style={{ fontSize: 13, color: 'var(--tq-warn)' }}>
+            <strong data-testid="why-disabled">
               {blockers[0]}
             </strong>
           ) : (
-            <span className="tq-muted" style={{ fontSize: 12 }}>
+            <span className="tq-muted">
               Verified against Safety Supervisor limits and firmware sequence checks.
             </span>
           )}
         </div>
         {blocked && blockers.length > 1 && (
-          <details style={{ marginTop: 6, fontSize: 12 }}>
+          <details>
             <summary className="tq-muted">{blockers.length - 1} additional condition(s)</summary>
-            <ul className="tq-list" data-testid="phys-blockers" style={{ marginTop: 4 }}>
+            <ul className="tq-list" data-testid="phys-blockers">
               {blockers.map((b) => <li key={b}>{b}</li>)}
             </ul>
           </details>
@@ -579,10 +527,10 @@ export function MotionPanel({ stream, role }) {
         )}
       </div>
 
-      {!operator && <p className="tq-muted" style={{ fontSize: 12, marginTop: 8 }}>Your role ({role}) can request STOP only.</p>}
+      {!operator && <p className="tq-muted">Your role ({role}) can request STOP only.</p>}
       <ErrorBox error={err} />
       {rec && (
-        <div className="tq-callout ok" data-testid="last-command" style={{ marginTop: 10 }}>
+        <div className="tq-callout" data-testid="last-command">
           <strong>Command #{rec.id} {rec.action}:</strong> <Pill tone={STATE_TONE[rec.state] || 'info'}>{rec.state}</Pill>
           {' '}{(rec.reasons || []).join(' · ') || rec.ack_reason || ''}
         </div>
@@ -594,7 +542,7 @@ export function MotionPanel({ stream, role }) {
 export function PhysicalOverview({ stream, go, role }) {
   const { snap } = stream;
   const [alarmMuted, setAlarmMuted] = useState(false);
-  if (!snap) return <><PageHead title="Motor" /><Empty>Loading device state…</Empty></>;
+  if (!snap) return <><PageHead title="Motor" /><Empty loading>Loading device state…</Empty></>;
   const live = isLive(snap);
   const vals = snap.values || {};
   const rpm = live ? (vals.rpm?.valid ? vals.rpm.value : 0) : null;
@@ -616,14 +564,15 @@ export function PhysicalOverview({ stream, go, role }) {
       )}
 
       {!live && (
-        <div className="tq-callout crit" role="alert" data-testid="phys-disconnected">
+        <div className={`tq-callout tq-alert ${snap.connection === 'ERROR' ? 'crit' : 'warn'}`} role="alert" data-testid="phys-disconnected">
+          <span className="tq-alert-icon" aria-hidden="true"><Unplug size={18} /></span>
           <strong>{snap.connection === 'DISCONNECTED' ? 'DEVICE DISCONNECTED' : (snap.state_label || snap.connection)}</strong>
           <p>
             Physical readings are unavailable. {snap.error?.message || ''} {snap.connection === 'DISCONNECTED' ? (snap.autoconnect?.note || '') : ''}
             {snap.autoconnect?.last_error ? ` Last automatic attempt failed: ${snap.autoconnect.last_error}` : ''}
           </p>
-          <button className="tq-btn tq-primary" onClick={() => go('device')} style={{ marginTop: 8 }}>
-            Connect a device
+          <button className="tq-btn tq-primary" onClick={() => go('device')}>
+            <Usb size={14} aria-hidden="true" />Connect a device
           </button>
         </div>
       )}
@@ -638,7 +587,7 @@ export function PhysicalOverview({ stream, go, role }) {
           </div>
           {/* Ambient sensor — not in TILES but should always be visible with its status */}
           {live && vals.ambient && (
-            <div style={{ marginTop: 10 }}>
+            <div className="tq-kpi-extra">
               <Tile
                 sensorKey="ambient"
                 label="Ambient temperature"
@@ -652,12 +601,12 @@ export function PhysicalOverview({ stream, go, role }) {
       </div>
 
       {live && (
-        <div style={{ marginTop: 16 }}>
-          <details data-testid="live-trends">
-            <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 13, color: 'var(--tq-muted)' }}>
+        <div className="tq-mt">
+          <details data-testid="live-trends" className="tq-disclosure">
+            <summary>
               Telemetry Trend History
             </summary>
-            <div style={{ marginTop: 10 }}>
+            <div className="tq-disclosure-body">
               <DeviceLive stream={stream} />
             </div>
           </details>
@@ -672,7 +621,7 @@ export function PhysicalSafetyPage({ stream, role }) {
   return (
     <>
       <PageHead title="Safety & Commissioning" sub="The commissioning record and command history. Operating controls are on the Dashboard." />
-      <details><summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Commissioning record</summary><CommissioningCard role={role} /></details>
+      <details className="tq-disclosure"><summary>Commissioning record</summary><div className="tq-disclosure-body"><CommissioningCard role={role} /></div></details>
       <Card title="Command history" id="p-hist">
         {!(commands || []).length ? <Empty>No commands requested in this session.</Empty> : (
           <table className="tq-table"><caption className="tq-sr">Device command history</caption>
@@ -690,7 +639,7 @@ export function PhysicalLive({ stream }) {
     <>
       <PageHead title="Live Monitor" sub="Charts of real device measurements; gaps are shown, nothing is interpolated or simulated."
         right={<Pill tone={live ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'off'}>{live ? (snap.telemetry_fresh ? 'LIVE' : 'STALE') : 'DEVICE DISCONNECTED'}</Pill>} />
-      {!live ? <div className="tq-callout crit" role="alert" data-testid="phys-live-empty"><strong>DEVICE DISCONNECTED</strong><p>Physical readings are unavailable, so there is nothing to chart.</p></div>
+      {!live ? <div className="tq-callout tq-alert warn" role="alert" data-testid="phys-live-empty"><span className="tq-alert-icon" aria-hidden="true"><Unplug size={18} /></span><strong>DEVICE DISCONNECTED</strong><p>Physical readings are unavailable, so there is nothing to chart.</p></div>
         : <DeviceLive stream={stream} />}
     </>
   );
@@ -714,6 +663,7 @@ export function PhysicalAiPage({ stream, layer, go }) {
   const l = a?.layers?.[layer];
   const live = isLive(snap);
   const connected = snap && snap.connection && snap.connection !== 'DISCONNECTED';
+  const LayerIcon = useNavContext()?.icon || Hourglass;
 
   // Determine the correct callout tone from backend layer status
   const statusTone = !l
@@ -737,28 +687,35 @@ export function PhysicalAiPage({ stream, layer, go }) {
         right={<Pill tone={live ? 'ok' : 'off'}>physical data basis: {l?.basis || 'none'}</Pill>}
       />
       <Card title="Layer Status" id={`p-${layer}`}>
-        <div className={`tq-callout ${statusTone}`} data-testid={`layer-${layer}`}>
-          <strong>{statusMsg}</strong>
-          <p>{reasonMsg}</p>
+        <div className="tq-layer">
+          <span className="tq-layer-icon" aria-hidden="true"><LayerIcon size={20} /></span>
+          <div className={`tq-callout ${statusTone}`} data-testid={`layer-${layer}`}>
+            <strong>{statusMsg}</strong>
+            <p>{reasonMsg}</p>
+          </div>
+          {a?.missing_inputs?.length > 0 && (
+            <p className="tq-muted">
+              Inputs the physical device cannot supply: {a.missing_inputs.join(', ')}.
+            </p>
+          )}
+          {!connected && (
+            <div>
+              <button className="tq-btn tq-primary" onClick={() => go('device')}>
+                <Usb size={14} aria-hidden="true" />Connect a device
+              </button>
+            </div>
+          )}
+          {layer === 'C3' && connected && (
+            <div>
+              <button className="tq-btn" onClick={() => go('overview')}>
+                Open the motor controls
+              </button>
+            </div>
+          )}
         </div>
-        {a?.missing_inputs?.length > 0 && (
-          <p className="tq-muted" style={{ marginTop: 8 }}>
-            Inputs the physical device cannot supply: {a.missing_inputs.join(', ')}.
-          </p>
-        )}
-        {!connected && (
-          <button className="tq-btn tq-primary" onClick={() => go('device')} style={{ marginTop: 10 }}>
-            Connect a device
-          </button>
-        )}
-        {layer === 'C3' && connected && (
-          <button className="tq-btn" onClick={() => go('overview')} style={{ marginTop: 10 }}>
-            Open the motor controls
-          </button>
-        )}
       </Card>
       {live && (
-        <Card title="Live physical telemetry streaming" id={`p-${layer}-live`} style={{ marginTop: 14 }}>
+        <Card title="Live physical telemetry streaming" id={`p-${layer}-live`} className="tq-mt">
           <DeviceLive stream={stream} />
         </Card>
       )}

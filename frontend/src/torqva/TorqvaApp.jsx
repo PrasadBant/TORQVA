@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, Gauge, ListChecks, Microscope, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap, Usb, SlidersHorizontal, Sun, Moon } from 'lucide-react';
+import { Activity, Gauge, ListChecks, Microscope, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap, Usb, SlidersHorizontal, Sun, Moon, ClipboardCheck, Menu, KeyRound, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { api, setToken, getToken, ApiError } from './api.js';
-import { SimulationBanner, Pill } from './components.jsx';
+import { SimulationBanner, Pill, Logo, NavContext } from './components.jsx';
 import { Evaluation } from './views.jsx';
 import { OverviewPage, LivePage, DiagnosticsPage, PredictionsPage, TestsPage, InterventionsPage, RecoveryPage, LearningPage, DevicesPage, PageHead } from './pages.jsx';
 import { useDeviceStream, DevicePage, MotorControlPage, DeviceCard, DeviceLive } from './device.jsx';
@@ -9,7 +9,6 @@ import Lab from './lab.jsx';
 import Attestation from './attestation.jsx';
 import { ModeSwitch, PhysicalBanner, PhysicalOverview, PhysicalLive, PhysicalAiPage, PhysicalSafetyPage } from './physical.jsx';
 import './torqva.css';
-import './theme.css';
 
 const NAV_GROUPS = [
   {
@@ -53,6 +52,25 @@ const NAV_GROUPS = [
 ];
 
 const NAV = NAV_GROUPS.flatMap((g) => g.items);
+const groupOf = (k) => (NAV_GROUPS.find((g) => g.items.some((n) => n[0] === k)) || { heading: '' }).heading;
+
+// True while the viewport uses the off-canvas navigation drawer (matches the CSS breakpoint).
+function useCompact(query = '(max-width: 860px)') {
+  const get = () => { try { return !!window.matchMedia?.(query).matches; } catch { return false; } };
+  const [on, setOn] = useState(get);
+  useEffect(() => {
+    let mq; try { mq = window.matchMedia?.(query); } catch { mq = null; }
+    if (!mq) return undefined;
+    const f = () => setOn(mq.matches);
+    mq.addEventListener ? mq.addEventListener('change', f) : mq.addListener(f);
+    return () => (mq.removeEventListener ? mq.removeEventListener('change', f) : mq.removeListener(f));
+  }, [query]);
+  return on;
+}
+// Desktop sidebar collapsed to an icon rail (a per-browser convenience).
+const NAV_KEY = 'torqva.nav';
+const readCollapsed = () => { try { return window.localStorage.getItem(NAV_KEY) === 'collapsed'; } catch { return false; } };
+const scrollTop = () => { try { if (!/jsdom/i.test(navigator.userAgent)) window.scrollTo({ top: 0 }); } catch { /* not supported */ } };
 
 // Development convenience only: `npm run dev` starts the backend with a matching local token. Never present in a production build.
 const DEV_TOKEN = (import.meta.env && import.meta.env.DEV && import.meta.env.VITE_TORQVA_DEV_TOKEN) || '';
@@ -82,18 +100,39 @@ const readMode = () => {
 };
 const storeMode = (m) => { try { window.localStorage.setItem(MODE_KEY, m); } catch { /* storage may be unavailable: the choice then lasts for this page load only */ } };
 
-function Login({ onLogin, error }) {
+const LOGIN_POINTS = [
+  [Usb, 'Physical-device first', 'Live readings come from the connected board. A missing or invalid reading is shown as unavailable, never as zero.'],
+  [ShieldCheck, 'Supervised motor commands', 'Motor commands go through the backend command path and the firmware on the board.'],
+  [FlaskConical, 'Simulation kept separate', 'The research simulator is an explicit mode and is labelled on every screen.'],
+];
+
+function Login({ onLogin, error, theme }) {
   const [t, setT] = useState('');
   return (
-    <main className="tq-login">
+    <main className={`tq-login tq-theme-${theme}`}>
       <SimulationBanner />
-      <form onSubmit={(e) => { e.preventDefault(); onLogin(t.trim()); }} aria-label="Sign in">
-        <h1>TORQVA</h1>
-        <p className="tq-muted">Enter an access token issued by an administrator. Tokens are kept for this browser tab only.</p>
-        <label>Access token<input type="password" autoComplete="off" value={t} onChange={(e) => setT(e.target.value)} /></label>
-        {error && <p className="tq-error" role="alert">{error}</p>}
-        <button className="tq-btn tq-primary" type="submit" disabled={!t.trim()}>Sign in</button>
-      </form>
+      <div className="tq-login-body">
+        <section className="tq-login-hero" aria-label="About TORQVA">
+          <div className="tq-brand"><Logo size={34} /><span className="tq-brand-name"><strong>TORQVA</strong><small>Motor intelligence</small></span></div>
+          <div>
+            <h2>Monitoring, diagnostics and motor control in one workspace.</h2>
+            <p>Live telemetry from the ESP32-S3 rig, explainable fault analysis and the controls to act on it.</p>
+            <ul className="tq-login-points">
+              {LOGIN_POINTS.map(([I, h, x]) => <li key={h}><span aria-hidden="true"><I size={16} /></span><span><strong>{h}</strong>{x}</span></li>)}
+            </ul>
+          </div>
+          <p className="tq-login-fine">Access is token based. Ask an administrator for a token with the role you need: viewer, operator or admin.</p>
+        </section>
+        <div className="tq-login-panel">
+          <form onSubmit={(e) => { e.preventDefault(); onLogin(t.trim()); }} aria-label="Sign in">
+            <h1>Sign in to TORQVA</h1>
+            <p className="tq-muted">Enter an access token issued by an administrator. Tokens are kept for this browser tab only.</p>
+            <label>Access token<input type="password" autoComplete="off" value={t} onChange={(e) => setT(e.target.value)} placeholder="Paste your token" /></label>
+            {error && <p className="tq-error" role="alert">{error}</p>}
+            <button className="tq-btn tq-primary" type="submit" disabled={!t.trim()}><KeyRound size={15} aria-hidden="true" />Sign in</button>
+          </form>
+        </div>
+      </div>
     </main>
   );
 }
@@ -109,6 +148,21 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     setTheme(next);
     storeTheme(next);
   };
+  useEffect(() => { try { document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : 'dark'); } catch { /* no document */ } }, [theme]);
+  const compact = useCompact();
+  const [navOpen, setNavOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const toggleCollapsed = () => setCollapsed((c) => { const n = !c; try { window.localStorage.setItem(NAV_KEY, n ? 'collapsed' : 'open'); } catch { /* storage unavailable */ } return n; });
+  const navRef = useRef(null);
+  const go = useCallback((k) => { setView(k); setNavOpen(false); scrollTop(); }, []);
+  useEffect(() => { if (!compact) setNavOpen(false); }, [compact]);
+  useEffect(() => {
+    if (!navOpen) return undefined;
+    navRef.current?.querySelector('.tq-nav.active, .tq-nav')?.focus();
+    const onKey = (e) => { if (e.key === 'Escape') setNavOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navOpen]);
   const [d, setD] = useState({});
   const device = useDeviceStream(!!user, wsFactory);
   const isPhys = (device.snap?.origin === 'physical_device' && device.snap?.handshake === true) || d.status?.mode === 'PHYSICAL' || d.status?.provenance === 'MEASURED' || d.telemetry?.provenance === 'MEASURED';
@@ -204,11 +258,11 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     approve: act(() => api.approve()), reject: act(() => api.reject()), stop: act(() => api.stop()),
   };
 
-  if (!user) return <Login onLogin={onLogin} error={loginError} />;
+  if (!user) return <Login onLogin={onLogin} error={loginError} theme={theme === 'light' ? 'light' : 'dark'} />;
   const mode = physicalMode ? 'PHYSICAL' : (d.status?.mode || 'SIMULATION');
   const dev = d.status?.device;
   const stale = offline || (lastOk !== null && now - lastOk > Math.max(8000, pollMs * 4));
-  const ctx = { d, role: user.role, user, actions, running, setRunning, busy, error, stale, go: setView, ctl: canStart(user.role), device, physicalMode, isPhys, deviceCard: <DeviceCard stream={device} go={setView} />, deviceLive: <DeviceLive stream={device} /> };
+  const ctx = { d, role: user.role, user, actions, running, setRunning, busy, error, stale, go, ctl: canStart(user.role), device, physicalMode, isPhys, deviceCard: <DeviceCard stream={device} go={go} />, deviceLive: <DeviceLive stream={device} /> };
   const simPages = {
     overview: <OverviewPage {...ctx} />, live: <LivePage {...ctx} />, diagnostics: <DiagnosticsPage {...ctx} />,
     predictions: <PredictionsPage {...ctx} />, tests: <TestsPage {...ctx} c2c4={c2c4.data} />, interventions: <InterventionsPage {...ctx} />,
@@ -225,12 +279,12 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     // 2. Layer exists but is in a non-ready state
     const isReady = l && ['ACTIVE', 'AVAILABLE', 'READY', 'VERIFIED'].includes(l.status);
     if (!isReady) {
-      return <PhysicalAiPage stream={device} layer={layer} go={setView} />;
+      return <PhysicalAiPage stream={device} layer={layer} go={go} />;
     }
     return fallback;
   };
   const physPages = {
-    overview: <PhysicalOverview stream={device} go={setView} role={user.role} />,
+    overview: <PhysicalOverview stream={device} go={go} role={user.role} />,
     live: <PhysicalLive stream={device} />,
     diagnostics: phys('C1', <DiagnosticsPage {...ctx} />),
     predictions: phys('C2', <PredictionsPage {...ctx} />),
@@ -245,63 +299,62 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     devices: simPages.devices,
   };
   const pages = physicalMode ? physPages : simPages;
+  const navItem = (k) => {
+    const [, label0, Icon0, tag] = NAV.find((n) => n[0] === k);
+    const swapped = physicalMode && k === 'control';            // in physical mode the controls live on the dashboard; this page is the safety record
+    return { label: swapped ? 'Safety & Commissioning' : label0, Icon: swapped ? ClipboardCheck : Icon0, tag };
+  };
+  const current = navItem(view);
+  const drawerHidden = compact && !navOpen;
+  const connText = physicalMode ? (device.snap?.connection === 'CONNECTED' ? `${device.snap.port || 'COM7'} Online` : 'Hardware Disconnected') : 'Environment: software simulator (no hardware)';
   return (
-    <div className={`tq-shell ${theme === 'light' ? 'tq-theme-light' : 'tq-theme-dark'}`}>
-      {physicalMode ? <PhysicalBanner snap={device.snap} /> : <SimulationBanner mode={mode} physical={device.snap?.origin === 'physical_device' && device.snap?.handshake === true} />}
-      {stale && !physicalMode && (
-        <div className="tq-conn" role="alert" data-testid="conn-warning"><WifiOff size={16} aria-hidden="true" /><strong>Backend unreachable.</strong>
-          <span>Values shown are STALE{lastOk ? ` (last updated ${Math.round((now - lastOk) / 1000)} s ago)` : ''} and are not live. Start the backend and this page recovers automatically.</span></div>)}
-      <header className="tq-top">
-        <strong className="tq-wordmark">TORQVA</strong>
-        <span className="tq-conn-indicator" title={physicalMode ? 'Physical Hardware Mode' : 'Software Simulator Mode'}>
-          <span className={`tq-conn-dot ${physicalMode ? (device.snap?.telemetry_fresh ? 'live' : 'warn') : 'sim'}`} />
-          {physicalMode ? (device.snap?.connection === 'CONNECTED' ? `${device.snap.port || 'COM7'} Online` : 'Hardware Disconnected') : 'Environment: software simulator (no hardware)'}
-        </span>
-        {!physicalMode && <Pill tone={dev?.estop ? 'stop' : 'ok'}>{dev?.estop ? 'DEVICE E-STOP' : 'Device OK'}</Pill>}
-        <span className="tq-grow" />
-        <ModeSwitch mode={appMode} onChange={changeMode} />
-        <button
-          type="button"
-          className="tq-btn tq-ghost tq-theme-btn"
-          onClick={toggleTheme}
-          title={theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Cockpit Theme'}
-          aria-label="Toggle theme"
-        >
-          {theme === 'dark' ? <Sun size={15} aria-hidden="true" /> : <Moon size={15} aria-hidden="true" />}
-        </button>
-        <span className="tq-user-badge">{user.user} · {user.role}</span>
-        <button className="tq-btn tq-ghost" onClick={() => { setToken(''); setUser(null); setRunning(false); }} aria-label="Sign out"><LogOut size={15} aria-hidden="true" /></button>
-      </header>
+    <div className={`tq-shell ${theme === 'light' ? 'tq-theme-light' : 'tq-theme-dark'} ${navOpen ? 'tq-nav-open' : ''} ${collapsed && !compact ? 'tq-nav-collapsed' : ''}`.replace(/\s+/g, ' ').trim()}>
       <div className="tq-body">
-        <nav aria-label="TORQVA sections">
-          <div className="tq-brand">TORQVA<small>Motor Intelligence</small></div>
-          <div className="tq-nav-groups">
-            {NAV_GROUPS.map((grp) => (
-              <div key={grp.heading} className="tq-nav-group">
-                <div className="tq-nav-heading">{grp.heading}</div>
-                <ul>
-                  {grp.items.map(([k, label0, Icon, tag]) => {
-                    const label = physicalMode && k === 'control' ? 'Safety & Commissioning' : label0;
-                    return (
-                      <li key={k}>
-                        <button
-                          className={`tq-nav ${view === k ? 'active' : ''}`}
-                          aria-current={view === k ? 'page' : undefined}
-                          onClick={() => setView(k)}
-                        >
-                          <Icon size={15} aria-hidden="true" />
-                          <span className="tq-nav-label">{label}</span>
-                          {tag && <span className="tq-tag">{tag}</span>}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
+        <nav className="tq-sidebar" id="tq-nav" aria-label="TORQVA sections" ref={navRef} inert={drawerHidden ? '' : undefined}>
+          <div className="tq-brand"><Logo /><span className="tq-brand-name"><strong>TORQVA</strong><small>Motor intelligence</small></span></div>
+          {NAV_GROUPS.map((grp, gi) => (
+            <div className="tq-navgroup" key={grp.heading}>
+              <p className="tq-navgroup-label" id={`tq-ng-${gi}`}>{grp.heading}</p>
+              <ul aria-labelledby={`tq-ng-${gi}`}>{grp.items.map(([k]) => { const { label, Icon, tag } = navItem(k); return (
+                <li key={k}><button className={`tq-nav ${view === k ? 'active' : ''}`} aria-current={view === k ? 'page' : undefined} onClick={() => go(k)} title={collapsed && !compact ? label : undefined}>
+                  <Icon size={16} aria-hidden="true" /><span className="tq-nav-label">{label}</span>{tag && <span className="tq-tag">{tag}</span>}</button></li>); })}</ul>
+            </div>))}
+          <div className="tq-sidebar-foot">
+            <button type="button" className="tq-collapse-btn" onClick={toggleCollapsed} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-pressed={collapsed}>
+              {collapsed ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}<span>{collapsed ? 'Expand' : 'Collapse'}</span>
+            </button>
           </div>
         </nav>
-        <main><h1 className="tq-sr">{NAV.find((n) => n[0] === view)[1]}</h1>{pages[view]}</main>
+        <button type="button" className="tq-scrim" tabIndex={-1} aria-hidden="true" onClick={() => setNavOpen(false)} />
+        <div className="tq-content">
+          <div className="tq-sticky">
+            {physicalMode ? <PhysicalBanner snap={device.snap} /> : <SimulationBanner mode={mode} physical={device.snap?.origin === 'physical_device' && device.snap?.handshake === true} />}
+            {stale && !physicalMode && (
+              <div className="tq-conn" role="alert" data-testid="conn-warning"><WifiOff size={16} aria-hidden="true" /><strong>Backend unreachable.</strong>
+                <span>Values shown are STALE{lastOk ? ` (last updated ${Math.round((now - lastOk) / 1000)} s ago)` : ''} and are not live. Start the backend and this page recovers automatically.</span></div>)}
+            <header className="tq-top">
+              <button type="button" className="tq-iconbtn tq-menu-btn" data-testid="nav-toggle" aria-label="Open navigation" aria-expanded={navOpen} aria-controls="tq-nav" onClick={() => setNavOpen(true)}>
+                <Menu size={18} aria-hidden="true" /></button>
+              <span className="tq-top-logo"><Logo size={26} /></span>
+              <div className="tq-crumb" aria-hidden="true"><small>{groupOf(view)}</small><span>{current.label}</span></div>
+              <span className="tq-env" title={physicalMode ? 'Physical Hardware Mode' : 'Software Simulator Mode'}>
+                <span className={`tq-env-dot ${physicalMode ? (device.snap?.telemetry_fresh ? 'live' : 'warn') : 'sim'}`} aria-hidden="true" />
+                <span className="tq-env-text">{connText}</span>
+                {!physicalMode && <Pill tone={dev?.estop ? 'stop' : 'ok'}>{dev?.estop ? 'DEVICE E-STOP' : 'Device OK'}</Pill>}
+              </span>
+              <span className="tq-grow" />
+              <ModeSwitch mode={appMode} onChange={changeMode} />
+              <button type="button" className="tq-iconbtn" onClick={toggleTheme} aria-label="Toggle theme" title={theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Cockpit Theme'}>
+                {theme === 'dark' ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}</button>
+              <span className="tq-user"><span className="tq-avatar" aria-hidden="true">{String(user.user || '?').slice(0, 1)}</span><span className="tq-user-name tq-user-badge">{user.user} · {user.role}</span></span>
+              <button type="button" className="tq-iconbtn" onClick={() => { setToken(''); setUser(null); setRunning(false); }} aria-label="Sign out" title="Sign out"><LogOut size={16} aria-hidden="true" /></button>
+            </header>
+          </div>
+          <main className="tq-main">
+            <h1 className="tq-sr">{NAV.find((n) => n[0] === view)[1]}</h1>
+            <NavContext.Provider value={{ icon: current.Icon, group: groupOf(view), tag: current.tag }}><div className="tq-view" key={`${appMode}-${view}`}>{pages[view]}</div></NavContext.Provider>
+          </main>
+        </div>
       </div>
     </div>
   );

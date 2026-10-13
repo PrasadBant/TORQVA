@@ -2,9 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Smart DC Motor Monitoring & Predictive Maintenance</title>
+    <meta name="description" content="TORQVA: motor monitoring, diagnostics and protected motor control." />
+    <meta name="theme-color" content="#0B1528" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
+    <title>TORQVA · Motor intelligence</title>
+    <script>
+      // Apply the operator's saved theme before first paint (no flash). The app defaults to the dark theme.
+      try { var t = localStorage.getItem('torqva.theme'); document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark'); } catch (e) { document.documentElement.setAttribute('data-theme', 'dark'); }
+    </script>
   </head>
   <body>
     <div id="root"></div>

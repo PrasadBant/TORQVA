@@ -1,7 +1,7 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { LineChart, Line, ComposedChart, Area, XAxis, YAxis, Tooltip, Legend, ReferenceLine, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Play, Pause, StopCircle, Check, X, RotateCcw, Octagon, Activity, AlertTriangle, ShieldCheck, CheckCircle2, Gauge, Timer } from 'lucide-react';
-import { Card, Empty, ErrorBox, Pill, PosteriorBars, ProvBadge, fmt, stateTone } from './components.jsx';
+import React, { useId, useMemo, useState, useEffect, useRef } from 'react';
+import { LineChart, Line, ComposedChart, AreaChart, Area, XAxis, YAxis, Tooltip, Legend, ReferenceLine, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { Play, Pause, StopCircle, Check, X, RotateCcw, Octagon, Activity, AlertTriangle, ShieldCheck, CheckCircle2, Gauge, Timer, ArrowRight, Info, Thermometer, Waves, Zap } from 'lucide-react';
+import { Card, Empty, ErrorBox, Pill, PosteriorBars, ProvBadge, fmt, stateTone, useNavContext, AXIS, GRID, TOOLTIP, LEGEND } from './components.jsx';
 import { C2C4Validation, DiagnosticTests, PredictionChecks, StatusPill, TEST_INFO } from './c2c4.jsx';
 import { api } from './api.js';
 
@@ -19,7 +19,26 @@ const title = (s) => String(s ?? '').replaceAll('_', ' ');
 const samplesOf = (d) => d.telemetry?.samples || [];
 
 export function PageHead({ title: t, sub, right }) {
-  return <div className="tq-page-head"><div><h2>{t}</h2>{sub && <p>{sub}</p>}</div><div className="tq-row">{right}</div></div>;
+  const I = useNavContext()?.icon;
+  return (
+    <div className="tq-page-head">
+      <div className="tq-page-head-main">
+        {I && <span className="tq-page-icon" aria-hidden="true"><I size={20} /></span>}
+        <div><h2>{t}</h2>{sub && <p>{sub}</p>}</div>
+      </div>
+      <div className="tq-row">{right}</div>
+    </div>
+  );
+}
+
+/** A "go to the page with the details" action at the foot of a summary card. */
+export function CardLink({ onClick, children }) {
+  return <div className="tq-card-foot"><button className="tq-link" onClick={onClick}>{children}<ArrowRight size={14} aria-hidden="true" /></button></div>;
+}
+
+/** Marks content the browser produced itself (not a backend or model result), so it is never mistaken for a measured or validated result. */
+function GeneratedNote({ children }) {
+  return <p className="tq-generated"><Info size={14} aria-hidden="true" /><span>{children}</span></p>;
 }
 
 export function Tabs({ tabs, value, onChange, label }) {
@@ -32,27 +51,35 @@ export function Tabs({ tabs, value, onChange, label }) {
 }
 
 /** A latest-value tile. A missing or invalid sensor reads UNAVAILABLE, never zero. */
-export function Kpi({ label, value, unit, digits = 1, data, dataKey, color = 'var(--tq-accent)', note, prov = 'MEASURED' }) {
+export function Kpi({ label, value, unit, digits = 1, data, dataKey, color = 'var(--tq-chart-1)', note, prov = 'MEASURED', icon: I, primary = false }) {
   const missing = value === null || value === undefined || Number.isNaN(value);
+  const gid = `tqk${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   return (
-    <div className={`tq-kpi ${missing ? 'tq-unavailable' : ''}`}>
-      <div className="tq-kpi-label"><span>{label}</span><ProvBadge kind={prov} /></div>
+    <div className={`tq-kpi ${missing ? 'tq-unavailable' : ''} ${primary ? 'tq-kpi-primary' : ''}`.trim()}>
+      <div className="tq-kpi-label"><span className="tq-kpi-head">{I && <span className="tq-kpi-icon" aria-hidden="true"><I size={15} /></span>}<span>{label}</span></span><ProvBadge kind={prov} /></div>
       <div className="tq-kpi-value tq-num">{missing ? 'UNAVAILABLE' : fmt(value, digits)}{!missing && <span className="tq-kpi-unit">{unit}</span>}</div>
       {data?.length > 1 && (
-        <ResponsiveContainer width="100%" height={34}>
-          <LineChart data={data}><Line dataKey={dataKey} stroke={color} dot={false} strokeWidth={1.6} isAnimationActive={false} /></LineChart>
-        </ResponsiveContainer>)}
-      {note && <div className="tq-muted" style={{ fontSize: 12 }}>{note}</div>}
+        <div className="tq-kpi-spark" aria-hidden="true">
+          <ResponsiveContainer width="100%" height={primary ? 56 : 40}>
+            <AreaChart data={data} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+              <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1"><stop offset="0" style={{ stopColor: color, stopOpacity: 0.22 }} /><stop offset="1" style={{ stopColor: color, stopOpacity: 0 }} /></linearGradient></defs>
+              <YAxis hide domain={['dataMin', 'dataMax']} />
+              <Area dataKey={dataKey} stroke={color} strokeWidth={1.75} fill={`url(#${gid})`} dot={false} isAnimationActive={false} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>)}
+      {note && <div className="tq-kpi-note">{note}</div>}
     </div>
   );
 }
 
-function TrendChart({ data, lines, height = 190, yDomain, label }) {
+function TrendChart({ data, lines, height = 200, yDomain, label, digits = 2, unit = '' }) {
+  const tip = (v) => (typeof v === 'number' ? `${v.toFixed(digits)}${unit ? ` ${unit}` : ''}` : v);
   return (
-    <div role="img" aria-label={label}>
+    <div role="img" aria-label={label} className="tq-chart">
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={data}><CartesianGrid stroke="var(--tq-border)" /><XAxis dataKey="t" minTickGap={28} tickFormatter={(x) => `${Math.round(x)}s`} /><YAxis domain={yDomain || ['auto', 'auto']} width={54} tickFormatter={(v) => (Math.abs(v) >= 100 ? Number(v).toFixed(0) : Number(v).toFixed(2))} />
-          <Tooltip /><Legend />{lines.map((l) => <Line key={l.key} dataKey={l.key} name={l.name} stroke={l.color} strokeDasharray={l.dash} dot={false} isAnimationActive={false} />)}
+        <LineChart data={data} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}><CartesianGrid {...GRID} /><XAxis dataKey="t" minTickGap={28} tickFormatter={(x) => `${Math.round(x)}s`} {...AXIS} /><YAxis domain={yDomain || ['auto', 'auto']} width={54} tickFormatter={(v) => (Math.abs(v) >= 100 ? Number(v).toFixed(0) : Number(v).toFixed(2))} {...AXIS} axisLine={false} />
+          <Tooltip {...TOOLTIP} formatter={tip} labelFormatter={(x) => `t = ${Math.round(x)} s`} /><Legend {...LEGEND} />{lines.map((l) => <Line key={l.key} dataKey={l.key} name={l.name} stroke={l.color} strokeDasharray={l.dash} strokeWidth={l.dash ? 1.5 : 2} dot={false} activeDot={{ r: 3.5, strokeWidth: 0 }} isAnimationActive={false} />)}
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -88,13 +115,16 @@ export function SimControls({ d, role, actions, running, setRunning, busy, error
           Require human approval (as in hardware mode)</label>
         <button type="submit" className="tq-btn tq-primary" disabled={!ctl || busy}><RotateCcw size={14} aria-hidden="true" /> Start new simulation</button>
       </form>
-      <div className="tq-row">
-        <button className="tq-btn" onClick={() => setRunning(!running)} disabled={!ctl || !hasSim}>
-          {running ? <><Pause size={14} aria-hidden="true" /> Pause</> : <><Play size={14} aria-hidden="true" /> Run</>}
-        </button>
-        <button className="tq-btn tq-danger" onClick={actions.stop} disabled={!hasSim} aria-label="Stop motor (coast)"><StopCircle size={14} aria-hidden="true" /> STOP</button>
+      <div className="tq-section">
+        <p className="tq-section-title">Current simulation</p>
+        <div className="tq-row">
+          <button className="tq-btn" onClick={() => setRunning(!running)} disabled={!ctl || !hasSim}>
+            {running ? <><Pause size={14} aria-hidden="true" /> Pause</> : <><Play size={14} aria-hidden="true" /> Run</>}
+          </button>
+          <button className="tq-btn tq-danger" onClick={actions.stop} disabled={!hasSim} aria-label="Stop motor (coast)"><StopCircle size={14} aria-hidden="true" /> STOP</button>
+        </div>
+        <p className="tq-muted">Simulator only. STOP coasts the simulated motor; it goes through the same safety path as every other command.</p>
       </div>
-      <p className="tq-muted">Simulator only. STOP coasts the simulated motor; it goes through the same safety path as every other command.</p>
       <ErrorBox error={error} />
     </Card>
   );
@@ -145,11 +175,11 @@ export function OverviewPage({ d, role, user, go, stale, ctl, deviceCard, isPhys
   return (
     <>
       <PageHead title={`Overview — ${user.user}`} sub={isPhys ? "Physical motor: live hardware telemetry, diagnostics and control." : "Simulated motor: state, trends, diagnosis and next steps in one place."} right={<><ProvBadge kind={provKind} /><Pill tone={s.incident ? stateTone(s.incident.state) : hasData ? 'ok' : 'off'}>{state}</Pill></>} />
-      <div className="tq-kpis" aria-label="Latest telemetry">
-        <Kpi label="Speed" value={w?.rpm} unit="rpm" digits={0} data={tail} dataKey="rpm" prov={provKind} note={hasData ? `setpoint ${fmt(s.device?.setpoint_rpm, 0)} rpm` : undefined} />
-        <Kpi label="Housing temperature" value={w?.housing} unit="°C" data={tail} dataKey="housing" prov={provKind} color="var(--tq-warn)" />
-        <Kpi label="Vibration RMS" value={w?.vib_rms} unit="g" digits={3} data={tail} dataKey="vib_rms" prov={provKind} color="var(--tq-teal)" />
-        <Kpi label="Motor current" value={w?.current} unit="A" digits={2} data={tail} dataKey="current" prov={provKind} color="var(--tq-sim)" />
+      <div className="tq-kpis tq-kpis-hero" aria-label="Latest telemetry">
+        <Kpi label="Speed" icon={Gauge} primary value={w?.rpm} unit="rpm" digits={0} data={tail} dataKey="rpm" prov={provKind} note={hasData ? `setpoint ${fmt(s.device?.setpoint_rpm, 0)} rpm` : undefined} />
+        <Kpi label="Housing temperature" icon={Thermometer} value={w?.housing} unit="°C" data={tail} dataKey="housing" prov={provKind} color="var(--tq-chart-2)" />
+        <Kpi label="Vibration RMS" icon={Waves} value={w?.vib_rms} unit="g" digits={3} data={tail} dataKey="vib_rms" prov={provKind} color="var(--tq-chart-3)" />
+        <Kpi label="Motor current" icon={Zap} value={w?.current} unit="A" digits={2} data={tail} dataKey="current" prov={provKind} color="var(--tq-chart-4)" />
       </div>
       <div className="tq-split">
         <div className="tq-stack">
@@ -177,19 +207,19 @@ export function OverviewPage({ d, role, user, go, stale, ctl, deviceCard, isPhys
           </Card>
           <Card title="AI diagnosis (C1)" id="c-c1" right={<ProvBadge kind={isPhys ? "MEASURED" : "DERIVED"} />}>
             <PosteriorBars ranked={(hyp?.ranked || []).slice(0, 3)} label={hyp?.label} />
-            <button className="tq-link" onClick={() => go('diagnostics')}>Open AI Diagnostics</button>
+            <CardLink onClick={() => go('diagnostics')}>Open AI Diagnostics</CardLink>
           </Card>
           <Card title="Prediction summary (C2)" id="c-c2" right={<ProvBadge kind={isPhys ? "MEASURED" : "PREDICTED"} />}>
             {!pred ? <Empty>No prediction yet. Predictions are produced while an anomaly is being investigated.</Empty> : (
               <p><StatusPill status={pred.status} /> <span className="tq-muted">{title(pred.action)}: risk {fmt(pred.risk * 100, 0)}%, housing @120 s {fmt(pred.lo_120.housing, 1)}–{fmt(pred.hi_120.housing, 1)} °C</span></p>)}
             <p className="tq-muted">{s.models?.c2_label}</p>
-            <button className="tq-link" onClick={() => go('predictions')}>Open Predictions</button>
+            <CardLink onClick={() => go('predictions')}>Open Predictions</CardLink>
           </Card>
           <Card title="Recommendation" id="c-next">
             {!gate ? <Empty>The decision gate has not produced a recommendation yet.</Empty> : (
               <><p><Pill tone={gate.verdict === 'ACT' ? 'ok' : gate.verdict === 'SAFE_STOP' ? 'stop' : 'warn'}>{title(gate.verdict)}</Pill></p><p>{gate.reason}</p></>)}
             <p className="tq-muted">A recommendation is never an executed action. {ctl ? '' : 'Your role is read-only.'}</p>
-            <button className="tq-link" onClick={() => go('interventions')}>Open Interventions</button>
+            <CardLink onClick={() => go('interventions')}>Open Interventions</CardLink>
           </Card>
         </div>
       </div>
@@ -217,53 +247,61 @@ export function LivePage({ d, role, actions, running, setRunning, busy, error, s
   const missing = ['rpm', 'housing', 'vib_rms', 'current'].filter((k) => w && (w[k] === null || w[k] === undefined));
   const physical = (deviceOn && device.snap.origin === 'physical_device') || isPhys;
   const selector = deviceOn ? (
-    <div className="tq-row" role="group" aria-label="Data source" style={{ marginBottom: 12 }}>
+    <div className="tq-seg" role="group" aria-label="Data source">
       <button className="tq-btn" aria-pressed={source === 'simulation'} onClick={() => setSource('simulation')}>Simulation</button>
       <button className="tq-btn" aria-pressed={source === 'device'} onClick={() => setSource('device')}>{physical ? 'Physical device' : 'Connected device (firmware simulation)'}</button>
     </div>) : null;
   if (deviceOn && source === 'device') {
-    return (<><PageHead title="Live Motor Monitoring" sub="Readings reported by the connected device over USB serial; stale data is marked, never shown as live." right={<Pill tone={physical ? 'ok' : 'warn'}>{physical ? 'PHYSICAL DEVICE' : 'DEVICE (FIRMWARE SIMULATION MODE)'}</Pill>} />{selector}{deviceLive}</>);
+    return (<><PageHead title="Live Motor Monitoring" sub="Readings reported by the connected device over USB serial; stale data is marked, never shown as live." right={<Pill tone={physical ? 'ok' : 'warn'}>{physical ? 'PHYSICAL DEVICE' : 'DEVICE (FIRMWARE SIMULATION MODE)'}</Pill>} />
+      <div className="tq-toolbar"><span className="tq-toolbar-label">Source</span>{selector}</div>{deviceLive}</>);
   }
   return (
     <>
       <PageHead title="Live Motor Monitoring" sub={isPhys ? "Telemetry from physical ESP32 device, updating live in real-time." : "Telemetry from the software simulator, refreshed every few seconds while it runs."}
         right={<><ProvBadge kind={provKind} />{stale ? <Pill tone="crit">stale</Pill> : <Pill tone={isPhys ? 'ok' : running ? 'ok' : 'off'}>{isPhys ? 'live HW' : running ? 'running' : 'paused'}</Pill>}</>} />
-      {selector}
+      <div className="tq-toolbar">
+        {selector && <><span className="tq-toolbar-label">Source</span>{selector}</>}
+        <span className="tq-toolbar-label">Window</span>
+        <div className="tq-seg" role="group" aria-label="Time range">
+          {RANGES.map(([k, name]) => <button key={k} className="tq-btn" aria-pressed={range === k} onClick={() => setRange(k)}>{name}</button>)}
+        </div>
+      </div>
       <div className="tq-kpis">
-        <Kpi label="Speed" value={w?.rpm} unit="rpm" digits={0} prov={provKind} />
-        <Kpi label="Housing temperature" value={w?.housing} unit="°C" prov={provKind} />
-        <Kpi label="Vibration RMS" value={w?.vib_rms} unit="g" digits={3} prov={provKind} />
-        <Kpi label="Motor current" value={w?.current} unit="A" digits={2} prov={provKind} />
+        <Kpi label="Speed" icon={Gauge} value={w?.rpm} unit="rpm" digits={0} prov={provKind} />
+        <Kpi label="Housing temperature" icon={Thermometer} value={w?.housing} unit="°C" prov={provKind} />
+        <Kpi label="Vibration RMS" icon={Waves} value={w?.vib_rms} unit="g" digits={3} prov={provKind} />
+        <Kpi label="Motor current" icon={Zap} value={w?.current} unit="A" digits={2} prov={provKind} />
       </div>
       {missing.length > 0 && <p className="tq-callout crit" role="alert">Missing sensor values: {missing.map(title).join(', ')}. They are shown as unavailable, not as zero.</p>}
       {s.t !== undefined && last && s.t - last.t > 30 && <p className="tq-callout warn">Latest telemetry window is {fmt(s.t - last.t, 0)} s older than simulation time.</p>}
-      <div className="tq-row" role="group" aria-label="Time range" style={{ marginBottom: 12 }}>
-        {RANGES.map(([k, name]) => <button key={k} className="tq-btn" aria-pressed={range === k} style={range === k ? { borderColor: 'var(--tq-accent)', color: 'var(--tq-accent)' } : undefined} onClick={() => setRange(k)}>{name}</button>)}
-      </div>
-      {!data.length ? <Card title="Live telemetry" id="c-live"><Empty>No telemetry yet.</Empty></Card> : (
-        <div className="tq-grid">
-          <Card title="Speed" id="c-rpm" right={<ProvBadge kind={provKind} />}>
-            <TrendChart data={data} label="Speed over time" lines={[{ key: 'rpm', name: `rpm (${isPhys ? 'HW' : 'sim'})`, color: 'var(--tq-text)' }, { key: 'setpoint', name: 'setpoint', color: 'var(--tq-accent)', dash: '4 3' }]} />
+      <div className="tq-split">
+        <div className="tq-stack">
+          {!data.length ? <Card title="Live telemetry" id="c-live"><Empty>No telemetry yet.</Empty></Card> : (
+            <div className="tq-grid tq-grid-2">
+              <Card title="Speed" id="c-rpm" right={<ProvBadge kind={provKind} />}>
+                <TrendChart data={data} label="Speed over time" digits={0} unit="rpm" lines={[{ key: 'rpm', name: `rpm (${isPhys ? 'HW' : 'sim'})`, color: 'var(--tq-chart-ink)' }, { key: 'setpoint', name: 'setpoint', color: 'var(--tq-chart-1)', dash: '4 3' }]} />
+              </Card>
+              <Card title="Housing temperature" id="c-th" right={<ProvBadge kind={provKind} />}>
+                <TrendChart data={data} label="Housing temperature over time" digits={1} unit="°C" lines={[{ key: 'housing', name: 'housing °C', color: 'var(--tq-chart-2)' }]} />
+              </Card>
+              <Card title="Vibration" id="c-vib" right={<ProvBadge kind={provKind} />}>
+                <TrendChart data={data} label="Vibration over time" digits={3} unit="g" lines={[{ key: 'vib_rms', name: 'vibration g', color: 'var(--tq-chart-3)' }]} />
+              </Card>
+              <Card title="Motor current" id="c-cur" right={<ProvBadge kind={provKind} />}>
+                <TrendChart data={data} label="Current over time" digits={2} unit="A" lines={[{ key: 'current', name: 'current A', color: 'var(--tq-chart-4)' }]} />
+              </Card>
+            </div>)}
+          <Card title="Latest telemetry" id="c-tele" right={<ProvBadge kind={provKind} />}>
+            {!data.length ? <Empty>No samples.</Empty> : (
+              <table className="tq-table"><caption className="tq-sr">Latest telemetry windows</caption>
+                <thead><tr><th scope="col">t (s)</th><th scope="col">Speed (rpm)</th><th scope="col">Housing (°C)</th><th scope="col">Vibration (g)</th><th scope="col">Current (A)</th><th scope="col">Score ÷ threshold</th></tr></thead>
+                <tbody>{data.slice(-8).reverse().map((x) => (<tr key={x.t}><td className="tq-num">{fmt(x.t, 0)}</td><td className="tq-num">{fmt(x.rpm, 0)}</td><td className="tq-num">{fmt(x.housing, 1)}</td>
+                  <td className="tq-num">{fmt(x.vib_rms, 3)}</td><td className="tq-num">{fmt(x.current, 2)}</td><td className="tq-num">{x.score == null ? '—' : fmt(x.score, 2)}</td></tr>))}</tbody></table>)}
           </Card>
-          <Card title="Housing temperature" id="c-th" right={<ProvBadge kind={provKind} />}>
-            <TrendChart data={data} label="Housing temperature over time" lines={[{ key: 'housing', name: 'housing °C', color: 'var(--tq-warn)' }]} />
-          </Card>
-          <Card title="Vibration" id="c-vib" right={<ProvBadge kind={provKind} />}>
-            <TrendChart data={data} label="Vibration over time" lines={[{ key: 'vib_rms', name: 'vibration g', color: 'var(--tq-teal)' }]} />
-          </Card>
-          <Card title="Motor current" id="c-cur" right={<ProvBadge kind={provKind} />}>
-            <TrendChart data={data} label="Current over time" lines={[{ key: 'current', name: 'current A', color: 'var(--tq-sim)' }]} />
-          </Card>
-        </div>)}
-      <div className="tq-split" style={{ marginTop: 14 }}>
-        <Card title="Latest telemetry" id="c-tele" right={<ProvBadge kind={provKind} />}>
-          {!data.length ? <Empty>No samples.</Empty> : (
-            <table className="tq-table"><caption className="tq-sr">Latest telemetry windows</caption>
-              <thead><tr><th scope="col">t (s)</th><th scope="col">Speed (rpm)</th><th scope="col">Housing (°C)</th><th scope="col">Vibration (g)</th><th scope="col">Current (A)</th><th scope="col">Score ÷ threshold</th></tr></thead>
-              <tbody>{data.slice(-8).reverse().map((x) => (<tr key={x.t}><td className="tq-num">{fmt(x.t, 0)}</td><td className="tq-num">{fmt(x.rpm, 0)}</td><td className="tq-num">{fmt(x.housing, 1)}</td>
-                <td className="tq-num">{fmt(x.vib_rms, 3)}</td><td className="tq-num">{fmt(x.current, 2)}</td><td className="tq-num">{x.score == null ? '—' : fmt(x.score, 2)}</td></tr>))}</tbody></table>)}
-        </Card>
-        <SimControls d={d} role={role} actions={actions} running={running} setRunning={setRunning} busy={busy} error={error} />
+        </div>
+        <div className="tq-stack tq-sticky-side">
+          <SimControls d={d} role={role} actions={actions} running={running} setRunning={setRunning} busy={busy} error={error} />
+        </div>
       </div>
     </>
   );
@@ -288,12 +326,12 @@ export function DiagnosticsPage({ d, isPhys: isPhysProp }) {
         <div className="tq-stack">
           <Card title="Anomaly score ÷ learned threshold (log scale)" id="c-score" right={<ProvBadge kind={provKind} />}>
             {!data.length ? <Empty>No telemetry yet.</Empty> : (
-              <div role="img" aria-label="Anomaly score over time"><ResponsiveContainer width="100%" height={220}>
-                <LineChart data={data}><CartesianGrid stroke="var(--tq-border)" /><XAxis dataKey="t" minTickGap={28} tickFormatter={(x) => `${Math.round(x)}s`} />
-                  <YAxis scale="log" domain={[0.05, 'auto']} allowDataOverflow width={46} tickFormatter={(x) => (x >= 1 ? x.toFixed(0) : x.toFixed(2))} /><Tooltip /><Legend />
+              <div role="img" aria-label="Anomaly score over time" className="tq-chart"><ResponsiveContainer width="100%" height={240}>
+                <LineChart data={data} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}><CartesianGrid {...GRID} /><XAxis dataKey="t" minTickGap={28} tickFormatter={(x) => `${Math.round(x)}s`} {...AXIS} />
+                  <YAxis scale="log" domain={[0.05, 'auto']} allowDataOverflow width={46} tickFormatter={(x) => (x >= 1 ? x.toFixed(0) : x.toFixed(2))} {...AXIS} axisLine={false} /><Tooltip {...TOOLTIP} /><Legend {...LEGEND} />
                   <ReferenceLine y={1} stroke="var(--tq-crit)" strokeDasharray="4 3" label={{ value: 'threshold = 1', position: 'insideTopRight', fill: 'var(--tq-crit)', fontSize: 11 }} />
-                  <Line dataKey="score" stroke="var(--tq-learning)" dot={false} isAnimationActive={false} name="score ratio" /></LineChart></ResponsiveContainer></div>)}
-            <p className="tq-muted">Gaps = windows excluded (speed changing) or operating point not learned. {above} of {data.length} windows above threshold.</p>
+                  <Line dataKey="score" stroke="var(--tq-chart-1)" strokeWidth={2} dot={false} activeDot={{ r: 3.5, strokeWidth: 0 }} isAnimationActive={false} name="score ratio" /></LineChart></ResponsiveContainer></div>)}
+            <p className="tq-chart-note">Gaps = windows excluded (speed changing) or operating point not learned. {above} of {data.length} windows above threshold.</p>
           </Card>
           <Card title="Incident timeline" id="c-hist">
             {!inc ? <Empty>No incident yet.</Empty> : (
@@ -551,13 +589,13 @@ export function PredictionsPage({ d, isPhys: isPhysProp, role, actions, device }
       <PageHead title="Counterfactual Predictions (C2)" sub={isPhys ? "Expected outcome of candidate actions based on live physical hardware telemetry." : "Expected outcome of each candidate action under matched simulated conditions."}
         right={<><ProvBadge kind={provKind} />{p && <StatusPill status={p.status} />}</>} />
       {isPhys ? (
-        <p className="tq-callout ok" role="note"><strong>Hardware Mode Active</strong> — 5 candidate interventions evaluated against live telemetry streaming from the ESP32 controller. Analysts can trigger actions directly based on physical evidence.</p>
+        <p className="tq-callout info" role="note"><strong>Hardware Mode Active</strong> — 5 candidate interventions evaluated against live telemetry streaming from the ESP32 controller. Analysts can trigger actions directly based on physical evidence.</p>
       ) : (
         <p className="tq-callout warn" role="note"><strong>{s.models?.c2_label || 'Intervention Outcome Prediction (unvalidated)'}</strong> — not validated against physical experiments. A prediction is never evidence of recovery, and an unsupported prediction never authorises an action.</p>
       )}
 
       {actionResult && (
-        <div className="tq-callout ok" role="alert" style={{ marginBottom: 14 }}>
+        <div className="tq-callout" role="alert">
           <strong>Action Dispatched:</strong> {actionResult.msg}
         </div>
       )}
@@ -568,40 +606,39 @@ export function PredictionsPage({ d, isPhys: isPhysProp, role, actions, device }
         <div className="tq-split">
           <div className="tq-stack">
             <Card title={`Candidate interventions ${preds.length ? '' : '(5 Actions)'}`} id="c-pred" right={<ProvBadge kind={provKind} />}>
+              {!preds.length && <GeneratedNote>The C2 model has not produced predictions for this situation. These candidates and their intervals are generated in the browser from the current reading; they are not model output or experimental evidence.</GeneratedNote>}
               <div className="tq-stack" role="group" aria-label="Select intervention">
                 {displayPreds.map((x) => (
                   <div
                     key={x.action}
                     className="tq-select-card"
                     aria-pressed={p?.action === x.action}
-                    style={{ cursor: 'pointer' }}
                     onClick={() => setSel(x.action)}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="tq-option-title">
                       <strong>{x.title || title(x.action)}</strong>
                       <StatusPill status={x.status} />
                     </div>
-                    <div className="tq-muted" style={{ marginTop: 4 }}>
+                    <div className="tq-option-meta">
                       {x.target_rpm != null && <>target @120 s: <strong className="tq-num">{x.target_rpm} rpm</strong> · </>}
                       {x.mean_at_30_60_120?.rpm?.[2] != null && x.target_rpm == null && <>speed @120 s <strong className="tq-num">{fmt(x.mean_at_30_60_120.rpm[2], 0)} rpm</strong> · </>}
                       risk of crossing a limit {fmt(x.risk * 100, 0)}%
                     </div>
                     {x.evidence_text && (
-                      <div style={{ fontSize: 13, color: 'var(--tq-text)', marginTop: 4 }}>
+                      <div className="tq-option-body">
                         {x.evidence_text}
                       </div>
                     )}
                     {x.status_reasons?.length > 0 && (
-                      <div className="tq-muted" style={{ fontSize: 12, marginTop: 4 }}>
+                      <div className="tq-option-meta">
                         {x.status_reasons.map(title).join(', ')}
                       </div>
                     )}
                     {x.action_btn && (
-                      <div style={{ marginTop: 10 }}>
+                      <div className="tq-option-actions">
                         <button
                           type="button"
-                          className={`tq-btn ${x.target_rpm === 0 ? 'tq-danger' : 'tq-primary'}`}
-                          style={{ fontSize: 12, padding: '4px 12px' }}
+                          className={`tq-btn tq-sm ${x.target_rpm === 0 ? 'tq-danger' : 'tq-primary'}`}
                           disabled={executing}
                           onClick={(e) => { e.stopPropagation(); handleExecuteAction(x); }}
                         >
@@ -614,11 +651,11 @@ export function PredictionsPage({ d, isPhys: isPhysProp, role, actions, device }
               </div>
             </Card>
             <Card title="Predicted response" id="c-resp" right={<label className="tq-inline">Signal <select value={signal} onChange={(e) => setSignal(e.target.value)}><option value="housing">Housing °C</option><option value="rpm">Speed rpm</option><option value="vib_rms">Vibration g</option></select></label>}>
-              <div role="img" aria-label="Predicted response with 90 percent interval"><ResponsiveContainer width="100%" height={220}>
-                <ComposedChart data={chart}><CartesianGrid stroke="var(--tq-border)" /><XAxis dataKey="h" type="number" domain={[0, 120]} ticks={[0, 30, 60, 120]} tickFormatter={(x) => `${x}s`} /><YAxis width={50} domain={['auto', 'auto']} /><Tooltip /><Legend />
-                  <Area dataKey="band" name="90% interval" stroke="none" fill="var(--tq-accent)" fillOpacity={0.15} isAnimationActive={false} />
-                  <Line dataKey="mean" name={`predicted (point 0 = current ${isPhys ? 'hardware' : 'simulated'} value)`} stroke="var(--tq-accent)" strokeDasharray="5 3" isAnimationActive={false} /></ComposedChart></ResponsiveContainer></div>
-              <p className="tq-muted">The interval covers a single future 1 s measurement. It is evaluated against live hardware telemetry.</p>
+              <div role="img" aria-label="Predicted response with 90 percent interval" className="tq-chart"><ResponsiveContainer width="100%" height={240}>
+                <ComposedChart data={chart} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}><CartesianGrid {...GRID} /><XAxis dataKey="h" type="number" domain={[0, 120]} ticks={[0, 30, 60, 120]} tickFormatter={(x) => `${x}s`} {...AXIS} /><YAxis width={50} domain={['auto', 'auto']} {...AXIS} axisLine={false} /><Tooltip {...TOOLTIP} /><Legend {...LEGEND} />
+                  <Area dataKey="band" name="90% interval" stroke="none" fill="var(--tq-chart-1)" fillOpacity={0.16} isAnimationActive={false} />
+                  <Line dataKey="mean" name={`predicted (point 0 = current ${isPhys ? 'hardware' : 'simulated'} value)`} stroke="var(--tq-chart-1)" strokeWidth={2} strokeDasharray="5 3" dot={{ r: 3, strokeWidth: 0, fill: 'var(--tq-chart-1)' }} isAnimationActive={false} /></ComposedChart></ResponsiveContainer></div>
+              <p className="tq-chart-note">The interval covers a single future 1 s measurement. It is evaluated against live hardware telemetry.</p>
             </Card>
           </div>
           <div className="tq-stack">
@@ -636,13 +673,12 @@ export function PredictionsPage({ d, isPhys: isPhysProp, role, actions, device }
                     <dt>Validated by experiments</dt><dd>{p.validated_by_experiments ? 'yes' : 'no'}</dd>
                   </dl>
 
-                  <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--tq-border)' }}>
-                    <p style={{ margin: '0 0 6px 0', fontSize: 13, fontWeight: 600 }}>Execute Analyst Intervention</p>
-                    <p className="tq-muted" style={{ fontSize: 12, marginBottom: 10 }}>{p.evidence_text}</p>
+                  <div className="tq-action-panel">
+                    <p>Execute Analyst Intervention</p>
+                    <p className="tq-muted">{p.evidence_text}</p>
                     <button
                       type="button"
-                      className={`tq-btn ${p.target_rpm === 0 ? 'tq-danger' : 'tq-primary'}`}
-                      style={{ width: '100%', justifyContent: 'center', padding: '8px 16px' }}
+                      className={`tq-btn tq-block ${p.target_rpm === 0 ? 'tq-danger' : 'tq-primary'}`}
                       disabled={executing}
                       onClick={() => handleExecuteAction(p)}
                     >
@@ -902,13 +938,12 @@ export function TestsPage({ d, c2c4, isPhys: isPhysProp, device, role, actions, 
                     setSel(k);
                     if (testState !== 'RUNNING') setTestState('IDLE');
                   }}
-                  style={{ textAlign: 'left', cursor: 'pointer' }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <div className="tq-option-title">
                     <strong>{s.name}</strong>
                     <Pill tone={sel === k ? 'ok' : 'info'}>{s.duration_s} s</Pill>
                   </div>
-                  <div className="tq-muted" style={{ fontSize: 13 }}>{s.target}</div>
+                  <div className="tq-muted">{s.target}</div>
                 </button>
               ))}
             </div>
@@ -917,21 +952,21 @@ export function TestsPage({ d, c2c4, isPhys: isPhysProp, device, role, actions, 
           {/* Interactive Test Runner Panel */}
           <Card title={`Execute Diagnostic Test: ${spec.code}`} id="c-runner" right={<Pill tone={testState === 'RUNNING' ? 'warn' : testState === 'COMPLETED' ? 'ok' : 'info'}>{testState}</Pill>}>
             {/* Preconditions Checklist */}
-            <div style={{ background: 'rgba(15,23,42,0.5)', padding: '10px 12px', borderRadius: 6, marginBottom: 14 }}>
-              <strong style={{ fontSize: 12, letterSpacing: 0.5, color: 'var(--tq-muted)', textTransform: 'uppercase' }}>
+            <div className="tq-subpanel">
+              <strong className="tq-subpanel-title">
                 Operational Preconditions
               </strong>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginTop: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                  {isMotorRunning ? <CheckCircle2 size={14} color="var(--tq-ok)" /> : <AlertTriangle size={14} color="var(--tq-warn)" />}
+              <div className="tq-precond">
+                <div>
+                  {isMotorRunning ? <CheckCircle2 size={14} className="ok" aria-hidden="true" /> : <AlertTriangle size={14} className="warn" aria-hidden="true" />}
                   <span>Motor: <strong>{liveRpm.toFixed(0)} rpm</strong> {isMotorRunning ? '(Spinning)' : '(Stopped)'}</span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                  <ShieldCheck size={14} color="var(--tq-ok)" />
+                <div>
+                  <ShieldCheck size={14} className="ok" aria-hidden="true" />
                   <span>Supervisor: <strong>Hard Limits Armed</strong></span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                  {operator ? <CheckCircle2 size={14} color="var(--tq-ok)" /> : <AlertTriangle size={14} color="var(--tq-crit)" />}
+                <div>
+                  {operator ? <CheckCircle2 size={14} className="ok" aria-hidden="true" /> : <AlertTriangle size={14} className="crit" aria-hidden="true" />}
                   <span>Auth: <strong>{role || 'viewer'}</strong></span>
                 </div>
               </div>
@@ -939,9 +974,9 @@ export function TestsPage({ d, c2c4, isPhys: isPhysProp, device, role, actions, 
 
             {/* Warning if motor stopped when trying T1/T4 */}
             {!isMotorRunning && (sel === 'T1' || sel === 'T4') && testState !== 'RUNNING' && (
-              <div className="tq-callout warn" role="alert" style={{ marginBottom: 12 }}>
+              <div className="tq-callout warn" role="alert">
                 <strong>⚠ Motor is Stopped</strong>
-                <p style={{ margin: '4px 0 8px', fontSize: 12 }}>
+                <p>
                   {spec.name} requires an active spinning rotor to capture dynamic speed response.
                 </p>
                 <button
@@ -949,7 +984,6 @@ export function TestsPage({ d, c2c4, isPhys: isPhysProp, device, role, actions, 
                   className="tq-btn tq-primary"
                   onClick={handleSpinUp}
                   disabled={spinBusy || !operator}
-                  style={{ fontSize: 12, padding: '4px 10px' }}
                 >
                   <Play size={12} aria-hidden="true" />
                   {spinBusy ? 'Spinning up motor...' : 'Spin Up Motor to 1300 RPM'}
@@ -959,8 +993,8 @@ export function TestsPage({ d, c2c4, isPhys: isPhysProp, device, role, actions, 
 
             {/* Test Duration & Fast Mode Toggle */}
             {testState !== 'RUNNING' && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+              <div className="tq-between tq-mb-s">
+                <label className="tq-check">
                   <input
                     type="checkbox"
                     checked={fastMode}
@@ -968,7 +1002,7 @@ export function TestsPage({ d, c2c4, isPhys: isPhysProp, device, role, actions, 
                   />
                   <span>Fast evaluation mode ({spec.quick_s} s test cycle)</span>
                 </label>
-                <span className="tq-muted" style={{ fontSize: 12 }}>
+                <span className="tq-muted">
                   Full window: {spec.duration_s} s
                 </span>
               </div>
@@ -976,7 +1010,7 @@ export function TestsPage({ d, c2c4, isPhys: isPhysProp, device, role, actions, 
 
             {/* State: IDLE / CONFIRMING */}
             {testState === 'IDLE' && (
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <div className="tq-row">
                 <button
                   type="button"
                   className="tq-btn tq-primary"
@@ -991,12 +1025,12 @@ export function TestsPage({ d, c2c4, isPhys: isPhysProp, device, role, actions, 
             )}
 
             {testState === 'CONFIRMING' && (
-              <div className="tq-callout info" style={{ marginBottom: 0 }}>
+              <div className="tq-callout warn">
                 <strong>Confirm Execution of {spec.name}</strong>
-                <p style={{ margin: '6px 0 10px', fontSize: 12 }}>
+                <p>
                   Parameter: {spec.parameter}. The Safety Supervisor hard limits and emergency stop circuit remain actively monitored.
                 </p>
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div className="tq-row tq-mt">
                   <button
                     type="button"
                     className="tq-btn tq-primary"
@@ -1018,35 +1052,27 @@ export function TestsPage({ d, c2c4, isPhys: isPhysProp, device, role, actions, 
 
             {/* State: RUNNING */}
             {testState === 'RUNNING' && (
-              <div style={{ padding: '4px 0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <strong style={{ fontSize: 13, color: 'var(--tq-accent)' }}>{phaseText}</strong>
-                  <span className="tq-num" style={{ fontSize: 13, fontWeight: 700 }}>
+              <div>
+                <div className="tq-between">
+                  <strong className="tq-phase">{phaseText}</strong>
+                  <span className="tq-num">
                     {secondsLeft}s remaining
                   </span>
                 </div>
 
                 {/* Progress bar */}
-                <div style={{ height: 8, background: 'rgba(255,255,255,0.1)', borderRadius: 4, overflow: 'hidden', marginBottom: 12 }}>
-                  <div
-                    style={{
-                      height: '100%',
-                      width: `${progress}%`,
-                      background: 'linear-gradient(90deg, var(--tq-accent), var(--tq-ok))',
-                      transition: 'width 0.25s linear',
-                    }}
-                  />
+                <div className="tq-progress" role="progressbar" aria-label="Test progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
+                  <span style={{ width: `${progress}%` }} />
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="tq-muted" style={{ fontSize: 12 }}>
+                <div className="tq-between">
+                  <span className="tq-muted">
                     Live Speed: <strong className="tq-num">{liveRpm.toFixed(0)} rpm</strong>
                   </span>
                   <button
                     type="button"
                     className="tq-btn tq-danger"
                     onClick={handleAbort}
-                    style={{ fontSize: 12, padding: '4px 10px' }}
                   >
                     <Octagon size={13} aria-hidden="true" />
                     <span>Emergency Abort Test</span>
@@ -1057,12 +1083,12 @@ export function TestsPage({ d, c2c4, isPhys: isPhysProp, device, role, actions, 
 
             {/* State: COMPLETED / ABORTED */}
             {(testState === 'COMPLETED' || testState === 'ABORTED') && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div className="tq-between">
+                <div className="tq-row">
                   <Pill tone={testState === 'COMPLETED' ? 'ok' : 'crit'}>
                     {testState === 'COMPLETED' ? 'TEST COMPLETED' : 'TEST ABORTED'}
                   </Pill>
-                  <span className="tq-muted" style={{ fontSize: 12 }}>
+                  <span className="tq-muted">
                     {testState === 'COMPLETED' ? 'Observation signature captured & posterior updated.' : 'Test execution safely aborted.'}
                   </span>
                 </div>
@@ -1070,7 +1096,6 @@ export function TestsPage({ d, c2c4, isPhys: isPhysProp, device, role, actions, 
                   type="button"
                   className="tq-btn"
                   onClick={() => setTestState('IDLE')}
-                  style={{ fontSize: 12, padding: '4px 10px' }}
                 >
                   <RotateCcw size={12} aria-hidden="true" />
                   <span>Run Another Test</span>
@@ -1090,16 +1115,16 @@ export function TestsPage({ d, c2c4, isPhys: isPhysProp, device, role, actions, 
           {/* Selected Test Deep Specifications */}
           <Card title={`Selected Test Profile: ${spec.code}`} id="c-sel" right={<Pill tone="info">{spec.short}</Pill>}>
             <p><strong>{spec.name}</strong></p>
-            <p className="tq-muted" style={{ fontSize: 13, margin: '6px 0 10px' }}>{spec.target}</p>
-            <div style={{ background: 'rgba(15,23,42,0.4)', padding: '10px 12px', borderRadius: 6, marginBottom: 10 }}>
-              <div style={{ fontSize: 11, color: 'var(--tq-accent)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700 }}>
+            <p className="tq-muted">{spec.target}</p>
+            <div className="tq-subpanel">
+              <span className="tq-subpanel-title">
                 Physical Mechanism &amp; Isolation Principle
-              </div>
-              <p style={{ margin: '4px 0 0', fontSize: 12, lineHeight: 1.5 }}>
+              </span>
+              <p>
                 {spec.physics}
               </p>
             </div>
-            <div style={{ fontSize: 12 }}>
+            <div className="tq-small">
               <span className="tq-muted">Monitored Signals: </span>
               <strong>{spec.signals.join(' · ')}</strong>
             </div>
@@ -1111,32 +1136,31 @@ export function TestsPage({ d, c2c4, isPhys: isPhysProp, device, role, actions, 
               <Empty>No diagnostic test has been run in this incident. Click 'Execute Diagnostic Test' to begin.</Empty>
             ) : (
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                {res.explanation && <GeneratedNote>Generated in the browser from this test's reference profile (a fixed observation and posterior). It is not computed from this session's telemetry.</GeneratedNote>}
+                <div className="tq-between tq-mb-s">
                   <strong>{res.test} Diagnostic Observation</strong>
                   <Pill tone={res.posterior?.[0]?.[1] >= 0.7 ? 'ok' : 'warn'}>
                     {res.posterior?.[0]?.[1] >= 0.7 ? 'CONFIDENT SEPARATION' : 'INCONCLUSIVE'}
                   </Pill>
                 </div>
 
-                <div style={{ background: 'rgba(15,23,42,0.5)', padding: '8px 12px', borderRadius: 6, marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, color: 'var(--tq-muted)', textTransform: 'uppercase' }}>Observed Signature Vector</div>
-                  <div className="tq-num" style={{ fontSize: 15, fontWeight: 700, color: 'var(--tq-accent)', marginTop: 2 }}>
+                <div className="tq-subpanel">
+                  <span className="tq-subpanel-title">Observed Signature Vector</span>
+                  <div className="tq-signature tq-num">
                     [{res.obs.map((x) => Number(x).toFixed(2)).join(', ')}]
                   </div>
                 </div>
 
                 {res.explanation && (
-                  <p className="tq-callout ok" style={{ fontSize: 12, marginBottom: 12 }}>
+                  <p className="tq-callout info">
                     <strong>Diagnostic Deduction: </strong>
                     {res.explanation}
                   </p>
                 )}
 
-                <div style={{ marginTop: 8 }}>
-                  <strong style={{ fontSize: 12, color: 'var(--tq-muted)' }}>Fault Hypothesis Posterior Distribution:</strong>
-                  <div style={{ marginTop: 6 }}>
-                    <PosteriorBars ranked={res.posterior} label="after test" />
-                  </div>
+                <div className="tq-mt">
+                  <strong className="tq-subpanel-title">Fault Hypothesis Posterior Distribution:</strong>
+                  <PosteriorBars ranked={res.posterior} label="after test" />
                 </div>
               </div>
             )}
@@ -1146,7 +1170,7 @@ export function TestsPage({ d, c2c4, isPhys: isPhysProp, device, role, actions, 
           <Card title="C4 Calibration Status" id="c-cal">
             {isPhys ? (
               <>
-                <p><Pill tone="ok">Hardware Safety Supervisor Active</Pill></p>
+                <p><Pill tone="info">Hardware Safety Supervisor Active</Pill></p>
                 <p className="tq-muted">Live diagnostic test execution ({Object.keys(TEST_SPECS).join('/')}) is supervised directly on the ESP32 hardware via authenticated token session and deterministic hard limits.</p>
                 <p className="tq-muted">Emergency stops and speed ceiling bounds remain active throughout any test cycle.</p>
               </>
@@ -1189,7 +1213,7 @@ export function InterventionsPage({ d, role, actions, error, isPhys: isPhysProp 
                 <>
                   <Empty>No action is waiting for approval.</Empty>
                   {ctl && (
-                    <div className="tq-row" style={{ marginTop: 12 }}>
+                    <div className="tq-row tq-mt">
                       <button className="tq-btn tq-danger" onClick={actions.stop} aria-label="Stop motor (coast)"><StopCircle size={14} aria-hidden="true" /> Emergency Coast Stop</button>
                     </div>
                   )}
@@ -1238,7 +1262,7 @@ export function RecoveryPage({ d, isPhys: isPhysProp }) {
     <>
       <PageHead title="Recovery Verification (C5)" sub={isPhys ? "Recovery verification observing live physical telemetry after motor action acknowledgement." : "Recovery is declared only from fresh, valid samples observed after the device acknowledged an action."} right={<ProvBadge kind={provKind} />} />
       {isPhys ? (
-        <p className="tq-callout ok" role="note"><strong>Hardware Mode Active</strong> — Recovery verification is tracking live physical telemetry from the ESP32 controller.</p>
+        <p className="tq-callout info" role="note"><strong>Hardware Mode Active</strong> — Recovery verification is tracking live physical telemetry from the ESP32 controller.</p>
       ) : (
         <p className="tq-callout warn" role="note">A prediction of improvement is not a verified recovery. Records below are simulator observations, not hardware evidence.</p>
       )}
@@ -1272,7 +1296,7 @@ export function LearningPage({ d, children, isPhys: isPhysProp }) {
           <ul className="tq-list">{cases.map((c) => (<li key={c.label + c.outcome + c.session}><strong>{c.label}</strong> · {c.outcome} · label source {c.label_source} · executed {String(c.executed)} <ProvBadge kind={provKind} /></li>))}</ul>)}
         <p className="tq-muted">No model training, promotion or rollback of C2/C4 models is exposed: those are not implemented as operator actions. The attestation workflow below is the only model-management feature that exists.</p>
       </Card>
-      <div style={{ marginTop: 14 }}>{children}</div>
+      <div className="tq-mt">{children}</div>
     </>
   );
 }
