@@ -6,6 +6,7 @@ if (!TOKEN) { console.error('Set TORQVA_TOKEN'); process.exit(2); }
 const OUT = process.env.SHOTS_DIR || './e2e-shots'; fs.mkdirSync(OUT, { recursive: true });
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+await page.addInitScript(() => { try { localStorage.setItem('torqva.mode', 'SIMULATION'); } catch { /* storage unavailable */ } });   // the app opens in physical mode by default
 const consoleMsgs = [], bad = [];
 page.on('console', (m) => { if (['error', 'warning'].includes(m.type())) consoleMsgs.push(`${m.type()}: ${m.text()}`); });
 page.on('pageerror', (e) => consoleMsgs.push('pageerror: ' + e.message));

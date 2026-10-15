@@ -56,7 +56,7 @@ cd frontend ; node e2e/torqva-app.e2e.mjs      # needs the servers running and C
 | `frontend/src/torqva/TorqvaApp.jsx` | App shell: sign-in, mode switch, navigation, polling. `api.js` is the REST client, `torqva.css` the design system |
 | `frontend/src/torqva/physical/` | Physical-device pages fed by the USB device stream (`physical.jsx` dashboard, `device.jsx` connection, motor control, commissioning) |
 | `frontend/src/torqva/simulation/` | Pages fed by the simulator API (`pages.jsx` C1-C6 pages, `c2c4.jsx`, `evaluation.jsx`, `lab.jsx`, `attestation.jsx`) |
-| `frontend/src/torqva/shared/` | UI primitives (`components.jsx`) and charts (`charts.jsx`, loaded on demand through `lazyCharts.jsx`) |
+| `frontend/src/torqva/shared/` | UI primitives (`components.jsx`), charts (`charts.jsx`, loaded on demand through `lazyCharts.jsx`) and the Digital Twin workspace (`twin.jsx`, drawing in `twinModel.jsx`); each mode maps its own data onto the twin in `physical/twin.jsx` and `simulation/twin.jsx` |
 | `frontend/src/tests/`, `frontend/e2e/` | Unit/component tests (Vitest) and opt-in browser E2E scripts |
 | `docs/` | Current documentation, indexed in [`docs/README.md`](docs/README.md); `docs/eval/` holds evaluation artifacts read by the backend; `docs/history/` holds retired reports |
 

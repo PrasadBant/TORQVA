@@ -19,4 +19,8 @@ Start the frontend with `npm run dev -- --host 127.0.0.1` (the scripts use 127.0
 
     TORQVA_TOKEN=<operator token> node e2e/torqva-c2c4.e2e.mjs
 
+`torqva-twin.e2e.mjs` drives the Digital Twin: physical mode with no board (everything UNAVAILABLE, nothing animated, no writes), then a simulation started from the Live Monitor: the shaft animates only while simulation time advances, selection by click and keyboard, the trend chart, the light theme and 1024/768/390 px layouts. Run it against `npm run dev:sim`, then `node e2e/torqva-twin.e2e.mjs`.
+
+The app opens in physical mode, so `torqva-lab`, `torqva-c2c4` and `torqva-attestation` set the remembered mode to simulation before loading the page.
+
 `torqva-app.e2e.mjs` (frontend redesign) drives the root route `/` with the dev server's automatic sign-in: every page, SIM provenance labels, simulator controls, the backend-unreachable stale warning and recovery, and 1440/1024/768/390 px layouts. Start everything with `npm run dev` (it launches the backend with a local-only token and the app with the matching dev token), then `node e2e/torqva-app.e2e.mjs`. The older E2E scripts sign in with a typed token, so run them against `npm run dev:ui` plus your own backend started with `TORQVA_TOKENS` (the automatic dev sign-in is off there because `VITE_TORQVA_DEV_TOKEN` is unset).

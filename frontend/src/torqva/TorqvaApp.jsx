@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { Activity, Gauge, ListChecks, Microscope, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap, Usb, SlidersHorizontal, Sun, Moon, ClipboardCheck, Menu, KeyRound, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import React, { Suspense, lazy, useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { Activity, Box, Gauge, ListChecks, Microscope, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap, Usb, SlidersHorizontal, Sun, Moon, ClipboardCheck, Menu, KeyRound, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { api, setToken, getToken, ApiError } from './api.js';
-import { SimulationBanner, Pill, Logo, NavContext, PageHead } from './shared/components.jsx';
+import { SimulationBanner, Pill, Logo, NavContext, PageHead, Empty } from './shared/components.jsx';
 import { prefetchCharts } from './shared/lazyCharts.jsx';
 import { Evaluation } from './simulation/evaluation.jsx';
 import { OverviewPage, LivePage, DiagnosticsPage, PredictionsPage, TestsPage, InterventionsPage, RecoveryPage, LearningPage, DevicesPage, isPhysOf } from './simulation/pages.jsx';
@@ -17,6 +17,7 @@ const NAV_GROUPS = [
     items: [
       ['overview', 'Overview', Gauge, ''],
       ['live', 'Live Monitor', Activity, ''],
+      ['twin', 'Digital Twin', Box, ''],
     ],
   },
   {
@@ -51,6 +52,11 @@ const NAV_GROUPS = [
     ],
   },
 ];
+
+// The Digital Twin (drawing, workspace and mappings) is fetched when first opened, so it does not delay sign-in or the dashboards.
+const SimTwinPage = lazy(() => import('./simulation/twin.jsx').then((m) => ({ default: m.SimTwinPage })));
+const PhysTwinPage = lazy(() => import('./physical/twin.jsx').then((m) => ({ default: m.PhysTwinPage })));
+const twinFallback = <Empty loading>Loading the Digital Twin…</Empty>;
 
 const NAV = NAV_GROUPS.flatMap((g) => g.items);
 const groupOf = (k) => (NAV_GROUPS.find((g) => g.items.some((n) => n[0] === k)) || { heading: '' }).heading;
@@ -284,7 +290,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const dev = d.status?.device;
   const ctx = { d, role: user.role, user, actions, running, setRunning, busy, error, stale, go, ctl: canStart(user.role), device, physicalMode, isPhys, deviceCard: <DeviceCard stream={device} go={go} />, deviceLive: <DeviceLive stream={device} /> };
   const simPages = {
-    overview: <OverviewPage {...ctx} />, live: <LivePage {...ctx} />, diagnostics: <DiagnosticsPage {...ctx} />,
+    overview: <OverviewPage {...ctx} />, live: <LivePage {...ctx} />, twin: <Suspense fallback={twinFallback}><SimTwinPage d={d} running={running} stale={stale} go={go} /></Suspense>, diagnostics: <DiagnosticsPage {...ctx} />,
     predictions: <PredictionsPage {...ctx} />, tests: <TestsPage {...ctx} c2c4={c2c4.data} />, interventions: <InterventionsPage {...ctx} />,
     recovery: <RecoveryPage {...ctx} />, learning: <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>,
     evaluation: (<><PageHead title="Evaluation and Research" sub="Simulation evaluation artifacts, baselines versus candidates, provenance and known limitations." />
@@ -306,6 +312,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const physPages = {
     overview: <PhysicalOverview stream={device} go={go} role={user.role} />,
     live: <PhysicalLive stream={device} />,
+    twin: <Suspense fallback={twinFallback}><PhysTwinPage stream={device} go={go} /></Suspense>,
     diagnostics: phys('C1', <DiagnosticsPage {...ctx} />),
     predictions: phys('C2', <PredictionsPage {...ctx} />),
     tests: phys('C4', <TestsPage {...ctx} c2c4={c2c4.data} />),

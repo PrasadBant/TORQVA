@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import TorqvaApp from '../torqva/TorqvaApp.jsx';
 import { setToken } from '../torqva/api.js';
@@ -261,6 +261,27 @@ describe('physical-device-first application', () => {
       const speedStatus = await screen.findByTestId('speed-status');
       expect(speedStatus).toHaveTextContent('NORMAL');
       expect(speedStatus).toHaveTextContent('1305');
+    });
+
+    it('dashboard tiles: power is DERIVED (firmware V x I), measured values are HW, and a missing reading carries no provenance badge', async () => {
+      await open({ ...CONNECTED, values: { ...CONNECTED.values, voltage: val(24.0, 'V'), power: val(2.9, 'W') } });
+      expect(within(await screen.findByTestId('tile-Motor Power')).getByText('DERIVED')).toBeInTheDocument();
+      expect(within(screen.getByTestId('tile-Current')).getByText('HW')).toBeInTheDocument();
+      cleanup();
+      await open(CONNECTED);                                                       // voltage and power invalid in this snapshot
+      const v = await screen.findByTestId('tile-DC Bus Voltage');
+      expect(v).toHaveTextContent('SENSOR FAULT');
+      expect(within(v).queryByText('DERIVED')).toBeNull(); expect(within(v).queryByText('HW')).toBeNull();
+    });
+
+    it('an invalid Hall reading while the drive is active is SPEED UNAVAILABLE, never 0 rpm or a stall', async () => {
+      expect(classifyRpm(null, true)).toBe('UNKNOWN');
+      await open({ ...CONNECTED, drive: 'CLOSED_LOOP', values: { ...CONNECTED.values, rpm: { value: null, valid: false, stale: false, origin: 'device_measurement' } } });
+      const speedStatus = await screen.findByTestId('speed-status');
+      expect(speedStatus).toHaveTextContent('SPEED UNAVAILABLE');
+      expect(speedStatus).toHaveTextContent('UNAVAILABLE');
+      expect(speedStatus).not.toHaveTextContent('CRITICAL');
+      expect(speedStatus).not.toHaveTextContent(/0rpm|0 rpm/);
     });
   });
 });

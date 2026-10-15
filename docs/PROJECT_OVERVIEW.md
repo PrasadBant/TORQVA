@@ -103,10 +103,10 @@ frontend/
   src/torqva/TorqvaApp.jsx     app shell: sign-in, mode switch, navigation, polling
   src/torqva/api.js            REST client (reads time out after 20 s; commands never do)
   src/torqva/torqva.css        design system (tokens, light/dark)
-  src/torqva/shared/           UI primitives (components.jsx), charts (charts.jsx via lazyCharts.jsx)
-  src/torqva/physical/         pages fed by the USB device stream: physical.jsx (dashboard), device.jsx (connection, motor control, commissioning)
-  src/torqva/simulation/       pages fed by the simulator API: pages.jsx (C1–C6 pages), c2c4.jsx, evaluation.jsx, lab.jsx, attestation.jsx
-  src/tests/                   Vitest suites (100 tests), incl. a layout guard
+  src/torqva/shared/           UI primitives (components.jsx), charts (charts.jsx via lazyCharts.jsx), Digital Twin workspace (twin.jsx) and rig drawing (twinModel.jsx)
+  src/torqva/physical/         pages fed by the USB device stream: physical.jsx (dashboard), device.jsx (connection, motor control, commissioning), twin.jsx (Digital Twin data, read-only)
+  src/torqva/simulation/       pages fed by the simulator API: pages.jsx (C1–C6 pages), c2c4.jsx, evaluation.jsx, lab.jsx, attestation.jsx, twin.jsx (Digital Twin data)
+  src/tests/                   Vitest suites (125 tests), incl. a layout guard
   e2e/                         browser E2E scripts
 esp32/torqva_fw/               supported firmware (platformio.ini, src/main.cpp, lib/torqva_core, tests)
 docs/
@@ -146,11 +146,12 @@ python -m platformio test -e native      # firmware host tests (uploading is alw
 
 ## 7. The website
 
-Navigation groups: **Dashboard** (Overview, Live Monitor) · **Diagnostics** (AI Diagnostics C1, Diagnostic Tests C4) · **Predictions** (Predictions C2, Interventions C3) · **Recovery and History** (Recovery C5, Learning C6, Evaluation) · **Device Setup and Commissioning** (Device, Motor Control / Safety & Commissioning, Lab, Devices & Settings).
+Navigation groups: **Dashboard** (Overview, Live Monitor, Digital Twin) · **Diagnostics** (AI Diagnostics C1, Diagnostic Tests C4) · **Predictions** (Predictions C2, Interventions C3) · **Recovery and History** (Recovery C5, Learning C6, Evaluation) · **Device Setup and Commissioning** (Device, Motor Control / Safety & Commissioning, Lab, Devices & Settings).
 
 - **Physical mode (default):** status strip (connection, sensors, safety, motion), live measurement tiles, motor control panel (STOP always prominent; START/speed locked by named blockers), speed status with alarm, device history charts. AI pages show the honest waiting state.
 - **Simulation mode (demo):** start a scenario with an injected fault (severity, optional human approval), run/pause, and watch the full C1→C6 pipeline: anomaly scores, hypotheses, gate decisions, predictions, diagnostic tests, approvals, device acknowledgements, recovery verdicts. Everything is labelled SIMULATION.
 - Evaluation shows the committed simulation evaluation runs, always labelled as simulation evidence.
+- **Digital Twin:** an illustrative (not CAD-accurate) 2.5D drawing of the rig with a selectable hotspot per part (Hall speed, DS18B20, INA219, ADXL345, BTS7960, ESP32-S3), a detail panel with each reading's value, provenance (SIM / HW / DERIVED / CMD), freshness and trend, and the key readings. It shows only what the simulator API or the device stream reports (missing = UNAVAILABLE, never 0), animates the shaft only from a valid, current, non-zero speed (at 1/40 rate, presentation only), and sends no commands. Loaded on demand.
 - Responsive (desktop to phone, drawer navigation below 860 px), light and dark themes, collapsible sidebar.
 
 ---

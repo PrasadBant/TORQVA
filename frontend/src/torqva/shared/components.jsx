@@ -65,6 +65,7 @@ const PROV = {
   PREDICTED: { cls: 'pred', text: 'PRED', title: 'Model prediction, not a measurement' },
   MEASURED: { cls: 'real', text: 'HW', title: 'Measured on hardware' },
   DERIVED: { cls: 'derived', text: 'DERIVED', title: 'Computed from measured/simulated values' },
+  COMMAND: { cls: 'derived', text: 'CMD', title: 'Commanded value reported by the device, not a measurement' },
   HUMAN_CONFIRMED: { cls: 'human', text: 'HUMAN', title: 'Confirmed by a person' },
 };
 export function ProvBadge({ kind = 'SIMULATED' }) {

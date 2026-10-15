@@ -15,8 +15,10 @@ const isLive = (snap) => !!(snap?.handshake && snap?.origin === 'physical_device
 //   NORMAL   : 1100 – 1500 rpm (~1300 rpm nominal)                  → optimal, silence
 //   WARNING  : 700–1099 rpm or 1501–1900 rpm                        → 1 beep every 3 s
 //   CRITICAL : < 700 rpm (stall/overload) or > 1900 rpm (overspeed) → 3 rapid beeps every 1.5 s
+//   UNKNOWN  : the drive is active but the Hall reading is invalid or missing → the speed is unknown, never 0 (1 beep every 3 s)
 export function classifyRpm(rpm, isRunning) {
-  if (!isRunning || rpm == null) return 'IDLE';
+  if (!isRunning) return 'IDLE';
+  if (rpm === null || rpm === undefined || !Number.isFinite(Number(rpm))) return 'UNKNOWN';
   const r = Number(rpm);
   if (r >= 1100 && r <= 1500) return 'NORMAL';
   if ((r >= 700 && r < 1100) || (r > 1500 && r <= 1900)) return 'WARNING';
@@ -28,6 +30,7 @@ export const ZONE_META = {
   NORMAL:   { label: 'NORMAL',   color: 'var(--tq-ok)',    desc: 'Speed in optimal range (~1300 rpm nominal: 1100–1500 rpm)' },
   WARNING:  { label: 'WARNING',  color: 'var(--tq-warn)',  desc: 'Speed deviating from 1300 rpm normal range (700–1099 or 1501–1900 rpm)' },
   CRITICAL: { label: 'CRITICAL', color: 'var(--tq-crit)',  desc: 'Speed critically out of range (<700 rpm stall or >1900 rpm overspeed)' },
+  UNKNOWN:  { label: 'SPEED UNAVAILABLE', color: 'var(--tq-warn)', desc: 'The drive is active but the Hall speed reading is invalid or missing: the speed is unknown, not zero' },
 };
 
 // ── Web Audio beeper ─────────────────────────────────────────────────────────
@@ -73,11 +76,11 @@ function useAlarm(zone) {
       }
     };
 
-    if (zone === 'WARNING') {
+    if (zone === 'WARNING' || zone === 'UNKNOWN') {
       clear();
       // Single warning beep every 3 seconds (660 Hz)
       timerRef.current = setInterval(() => {
-        if (zoneRef.current !== 'WARNING') { clear(); return; }
+        if (zoneRef.current !== zone) { clear(); return; }
         playBeep(getCtx(), 660, 160, 0.15);
       }, 3000);
     } else if (zone === 'CRITICAL') {
@@ -103,13 +106,13 @@ export function SpeedStatus({ rpm, isRunning, muted, onToggleMute }) {
   const zone = classifyRpm(rpm, isRunning);
   useAlarm(muted ? 'IDLE' : zone);
   const meta = ZONE_META[zone];
-  const r = Number(rpm ?? 0);
+  const known = zone !== 'UNKNOWN' && rpm !== null && rpm !== undefined;
 
   return (
     <div data-testid="speed-status" role="status" aria-live="polite" className={`tq-speed tq-speed--${zone}`}>
       <span className="tq-speed-dot" aria-hidden="true" />
       <strong className="tq-speed-zone">{meta.label}</strong>
-      <span className="tq-speed-rpm tq-num">{r.toFixed(0)}<small>rpm</small></span>
+      <span className="tq-speed-rpm tq-num">{known ? <>{Number(rpm).toFixed(0)}<small>rpm</small></> : 'UNAVAILABLE'}</span>
       <span className="tq-speed-desc">{meta.desc}</span>
       <span className="tq-speed-bands">{'Normal 1100–1500 · Warn 700–1099/1501–1900 · Crit <700/>1900'}</span>
       <button type="button" className="tq-btn tq-ghost" onClick={onToggleMute} aria-pressed={muted} title={muted ? 'Unmute alarms' : 'Mute alarms'}>
@@ -295,7 +298,7 @@ function Tile({ label, unit, d, v, sensorKey }) {
     <div className={`tq-kpi ${has ? '' : 'tq-unavailable'}`} data-testid={`tile-${label}`}>
       <div className="tq-kpi-label">
         <span className="tq-kpi-head"><span className="tq-kpi-icon" aria-hidden="true"><I size={15} /></span><span>{label}</span></span>
-        <ProvBadge kind={has ? 'MEASURED' : 'DERIVED'} />
+        {has && <ProvBadge kind={sensorKey === 'power' ? 'DERIVED' : 'MEASURED'} />}{/* power is computed by the firmware from V x I; a missing reading has no provenance */}
       </div>
       <div className={`tq-kpi-value tq-num ${has ? '' : 'tq-na'}`}>
         {has ? `${fmt(v.value, d)} ` : faultLabel}
@@ -544,7 +547,7 @@ export function PhysicalOverview({ stream, go, role }) {
   if (!snap) return <><PageHead title="Motor" /><Empty loading>Loading device state…</Empty></>;
   const live = isLive(snap);
   const vals = snap.values || {};
-  const rpm = live ? (vals.rpm?.valid ? vals.rpm.value : 0) : null;
+  const rpm = live && vals.rpm?.valid && Number.isFinite(vals.rpm.value) ? vals.rpm.value : null;   // an invalid reading is unknown, never 0
   const isRunning = live && (snap.drive !== 'IDLE' || Number(rpm) > 50);
 
   return (

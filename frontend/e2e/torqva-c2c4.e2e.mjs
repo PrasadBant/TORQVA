@@ -22,6 +22,7 @@ const variant = st.models?.c2_variant;
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+await page.addInitScript(() => { try { localStorage.setItem('torqva.mode', 'SIMULATION'); } catch { /* storage unavailable */ } });   // the app opens in physical mode by default
 const consoleMsgs = [], bad = [];
 page.on('console', (m) => { if (['error', 'warning'].includes(m.type())) consoleMsgs.push(`${m.type()}: ${m.text()}`); });
 page.on('pageerror', (e) => consoleMsgs.push('pageerror: ' + e.message));
@@ -86,6 +87,7 @@ for (const w of [1024, 768, 390]) {
   check(`no horizontal overflow at ${w}px (evaluation view)`, o <= 1, `(overflow ${o}px)`);
 }
 await page.setViewportSize({ width: 390, height: 900 });
+await page.click('[data-testid=nav-toggle]');                     // at phone width the navigation is a drawer
 await page.click('nav button:has-text("Predictions")'); await page.waitForTimeout(400);
 check('no horizontal overflow at 390px (decisions view)', (await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)) <= 1);
 await shot('43-c2c4-decisions-390');
