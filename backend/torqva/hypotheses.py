@@ -83,7 +83,7 @@ class HypothesisModel:
             Z = np.clip(Z, -30, 30)
             self.mu[h] = Z.mean(axis=0)
             self.var[h] = Z.var(axis=0) + 1.0        # +1: floor at unit (healthy) variance
-            lls = np.array([self._loglik(h, z) for z in Z])
+            lls = self._logliks(h, Z)
             # 1st percentile of per-window log-likelihood on the training evidence, minus slack: below this = unfamiliar
             self.ood_thr[h] = float(np.percentile(lls, 1) - self.ood_slack)
         if priors:
@@ -99,17 +99,27 @@ class HypothesisModel:
         return self.version
 
     def _loglik(self, h: Hypothesis, z: np.ndarray) -> float:
-        z = np.clip(z, -30, 30)
+        return float(self._logliks(h, np.asarray(z)[None, :])[0])
+
+    def _logliks(self, h: Hypothesis, Z: np.ndarray) -> np.ndarray:
+        """Per-window log-likelihood of each row of Z under h (one numpy pass instead of one call per window)."""
+        Z = np.clip(Z, -30, 30)
         mu, var = self.mu[h], self.var[h]
-        return float(-0.5 * np.sum((z - mu) ** 2 / var + np.log(var)))
+        return -0.5 * np.sum((Z - mu) ** 2 / var + np.log(var), axis=1)
+
+    def _mean_loglik(self, zs: Sequence[np.ndarray], hs: List[Hypothesis]) -> np.ndarray:
+        Z = np.vstack(zs)
+        return np.array([np.mean(self._logliks(h, Z)) for h in hs])                # mean per window
 
     def posterior(self, zs: Sequence[np.ndarray], prior: Optional[Dict[Hypothesis, float]] = None) -> Posterior:
         hs = [h for h in HYPS if h in self.mu]
-        pr = prior or self.prior
         if not zs or not hs:
             return Posterior({h: 1.0 / len(HYPS) for h in HYPS}, 0)
-        ll = np.array([np.mean([self._loglik(h, z) for z in zs]) for h in hs])     # mean per window
-        n_eff = min(len(zs), self.max_eff)                                         # cap evidence from correlated windows
+        return self._posterior(self._mean_loglik(zs, hs), hs, len(zs), prior)
+
+    def _posterior(self, ll: np.ndarray, hs: List[Hypothesis], n: int, prior: Optional[Dict[Hypothesis, float]] = None) -> Posterior:
+        pr = prior or self.prior
+        n_eff = min(n, self.max_eff)                                               # cap evidence from correlated windows
         logp = np.log(np.array([max(pr[h], 1e-9) for h in hs])) + n_eff * ll / self.temp
         logp -= logp.max()
         p = np.exp(logp)
@@ -118,16 +128,19 @@ class HypothesisModel:
         probs.update({h: float(pi) for h, pi in zip(hs, p)})
         top = hs[int(np.argmax(ll))]
         ood = bool(self.use_ood and top in self.ood_thr and ll.max() < self.ood_thr[top])
-        return Posterior(probs, len(zs), ood)
+        return Posterior(probs, n, ood)
 
 
 def calibrate_temperature(model: HypothesisModel, cases: Sequence[tuple], grid=(1, 2, 4, 8, 16, 32, 64, 128, 256)) -> Dict[str, float]:
     """Pick the likelihood temperature that minimises negative log-likelihood of the TRUE class on a VALIDATION set
     (cases = [(list_of_z_vectors, true_hypothesis)]). Validation must be disjoint from both training and test."""
     best, rows = None, {}
+    hs = [h for h in HYPS if h in model.mu]
+    lls = [model._mean_loglik(zs, hs) if len(zs) and hs else None for zs, _ in cases]    # the likelihoods do not depend on T: compute them once
+    post = lambda zs, ll: model.posterior(zs) if ll is None else model._posterior(ll, hs, len(zs))
     for T in grid:
         model.temp = float(T)
-        nll = float(np.mean([-np.log(max(model.posterior(zs).probs[h], 1e-9)) for zs, h in cases]))
+        nll = float(np.mean([-np.log(max(post(zs, ll).probs[h], 1e-9)) for (zs, h), ll in zip(cases, lls)]))
         rows[float(T)] = nll
         if best is None or nll < best[1] - 1e-12:
             best = (float(T), nll)

@@ -7,6 +7,7 @@ mixed with measured results.
 from __future__ import annotations
 
 import copy
+import math
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -187,7 +188,7 @@ class MotorSim:
         if self.vib_gain != 1.0:
             v1, v2, v3, vhf = (x * self.vib_gain for x in (v1, v2, v3, vhf))
         floor = abs(rng.randn()) * p.noise_abs * rg.noise_mult
-        rms = float(np.sqrt(v1 * v1 + v2 * v2 + v3 * v3 + vhf * vhf + floor * floor))
+        rms = math.sqrt(v1 * v1 + v2 * v2 + v3 * v3 + vhf * vhf + floor * floor)
 
         rpm_meas, valid = r, True
         if s_sens > 0:
@@ -197,17 +198,17 @@ class MotorSim:
                 v2 = v2 + s_sens * 1.2e-4 * 1500.0 * (0.6 + 0.8 * rng.rand())
                 v3 = v3 + s_sens * 0.8e-4 * 1500.0 * (0.6 + 0.8 * rng.rand())
                 vhf = vhf + 0.020 * s_sens
-                rms = float(np.sqrt(v1 * v1 + v2 * v2 + v3 * v3 + vhf * vhf + floor * floor))
+                rms = math.sqrt(v1 * v1 + v2 * v2 + v3 * v3 + vhf * vhf + floor * floor)
             elif mode == "intermittent":
                 if rng.rand() < 0.4:                              # burst of garbage, otherwise looks healthy
                     v1 = v2 = v3 = (0.05 + abs(rng.randn()) * 0.05) * (0.5 + s_sens)
                     vhf = 0.03
-                    rms = float(np.sqrt(v1 * v1 * 3 + vhf * vhf))
+                    rms = math.sqrt(v1 * v1 * 3 + vhf * vhf)
             else:
                 # stuck: vibration channel stops tracking speed (stuck + noise)
                 v1 = v2 = v3 = 0.05 * s_sens + abs(rng.randn()) * 0.01
                 vhf = 0.02
-                rms = float(np.sqrt(v1 * v1 * 3 + vhf * vhf))
+                rms = math.sqrt(v1 * v1 * 3 + vhf * vhf)
         nm = rg.noise_mult
         return Window(self.t, rpm_meas + rng.randn() * 2.0 * nm if r > 0 else 0.0, self.setpoint, self.driven,
                       duty + rng.randn() * 0.2 * nm if self.driven else 0.0,
@@ -215,8 +216,8 @@ class MotorSim:
                       volt * cur, self.housing + rng.randn() * 0.03 * nm, self.ambient_c, rms, v1, v2, v3, vhf, valid)
 
     def _noisy(self, x: float) -> float:
-        m = self.regime.noise_mult
-        return max(0.0, x * (1.0 + self.p.noise_rel * m * self.rng.randn()) + 0.2 * self.p.noise_abs * m * self.rng.randn() * (x > 0))
+        m, randn = self.regime.noise_mult, self.rng.randn
+        return max(0.0, x * (1.0 + self.p.noise_rel * m * randn()) + 0.2 * self.p.noise_abs * m * randn() * (x > 0))
 
     def run(self, seconds: int) -> List[Window]:
         return [self.step(1.0) for _ in range(int(seconds))]

@@ -45,6 +45,7 @@ def shutdown_torqva_bridge(reason: str = "backend shutdown") -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _torqva_service.warm_up()                # simulation models only; touches no device
     yield
     shutdown_torqva_bridge()
 

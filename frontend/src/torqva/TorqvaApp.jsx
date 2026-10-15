@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Activity, Gauge, ListChecks, Microscope, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap, Usb, SlidersHorizontal, Sun, Moon, ClipboardCheck, Menu, KeyRound, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { api, setToken, getToken, ApiError } from './api.js';
 import { SimulationBanner, Pill, Logo, NavContext, PageHead } from './shared/components.jsx';
@@ -138,6 +138,25 @@ function Login({ onLogin, error, theme }) {
   );
 }
 
+// Whether the last good poll is older than `limitMs`. Computed during render, plus one timer that re-renders exactly when the data
+// goes stale, so the app is not re-rendered every second just to watch the clock.
+function useStale(lastOk, offline, limitMs) {
+  const [, expire] = useReducer((n) => n + 1, 0);
+  useEffect(() => {
+    if (lastOk === null) return undefined;
+    const id = setTimeout(expire, Math.max(0, lastOk + limitMs - Date.now()) + 1);
+    return () => clearTimeout(id);
+  }, [lastOk, limitMs]);
+  return offline || (lastOk !== null && Date.now() - lastOk > limitMs);
+}
+
+// "N s ago": only this text ticks every second, and only while the stale warning is shown.
+function SecondsAgo({ since }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
+  return Math.round((now - since) / 1000);
+}
+
 export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory }) {
   const [user, setUser] = useState(null);
   const [loginError, setLoginError] = useState('');
@@ -178,7 +197,6 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const [busy, setBusy] = useState(false);
   const [lastOk, setLastOk] = useState(null);
   const [offline, setOffline] = useState(false);
-  const [now, setNow] = useState(Date.now());
   const [evalState, setEvalState] = useState({ run: null, error: null });
   const [c2c4, setC2c4] = useState({ data: null, error: null });
   const [audit, setAudit] = useState({ rows: [], error: null });
@@ -197,7 +215,6 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   }, []);
 
   useEffect(() => { alive.current = true; const t = getToken() || DEV_TOKEN; if (t) { if (!getToken()) devLogin.current = true; onLogin(t); } return () => { alive.current = false; }; }, [onLogin]);
-  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
   useEffect(() => { if (user) prefetchCharts(); }, [user]);          // fetch the chart code in the background once signed in
 
   const reqSeq = useRef(0);               // responses can arrive out of order: only the newest request may update the screen
@@ -261,10 +278,10 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     approve: act(() => api.approve()), reject: act(() => api.reject()), stop: act(() => api.stop()),
   };
 
+  const stale = useStale(lastOk, offline, Math.max(8000, pollMs * 4));
   if (!user) return <Login onLogin={onLogin} error={loginError} theme={theme === 'light' ? 'light' : 'dark'} />;
   const mode = physicalMode ? 'PHYSICAL' : (d.status?.mode || 'SIMULATION');
   const dev = d.status?.device;
-  const stale = offline || (lastOk !== null && now - lastOk > Math.max(8000, pollMs * 4));
   const ctx = { d, role: user.role, user, actions, running, setRunning, busy, error, stale, go, ctl: canStart(user.role), device, physicalMode, isPhys, deviceCard: <DeviceCard stream={device} go={go} />, deviceLive: <DeviceLive stream={device} /> };
   const simPages = {
     overview: <OverviewPage {...ctx} />, live: <LivePage {...ctx} />, diagnostics: <DiagnosticsPage {...ctx} />,
@@ -337,7 +354,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
                 <span>Device readings shown are the last ones received and are not live. Start the backend and this page recovers automatically.</span></div>)}
             {stale && !physicalMode && (
               <div className="tq-conn" role="alert" data-testid="conn-warning"><WifiOff size={16} aria-hidden="true" /><strong>Backend unreachable.</strong>
-                <span>Values shown are STALE{lastOk ? ` (last updated ${Math.round((now - lastOk) / 1000)} s ago)` : ''} and are not live. Start the backend and this page recovers automatically.</span></div>)}
+                <span>Values shown are STALE{lastOk ? <> (last updated <SecondsAgo since={lastOk} /> s ago)</> : ''} and are not live. Start the backend and this page recovers automatically.</span></div>)}
             <header className="tq-top">
               <button type="button" className="tq-iconbtn tq-menu-btn" data-testid="nav-toggle" aria-label="Open navigation" aria-expanded={navOpen} aria-controls="tq-nav" onClick={() => setNavOpen(true)}>
                 <Menu size={18} aria-hidden="true" /></button>

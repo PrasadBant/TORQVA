@@ -49,11 +49,19 @@ class SimulationService:
         # Serialises every state change and every read of the live orchestrator (HTTP handlers run in a thread pool). The lock is taken per simulated
         # second inside step(), never for a whole multi-second step, so a STOP is never queued behind a long run.
         self.lock = threading.RLock()
+        self._models_lock = threading.Lock()   # separate from `lock`: a model build (~2 s) never delays a STOP or a state read
 
     def _ensure_models(self):
-        if self._models is None:
-            self._models = build_models(self.c2_variant)
-        return self._models
+        with self._models_lock:                # concurrent first requests build the models once, not once each
+            if self._models is None:
+                self._models = build_models(self.c2_variant)
+            return self._models
+
+    def warm_up(self) -> threading.Thread:
+        """Build the simulation models in the background so the first simulation start does not wait for them."""
+        t = threading.Thread(target=self._ensure_models, name="torqva-model-warmup", daemon=True)
+        t.start()
+        return t
 
     # ---------------- lifecycle ----------------
     def start(self, fault: Optional[str], severity: float, clears_below_rpm: Optional[float], seed: int,
