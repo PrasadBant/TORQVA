@@ -1,8 +1,11 @@
 // Illustrative 2.5D drawing of the TORQVA rig (RS-775 motor, BTS7960 driver, INA219, ADXL345, DS18B20, A3144 Hall sensor, ESP32-S3 with SH1106 OLED).
 // Parts come from esp32/torqva_fw/lib/torqva_core/pinmap.h and docs/hardware.md. It is NOT a CAD model: proportions, sensor positions and wiring
 // are drawn for readability and none of them is verified. Presentation only: nothing here reads, computes or sends anything.
+// It is the fallback view when WebGL 2 is unavailable or the 3D renderer fails, and the view the user can choose instead of the 3D model.
 import React, { useEffect, useRef, useState } from 'react';
+import { SPIN_SCALE } from './twinParts.js';
 
+export { SPIN_SCALE };
 export const VIEW = [0, 0, 1000, 560];
 
 /** Where each selectable part sits in the drawing: hotspot centre and its callout box. */
@@ -16,8 +19,7 @@ export const PARTS = {
 };
 const LABEL_W = 150, LABEL_H = 44;
 
-// Animation speed is the reported speed divided by this factor, so a 1500 rpm shaft turns once every 1.6 s instead of 25 times a second.
-export const SPIN_SCALE = 40;
+// The animation turns at the reported speed divided by SPIN_SCALE (twinParts.js), so a 1500 rpm shaft turns once every 1.6 s.
 export const spinPeriod = (rpm) => Math.min(12, Math.max(0.6, (60 / rpm) * SPIN_SCALE));
 
 const reducedMotion = () => { try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };

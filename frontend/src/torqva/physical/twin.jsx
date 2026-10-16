@@ -12,6 +12,15 @@ const title = (s) => String(s ?? '').replaceAll('_', ' ');
 const ago = (unix) => (unix ? `${fmt(Math.max(0, Date.now() / 1000 - unix), 1)} s ago` : 'never');
 // Signals the backend keeps history for (serial_bridge.history_series); anything else has no trend.
 const HISTORY = new Set(['rpm', 'current', 'voltage', 'power', 'duty', 'housing', 'acceleration']);
+// Firmware trip reasons (torqva_core/safety.h TripReason) and the component whose reading or state the firmware tripped on. EXTERNAL_ESTOP and
+// SENSOR_INVALID name no single drawn part (the latter shows up as the invalid reading itself).
+const TRIP_PART = {
+  OVER_CURRENT_SUSTAINED: ['ina', 'the INA219 current reading'], OVER_CURRENT_INSTANT: ['ina', 'the INA219 current reading'],
+  VOLTAGE_LOW: ['ina', 'the INA219 bus-voltage reading'], VOLTAGE_HIGH: ['ina', 'the INA219 bus-voltage reading'],
+  TEMP_STOP: ['temp', 'the housing temperature'], TEMP_RISE: ['temp', 'the housing temperature rise'], VIBRATION: ['accel', 'the accelerometer reading'],
+  RPM_LOSS: ['hall', 'the measured speed'], HEARTBEAT_LOST: ['controller', 'the missing host heartbeat'], RESET_FAULT: ['controller', 'a controller restart'],
+  OUTPUT_INIT_FAULT: ['driver', 'the motor-driver output stage'],
+};
 
 /** Pure mapping, exported for tests. */
 export function physTwin(snap, { unreachable = false } = {}) {
@@ -97,10 +106,21 @@ export function physTwin(snap, { unreachable = false } = {}) {
     ['Last frame', ago(snap.last_rx_unix)],
     ['Wiring', 'Intended pin map only (pinmap.h); not verified on the real rig'],
   ];
+  // Component-level evidence only, and only while the device state is known: a reading the device itself marked invalid, and a latched safety trip
+  // attributed to the reading it tripped on. Neither is a diagnosis of the part.
+  const alerts = [];
+  if (handshake && !unreachable) {
+    for (const p of parts) for (const r of p.readings) if (r.status === 'invalid') alerts.push({ part: p.id, tone: 'crit', kind: 'observation', label: `${r.label}: invalid`,
+      detail: 'The device marked this reading invalid. The sensor, its wiring or its interface may be at fault; this is not a diagnosis.' });
+    const trip = snap.safety_state === 'EMERGENCY_STOP' ? TRIP_PART[snap.trip_reason] : null;
+    if (trip) alerts.push({ part: trip[0], tone: 'stop', kind: 'trip', label: `Safety trip latched: ${title(snap.trip_reason)}`,
+      detail: `The firmware latched this trip from ${trip[1]}. It records what tripped, not which part failed.` });
+  }
   return {
     source: 'PHYSICAL', loading: false, state, clock: null,
     connection: unreachable ? { tone: 'crit', label: 'backend unreachable' } : !handshake ? { tone: 'off', label: 'hardware not connected' } : fresh ? { tone: 'ok', label: 'telemetry live' } : { tone: 'warn', label: 'telemetry stale' },
-    updated: handshake ? ago(snap.last_rx_unix) : 'never', motion, parts, findings, facts,
+    freshness: !handshake ? 'none' : fresh ? 'live' : 'stale',
+    updated: handshake ? ago(snap.last_rx_unix) : 'never', motion, parts, findings, facts, alerts,
     kpis: [['hall', 'rpm'], ['temp', 'housing'], ['ina', 'voltage'], ['ina', 'current'], ['ina', 'power'], ['accel', 'acceleration'], ['driver', 'duty']],
   };
 }

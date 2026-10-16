@@ -8,6 +8,11 @@ import { Empty, fmt, stateTone } from '../shared/components.jsx';
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 const title = (s) => String(s ?? '').replaceAll('_', ' ');
+// The simulated device's e-stop reasons (simdevice._check_safety) and the sensor whose simulated reading tripped it.
+const SIM_TRIP_PART = { TEMP_STOP: 'temp', OVER_CURRENT_INSTANT: 'ina', VOLTAGE: 'ina', HEARTBEAT_LOST: 'controller' };
+// Where the simulator applies each injectable fault (sim.py): the component the scenario's ground truth refers to.
+const FAULT_PART = { imbalance: ['shaft', 'mass imbalance on the rotating disc'], looseness: ['base', 'loose mounting'], overload: ['shaft', 'extra load on the output'],
+  cooling_failure: ['motor', 'reduced cooling of the motor'], supply_voltage: ['psu', 'a supply-voltage fault'], sensor_fault: ['accel', 'noise on the vibration channels'] };
 
 /** Pure mapping, exported for tests. `running` = the browser is auto-advancing simulation time; `stale` = the backend stopped answering. */
 export function simTwin(d, { running = false, stale = false } = {}) {
@@ -81,19 +86,32 @@ export function simTwin(d, { running = false, stale = false } = {}) {
     ['Telemetry window', `${samples.length} sample(s), 1 per simulated second`],
   ];
 
+  // Component-level evidence only: a simulated trip names the sensor whose reading tripped it, and the scenario's injected fault is ground truth
+  // the simulation itself defines. An invalid window is system-wide, so it marks no single part. Nothing is inferred from scores or hypotheses.
+  const alerts = [];
+  if (hasRun && !stale) {
+    const reason = st.device?.estop ? st.device.estop_reason : null;
+    if (reason && SIM_TRIP_PART[reason]) alerts.push({ part: SIM_TRIP_PART[reason], tone: 'stop', kind: 'trip', label: `Simulated safety trip: ${title(reason)}`,
+      detail: 'The simulated device latched this stop from this sensor\'s simulated reading. It records what tripped, not which part failed.' });
+    const fp = sc.fault && FAULT_PART[sc.fault];
+    if (fp && finite(st.t) && finite(sc.inject_after_s) && st.t >= sc.inject_after_s) alerts.push({ part: fp[0], tone: 'sim', kind: 'truth', label: `Injected fault: ${title(sc.fault)}`,
+      detail: `The scenario injects ${fp[1]} at severity ${fmt(sc.severity, 2)} from t = ${sc.inject_after_s} s${sc.clears_below_rpm ? ` (the simulator clears it below ${sc.clears_below_rpm} rpm)` : ''}. Shown because this is a simulation; TORQVA did not detect or diagnose it.` });
+  }
+
   return {
     source: 'SIMULATION', loading: false, state,
     clock: !hasRun ? { tone: 'off', label: 'not started' } : running ? { tone: 'ok', label: 'advancing' } : { tone: 'wait', label: 'paused' },
     connection: stale ? { tone: 'crit', label: 'backend unreachable' } : { tone: 'ok', label: 'backend connected' },
+    freshness: stale ? (hasRun && w ? 'stale' : 'none') : hasRun && w ? 'live' : 'none',
     updated: stale ? `${when} (stale)` : when,
-    motion, parts, findings, facts,
+    motion, parts, findings, facts, alerts,
     kpis: [['hall', 'rpm'], ['temp', 'housing'], ['ina', 'voltage'], ['ina', 'current'], ['ina', 'power'], ['accel', 'vib_rms'], ['driver', 'duty']],
   };
 }
 
 function noData(label, detail) {
-  return { loading: false, state: { tone: 'crit', label: label.toUpperCase(), detail }, clock: null, connection: { tone: 'crit', label: 'backend unreachable' }, updated: 'never',
-    motion: { spinning: false, rpm: null, note: 'The shaft is still because there is no data.' }, parts: [], findings: [], facts: [], kpis: [] };
+  return { loading: false, state: { tone: 'crit', label: label.toUpperCase(), detail }, clock: null, connection: { tone: 'crit', label: 'backend unreachable' }, freshness: 'none', updated: 'never',
+    motion: { spinning: false, rpm: null, note: 'The shaft is still because there is no data.' }, parts: [], findings: [], facts: [], kpis: [], alerts: [] };
 }
 
 const SERIES = { rpm: [['rpm', 'Speed (rpm)', 'var(--tq-chart-1)'], ['setpoint', 'Setpoint (rpm)', 'var(--tq-chart-ink)', '4 3']],

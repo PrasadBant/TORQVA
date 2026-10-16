@@ -19,7 +19,7 @@ Start the frontend with `npm run dev -- --host 127.0.0.1` (the scripts use 127.0
 
     TORQVA_TOKEN=<operator token> node e2e/torqva-c2c4.e2e.mjs
 
-`torqva-twin.e2e.mjs` drives the Digital Twin: physical mode with no board (everything UNAVAILABLE, nothing animated, no writes), then a simulation started from the Live Monitor: the shaft animates only while simulation time advances, selection by click and keyboard, the trend chart, the light theme and 1024/768/390 px layouts. Run it against `npm run dev:sim`, then `node e2e/torqva-twin.e2e.mjs`.
+`torqva-twin.e2e.mjs` drives the Digital Twin: physical mode with no board (everything UNAVAILABLE, nothing animated, no writes), then a simulation started from the Live Monitor: the shaft animates only while simulation time advances, selection by click and keyboard, the trend chart, the light theme and 1024/768/390 px layouts. For the 3D viewport (WebGL 2) it checks that the canvas really draws, renders only on demand, orbit, Ctrl + scroll zoom (plain scrolling still scrolls the page), the view presets and orthographic projection, picking a part in the scene, isolate, explode, section, recovery from a lost graphics context, the switch to the 2D drawing, no WebGL context or GPU geometry leak over six remounts, and no Three.js warnings (44 checks). Run it against `npm run dev:sim`, then `node e2e/torqva-twin.e2e.mjs`. `playwright-core` is not a project dependency: install it with `npm install --no-save playwright-core` (a later plain `npm install` removes it again).
 
 The app opens in physical mode, so `torqva-lab`, `torqva-c2c4` and `torqva-attestation` set the remembered mode to simulation before loading the page.
 
