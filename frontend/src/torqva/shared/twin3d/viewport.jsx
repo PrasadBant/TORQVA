@@ -2,13 +2,19 @@
 // the browser has WebGL 2. Presentation only: it receives the already-mapped parts (values, provenance, tones, evidence alerts) and the reported
 // motion, and it never fetches, computes a reading or sends a command. Markers and callouts are real DOM buttons, so every part stays reachable by
 // keyboard and screen reader; their positions are written straight to the DOM on each rendered frame (no React render per frame).
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { RotateCcw, Maximize, Tag, MapPin, Gauge, Scissors, Focus, Expand, Layers, PenTool, AlertTriangle, Box } from 'lucide-react';
 import { TwinEngine, PRESETS } from './engine.js';
 import { layoutCallouts } from './overlay.js';
 import { ProvBadge } from '../components.jsx';
 
 const CARD_W = 170, CARD_H = 50;
+/** Write an overlay element's visibility and position only when they change (no style work for a still camera or an unchanged value). */
+function put(el, visible, transform) {
+  if (!el) return;
+  if (el._vis !== visible) { el._vis = visible; el.style.visibility = visible ? 'visible' : 'hidden'; }
+  if (visible && transform && el._tf !== transform) { el._tf = transform; el.style.transform = transform; }
+}
 
 function readTheme(el) {
   const cs = getComputedStyle(el);
@@ -57,13 +63,12 @@ export default function TwinViewport({ items, selected, onSelect, motion, freshn
     for (const p of order) {
       const el = markerRefs.current[p.id];
       if (!el) continue;
-      el.style.visibility = p.inView ? 'visible' : 'hidden';
-      el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
-      el.classList.toggle('is-back', p.back);
+      put(el, p.inView, `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0)`);
+      if (el._back !== p.back) { el._back = p.back; el.toggleAttribute('data-back', p.back); }      // data attributes: React's className updates leave them alone
       if (o.labels && p.inView) {
         const r = { x0: p.x - 12, y0: p.y - 12, x1: p.x + 30 + (itemsRef.current[p.id]?.short.length || 8) * 6.6, y1: p.y + 12 };
         const clash = taken.some((t) => r.x0 < t.x1 && r.x1 > t.x0 && r.y0 < t.y1 && r.y1 > t.y0);
-        el.classList.toggle('no-label', clash);
+        if (el._clash !== clash) { el._clash = clash; el.toggleAttribute('data-nolabel', clash); }
         if (!clash) taken.push(r);
       }
     }
@@ -71,23 +76,25 @@ export default function TwinViewport({ items, selected, onSelect, motion, freshn
     const placed = new Set(cards.map((c) => c.id));
     for (const c of cards) {
       const el = cardRefs.current[c.id], ln = lineRefs.current[c.id];
-      if (el) { el.style.visibility = 'visible'; el.style.transform = `translate(${c.x.toFixed(1)}px, ${c.y.toFixed(1)}px)`; }
-      if (ln) { const ex = c.side === 'left' ? c.x + CARD_W : c.x; ln.setAttribute('d', `M${ex.toFixed(1)},${(c.y + CARD_H / 2).toFixed(1)} L${c.ax.toFixed(1)},${c.ay.toFixed(1)}`); ln.style.visibility = 'visible'; }
+      if (el) put(el, true, `translate3d(${c.x.toFixed(1)}px, ${c.y.toFixed(1)}px, 0)`);
+      if (ln) { const ex = c.side === 'left' ? c.x + CARD_W : c.x; const d = `M${ex.toFixed(1)},${(c.y + CARD_H / 2).toFixed(1)} L${c.ax.toFixed(1)},${c.ay.toFixed(1)}`; if (ln._d !== d) { ln._d = d; ln.setAttribute('d', d); } put(ln, true); }
     }
-    for (const id of Object.keys(cardRefs.current)) if (!placed.has(id)) { const el = cardRefs.current[id]; if (el) el.style.visibility = 'hidden'; const ln = lineRefs.current[id]; if (ln) ln.style.visibility = 'hidden'; }
+    for (const id of Object.keys(cardRefs.current)) if (!placed.has(id)) { put(cardRefs.current[id], false); put(lineRefs.current[id], false); }
   }, []);
 
+  // renderer statistics as data attributes (read by the browser tests); only changed values are written
   const onCamera = useCallback((info) => {
     const el = wrapRef.current;
     if (!el) return;
-    el.dataset.camera = `${info.az},${info.polar},${info.dist},${info.zoom}`;
-    el.dataset.projection = info.ortho ? 'orthographic' : 'perspective';
-    el.dataset.frames = String(info.frames); el.dataset.calls = String(info.calls); el.dataset.geometries = String(info.geometries);
+    const next = { camera: `${info.az},${info.polar},${info.dist},${info.zoom}`, projection: info.ortho ? 'orthographic' : 'perspective', frames: info.frames,
+      calls: info.calls, triangles: info.triangles, geometries: info.geometries, textures: info.textures, programs: info.programs, pixelRatio: info.ratio };
+    for (const [k, v] of Object.entries(next)) { const t = String(v); if (el.dataset[k] !== t) el.dataset[k] = t; }
   }, []);
 
   // engine lifecycle: one renderer per mounted viewport, fully disposed on unmount. After a lost graphics context comes back, a fresh engine on a new
-  // canvas replaces the old one and continues from its camera, selection and view options.
-  useEffect(() => {
+  // canvas replaces the old one and continues from its camera, selection and view options. A layout effect, so the teardown runs while the canvas
+  // is still in the document (React detaches the DOM before passive-effect cleanups run).
+  useLayoutEffect(() => {
     let engine;
     try {
       engine = new TwinEngine({
@@ -118,8 +125,9 @@ export default function TwinViewport({ items, selected, onSelect, motion, freshn
   useEffect(() => { engineRef.current?.setMotion(motion.spinning, motion.rpm); }, [motion.spinning, motion.rpm]);
   const alertKey = alerts.map((a) => `${a.part}:${a.tone}`).join('|');
   useEffect(() => { engineRef.current?.setStates(null, Object.fromEntries(alerts.map((a) => [a.part, a.tone]))); }, [alertKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { const e = engineRef.current; if (!e) return; e.setOptions({ ...opts, inset: opts.overlays ? Math.round(CARD_W * 0.62) : 0 }); e.invalidate(); }, [opts]);
-  useEffect(() => { engineRef.current?.invalidate(); }, [items.length, selected]);
+  useEffect(() => { const e = engineRef.current; if (!e) return; e.setOptions({ ...opts, inset: opts.overlays ? Math.round(CARD_W * 0.62) : 0 }); e.requestProjection(); }, [opts]);
+  // markers and callouts mounted or re-styled: place them once; a plain telemetry update (new values in the same cards) needs no frame
+  useEffect(() => { engineRef.current?.requestProjection(); }, [items.length, selected]);
 
   // plain scrolling over the model scrolls the page; Ctrl / Cmd + scroll (and trackpad pinch) zooms
   useEffect(() => {

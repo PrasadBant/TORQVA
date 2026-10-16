@@ -3,7 +3,8 @@
 // derived or invented here, and nothing is sent anywhere. The shaft turns only while setMotion() says the source reports a valid, current speed.
 //
 // Rendering is on demand: a frame is drawn only when something changed (camera, selection, explode/cutaway, theme) or while the shaft animation
-// runs. The loop stops when idle, when the canvas is off screen and when the page is hidden. dispose() frees every GPU resource it created.
+// runs. At most one animation frame is ever queued (schedule()), however many sources ask for one in the same frame. The loop stops when idle, when
+// the canvas is off screen and when the page is hidden. dispose() frees every GPU resource it created.
 import {
   ACESFilmicToneMapping, Box3, Color, DirectionalLight, EdgesGeometry, GridHelper, HemisphereLight, LineBasicMaterial, LineSegments, Mesh,
   MOUSE, OrthographicCamera, PCFShadowMap, PerspectiveCamera, Plane, PlaneGeometry, PMREMGenerator, Raycaster, Scene, ShadowMaterial,
@@ -12,6 +13,7 @@ import {
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildRig } from './assembly.js';
+import { QualityGovernor } from './quality.js';
 import { AXIS, COMPONENT, EXPLODE, advanceAngle } from '../twinParts.js';
 
 const D2R = Math.PI / 180;
@@ -26,6 +28,8 @@ export const PRESETS = {
 const LIMITS = { minDistance: 60, maxDistance: 1500, minZoom: 0.35, maxZoom: 8 };
 const PAN_BOX = new Box3(new Vector3(-190, -20, -140), new Vector3(150, 140, 130));   // the orbit target never leaves the rig
 const ORTHO_H = 160;                                                                   // half-height of the orthographic frustum at zoom 1
+const ZERO3 = [0, 0, 0];
+const COMPONENT_INDEX = Object.fromEntries(Object.keys(COMPONENT).map((id, i) => [id, i]));
 
 // Three.js logs the compiler notes some drivers (ANGLE on Direct3D) attach to programs that linked successfully. Only that informational message is
 // dropped; everything else, including real shader errors, goes to the console unchanged.
@@ -34,26 +38,51 @@ setConsoleFunction((level, message, ...params) => {
   (console[level] || console.log)(message, ...params);                       // eslint-disable-line no-console
 });
 
+// One WebGLRenderer is kept and lent to each mounted engine instead of creating one per mount. Three.js keeps a 'dispose' listener from every renderer
+// on a few module-level placeholder textures, so a disposed renderer (with its GL context and canvas) can never be garbage collected; creating a new
+// one on each visit to the twin would grow memory without bound. A second renderer is made only if the shared one is in use or its context died.
+let shared = null;
+function borrowRenderer() {
+  if (shared && !shared.busy && !shared.renderer.getContext().isContextLost()) { shared.busy = true; return shared; }
+  const canvas = document.createElement('canvas');
+  canvas.className = 'tq-t3-canvas';
+  const renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+  const lease = { renderer, canvas, busy: true };
+  if (!shared || shared.busy === false || shared.renderer.getContext().isContextLost()) shared = lease;
+  return lease;
+}
+function returnRenderer(lease, broken) {
+  lease.busy = false;
+  lease.canvas.remove();
+  lease.canvas.style.cursor = '';
+  if (lease === shared && !broken) return;                          // kept for the next mount
+  if (lease === shared) shared = null;
+  try {
+    if (!broken) lease.renderer.dispose();                           // a context that was lost owns no live GPU objects: deleting them would only raise WebGL errors
+    lease.renderer.forceContextLoss();
+  } catch { /* already lost */ }
+}
+
 const reducedMotion = () => { try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };
 const ease = (p) => 1 - (1 - p) ** 3;
 
 export class TwinEngine {
   /**
-   * host: the element the engine's own canvas fills (the canvas is created here and removed on dispose, so a remount never reuses a lost context);
+   * host: the element the renderer's canvas fills (the canvas is attached here and detached on dispose; a lost context is never reused);
    * restore: a cameraState() of a previous engine to continue from (after a lost graphics context);
    * cb: { onPick(id, {double}), onHover(id, x, y), onProject(points), onStatus('ready' | 'lost' | 'restored'), onCamera(info) }
    */
   constructor({ host, restore = null, ...cb }) {
-    const canvas = document.createElement('canvas');
-    canvas.className = 'tq-t3-canvas';
+    this.lease = borrowRenderer();                                   // throws when WebGL 2 cannot start: the page falls back to the 2D drawing
+    const canvas = this.lease.canvas;
     host.prepend(canvas);
     this.canvas = canvas; this.host = host; this.cb = cb;
     this.reduced = reducedMotion();
-    try {
-      this.renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
-    } catch (e) { canvas.remove(); throw e; }
+    this.renderer = this.lease.renderer;
     const r = this.renderer;
-    r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    r.setRenderTarget(null);
+    this.quality = new QualityGovernor(Math.min(window.devicePixelRatio || 1, 2));
+    r.setPixelRatio(this.quality.ratio);
     r.outputColorSpace = SRGBColorSpace;
     r.toneMapping = ACESFilmicToneMapping; r.toneMappingExposure = 1.0;
     r.shadowMap.enabled = true; r.shadowMap.type = PCFShadowMap; r.shadowMap.autoUpdate = false;
@@ -93,18 +122,22 @@ export class TwinEngine {
     this.ortho = new OrthographicCamera(-ORTHO_H, ORTHO_H, ORTHO_H, -ORTHO_H, -4000, 8000);
     this.camera = this.persp;
     this.controls = new OrbitControls(this.persp, canvas);
-    Object.assign(this.controls, { enableDamping: true, dampingFactor: 0.12, rotateSpeed: 0.8, panSpeed: 0.9, zoomSpeed: 0.9, screenSpacePanning: true,
+    this.doc = canvas.getRootNode();                                   // where OrbitControls registered its key listeners (the document)
+    Object.assign(this.controls, { enableDamping: true, dampingFactor: this.reduced ? 0.35 : 0.12, rotateSpeed: 0.8, panSpeed: 0.9, zoomSpeed: 0.9, screenSpacePanning: true,
       maxPolarAngle: Math.PI / 2, ...LIMITS });
     this.controls.mouseButtons = { LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN };
     this.controls.addEventListener('change', () => { this.clampTarget(); this.invalidate(); });
-    this.controls.addEventListener('start', () => { this.tween = null; this.userMoved = true; });
+    this.controls.addEventListener('start', () => { this.tween = null; this.userMoved = true; this.moveSeq = (this.moveSeq || 0) + 1; });
 
     this.state = { selected: null, hover: null, tones: {}, alerts: {}, spinning: false, rpm: null, explode: 0, explodeTarget: 0,
       isolate: false, cutaway: false, edges: false, ortho: false, theme: null };
-    this.angle = 0; this.frames = 0; this.running = false; this.dirty = true; this.visible = true; this.lost = false;
+    this.angle = 0; this.frames = 0; this.raf = 0; this.dirty = true; this.visible = true; this.lost = false;
+    this.tick = (t) => { this.raf = 0; this.frame(t); };
+    this.projKey = new Float64Array(22); this.reproject = true; this.lastReport = 0; this.rect = null;
+    this.pts = Object.keys(COMPONENT).map((id) => ({ id, x: 0, y: 0, inView: false, back: false }));
     this.ray = new Raycaster(); this.ndc = new Vector2(); this.pointer = null; this.down = null;
     this.edgeCache = new Map();
-    this._v = new Vector3(); this._n = new Vector3(); this._c = new Vector3();
+    this._v = new Vector3(); this._n = new Vector3(); this._c = new Vector3(); this._c2 = new Vector3();
 
     this.bind();
     this.resize();
@@ -134,9 +167,9 @@ export class TwinEngine {
     const c = this.canvas;
     // A lost context invalidates every GPU object (buffers, programs, the reflection map). On restore the owner replaces this engine with a fresh one
     // on a new canvas instead of patching the old objects back in.
-    this.onLost = (e) => { e.preventDefault(); this.lost = true; this.wasLost = true; this.running = false; cancelAnimationFrame(this.raf); this.cb.onStatus?.('lost'); };
+    this.onLost = (e) => { e.preventDefault(); this.lost = true; this.wasLost = true; cancelAnimationFrame(this.raf); this.raf = 0; this.cb.onStatus?.('lost'); };
     this.onRestored = () => { this.cb.onStatus?.('restored'); };
-    this.onMove = (e) => { const b = c.getBoundingClientRect(); this.pointer = { x: e.clientX - b.left, y: e.clientY - b.top }; this.pickDirty = true; this.invalidate(); };
+    this.onMove = (e) => { const b = this.canvasRect(); this.pointer = { x: e.clientX - b.left, y: e.clientY - b.top }; this.pickDirty = true; this.invalidate(); };
     this.onLeave = () => { this.pointer = null; this.setHover(null); };
     this.onDown = (e) => { this.down = { x: e.clientX, y: e.clientY, t: performance.now() }; };
     this.onUp = (e) => {
@@ -155,25 +188,31 @@ export class TwinEngine {
     c.addEventListener('dblclick', this.onDbl);
     this.ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => this.resize()) : null;
     this.ro?.observe(this.host);
-    this.io = typeof IntersectionObserver !== 'undefined' ? new IntersectionObserver(([en]) => { this.visible = en.isIntersecting; if (this.visible) this.invalidate(); }) : null;
+    this.io = typeof IntersectionObserver !== 'undefined' ? new IntersectionObserver(([en]) => { this.visible = en.isIntersecting; this.rect = null; if (this.visible) { this.last = null; this.invalidate(); } }) : null;
     this.io?.observe(this.host);
     this.onVis = () => { if (!document.hidden) { this.last = null; this.invalidate(); } };
     document.addEventListener('visibilitychange', this.onVis);
+    this.onScroll = () => { this.rect = null; };                  // the canvas moved on screen: re-read its rectangle on the next pointer event
+    window.addEventListener('scroll', this.onScroll, { capture: true, passive: true });
   }
 
   dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
+    if (this.idleId && typeof cancelIdleCallback === 'function') cancelIdleCallback(this.idleId);
     const c = this.canvas;
     c.removeEventListener('webglcontextlost', this.onLost); c.removeEventListener('webglcontextrestored', this.onRestored);
     c.removeEventListener('pointermove', this.onMove); c.removeEventListener('pointerleave', this.onLeave);
     c.removeEventListener('pointerdown', this.onDown); c.removeEventListener('pointerup', this.onUp); c.removeEventListener('dblclick', this.onDbl);
     document.removeEventListener('visibilitychange', this.onVis);
+    window.removeEventListener('scroll', this.onScroll, { capture: true });
     this.ro?.disconnect(); this.io?.disconnect();
+    // OrbitControls removes its document key listeners from canvas.getRootNode(); once the canvas is detached that is no longer the document, and the
+    // forgotten listener would keep the controls, the canvas and the viewport DOM alive. Remove them from the document they were added to.
+    for (const [type, fn] of [['keydown', this.controls._interceptControlDown], ['keyup', this.controls._interceptControlUp]]) if (fn) this.doc?.removeEventListener?.(type, fn, { capture: true });
     this.controls.dispose();
     if (this.wasLost) {                                   // its GPU objects died with the old context: deleting them would only raise WebGL errors
-      try { this.renderer.forceContextLoss(); } catch { /* already lost */ }
-      c.remove();
+      returnRenderer(this.lease, true);
       return;
     }
     this.rig.dispose();
@@ -184,15 +223,14 @@ export class TwinEngine {
     this.envScene.traverse((o) => { o.geometry?.dispose?.(); o.material?.dispose?.(); });
     for (const l of this.lights) l.shadow?.map?.dispose();
     this.renderer.renderLists.dispose();
-    this.renderer.dispose();
-    this.renderer.forceContextLoss();
-    c.remove();
+    this.renderer.info.reset();
+    returnRenderer(this.lease, false);                                // the renderer is kept for the next mount; everything this engine made is freed
   }
 
   resize() {
     const w = Math.max(1, this.host.clientWidth), h = Math.max(1, this.host.clientHeight);
     if (w === this.w && h === this.h) return;
-    this.w = w; this.h = h;
+    this.w = w; this.h = h; this.rect = null; this.reproject = true;
     this.renderer.setSize(w, h, false);
     this.persp.aspect = w / h; this.persp.updateProjectionMatrix();
     const a = w / h;
@@ -201,20 +239,33 @@ export class TwinEngine {
     this.invalidate();
   }
 
-  invalidate() {
-    this.dirty = true;
-    if (this.running || this.disposed || this.lost) return;
-    this.running = true; this.last = null;
-    this.raf = requestAnimationFrame((t) => this.frame(t));
+  /**
+   * Queue the next frame unless one is already queued: one frame per display refresh, never a second loop. Visibility only gates the open-ended
+   * shaft animation (see frame()); a change, a camera tween, damping or the explode animation always gets its frames, so a stale "off screen"
+   * report can never freeze the view.
+   */
+  schedule() {
+    if (this.raf || this.disposed || this.lost || document.hidden) return;
+    this.raf = requestAnimationFrame(this.tick);
   }
+  invalidate() { this.dirty = true; this.schedule(); }
+  /** Markers or callouts were added or changed in the DOM: position them on the next frame even if the camera is still. */
+  requestProjection() { this.reproject = true; this.invalidate(); }
+  canvasRect() { return (this.rect ||= this.canvas.getBoundingClientRect()); }
 
   // ---------------------------------------------------------------- state from the React layer
 
-  setSelection(id) { if (this.state.selected === id) return; this.state.selected = id; this.applyHighlight(); if (this.state.isolate) this.applyIsolation(true); this.invalidate(); }
+  setSelection(id) { if (this.state.selected === id) return; this.state.selected = id; this.applyHighlight(); if (this.state.isolate) this.applyIsolation(true); this.requestProjection(); }
   setStates(tones, alerts) { this.state.tones = tones || {}; this.state.alerts = alerts || {}; this.applyHighlight(); this.invalidate(); }
-  setMotion(spinning, rpm) { this.state.spinning = !!spinning; this.state.rpm = spinning ? rpm : null; this.invalidate(); }
+  /** Telemetry: only a change of motion needs a frame; a new speed while already turning is picked up by the running loop. */
+  setMotion(spinning, rpm) {
+    const was = this.state.spinning;
+    this.state.spinning = !!spinning; this.state.rpm = spinning ? rpm : null;
+    if (was !== this.state.spinning) this.invalidate();
+  }
   setTheme(theme) {
     this.state.theme = theme;
+    this.colors = Object.fromEntries(['accent', 'crit', 'stop', 'warn', 'info', 'sim'].map((k) => [k, new Color(theme[k] || theme.crit)]));
     const minor = new Color(theme.grid), major = new Color(theme.gridMajor);
     this.gridMinor.material.color.copy(minor); this.gridMajor.material.color.copy(major);
     this.gridMinor.material.vertexColors = false; this.gridMajor.material.vertexColors = false;
@@ -226,7 +277,7 @@ export class TwinEngine {
   setOptions({ explode, isolate, cutaway, edges, ortho, inset }) {
     const s = this.state;
     if (inset !== undefined && inset !== this.inset) { this.inset = inset; if (!this.userMoved) this.view(this.preset || 'iso', { instant: this.frames === 0 }); }
-    if (explode !== undefined && (explode ? 1 : 0) !== s.explodeTarget) { s.explodeTarget = explode ? 1 : 0; if (this.reduced) this.applyExplode(s.explodeTarget); }
+    if (explode !== undefined && (explode ? 1 : 0) !== s.explodeTarget) { s.explodeTarget = explode ? 1 : 0; this.explodeSeq = this.moveSeq; if (this.reduced) this.applyExplode(s.explodeTarget); }
     if (isolate !== undefined && isolate !== s.isolate) { s.isolate = isolate; this.applyIsolation(true); }
     if (cutaway !== undefined && cutaway !== s.cutaway) {
       s.cutaway = cutaway;
@@ -325,6 +376,9 @@ export class TwinEngine {
 
   goTo({ target, az, polar, dist, zoom }, instant = false) {
     const cam = this.camera, ctl = this.controls;
+    this.moveSeq = (this.moveSeq || 0) + 1;
+    // finish any inertia from the last drag first, so the damping and the tween never drive the camera at the same time
+    const damp = ctl.enableDamping; ctl.enableDamping = false; ctl.update(); ctl.enableDamping = damp;
     const to = { target: new Vector3().copy(target), sph: new Spherical(this.camera === this.persp ? dist : cam.position.distanceTo(ctl.target) || dist, polar * D2R, az * D2R), zoom };
     to.target.clamp(PAN_BOX.min, PAN_BOX.max);
     if (this.camera !== this.persp) to.sph.radius = Math.max(400, dist);
@@ -389,14 +443,14 @@ export class TwinEngine {
   applyHighlight() {
     const { selected, hover, alerts, theme } = this.state;
     if (!theme) return;
-    const accent = new Color(theme.accent);
+    const accent = this.colors.accent;
     for (const m of this.rig.meshes) {
       const part = m.userData.part, mat = m.material;
       const alert = alerts[part];
       let col = null, k = 0;
       if (part === selected) { col = accent; k = 0.32; }
       else if (part === hover) { col = accent; k = 0.16; }
-      else if (alert) { col = new Color(theme[alert] || theme.crit); k = 0.07; }   // evidence-backed alert only: a faint steady tint plus an outline
+      else if (alert) { col = this.colors[alert] || this.colors.crit; k = 0.07; }   // evidence-backed alert only: a faint steady tint plus an outline
       if (col) mat.emissive.copy(col).multiplyScalar(k); else mat.emissive.setRGB(0, 0, 0);
       mat.color.copy(mat.userData.baseColor);
       if (selected && part !== selected && !this.state.isolate) mat.color.multiplyScalar(theme.dark ? 0.62 : 0.78);   // the selection stays bright
@@ -420,9 +474,9 @@ export class TwinEngine {
     for (const m of this.rig.meshes) {
       const sel = m.userData.part === selected, alert = !sel && alerts[m.userData.part];
       const hide = (!edges && !sel && !alert) || (m.userData.node === 'harness' && !sel);   // cables have no useful feature edges
-      if (hide) { const l = this.edgeCache.get(m); if (l) l.visible = false; continue; }
+      if (hide) { const l = this.edgeCache.get(m); if (l) { l.visible = false; l.userData.shown = false; } continue; }
       const l = this.edgesFor(m);
-      l.visible = true; l.userData.sel = sel;
+      l.visible = true; l.userData.sel = sel; l.userData.shown = true;
       if (theme) l.material.color.set(sel ? theme.accent : alert ? theme[alert] || theme.crit : theme.edge);
       l.material.opacity = sel || alert ? 0.95 : 0.5;
     }
@@ -462,7 +516,7 @@ export class TwinEngine {
   // ---------------------------------------------------------------- picking
 
   pickAt(clientX, clientY) {
-    const b = this.canvas.getBoundingClientRect();
+    const b = this.canvasRect();
     this.ndc.set(((clientX - b.left) / b.width) * 2 - 1, -((clientY - b.top) / b.height) * 2 + 1);
     this.ray.setFromCamera(this.ndc, this.camera);
     const hits = this.ray.intersectObjects(this.rig.meshes.filter((m) => m.visible), false);
@@ -484,11 +538,10 @@ export class TwinEngine {
   // ---------------------------------------------------------------- loop
 
   frame(now) {
-    this.running = false;
     if (this.disposed || this.lost) return;
     const dt = this.last == null ? 0 : (now - this.last) / 1000;
     this.last = now;
-    let active = false;
+    let active = false;                                               // finite motion: tween, damping, explode
     if (this.stepTween(now)) active = true;
     if (this.controls.update()) active = true;                       // damping still settling
     const s = this.state;
@@ -496,43 +549,95 @@ export class TwinEngine {
       const step = Math.min(1, dt / 0.6);
       const next = s.explodeTarget > s.explode ? Math.min(s.explodeTarget, s.explode + step) : Math.max(s.explodeTarget, s.explode - step);
       this.applyExplode(next); active = true;
-      if (next === s.explodeTarget && (s.isolate || !this.userMoved)) this.fit(s.isolate ? s.selected : null);
+      // refit to the new layout, unless another camera move (a preset, the section view, a focus) was asked for while the parts were moving
+      if (next === s.explodeTarget && this.moveSeq === this.explodeSeq && (s.isolate || !this.userMoved)) this.fit(s.isolate ? s.selected : null);
     }
-    const spin = s.spinning && !this.reduced;
+    const spin = s.spinning && !this.reduced && this.visible;          // the open-ended animation runs only while the viewport is on screen
     if (spin) {
       this.angle = advanceAngle(this.angle, s.rpm, dt);
       this.rig.nodes.rotor.rotation.x = this.angle; this.rig.nodes.disc.rotation.x = this.angle;
-      active = true;
     }
+    const continuous = active || spin;
     if (this.pickDirty && this.pointer && !this.down) {
       this.pickDirty = false;
-      const b = this.canvas.getBoundingClientRect();
+      const b = this.canvasRect();
       this.setHover(this.pickAt(b.left + this.pointer.x, b.top + this.pointer.y), this.pointer.x, this.pointer.y);
     }
-    if (this.dirty || active) {
+    if (continuous && dt > 0) {                                       // continuous drawing: let a slow device trade resolution for fluency
+      const ratio = this.quality.frame(dt * 1000);
+      if (ratio !== this.renderer.getPixelRatio()) { this.renderer.setPixelRatio(ratio); this.renderer.setSize(this.w, this.h, false); }
+    }
+    if (this.dirty || continuous) {
       this.dirty = false;
       this.updateClip();
       this.renderer.render(this.scene, this.camera);
       this.frames += 1;
       this.project();
     }
-    if ((active || this.dirty) && this.visible && !document.hidden) { this.running = true; this.raf = requestAnimationFrame((t) => this.frame(t)); }
+    if (continuous || this.dirty) { this.schedule(); this.report(false); return; }
+    // the scene is now still: draw it once more at full resolution if it was reduced, report the final state, and stop
+    this.last = null;
+    this.prewarmEdges();
+    if (this.quality.idle()) { this.renderer.setPixelRatio(this.quality.ratio); this.renderer.setSize(this.w, this.h, false); this.invalidate(); }
+    this.report(true);
   }
 
-  /** Screen positions of the component anchors, for the DOM markers and callouts. */
+  /**
+   * Build the feature-edge outlines of every part while the browser is idle, so the first selection of a part or switching on Edges does not compute
+   * them in the middle of an interaction. They stay hidden (and are not uploaded to the GPU) until needed.
+   */
+  prewarmEdges() {
+    if (this.prewarmed || this.idleId || typeof requestIdleCallback !== 'function') return;
+    const todo = this.rig.meshes.filter((m) => m.userData.node !== 'harness' && !this.edgeCache.has(m));
+    const work = (deadline) => {
+      this.idleId = 0;
+      if (this.disposed) return;
+      while (todo.length && deadline.timeRemaining() > 3) { const l = this.edgesFor(todo.pop()); if (!l.userData.shown) l.visible = false; }
+      if (todo.length) { this.idleId = requestIdleCallback(work, { timeout: 2000 }); return; }
+      this.prewarmed = true;
+      // compile the outline shaders (plain and section-clipped) now, so the first selection does not stall on a shader compile
+      const lines = [...this.edgeCache.values()];
+      const plain = lines.find((l) => !l.material.clippingPlanes), clipped = lines.find((l) => l.material.clippingPlanes);
+      const warm = new Scene();
+      for (const l of [plain, clipped]) if (l) warm.add(new LineSegments(l.geometry, l.material));
+      try { this.renderer.compile(warm, this.camera); } catch { /* compiling ahead is only an optimisation */ }
+    };
+    this.idleId = requestIdleCallback(work, { timeout: 2000 });
+  }
+
+  /** Camera and renderer statistics for the page (data attributes): at most five times a second while animating, and once when the loop stops. */
+  report(force) {
+    const now = performance.now();
+    if (!force && now - this.lastReport < 200) return;
+    this.lastReport = now;
+    const info = this.renderer.info;
+    this.cb.onCamera?.({ ...this.cameraInfo(), frames: this.frames, calls: info.render.calls, triangles: info.render.triangles, geometries: info.memory.geometries,
+      textures: info.memory.textures, programs: info.programs?.length ?? 0, ratio: this.renderer.getPixelRatio() });
+  }
+
+  /**
+   * Screen positions of the component anchors, for the DOM markers and callouts. Skipped when the camera, the viewport size, the explode factor and
+   * the visibility rules are unchanged (the turning shaft moves no anchor), so a still camera causes no DOM writes.
+   */
   project() {
-    const pts = [];
-    const cam = this.camera, f = this.state.explode;
-    for (const id of Object.keys(COMPONENT)) {
-      const c = COMPONENT[id], e = EXPLODE[c.node] || [0, 0, 0];
+    const cam = this.camera, f = this.state.explode, k = this.projKey, m = cam.matrixWorld.elements;
+    const vals = [this.w, this.h, cam.zoom, f, this.state.isolate ? 1 : 0, this.state.selected ? COMPONENT_INDEX[this.state.selected] ?? -2 : -1];
+    let same = !this.reproject;
+    for (let i = 0; i < 16; i++) { if (k[i] !== m[i]) same = false; k[i] = m[i]; }
+    for (let i = 0; i < 6; i++) { if (k[16 + i] !== vals[i]) same = false; k[16 + i] = vals[i]; }
+    if (same) return;
+    this.reproject = false;
+    const camDir = this._c2.set(0, 0, 1).applyQuaternion(cam.quaternion);
+    for (const pt of this.pts) {
+      const c = COMPONENT[pt.id], e = EXPLODE[c.node] || ZERO3;
       const p = this._v.set(c.anchor[0] + e[0] * f, c.anchor[1] + e[1] * f, c.anchor[2] + e[2] * f);
-      const toCam = this._c.copy(cam.position).sub(p).normalize();
-      const facing = this._n.set(...c.normal).normalize().dot(cam === this.ortho ? this._c.set(0, 0, 1).applyQuaternion(cam.quaternion) : toCam);
+      const view = cam === this.ortho ? camDir : this._c.copy(cam.position).sub(p).normalize();
+      const facing = this._n.fromArray(c.normal).normalize().dot(view);
       p.project(cam);
-      const shown = !this.state.isolate || !this.state.selected || this.state.selected === id;
-      pts.push({ id, x: ((p.x + 1) / 2) * this.w, y: ((1 - p.y) / 2) * this.h, inView: p.z < 1 && Math.abs(p.x) <= 1.02 && Math.abs(p.y) <= 1.02 && shown && !(id === 'harness' && f > 0.02), back: facing < -0.15 });
+      const shown = !this.state.isolate || !this.state.selected || this.state.selected === pt.id;
+      pt.x = ((p.x + 1) / 2) * this.w; pt.y = ((1 - p.y) / 2) * this.h; pt.back = facing < -0.15;
+      pt.inView = p.z < 1 && Math.abs(p.x) <= 1.02 && Math.abs(p.y) <= 1.02 && shown && !(pt.id === 'harness' && f > 0.02);
     }
-    this.cb.onProject?.(pts, this.w, this.h);
-    this.cb.onCamera?.({ ...this.cameraInfo(), frames: this.frames, calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles, geometries: this.renderer.info.memory.geometries });
+    this.cb.onProject?.(this.pts, this.w, this.h);
   }
 }

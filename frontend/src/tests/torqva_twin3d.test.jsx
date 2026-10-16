@@ -15,7 +15,7 @@ vi.mock('../torqva/shared/twin3d/engine.js', () => {
       if (globalThis.__failEngine) throw new Error('no context');
       this.opts = opts; this.calls = []; engines.push(this);
       const log = (name) => (...a) => this.calls.push([name, ...a]);
-      for (const m of ['setSelection', 'setMotion', 'setStates', 'setOptions', 'setTheme', 'invalidate', 'view', 'fit', 'focus', 'nudge', 'settle']) this[m] = log(m);
+      for (const m of ['setSelection', 'setMotion', 'setStates', 'setOptions', 'setTheme', 'invalidate', 'requestProjection', 'view', 'fit', 'focus', 'nudge', 'settle']) this[m] = log(m);
       this.cameraState = () => ({ snapshot: engines.indexOf(this) });
       this.dispose = () => { this.disposed = true; };
       opts.onStatus?.('ready');
