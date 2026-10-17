@@ -3,6 +3,7 @@ import { Usb, Octagon, Play, StopCircle, Sliders, AlertTriangle, CheckCircle2, S
 import { api } from '../api.js';
 import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, useNavContext, PageHead } from '../shared/components.jsx';
 import { DeviceLive, CommissioningCard, canOperate, STATE_TONE } from './device.jsx';
+import { TEST_SPECS } from '../shared/diagnostics.js';
 
 const WAITING = 'WAITING FOR VALID PHYSICAL TELEMETRY';
 const ago = (unix) => (unix ? `${fmt(Math.max(0, Date.now() / 1000 - unix), 1)} s ago` : 'never');
@@ -657,6 +658,28 @@ const LAYER_TEXT = {
   C6: ['Learning (C6)', 'Outcome records with provenance; no learning from unverified data, no model change without approval.'],
 };
 
+// What the physical C2/C3/C4 workflow would need, and why it is locked. Execution stays with the existing supervised device path
+// (MotionPanel -> /device/commands -> Safety Supervisor -> firmware); this card sends nothing.
+const NEEDS = {
+  C4: 'Diagnostic tests move the motor. On the physical device they need a valid analysis layer, approved and device-confirmed limits, an authenticated session and no motion blocker.',
+  C2: 'Predictions need valid physical inputs for the analysis models (the firmware does not yet compute vibration RMS or shaft-order harmonics) and a physical fault ranking.',
+  C3: 'An intervention on the physical device is decided by the deterministic Safety Supervisor and executed only through the supervised command path; a prediction can never authorise motion.',
+};
+function PhysicalLocked({ snap, layer }) {
+  const blockers = snap?.control_blockers?.length ? snap.control_blockers : ['DEVICE NOT CONNECTED'];
+  return (
+    <Card title={layer === 'C4' ? 'Diagnostic tests on the physical device' : layer === 'C2' ? 'Action comparison on the physical device' : 'Action execution on the physical device'} id={`p-${layer}-lock`} className="tq-mt"
+      right={<Pill tone="stop">execution locked</Pill>}>
+      <p>{NEEDS[layer]}</p>
+      {layer === 'C4' && (
+        <ul className="tq-list" data-testid="phys-test-catalog">{Object.values(TEST_SPECS).map((t) => <li key={t.code}><strong>{t.name}</strong> <span className="tq-muted">— {t.target}</span> <Pill tone="off">not runnable here</Pill></li>)}</ul>)}
+      <div className="tq-callout warn" data-testid={`phys-${layer}-blockers`}><strong>Current blockers reported by the device path</strong>
+        <ul className="tq-list">{blockers.map((b) => <li key={b}>{b}</li>)}</ul></div>
+      <p className="tq-muted">To investigate the same question now, use Simulation mode: it runs the full workflow on the software simulator, labelled SIM, and never moves this motor.</p>
+    </Card>
+  );
+}
+
 export function PhysicalAiPage({ stream, layer, go }) {
   const { snap } = stream;
   const layerInfo = LAYER_TEXT[layer] || [layer, ''];
@@ -716,6 +739,7 @@ export function PhysicalAiPage({ stream, layer, go }) {
           )}
         </div>
       </Card>
+      {['C2', 'C3', 'C4'].includes(layer) && <PhysicalLocked snap={snap} layer={layer} />}
       {live && (
         <Card title="Live physical telemetry streaming" id={`p-${layer}-live`} className="tq-mt">
           <DeviceLive stream={stream} />

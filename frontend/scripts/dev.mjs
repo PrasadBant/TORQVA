@@ -4,7 +4,7 @@
 // The local token below is a development-only constant: it is hashed into TORQVA_TOKENS for this one local backend process and handed to the dev
 // server so the app signs in automatically. It is not used by production builds (the frontend ignores it unless import.meta.env.DEV) and the
 // backend's authorization is unchanged. Use `npm run dev:ui` to run only the frontend against your own backend.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -17,13 +17,31 @@ const python = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 
 const simOnly = process.argv.includes('--sim');
 const children = [];
 
+let stopping = false;
 const run = (cmd, args, opts, label) => {
   const c = spawn(cmd, args, { stdio: ['ignore', 'inherit', 'inherit'], shell: process.platform === 'win32' && cmd === 'npx', ...opts });
-  c.on('error', (e) => console.error(`[${label}] failed to start: ${e.message}`));
-  c.on('exit', (code) => { if (label === 'frontend') shutdown(code ?? 0); else console.error(`[${label}] exited (${code}). The app will show a "Backend unreachable" warning until it is restarted.`); });
+  c.on('error', (e) => { console.error(`[${label}] failed to start: ${e.message}`); if (label === 'frontend') shutdown(1); });
+  c.on('exit', (code, signal) => {
+    if (stopping) return;
+    const how = signal ? `signal ${signal}` : `code ${code}`;
+    if (label === 'frontend') {
+      // Say why everything stops, and never report a killed dev server as success: its own exit code is passed on, a signal becomes 1.
+      console.error(`[frontend] the Vite dev server exited (${how}); stopping the backend as well.`);
+      shutdown(signal ? 1 : code);
+    } else console.error(`[${label}] exited (${how}). The app will show a "Backend unreachable" warning until it is restarted.`);
+  });
   children.push(c);
 };
-const shutdown = (code = 0) => { children.forEach((c) => { try { c.kill(); } catch { /* already gone */ } }); process.exit(code); };
+// On Windows the frontend runs as cmd.exe -> npx -> vite: killing only the cmd.exe wrapper would leave the dev server running and holding
+// port 5173, so the whole process tree is ended there.
+const stopChild = (c) => {
+  if (c.exitCode !== null || c.signalCode !== null || !c.pid) return;
+  try {
+    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(c.pid), '/T', '/F'], { stdio: 'ignore' });
+    else c.kill();
+  } catch { /* already gone */ }
+};
+const shutdown = (code = 0) => { if (stopping) return; stopping = true; children.forEach(stopChild); process.exit(code); };
 process.on('SIGINT', () => shutdown(0)); process.on('SIGTERM', () => shutdown(0));
 
 let backendEnv;

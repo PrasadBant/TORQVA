@@ -70,6 +70,12 @@ export const api = {
   audit: () => req('/audit'),
   start: (body) => req('/simulation/start', { method: 'POST', body }),
   step: (seconds) => req('/simulation/step', { method: 'POST', body: { seconds } }),
+  // Analyst workbench: simulation only (the backend refuses these without a software simulation; nothing here reaches a device).
+  wbPlan: () => req('/simulation/workbench/plan'),
+  wbSequence: (body) => req('/simulation/workbench/sequence', { method: 'POST', body }),
+  wbPredict: (targets) => req(`/simulation/workbench/predict?${targets.map((t) => `targets=${encodeURIComponent(t)}`).join('&')}`),   // a pure read
+  wbCheck: (body) => req('/simulation/workbench/check', { method: 'POST', body }),
+  wbRequest: (body) => req('/simulation/workbench/request', { method: 'POST', body }),
   approve: () => req('/approvals/approve', { method: 'POST' }),
   reject: () => req('/approvals/reject', { method: 'POST' }),
   stop: () => req('/commands/stop', { method: 'POST' }),

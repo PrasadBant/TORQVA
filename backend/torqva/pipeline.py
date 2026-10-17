@@ -440,7 +440,8 @@ class Orchestrator:
     def _state_summary(self) -> StateSummary:
         return StateSummary.from_windows(self.buf)
 
-    def _on_gate_evaluation(self) -> None:
+    def gate_inputs(self):
+        """The deterministic gate's inputs for the current state (used by the pipeline and by the analyst's action check)."""
         ctx = self._ctx()
         st = self._state_summary()
         cont = self.pred.predict(self.post, st, "CONTINUE_MONITORING")
@@ -461,6 +462,10 @@ class Orchestrator:
                         data_requests=self.inc.data_requests, max_data_requests=self.inc.max_data_requests,
                         tests_run=self.inc.tests_run, max_tests=self.inc.max_tests,
                         op_point_familiar=self.last_status in ("OK", "INTERPOLATED", "FROZEN"))
+        return gi, trust
+
+    def _on_gate_evaluation(self) -> None:
+        gi, trust = self.gate_inputs()
         dec = decide(gi, self.gate_cfg)
         self.last_gate = dec
         self._put("decision", f"gate-{self.now:.0f}", {"verdict": dec.verdict.value, "reason": dec.reason, "test": dec.test,

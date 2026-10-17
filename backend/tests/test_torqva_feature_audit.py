@@ -31,6 +31,8 @@ ROLE = {
     ("GET", "/status"): "viewer", ("GET", "/telemetry"): "viewer", ("GET", "/incidents"): "viewer", ("GET", "/decisions"): "viewer",
     ("GET", "/predictions"): "viewer", ("GET", "/commands"): "viewer", ("GET", "/prediction-checks"): "viewer", ("GET", "/outcomes"): "viewer",
     ("GET", "/cases"): "viewer", ("GET", "/log"): "viewer",
+    ("GET", "/simulation/workbench/plan"): "viewer", ("GET", "/simulation/workbench/predict"): "viewer", ("POST", "/simulation/workbench/check"): "viewer",
+    ("POST", "/simulation/workbench/sequence"): "operator", ("POST", "/simulation/workbench/request"): "operator",
     ("POST", "/simulation/start"): "operator", ("POST", "/simulation/step"): "operator", ("POST", "/approvals/approve"): "operator",
     ("POST", "/approvals/reject"): "operator", ("POST", "/commands/stop"): "viewer", ("POST", "/commands/reset-estop"): "admin",
     ("GET", "/lab/regimes"): "viewer", ("GET", "/lab/checklist"): "viewer", ("GET", "/lab/sessions"): "viewer", ("GET", "/lab/sessions/{sid}"): "viewer",

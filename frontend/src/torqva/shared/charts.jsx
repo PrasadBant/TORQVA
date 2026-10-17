@@ -42,10 +42,10 @@ export function ScoreChart({ data, height }) {
 }
 
 /** C2 predicted response with its 90 % interval (point 0 is the current simulated value). */
-export function ResponseChart({ data, height }) {
+export function ResponseChart({ data, height, yDomain }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <ComposedChart data={data} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}><CartesianGrid {...GRID} /><XAxis dataKey="h" type="number" domain={[0, 120]} ticks={[0, 30, 60, 120]} tickFormatter={(x) => `${x}s`} {...AXIS} /><YAxis width={50} domain={['auto', 'auto']} {...AXIS} axisLine={false} /><Tooltip {...TOOLTIP} /><Legend {...LEGEND} />
+      <ComposedChart data={data} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}><CartesianGrid {...GRID} /><XAxis dataKey="h" type="number" domain={[0, 120]} ticks={[0, 30, 60, 120]} tickFormatter={(x) => `${x}s`} {...AXIS} /><YAxis width={50} domain={yDomain || ['auto', 'auto']} allowDataOverflow={!!yDomain} {...AXIS} axisLine={false} /><Tooltip {...TOOLTIP} /><Legend {...LEGEND} />
         <Area dataKey="band" name="90% interval" stroke="none" fill="var(--tq-chart-1)" fillOpacity={0.16} isAnimationActive={false} />
         <Line dataKey="mean" name="predicted (point 0 = current simulated value)" stroke="var(--tq-chart-1)" strokeWidth={2} strokeDasharray="5 3" dot={{ r: 3, strokeWidth: 0, fill: 'var(--tq-chart-1)' }} isAnimationActive={false} /></ComposedChart></ResponsiveContainer>
   );

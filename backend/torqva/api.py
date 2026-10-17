@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 
 from .attestation import AttestationError
@@ -88,6 +88,33 @@ class ReasonIn(BaseModel):
 
 class StepRequest(BaseModel):
     seconds: int = Field(default=1, ge=1, le=600)
+
+
+# ---- analyst workbench (simulation only; see workbench.py) ----
+class SequenceStep(BaseModel):
+    type: str = Field(max_length=10, description="profile | T1 | T3 | T4")
+    profile: Optional[List[ProfileStep]] = Field(default=None, max_length=50)
+
+
+class SequenceIn(BaseModel):
+    steps: List[SequenceStep] = Field(min_length=1, max_length=6)
+    stop_when_confident: bool = True
+
+
+class Basis(BaseModel):
+    t: float
+    setpoint_rpm: float
+    incident: Optional[str] = None
+    posterior_top: Optional[str] = None
+    posterior_label: Optional[str] = None
+    posterior_windows: int = 0
+
+
+class ActionIn(BaseModel):
+    action: str = Field(max_length=20, description="REDUCE_SPEED | STOP")
+    target_rpm: Optional[float] = Field(default=None, gt=0, le=3000, allow_inf_nan=False)
+    basis: Optional[Basis] = None
+    candidate_id: Optional[str] = Field(default=None, max_length=40)
 
 
 def install_error_handlers(app) -> None:
@@ -283,6 +310,46 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
             raise HTTPException(409, "no simulation running")
         n = service.step(body.seconds)
         return {"stepped": n, "state": service.state()}
+
+    # ---------------- analyst workbench (simulation only) ----------------
+    from . import workbench as _wb
+
+    def _wb_call(fn):
+        with service.lock:                      # serialise with step() / start()
+            o = service.orch
+            if o is None:
+                raise HTTPException(409, "no simulation running")
+            try:
+                return fn(o)
+            except _wb.WorkbenchError as e:
+                raise HTTPException(e.status, str(e))
+
+    @r.get("/simulation/workbench/plan")
+    def wb_plan(p: Principal = Depends(need(Role.VIEWER))):
+        return _wb_call(lambda o: _wb.plan(o, o.dm, o.hm))
+
+    @r.post("/simulation/workbench/sequence")
+    def wb_sequence(body: SequenceIn, p: Principal = Depends(need(Role.OPERATOR))):
+        steps = [{"type": s.type, "profile": [x.model_dump() for x in (s.profile or [])]} for s in body.steps]
+        audit(p, "diagnostic_sequence", steps=[s["type"] for s in steps])
+        return _wb_call(lambda o: _wb.run_sequence(o, o.dm, o.hm, steps, body.stop_when_confident, p.user, service.scenario))
+
+    @r.get("/simulation/workbench/predict")
+    def wb_predict(targets: List[float] = Query(..., min_length=1, max_length=3), p: Principal = Depends(need(Role.VIEWER))):
+        import math
+        if any(not math.isfinite(x) or x <= 0 or x > 3000 for x in targets):
+            raise HTTPException(422, "every target must be a finite rpm in (0, 3000]")
+        return _wb_call(lambda o: _wb.predict_targets(o, targets))
+
+    @r.post("/simulation/workbench/check")
+    def wb_check(body: ActionIn, p: Principal = Depends(need(Role.VIEWER))):
+        return _wb_call(lambda o: _wb.check_action(o, body.action, body.target_rpm, body.basis.model_dump() if body.basis else None, p.role, p.user))
+
+    @r.post("/simulation/workbench/request")
+    def wb_request(body: ActionIn, p: Principal = Depends(need(Role.OPERATOR))):
+        audit(p, "analyst_action_requested", action=body.action, target_rpm=body.target_rpm, candidate=body.candidate_id)
+        return _wb_call(lambda o: _wb.request_action(o, body.action, body.target_rpm, body.basis.model_dump() if body.basis else None,
+                                                     body.candidate_id, p.role, p.user))
 
     # ---------------- approvals / stop (operator) ----------------
     @r.post("/approvals/approve")

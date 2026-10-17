@@ -5,7 +5,7 @@ import { SimulationBanner, Pill, Logo, NavContext, PageHead, Empty } from './sha
 import { prefetchCharts } from './shared/lazyCharts.jsx';
 import { Evaluation } from './simulation/evaluation.jsx';
 import { SimOverview } from './simulation/overview.jsx';
-import { LivePage, DiagnosticsPage, PredictionsPage, TestsPage, InterventionsPage, RecoveryPage, LearningPage, DevicesPage, isPhysOf } from './simulation/pages.jsx';
+import { LivePage, RecoveryPage, LearningPage, DevicesPage, isPhysOf } from './simulation/pages.jsx';
 import { useDeviceStream, DevicePage, MotorControlPage, DeviceCard, DeviceLive } from './physical/device.jsx';
 import Lab from './simulation/lab.jsx';
 import Attestation from './simulation/attestation.jsx';
@@ -58,6 +58,12 @@ const NAV_GROUPS = [
 const SimTwinPage = lazy(() => import('./simulation/twin.jsx').then((m) => ({ default: m.SimTwinPage })));
 const PhysTwinPage = lazy(() => import('./physical/twin.jsx').then((m) => ({ default: m.PhysTwinPage })));
 const twinFallback = <Empty loading>Loading the Digital Twin…</Empty>;
+// The analyst workspaces (C1, C4, C2, C3 in simulation mode) are fetched when first opened, like the twin.
+const SimDiagnosticsPage = lazy(() => import('./simulation/diagnose.jsx').then((m) => ({ default: m.SimDiagnosticsPage })));
+const SimTestsPage = lazy(() => import('./simulation/tests.jsx').then((m) => ({ default: m.SimTestsPage })));
+const SimPredictionsPage = lazy(() => import('./simulation/predict.jsx').then((m) => ({ default: m.SimPredictionsPage })));
+const SimInterventionsPage = lazy(() => import('./simulation/intervene.jsx').then((m) => ({ default: m.SimInterventionsPage })));
+const pageFallback = <Empty loading>Loading…</Empty>;
 
 const NAV = NAV_GROUPS.flatMap((g) => g.items);
 const groupOf = (k) => (NAV_GROUPS.find((g) => g.items.some((n) => n[0] === k)) || { heading: '' }).heading;
@@ -198,7 +204,9 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   // simulator records measured; the board's own readings arrive separately through `device`.
   const isPhys = isPhysOf(d);
   const physicalMode = appMode === 'PHYSICAL';
-  const changeMode = (m) => { setAppMode(m); storeMode(m); setRunning(false); };
+  // Analyst workbench state (simulation): the selected action, the last test run and a test to pre-add. Never carried across modes or runs.
+  const [wb, setWb] = useState({ selection: null, run: null, prefill: null, lastRequest: null });
+  const changeMode = (m) => { setAppMode(m); storeMode(m); setRunning(false); setWb({ selection: null, run: null, prefill: null, lastRequest: null }); };
   const [error, setError] = useState(null);
   const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -281,7 +289,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     try { await fn(...a); setError(null); } catch (e) { setError(e); } finally { setBusy(false); refresh(); }
   };
   const actions = {
-    start: act(async (body) => { await api.start(body); setRunning(false); }),
+    start: act(async (body) => { await api.start(body); setRunning(false); setWb({ selection: null, run: null, prefill: null, lastRequest: null }); }),
     approve: act(() => api.approve()), reject: act(() => api.reject()), stop: act(() => api.stop()),
     step: act(() => api.step(stepSeconds)),           // one manual step while paused (the button is disabled while time advances on its own)
   };
@@ -290,10 +298,11 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   if (!user) return <Login onLogin={onLogin} error={loginError} theme={theme === 'light' ? 'light' : 'dark'} />;
   const mode = physicalMode ? 'PHYSICAL' : (d.status?.mode || 'SIMULATION');
   const dev = d.status?.device;
-  const ctx = { d, role: user.role, user, actions, running, setRunning, busy, error, stale, go, ctl: canStart(user.role), device, physicalMode, isPhys, deviceCard: <DeviceCard stream={device} go={go} />, deviceLive: <DeviceLive stream={device} /> };
+  const ctx = { d, role: user.role, user, actions, running, setRunning, busy, error, stale, go, wb, setWb, ctl: canStart(user.role), device, physicalMode, isPhys, deviceCard: <DeviceCard stream={device} go={go} />, deviceLive: <DeviceLive stream={device} /> };
   const simPages = {
-    overview: <SimOverview {...ctx} stepSeconds={stepSeconds} />, live: <LivePage {...ctx} stepSeconds={stepSeconds} />, twin: <Suspense fallback={twinFallback}><SimTwinPage d={d} running={running} stale={stale} go={go} /></Suspense>, diagnostics: <DiagnosticsPage {...ctx} />,
-    predictions: <PredictionsPage {...ctx} />, tests: <TestsPage {...ctx} c2c4={c2c4.data} />, interventions: <InterventionsPage {...ctx} />,
+    overview: <SimOverview {...ctx} stepSeconds={stepSeconds} />, live: <LivePage {...ctx} stepSeconds={stepSeconds} />, twin: <Suspense fallback={twinFallback}><SimTwinPage d={d} running={running} stale={stale} go={go} /></Suspense>, diagnostics: <Suspense fallback={pageFallback}><SimDiagnosticsPage {...ctx} /></Suspense>,
+    predictions: <Suspense fallback={pageFallback}><SimPredictionsPage {...ctx} /></Suspense>, tests: <Suspense fallback={pageFallback}><SimTestsPage {...ctx} c2c4={c2c4.data} /></Suspense>,
+    interventions: <Suspense fallback={pageFallback}><SimInterventionsPage {...ctx} /></Suspense>,
     recovery: <RecoveryPage {...ctx} />, learning: <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>,
     evaluation: (<><PageHead title="Evaluation and Research" sub="Simulation evaluation artifacts, baselines versus candidates, provenance and known limitations." />
       <Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} /></>),
@@ -315,10 +324,12 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     overview: <PhysicalOverview stream={device} go={go} role={user.role} />,
     live: <PhysicalLive stream={device} />,
     twin: <Suspense fallback={twinFallback}><PhysTwinPage stream={device} go={go} /></Suspense>,
-    diagnostics: phys('C1', <DiagnosticsPage {...ctx} />),
-    predictions: phys('C2', <PredictionsPage {...ctx} />),
-    tests: phys('C4', <TestsPage {...ctx} c2c4={c2c4.data} />),
-    interventions: phys('C3', <InterventionsPage {...ctx} />),
+    // C1–C4 in physical mode always show the device's own analysis status: the simulation workspaces never render device data,
+    // and simulator records never appear under a physical heading, whatever a layer reports.
+    diagnostics: <PhysicalAiPage stream={device} layer="C1" go={go} />,
+    predictions: <PhysicalAiPage stream={device} layer="C2" go={go} />,
+    tests: <PhysicalAiPage stream={device} layer="C4" go={go} />,
+    interventions: <PhysicalAiPage stream={device} layer="C3" go={go} />,
     recovery: phys('C5', <RecoveryPage {...ctx} />),
     learning: phys('C6', <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>),
     evaluation: (<><div className="tq-callout info" role="note" data-testid="eval-sim-note"><strong>SIMULATION EVIDENCE</strong> These are results from the software simulator. They say nothing about this physical device.</div>{simPages.evaluation}</>),

@@ -5,6 +5,9 @@ import { Sparkline, TrendLines, ScoreChart, ResponseChart } from '../shared/lazy
 import { C2C4Validation, DiagnosticTests, PredictionChecks, StatusPill } from './c2c4.jsx';
 import { ScenarioStudio, FAULTS, canControl } from './scenario.jsx';
 import { IncidentStory } from './story.jsx';
+import { TEST_SPECS } from '../shared/diagnostics.js';
+
+export { TEST_SPECS };
 
 export { FAULTS, canControl };
 const lastOf = (log, kind) => [...(log || [])].reverse().find((l) => l.kind === kind);
@@ -123,7 +126,7 @@ export function LivePage({ d, role, actions, running, setRunning, busy, error, s
 }
 
 /* ------------------------------------------------------------------ 3. AI diagnostics (C1) */
-export function DiagnosticsPage({ d, isPhys: isPhysProp }) {
+export function DiagnosticsPage({ d, isPhys: isPhysProp, head = true }) {
   const isPhys = isPhysProp ?? isPhysOf(d);
   const provKind = 'DERIVED';
   const t = samplesOf(d); const hyp = lastOf(d.log, 'hypotheses'); const s = d.status || {}; const w = s.last_window;
@@ -136,7 +139,7 @@ export function DiagnosticsPage({ d, isPhys: isPhysProp }) {
   const unfamiliar = hyp?.label === 'unfamiliar' || (d.log || []).some((l) => l.kind === 'c1_unfamiliar_regime');
   return (
     <>
-      <PageHead title="AI Diagnostics (C1)" sub="Anomaly detection and fault hypotheses with the evidence behind them." right={<ProvBadge kind={provKind} />} />
+      {head && <PageHead title="AI Diagnostics (C1)" sub="Anomaly detection and fault hypotheses with the evidence behind them." right={<ProvBadge kind={provKind} />} />}
       <div className="tq-split">
         <div className="tq-stack">
           <Card title="Anomaly score ÷ learned threshold (log scale)" id="c-score" right={<ProvBadge kind={provKind} />}>
@@ -150,7 +153,7 @@ export function DiagnosticsPage({ d, isPhys: isPhysProp }) {
           </Card>
         </div>
         <div className="tq-stack">
-          <Card title="Operating regime" id="c-regime">
+          {head && <><Card title="Operating regime" id="c-regime">
             <p><Pill tone={regime[0]}>{regime[1]}</Pill></p>
             {unfamiliar && <p className="tq-callout warn">An unfamiliar operating regime was seen. It is not confirmed healthy and cannot authorise an action.</p>}
             <dl className="tq-kv"><dt>Sensor validity</dt><dd>{!w ? '—' : w.valid === false ? <Pill tone="crit">invalid</Pill> : <Pill tone="ok">valid</Pill>}</dd>
@@ -159,8 +162,8 @@ export function DiagnosticsPage({ d, isPhys: isPhysProp }) {
           <Card title="Fault hypotheses" id="c-hyp" right={<ProvBadge kind={provKind} />}>
             <PosteriorBars ranked={hyp?.ranked} label={hyp?.label} />
             <p className="tq-muted">Probabilities are produced by the backend from learned class signatures. Bearing faults are not diagnosable with this sensor set.</p>
-          </Card>
-          <Card title="Why this hypothesis" id="c-why">
+          </Card></>}
+          <Card title={head ? 'Why this hypothesis' : 'Gate inputs behind the latest verdict'} id="c-why">
             {!hyp ? <Empty>No explanation yet; hypotheses appear once an anomaly has persisted.</Empty> : (
               <><p>Top hypothesis <strong>{title(hyp.ranked?.[0]?.[0])}</strong> is <strong>{hyp.label}</strong>.</p>
                 {gate ? <p>Decision gate: <Pill tone={gate.verdict === 'ACT' ? 'ok' : 'warn'}>{title(gate.verdict)}</Pill> {gate.reason}</p> : null}
@@ -173,7 +176,7 @@ export function DiagnosticsPage({ d, isPhys: isPhysProp }) {
 }
 
 /* ------------------------------------------------------------------ 4. Predictions (C2) */
-export function PredictionsPage({ d, go }) {
+export function PredictionsPage({ d, go, head = true }) {
   const s = d.status || {}; const w = s.last_window;
   const all = d.predictions || [];
   const latestAt = all.length ? all[all.length - 1].predicted_at : null;
@@ -191,11 +194,11 @@ export function PredictionsPage({ d, go }) {
   })] : [];
   return (
     <>
-      <PageHead title="Counterfactual Predictions (C2)" sub="Expected outcome of each candidate action under matched simulated conditions."
-        right={<><ProvBadge kind="PREDICTED" />{p && <StatusPill status={p.status} />}</>} />
+      {head && <PageHead title="Counterfactual Predictions (C2)" sub="Expected outcome of each candidate action under matched simulated conditions."
+        right={<><ProvBadge kind="PREDICTED" />{p && <StatusPill status={p.status} />}</>} />}
       <p className="tq-callout warn" role="note"><strong>{s.models?.c2_label || 'Intervention Outcome Prediction (unvalidated)'}</strong> — not validated against physical experiments. A prediction is never evidence of recovery, and an unsupported prediction never authorises an action.
         {s.models?.c2_variant && s.models.c2_variant !== 'control' ? ` Experimental variant in use (opt-in): ${s.models.c2_variant}.` : ' The shipped predictor is in use; experimental variants are opt-in.'}</p>
-      {!preds.length ? (<div className="tq-stack"><Card title="Predictions" id="c-pred"><Empty>No predictions yet. They are generated when the incident pipeline compares candidate actions; there is no manual prediction run.</Empty></Card>
+      {!preds.length ? (<div className="tq-stack"><Card title="Predictions" id="c-pred"><Empty>No predictions yet. This list holds only the pipeline's own comparisons, made when an incident reaches action evaluation.</Empty></Card>
         <PredictionChecks checks={d.predictionChecks || []} /></div>) : (
         <div className="tq-split">
           <div className="tq-stack">
@@ -244,30 +247,7 @@ export function PredictionsPage({ d, go }) {
 }
 
 /* ------------------------------------------------------------------ 5. Diagnostic tests (C4) */
-// Descriptions of the backend test library (backend/torqva/diagnostics.py). This page shows what the pipeline ran and logged;
-// it never runs a test, invents a result or sends a motor command itself.
-export const TEST_SPECS = {
-  T1: {
-    code: 'T1', name: 'Speed-Step Dynamic Response (T1)', short: 'Speed step to 70 %', duration_s: 40,
-    target: 'Separates imbalance from looseness, and looseness from a faulty vibration channel.',
-    method: 'The setpoint is stepped down to 70 % and held for 40 s. With imbalance, the 1x vibration and the 2x+3x harmonics both scale with roughly the square of speed; with looseness the harmonics scale far less steeply. The looseness exponent is a simulation modelling assumption and must be re-fitted on real fault data.',
-    signals: ['1x Vibration Exponent', 'Harmonics (2x+3x) Exponent', 'Current-per-RPM Ratio'],
-  },
-  T3: {
-    code: 'T3', name: 'Thermal Equilibrium Observation (T3)', short: 'Observe up to 300 s', duration_s: 300,
-    target: 'Separates a cooling failure from an overload.',
-    method: 'Speed is held while the housing temperature is compared with the learned thermal model for up to 300 s. The observation is the slope of the difference between the two.',
-    signals: ['Housing Thermal Drift Slope (°C / 100 s)'],
-  },
-  T4: {
-    code: 'T4', name: 'Inertial Coast-Down Deceleration (T4)', short: 'Driver disabled', duration_s: 40,
-    target: 'Separates friction/overload from cooling or electrical faults.',
-    method: 'The driver is disabled and a decay time constant tau is fitted to the speed over the following 40 s. The observation is ln tau.',
-    signals: ['Deceleration Time Constant tau', 'ln(tau) Friction Metric'],
-  },
-};
-
-export function TestsPage({ d, c2c4 }) {
+export function TestsPage({ d, c2c4, head = true }) {
   const [sel, setSel] = useState('T1');
   const spec = TEST_SPECS[sel] || TEST_SPECS.T1;
   const res = lastOf(d.log, 'test_result');
@@ -276,7 +256,7 @@ export function TestsPage({ d, c2c4 }) {
   const real = c2c4?.c4_realistic_v2 || c2c4?.c4_realistic_v1;
   return (
     <>
-      <PageHead title="Diagnostic Tests (C4)" sub="Tests that separate competing fault hypotheses. Run only through the safety supervisor." right={<ProvBadge kind="SIMULATED" />} />
+      {head && <PageHead title="Diagnostic Tests (C4)" sub="Tests that separate competing fault hypotheses. Run only through the safety supervisor." right={<ProvBadge kind="SIMULATED" />} />}
       <div className="tq-split">
         <div className="tq-stack">
           <Card title="Available tests" id="c-avail">
@@ -316,7 +296,7 @@ export function TestsPage({ d, c2c4 }) {
 }
 
 /* ------------------------------------------------------------------ 6. Interventions (C3) */
-export function InterventionsPage({ d, role, actions, error, isPhys: isPhysProp }) {
+export function InterventionsPage({ d, role, actions, error, isPhys: isPhysProp, head = true }) {
   const isPhys = isPhysProp ?? isPhysOf(d);
   const provKind = isPhys ? 'MEASURED' : 'SIMULATED';
   const s = d.status || {}; const pend = s.pending_approval; const ctl = canControl(role);
@@ -325,7 +305,7 @@ export function InterventionsPage({ d, role, actions, error, isPhys: isPhysProp 
   const cmds = (d.commands || []).filter((c) => c.action !== 'HEARTBEAT').slice(-8).reverse();
   return (
     <>
-      <PageHead title="Interventions (C3)" sub="What the system proposes, what the gate and Safety Supervisor decided, and what the device acknowledged." right={<ProvBadge kind={provKind} />} />
+      {head && <PageHead title="Interventions (C3)" sub="What the system proposes, what the gate and Safety Supervisor decided, and what the device acknowledged." right={<ProvBadge kind={provKind} />} />}
       <p className="tq-callout" role="note">This page never commands a motor directly. Every action passes the decision gate and the deterministic Safety Supervisor on the backend; the frontend can only approve or reject what the backend proposes.</p>
       <div className="tq-split">
         <div className="tq-stack">
