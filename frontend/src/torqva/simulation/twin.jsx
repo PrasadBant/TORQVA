@@ -61,7 +61,7 @@ export function simTwin(d, { running = false, stale = false } = {}) {
 
   const inc = st.incident;
   const state = stale ? { tone: 'crit', label: 'BACKEND UNREACHABLE', detail: hasRun ? `Simulator state unknown. The values shown are the last ones received (${when}), not current.` : 'Simulator state unknown.' }
-    : !hasRun ? { tone: 'off', label: 'NO SIMULATION RUNNING', detail: 'Start a scenario from the Live Monitor page.' }
+    : !hasRun ? { tone: 'off', label: 'NO SIMULATION RUNNING', detail: 'Start a scenario from the Simulation Overview or Live Monitor page.' }
     : st.device?.estop ? { tone: 'stop', label: 'E-STOP (SIMULATED)', detail: st.device.estop_reason || 'The simulated device latched a stop.' }
     : inc ? { tone: stateTone(inc.state), label: `INCIDENT ${inc.id}: ${title(inc.state)}`, detail: 'An open incident in the simulated pipeline.' }
     : !finite(rpm) ? { tone: 'off', label: 'SPEED UNAVAILABLE', detail: why }
@@ -73,9 +73,13 @@ export function simTwin(d, { running = false, stale = false } = {}) {
   if (hasRun) {
     if (last) findings.push({ tone: last.score_status === 'OK' ? (last.score != null && last.score > 1 ? 'warn' : 'ok') : 'info', label: `C1 anomaly score: ${last.score == null ? title(last.score_status) : `${fmt(last.score, 2)} × threshold`}`,
       detail: last.score == null ? 'This window was not scored.' : 'Ratio to the learned threshold (1 = threshold).', go: ['diagnostics', 'AI Diagnostics'] });
-    findings.push(inc ? { tone: stateTone(inc.state), label: `Incident ${inc.id}: ${title(inc.state)}`, detail: `${inc.tests_run?.length || 0} diagnostic test(s) run`, go: ['diagnostics', 'AI Diagnostics'] }
+    findings.push(inc ? { tone: stateTone(inc.state), label: `Incident ${inc.id}: ${title(inc.state)}`, detail: `${Number.isFinite(inc.tests_run) ? inc.tests_run : 0} diagnostic test(s) run`, go: ['diagnostics', 'AI Diagnostics'] }
       : { tone: 'ok', label: 'No open incident', detail: `${st.closed_incidents || 0} closed in this run` });
-    if (st.pending_approval) findings.push({ tone: 'wait', label: `Awaiting approval: ${title(st.pending_approval.action)}`, detail: st.pending_approval.rationale, go: ['live', 'Live Monitor'] });
+    if (st.pending_approval) findings.push({ tone: 'wait', label: `Awaiting approval: ${title(st.pending_approval.action)}`, detail: st.pending_approval.rationale, go: ['interventions', 'Interventions'] });
+    // TORQVA's own diagnosis, kept apart from the scenario's ground truth: a system-level ranking, so it marks no part on the model.
+    const hy = inc ? [...(d?.log || [])].reverse().find((l) => l.kind === 'hypotheses' && l.incident === inc.id) : null;
+    if (hy?.ranked?.length) findings.push({ tone: hy.label === 'confident' ? 'warn' : 'info', label: `TORQVA diagnosis: ${title(hy.ranked[0][0])} ${fmt(hy.ranked[0][1] * 100, 0)}% (${hy.label})`,
+      detail: 'Ranked by the hypothesis stage from the simulated evidence. It is the AI output, not the scenario ground truth.', go: ['diagnostics', 'AI Diagnostics'] });
     findings.push({ tone: 'info', label: `C2: ${st.models?.c2_label || 'unknown'}`, go: ['predictions', 'Predictions'] });
   }
   const facts = [
@@ -136,5 +140,5 @@ export function SimTwinPage({ d, running, stale, go }) {
   const model = simTwin(d, { running, stale });
   const samples = d?.telemetry?.samples || [];
   return <DigitalTwin model={model} go={go} renderTrend={(part, reading) => <SimTrend samples={samples} reading={reading} />}
-    aside={<p className="tq-muted tq-tw-aside">Scenarios, fault injection and stepping stay on the <button type="button" className="tq-linkbtn" onClick={() => go('live')}>Live Monitor</button> and <button type="button" className="tq-linkbtn" onClick={() => go('lab')}>Lab</button> pages.</p>} />;
+    aside={<p className="tq-muted tq-tw-aside">Scenarios, fault injection and stepping stay in the Scenario Studio on the <button type="button" className="tq-linkbtn" onClick={() => go('overview')}>Simulation Overview</button>, <button type="button" className="tq-linkbtn" onClick={() => go('live')}>Live Monitor</button> and <button type="button" className="tq-linkbtn" onClick={() => go('lab')}>Lab</button> pages.</p>} />;
 }

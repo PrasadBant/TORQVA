@@ -47,7 +47,10 @@ await page.waitForFunction(() => !/UNAVAILABLE/.test(document.querySelector('.tq
 await page.waitForTimeout(6000);
 const kpi = await page.textContent('.tq-kpis');
 check('overview shows simulated telemetry values', /rpm/.test(kpi) && !/UNAVAILABLE/.test(kpi), kpi.replace(/\s+/g, ' ').slice(0, 90));
-check('telemetry tiles carry the SIM provenance label', (await page.locator('.tq-kpis .tq-prov-sim').count()) === 4);
+check('telemetry tiles carry the SIM provenance label (speed, current, housing, voltage, vibration)', (await page.locator('.tq-kpis .tq-prov-sim').count()) === 5);
+check('power on the overview is labelled DERIVED, not SIM', (await page.locator('.tq-kpis .tq-prov-derived').count()) === 1);
+check('simulation overview has the status strip and the C1-C6 pipeline', await page.isVisible('[data-testid="sim-status-strip"]') && (await page.locator('[data-testid="pipeline"] > li').count()) === 7);
+check('simulation status strip shows no hardware fields', !/firmware|handshake|commission/i.test(await page.textContent('[data-testid="sim-status-strip"]')));
 check('environment is labelled software simulator', (await page.textContent('header.tq-top')).includes('software simulator'));
 await shot('overview-1440');
 
@@ -72,9 +75,11 @@ check('physical device shown as not connected, simulated device distinguished', 
 
 // simulator controls: start a faulty run, run it, and watch for an incident
 await page.click('nav button:has-text("Live Monitor")');
-await page.selectOption('select >> nth=1', 'imbalance').catch(() => {});
+await page.selectOption('label:has-text("Injected fault") select', 'looseness');
 await page.click('button:has-text("Start new simulation")');
 await page.waitForTimeout(800);
+const startedFault = await page.evaluate(() => fetch('/api/torqva/status', { headers: { Authorization: 'Bearer ' + (sessionStorage.getItem('torqva.token') || '') } }).then((r) => r.json()).then((j) => j.scenario?.fault).catch(() => null));
+check('Start new simulation really starts the configured scenario', startedFault === 'looseness', String(startedFault));
 await page.click('button:has-text("Run")');
 let sawIncident = false;
 for (let i = 0; i < 40 && !sawIncident; i++) { await page.waitForTimeout(1500); sawIncident = /Incident INC|incident/i.test(await page.textContent('header.tq-top') + await page.evaluate(() => fetch('/api/torqva/status', { headers: { Authorization: 'Bearer ' + (sessionStorage.getItem('torqva.token') || '') } }).then((r) => r.text()))); }

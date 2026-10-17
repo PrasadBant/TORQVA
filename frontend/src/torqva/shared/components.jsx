@@ -89,6 +89,18 @@ export function stateTone(state) {
   return 'info';
 }
 
+/** One cell of a status strip (the physical dashboard's `.tq-summary` layout): icon, uppercase label, pills and an optional meta line. */
+export function SummaryCell({ icon: I, tone = 'info', label, meta, children, testid }) {
+  return (
+    <div className="tq-summary-cell" data-testid={testid}>
+      <span className={`tq-kpi-icon tq-${tone}`} aria-hidden="true">{I && <I size={15} />}</span>
+      <span className="tq-summary-label">{label}</span>
+      <div className="tq-row tq-wrap-pills">{children}</div>
+      {meta ? <span className="tq-summary-meta tq-num">{meta}</span> : null}
+    </div>
+  );
+}
+
 export function Card({ title, right, children, id, className = '' }) {
   return (
     <section className={`tq-card ${className}`.trim()} aria-labelledby={id}>

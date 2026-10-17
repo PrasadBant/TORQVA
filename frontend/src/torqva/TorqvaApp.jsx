@@ -4,7 +4,8 @@ import { api, setToken, getToken, ApiError } from './api.js';
 import { SimulationBanner, Pill, Logo, NavContext, PageHead, Empty } from './shared/components.jsx';
 import { prefetchCharts } from './shared/lazyCharts.jsx';
 import { Evaluation } from './simulation/evaluation.jsx';
-import { OverviewPage, LivePage, DiagnosticsPage, PredictionsPage, TestsPage, InterventionsPage, RecoveryPage, LearningPage, DevicesPage, isPhysOf } from './simulation/pages.jsx';
+import { SimOverview } from './simulation/overview.jsx';
+import { LivePage, DiagnosticsPage, PredictionsPage, TestsPage, InterventionsPage, RecoveryPage, LearningPage, DevicesPage, isPhysOf } from './simulation/pages.jsx';
 import { useDeviceStream, DevicePage, MotorControlPage, DeviceCard, DeviceLive } from './physical/device.jsx';
 import Lab from './simulation/lab.jsx';
 import Attestation from './simulation/attestation.jsx';
@@ -282,6 +283,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const actions = {
     start: act(async (body) => { await api.start(body); setRunning(false); }),
     approve: act(() => api.approve()), reject: act(() => api.reject()), stop: act(() => api.stop()),
+    step: act(() => api.step(stepSeconds)),           // one manual step while paused (the button is disabled while time advances on its own)
   };
 
   const stale = useStale(lastOk, offline, Math.max(8000, pollMs * 4));
@@ -290,7 +292,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const dev = d.status?.device;
   const ctx = { d, role: user.role, user, actions, running, setRunning, busy, error, stale, go, ctl: canStart(user.role), device, physicalMode, isPhys, deviceCard: <DeviceCard stream={device} go={go} />, deviceLive: <DeviceLive stream={device} /> };
   const simPages = {
-    overview: <OverviewPage {...ctx} />, live: <LivePage {...ctx} />, twin: <Suspense fallback={twinFallback}><SimTwinPage d={d} running={running} stale={stale} go={go} /></Suspense>, diagnostics: <DiagnosticsPage {...ctx} />,
+    overview: <SimOverview {...ctx} stepSeconds={stepSeconds} />, live: <LivePage {...ctx} stepSeconds={stepSeconds} />, twin: <Suspense fallback={twinFallback}><SimTwinPage d={d} running={running} stale={stale} go={go} /></Suspense>, diagnostics: <DiagnosticsPage {...ctx} />,
     predictions: <PredictionsPage {...ctx} />, tests: <TestsPage {...ctx} c2c4={c2c4.data} />, interventions: <InterventionsPage {...ctx} />,
     recovery: <RecoveryPage {...ctx} />, learning: <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>,
     evaluation: (<><PageHead title="Evaluation and Research" sub="Simulation evaluation artifacts, baselines versus candidates, provenance and known limitations." />
@@ -370,7 +372,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
               <span className="tq-env" title={physicalMode ? 'Physical Hardware Mode' : 'Software Simulator Mode'}>
                 <span className={`tq-env-dot ${physicalMode ? (device.snap?.telemetry_fresh ? 'live' : 'warn') : 'sim'}`} aria-hidden="true" />
                 <span className="tq-env-text">{connText}</span>
-                {!physicalMode && <Pill tone={dev?.estop ? 'stop' : 'ok'}>{dev?.estop ? 'DEVICE E-STOP' : 'Device OK'}</Pill>}
+                {!physicalMode && <Pill tone={dev?.estop ? 'stop' : 'ok'}>{dev?.estop ? 'SIMULATED E-STOP' : 'Simulated device OK'}</Pill>}
               </span>
               <span className="tq-grow" />
               <ModeSwitch mode={appMode} onChange={changeMode} />

@@ -1015,3 +1015,74 @@
 @media (prefers-reduced-motion: reduce) { .tq-t3-hot, .tq-t3-hot-ring, .tq-t3-canvas { transition: none !important; } }
 .tq-t3-hot[data-nolabel] .tq-t3-hot-label { display: none; }
 .tq-t3-hot.is-sel { z-index: 2; }
+
+/* ---------------------------------------------------------------- Simulation mode: Scenario Studio, pipeline, events, incident story */
+.tq-sim { --tone: var(--tq-sim); }
+.tq-callout.wait { --tone: var(--tq-learning); }
+.tq-sim-main { align-items: start; }
+.tq-scn-run { margin: 12px 0 6px; flex-wrap: wrap; }
+.tq-scn-form { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--tq-border-soft); }
+.tq-scn-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 14px; }
+.tq-scn-grid label { min-width: 0; }
+.tq-scn-grid input, .tq-scn-grid select { width: 100%; min-width: 0; }
+.tq-scn-summary { display: flex; gap: 8px; align-items: flex-start; margin: 4px 0 0; padding: 9px 12px; border-radius: var(--tq-r-s); background: var(--tq-s2);
+  border: 1px solid var(--tq-border-soft); font-size: 13px; color: var(--tq-text-2); }
+.tq-scn-summary svg { flex: none; margin-top: 2px; color: var(--tq-sim); }
+
+.tq-pipe-card { margin-top: 16px; }
+.tq-pipe { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0; counter-reset: none; }
+.tq-pipe-stage { --tone: var(--tq-off); position: relative; min-width: 0; }
+.tq-pipe-stage.is-ok { --tone: var(--tq-ok); } .tq-pipe-stage.is-active { --tone: var(--tq-accent); } .tq-pipe-stage.is-wait { --tone: var(--tq-learning); }
+.tq-pipe-stage.is-stop, .tq-pipe-stage.is-fail { --tone: var(--tq-crit); }
+.tq-pipe-stage + .tq-pipe-stage::before { content: ''; position: absolute; top: 25px; left: -50%; right: 50%; height: 2px; margin-left: 14px; margin-right: 14px;
+  background: color-mix(in srgb, var(--tq-border-strong) 80%, transparent); z-index: 0; }
+.tq-pipe-btn { position: relative; z-index: 1; display: grid; gap: 6px; justify-items: center; align-content: start; text-align: center; width: 100%; height: 100%; padding: 8px 8px 12px;
+  background: none; border: 1px solid transparent; border-radius: var(--tq-r); color: var(--tq-text); font: inherit; cursor: pointer; transition: background .15s var(--tq-ease), border-color .15s var(--tq-ease); }
+.tq-pipe-btn:hover { background: var(--tq-s2); border-color: var(--tq-border-soft); }
+.tq-pipe-btn:focus-visible { outline: none; box-shadow: var(--tq-ring); }
+.tq-pipe-top { display: flex; align-items: center; gap: 8px; }
+.tq-pipe-code { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; font: 700 12.5px var(--tq-mono); color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 12%, var(--tq-s1)); border: 2px solid color-mix(in srgb, var(--tone) 60%, var(--tq-border)); }
+.tq-pipe-stage.is-idle .tq-pipe-code, .tq-pipe-stage.is-na .tq-pipe-code { border-style: dashed; }
+.tq-pipe-dot { display: none; }
+.tq-pipe-name { font-size: 13px; line-height: 1.25; }
+.tq-pipe-sum { font-size: 12px; line-height: 1.35; color: var(--tq-muted); overflow-wrap: anywhere; }
+.tq-pipe-t { font-size: 11.5px; color: var(--tq-faint); }
+.tq-pipe-stage.is-active .tq-pipe-code { animation: tq-pipe-pulse 1.6s var(--tq-ease) infinite; }
+@keyframes tq-pipe-pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--tone) 18%, transparent); } }
+@media (max-width: 1100px) {
+  .tq-pipe { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .tq-pipe-stage + .tq-pipe-stage::before { top: -8px; bottom: auto; left: 25px; right: auto; width: 2px; height: 18px; margin: 0; }
+  .tq-pipe-btn { grid-template-columns: auto minmax(0, 1fr) auto; justify-items: start; text-align: left; align-items: center; column-gap: 12px; row-gap: 2px; padding: 8px; }
+  .tq-pipe-top { grid-row: span 2; }
+  .tq-pipe-btn > .tq-pill { grid-column: 3; grid-row: 1; }
+  .tq-pipe-sum { grid-column: 2 / -1; }
+  .tq-pipe-t { grid-column: 2 / -1; }
+}
+@media (prefers-reduced-motion: reduce) { .tq-pipe-stage.is-active .tq-pipe-code { animation: none; } }
+
+.tq-ev-filter { margin-bottom: 10px; flex-wrap: wrap; }
+.tq-ev { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.tq-ev-item { --tone: var(--tq-accent); border-left: 2px solid color-mix(in srgb, var(--tone) 55%, var(--tq-border)); }
+.tq-ev-item.tone-crit { --tone: var(--tq-crit); } .tq-ev-item.tone-wait { --tone: var(--tq-learning); }
+.tq-ev-item summary { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 6px 8px; cursor: pointer; list-style: none; font-size: 13px; border-radius: 0 var(--tq-r-s) var(--tq-r-s) 0; }
+.tq-ev-item summary::-webkit-details-marker { display: none; }
+.tq-ev-item summary:hover { background: var(--tq-s2); }
+.tq-ev-item summary:focus-visible { outline: none; box-shadow: var(--tq-ring); }
+.tq-ev-t { color: var(--tq-muted); font-size: 12px; }
+.tq-ev-text { min-width: 0; overflow-wrap: anywhere; }
+.tq-ev-inc { font: 600 11px var(--tq-mono); color: var(--tq-muted); }
+.tq-ev-chev { color: var(--tq-faint); transition: transform .15s var(--tq-ease); }
+.tq-ev-item details[open] .tq-ev-chev { transform: rotate(90deg); }
+.tq-ev-kv { margin: 2px 8px 8px 72px; font-size: 12px; }
+.tq-ev-kv dd { overflow-wrap: anywhere; min-width: 0; }
+@media (max-width: 640px) { .tq-ev-item summary { grid-template-columns: 44px minmax(0, 1fr) auto; } .tq-ev-inc { display: none; } .tq-ev-kv { margin-left: 8px; } }
+
+.tq-story-cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 6px 0 12px; }
+.tq-story-col { --tone: var(--tq-accent); display: grid; gap: 4px; align-content: start; min-width: 0; padding: 12px 14px; border-radius: var(--tq-r); background: var(--tq-s2);
+  border: 1px solid var(--tq-border-soft); border-top: 3px solid var(--tone); }
+.tq-story-col.is-truth { --tone: var(--tq-sim); } .tq-story-col.is-ai { --tone: var(--tq-accent); } .tq-story-col.is-pred { --tone: var(--tq-learning); } .tq-story-col.is-obs { --tone: var(--tq-ok); }
+.tq-story-col .tq-section-title { margin: 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tq-story-col strong { font-size: 15px; overflow-wrap: anywhere; }
+@media (max-width: 1100px) { .tq-story-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .tq-story-cols { grid-template-columns: minmax(0, 1fr); } }

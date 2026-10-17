@@ -1,7 +1,7 @@
 # TORQVA — Project Overview (context brief)
 
 > Written so the whole project can be understood from this one file, for example by pasting it into an AI assistant before discussing or planning work.
-> State as of 16 Oct 2026, branch `torqva/phase-0-audit` at commit `04c2c67` (GitHub `PrasadBant/TORQVA`; not merged to `main`). Facts below come from the code and tests in the repository.
+> State as of 17 Oct 2026, branch `torqva/phase-0-audit` at commit `60eabbc` (GitHub `PrasadBant/TORQVA`; not merged to `main`). Facts below come from the code and tests in the repository.
 
 ---
 
@@ -103,7 +103,7 @@ frontend/
   src/torqva/TorqvaApp.jsx     app shell: sign-in, mode switch, navigation, polling
   src/torqva/api.js            REST client (reads time out after 20 s; commands never do)
   src/torqva/torqva.css        design system (tokens, light/dark)
-  src/torqva/shared/           UI primitives (components.jsx), charts (charts.jsx via lazyCharts.jsx), Digital Twin workspace (twin.jsx), component metadata (twinParts.js), 3D viewport (twin3d/: assembly, engine, viewport, overlay layout) and the 2D fallback drawing (twinModel.jsx)
+  src/torqva/shared/           UI primitives (components.jsx), charts (charts.jsx via lazyCharts.jsx), Digital Twin workspace (twin.jsx), component metadata (twinParts.js), 3D viewport (twin3d/: assembly, engine, quality governor, viewport, overlay layout) and the 2D fallback drawing (twinModel.jsx)
   src/torqva/physical/         pages fed by the USB device stream: physical.jsx (dashboard), device.jsx (connection, motor control, commissioning), twin.jsx (Digital Twin data, read-only)
   src/torqva/simulation/       pages fed by the simulator API: pages.jsx (C1–C6 pages), c2c4.jsx, evaluation.jsx, lab.jsx, attestation.jsx, twin.jsx (Digital Twin data)
   src/tests/                   Vitest suites (151 tests), incl. a layout guard
@@ -190,9 +190,10 @@ Items 1–5 are committed and pushed to `torqva/phase-0-audit`; item 6 is in the
 4. **Performance** (`975f47a`): faster model build and no per-second re-render of the whole app.
 5. **Digital Twin and honest labels** (`04c2c67`): the read-only Digital Twin page (section 7) for both modes; the physical dashboard's SPEED UNAVAILABLE state and DERIVED power label; a CMD provenance badge for commanded values; the older E2E scripts brought up to date (they start in simulation mode); a 390 px overflow fix on Attestation.
 
-6. **3D Digital Twin** (uncommitted): the twin page renders the rig in 3D with Three.js (added to `package.json` by the user); the 2D drawing stays as the fallback. Data mappings gained `freshness` and evidence-only `alerts`; no backend, firmware or API change.
+6. **3D Digital Twin** (`80b027b`): the twin page renders the rig in 3D with Three.js (added to `package.json` by the user); the 2D drawing stays as the fallback (no WebGL 2, render error or lost context). Data mappings gained `freshness` and evidence-only `alerts`; no backend, firmware or API change.
+7. **3D twin smoothness** (`60eabbc`): fixed a render-loop explosion (camera damping queued extra frames inside a frame; a 2 s orbit took 279 s, now 4 s, longest task 3.8 s → 0) with a single-flight render-on-demand scheduler; fixed a memory leak on remount (one shared WebGL renderer, explicit OrbitControls listener removal; heap now plateaus around 11 MB); adaptive pixel ratio during motion (`twin3d/quality.js`); marker updates write the DOM only on change; new engine tests (`torqva_twin3d_engine.test.js`, 10 tests).
 
-Test status (16 Oct): frontend 151/151; build passes; browser E2E app 63/63, twin 44/44 (26 earlier checks + 18 for the 3D view), lab 11/11, c2c4 23/23, attestation 32/32 (lab, c2c4 and attestation last run before the 3D work, which does not touch their pages); backend 653 passed / 5 failed / 1 skipped (the 5 are firmware source checks); firmware host tests 105 passed / 25 failed (see section 10, item 2).
+Test status (17 Oct): frontend 161/161; build passes; browser E2E app 63/63, twin 44/44 (26 earlier checks + 18 for the 3D view), lab 11/11, c2c4 23/23, attestation 32/32 (lab, c2c4 and attestation last run before the 3D work, which does not touch their pages); backend 653 passed / 5 failed / 1 skipped (the 5 are firmware source checks); firmware host tests 105 passed / 25 failed (see section 10, item 2).
 
 ---
 
@@ -208,7 +209,7 @@ Test status (16 Oct): frontend 151/151; build passes; browser E2E app 63/63, twi
 8. The website has no URL routing: pages are switched in app state, so a page cannot be bookmarked or reloaded in place.
 9. The simulator's in-memory history grows without a limit during a long run.
 10. The branch `torqva/phase-0-audit` is pushed but not merged into `main` (no pull request yet).
-11. The 3D twin is illustrative: no CAD model or measurement of the real rig exists, so sensor positions, the disc size, wiring routes and the motor internals are typical, not this unit's. The rotation direction depends on unverified motor polarity. The twin shows no C2 prediction overlay because predictions are system-level, not tied to a component.
+11. The 3D twin is illustrative: no CAD model or measurement of the real rig exists, so sensor positions, the disc size, wiring routes and the motor internals are typical, not this unit's. The rotation direction depends on unverified motor polarity. The twin shows no C2 prediction overlay because predictions are system-level, not tied to a component. Performance was measured in headless Chrome only; real-display frame rate and GPU time are unmeasured, and the first selection of a mechanical part still costs one ~12 ms frame.
 
 ## 11. Likely next steps
 

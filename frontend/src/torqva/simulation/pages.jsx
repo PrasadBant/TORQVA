@@ -1,12 +1,13 @@
 import React, { useMemo, useState } from 'react';
-import { Play, Pause, StopCircle, Check, X, RotateCcw, Gauge, Thermometer, Waves, Zap } from 'lucide-react';
+import { Check, X, Gauge, Thermometer, Waves, Zap } from 'lucide-react';
 import { Card, Empty, ErrorBox, Pill, PosteriorBars, ProvBadge, fmt, stateTone, PageHead, CardLink } from '../shared/components.jsx';
 import { Sparkline, TrendLines, ScoreChart, ResponseChart } from '../shared/lazyCharts.jsx';
 import { C2C4Validation, DiagnosticTests, PredictionChecks, StatusPill } from './c2c4.jsx';
+import { ScenarioStudio, FAULTS, canControl } from './scenario.jsx';
+import { IncidentStory } from './story.jsx';
 
-export const FAULTS = ['imbalance', 'looseness', 'overload', 'cooling_failure', 'supply_voltage', 'sensor_fault'];
+export { FAULTS, canControl };
 const lastOf = (log, kind) => [...(log || [])].reverse().find((l) => l.kind === kind);
-export const canControl = (role) => role === 'operator' || role === 'admin';
 export const isPhysOf = (d) => !!(
   d?.status?.mode === 'PHYSICAL' ||
   d?.status?.provenance === 'MEASURED' ||
@@ -18,7 +19,7 @@ const title = (s) => String(s ?? '').replaceAll('_', ' ');
 const samplesOf = (d) => d.telemetry?.samples || [];
 
 /** A latest-value tile. A missing or invalid sensor reads UNAVAILABLE, never zero. */
-export function Kpi({ label, value, unit, digits = 1, data, dataKey, color = 'var(--tq-chart-1)', note, prov = 'MEASURED', icon: I, primary = false }) {
+export function Kpi({ label, value, unit, digits = 1, data, dataKey, color = 'var(--tq-chart-1)', note, prov = 'MEASURED', icon: I, primary = false, fresh = null }) {
   const missing = value === null || value === undefined || Number.isNaN(value);
   return (
     <div className={`tq-kpi ${missing ? 'tq-unavailable' : ''} ${primary ? 'tq-kpi-primary' : ''}`.trim()}>
@@ -27,6 +28,7 @@ export function Kpi({ label, value, unit, digits = 1, data, dataKey, color = 'va
       {data?.length > 1 && (
         <div className="tq-kpi-spark" aria-hidden="true"><Sparkline data={data} dataKey={dataKey} color={color} height={primary ? 56 : 40} /></div>)}
       {note && <div className="tq-kpi-note">{note}</div>}
+      {fresh && <div className="tq-kpi-freshness"><span className={`tq-kpi-status-tag ${fresh.state}`}>{fresh.text}</span></div>}
     </div>
   );
 }
@@ -35,150 +37,14 @@ function TrendChart({ data, lines, height = 200, yDomain, label, digits = 2, uni
   return <div role="img" aria-label={label} className="tq-chart"><TrendLines data={data} lines={lines} height={height} yDomain={yDomain} digits={digits} unit={unit} /></div>;
 }
 
-/** Controls that act on the software simulator only. Nothing here reaches hardware. */
-export function SimControls({ d, role, actions, running, setRunning, busy, error }) {
-  const [form, setForm] = useState({ fault: 'imbalance', severity: 0.5, transient: true, approval: false, seed: 1 });
-  const s = d.status || {};
-  const hasSim = s.t !== undefined && s.t !== null;
-  const ctl = canControl(role);
-  const start = () => actions.start({
-    fault: form.fault === 'none' ? null : form.fault, severity: Number(form.severity), seed: Number(form.seed),
-    clears_below_rpm: form.transient ? 1500 : null, require_human_approval: form.approval,
-  });
-  return (
-    <Card title="Simulation scenario" id="c-scn" right={<ProvBadge kind="SIMULATED" />}>
-      {!ctl && <Empty>Your role ({role}) can view but not start simulations.</Empty>}
-      <form className="tq-form" onSubmit={(e) => { e.preventDefault(); start(); }}>
-        <label>Injected fault
-          <select value={form.fault} onChange={(e) => setForm({ ...form, fault: e.target.value })} disabled={!ctl}>
-            <option value="none">none (healthy run)</option>
-            {FAULTS.map((f) => <option key={f} value={f}>{title(f)}</option>)}
-          </select>
-        </label>
-        <label>Severity ({form.severity})
-          <input type="range" min="0.05" max="1" step="0.05" value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value })} disabled={!ctl} />
-        </label>
-        <label className="tq-check"><input type="checkbox" checked={form.transient} onChange={(e) => setForm({ ...form, transient: e.target.checked })} disabled={!ctl} />
-          Condition clears when speed is reduced (simulated transient)</label>
-        <label className="tq-check"><input type="checkbox" checked={form.approval} onChange={(e) => setForm({ ...form, approval: e.target.checked })} disabled={!ctl} />
-          Require human approval (as in hardware mode)</label>
-        <button type="submit" className="tq-btn tq-primary" disabled={!ctl || busy}><RotateCcw size={14} aria-hidden="true" /> Start new simulation</button>
-      </form>
-      <div className="tq-section">
-        <p className="tq-section-title">Current simulation</p>
-        <div className="tq-row">
-          <button className="tq-btn" onClick={() => setRunning(!running)} disabled={!ctl || !hasSim}>
-            {running ? <><Pause size={14} aria-hidden="true" /> Pause</> : <><Play size={14} aria-hidden="true" /> Run</>}
-          </button>
-          <button className="tq-btn tq-danger" onClick={actions.stop} disabled={!hasSim} aria-label="Stop motor (coast)"><StopCircle size={14} aria-hidden="true" /> STOP</button>
-        </div>
-        <p className="tq-muted">Simulator only. STOP coasts the simulated motor; it goes through the same safety path as every other command.</p>
-      </div>
-      <ErrorBox error={error} />
-    </Card>
-  );
-}
+/** The scenario controls (see scenario.jsx); kept under this name for the Live Monitor and older imports. */
+export const SimControls = ScenarioStudio;
 
-function describeLog(l) {
-  switch (l.kind) {
-    case 'hypotheses': return `Hypotheses ranked: ${title(l.ranked?.[0]?.[0])} (${l.label})`;
-    case 'gate': return `Decision gate: ${title(l.verdict)}${l.test ? ` → test ${l.test}` : ''}`;
-    case 'supervisor': return `Supervisor ${l.verdict}: ${title(l.action)}`;
-    case 'test_result': return `Test ${l.test} returned`;
-    case 'test_aborted': return `Test aborted: ${l.status}`;
-    case 'transition': return `Incident ${title(l.frm)} → ${title(l.to)}`;
-    case 'incident_opened': return 'Incident opened';
-    case 'incident_closed': return `Incident closed: ${title(l.final)}`;
-    case 'recovery_assessment': return `Recovery assessment: ${title(l.outcome)}`;
-    case 'c2_unsupported': return `C2 unsupported: ${(l.reasons || []).map(title).join(', ')}`;
-    default: return title(l.kind);
-  }
-}
-const logTone = (l) => (['mandatory_stop', 'command_failed', 'test_aborted', 'c2_unsupported'].includes(l.kind) ? 'crit' : ['gate', 'supervisor'].includes(l.kind) ? 'wait' : 'info');
-
-function warnings(d) {
-  const s = d.status || {}; const out = [];
-  if (s.device?.estop) out.push(['stop', `Device emergency stop (${s.device.estop_reason})`]);
-  if (s.pending_approval) out.push(['wait', `Awaiting human approval: ${title(s.pending_approval.action)}`]);
-  if (s.incident) out.push([stateTone(s.incident.state), `Incident ${s.incident.id}: ${title(s.incident.state)}`]);
-  const p = (d.predictions || []).slice(-1)[0];
-  if (p && p.status && p.status !== 'supported') out.push(['warn', `Latest C2 prediction is ${title(p.status)} and will not be used for decisions`]);
-  if (s.last_window && s.last_window.valid === false) out.push(['crit', 'Latest window is flagged invalid (sensor data not trusted)']);
-  return out;
-}
-
-/* ------------------------------------------------------------------ 1. Overview */
-export function OverviewPage({ d, role, user, go, stale, ctl, deviceCard, isPhys: isPhysProp }) {
-  const isPhys = isPhysProp ?? isPhysOf(d);
-  const provKind = isPhys ? 'MEASURED' : 'SIMULATED';
-  const s = d.status || {}; const w = s.last_window; const t = samplesOf(d);
-  const tail = t.slice(-60);
-  const hyp = lastOf(d.log, 'hypotheses'); const gate = [...(d.decisions || [])].reverse().find((x) => x.inputs);
-  const pred = (d.predictions || []).slice(-1)[0];
-  const hasSim = s.t !== undefined && s.t !== null;
-  const hasData = isPhys || hasSim;
-  const warn = warnings(d);
-  const events = (d.log || []).slice(-8).reverse();
-  const above = t.filter((x) => x.score != null && x.score > 1).length;
-  const state = s.incident ? title(s.incident.state) : isPhys ? 'No open incident (physical data)' : hasSim ? 'Normal operation (no open incident)' : 'No simulation running';
-  return (
-    <>
-      <PageHead title={`Overview — ${user.user}`} sub={isPhys ? "Physical motor: state, trends, diagnosis and next steps reported by the backend." : "Simulated motor: state, trends, diagnosis and next steps in one place."} right={<><ProvBadge kind={provKind} /><Pill tone={s.incident ? stateTone(s.incident.state) : hasData ? 'ok' : 'off'}>{state}</Pill></>} />
-      <div className="tq-kpis tq-kpis-hero" aria-label="Latest telemetry">
-        <Kpi label="Speed" icon={Gauge} primary value={w?.rpm} unit="rpm" digits={0} data={tail} dataKey="rpm" prov={provKind} note={hasData ? `setpoint ${fmt(s.device?.setpoint_rpm, 0)} rpm` : undefined} />
-        <Kpi label="Housing temperature" icon={Thermometer} value={w?.housing} unit="°C" data={tail} dataKey="housing" prov={provKind} color="var(--tq-chart-2)" />
-        <Kpi label="Vibration RMS" icon={Waves} value={w?.vib_rms} unit="g" digits={3} data={tail} dataKey="vib_rms" prov={provKind} color="var(--tq-chart-3)" />
-        <Kpi label="Motor current" icon={Zap} value={w?.current} unit="A" digits={2} data={tail} dataKey="current" prov={provKind} color="var(--tq-chart-4)" />
-      </div>
-      <div className="tq-split">
-        <div className="tq-stack">
-          <Card title="Motor status" id="c-dev" right={<ProvBadge kind={provKind} />}>
-            {!hasData ? <Empty>No motor telemetry available.</Empty> : (
-              <dl className="tq-kv">
-                <dt>Environment</dt><dd>{isPhys ? 'Physical device' : 'Software simulator (no physical device)'}</dd>
-                <dt>Operating state</dt><dd>{state}</dd>
-                <dt>{isPhys ? 'Data origin' : 'Sim time'}</dt><dd className="tq-num">{isPhys ? 'Physical device telemetry' : `${fmt(s.t, 0)} s`}</dd>
-                <dt>Telemetry freshness</dt><dd>{stale ? <Pill tone="crit">STALE — backend unreachable</Pill> : <Pill tone="ok">{isPhys ? 'live HW' : 'live'}</Pill>}</dd>
-                <dt>Device safety state</dt><dd>{s.device?.estop ? <Pill tone="stop">EMERGENCY STOP</Pill> : <Pill tone="ok">OK</Pill>}</dd>
-                <dt>Anomaly windows</dt><dd className="tq-num">{above} of {t.length} scored</dd>
-              </dl>)}
-          </Card>
-          {deviceCard}
-          <Card title="Recent events" id="c-events">
-            {!events.length ? <Empty>No events yet.</Empty> : (
-              <ul className="tq-feed">{events.map((l, i) => (<li key={i}><Pill tone={logTone(l)}>{fmt(l.t, 0)} s</Pill><span>{describeLog(l)}</span></li>))}</ul>)}
-          </Card>
-        </div>
-        <div className="tq-stack">
-          <Card title="Active warnings" id="c-warn">
-            {!warn.length ? <Empty>No active warnings or unresolved incidents.</Empty> : (
-              <ul className="tq-list">{warn.map(([tone, text], i) => <li key={i}><Pill tone={tone}>{text}</Pill></li>)}</ul>)}
-          </Card>
-          <Card title="AI diagnosis (C1)" id="c-c1" right={<ProvBadge kind="DERIVED" />}>
-            <PosteriorBars ranked={(hyp?.ranked || []).slice(0, 3)} label={hyp?.label} />
-            <CardLink onClick={() => go('diagnostics')}>Open AI Diagnostics</CardLink>
-          </Card>
-          <Card title="Prediction summary (C2)" id="c-c2" right={<ProvBadge kind="PREDICTED" />}>
-            {!pred ? <Empty>No prediction yet. Predictions are produced while an anomaly is being investigated.</Empty> : (
-              <p><StatusPill status={pred.status} /> <span className="tq-muted">{title(pred.action)}: risk {fmt(pred.risk * 100, 0)}%, housing @120 s {fmt(pred.lo_120.housing, 1)}–{fmt(pred.hi_120.housing, 1)} °C</span></p>)}
-            <p className="tq-muted">{s.models?.c2_label}</p>
-            <CardLink onClick={() => go('predictions')}>Open Predictions</CardLink>
-          </Card>
-          <Card title="Recommendation" id="c-next">
-            {!gate ? <Empty>The decision gate has not produced a recommendation yet.</Empty> : (
-              <><p><Pill tone={gate.verdict === 'ACT' ? 'ok' : gate.verdict === 'SAFE_STOP' ? 'stop' : 'warn'}>{title(gate.verdict)}</Pill></p><p>{gate.reason}</p></>)}
-            <p className="tq-muted">A recommendation is never an executed action. {ctl ? '' : 'Your role is read-only.'}</p>
-            <CardLink onClick={() => go('interventions')}>Open Interventions</CardLink>
-          </Card>
-        </div>
-      </div>
-    </>
-  );
-}
+/* ------------------------------------------------------------------ 1. Overview: see overview.jsx */
 
 /* ------------------------------------------------------------------ 2. Live monitoring */
 const RANGES = [['60', 'Last 60 s'], ['180', 'Last 3 min'], ['all', 'All (≤300 windows)']];
-export function LivePage({ d, role, actions, running, setRunning, busy, error, stale, deviceLive, device, isPhys: isPhysProp }) {
+export function LivePage({ d, role, actions, running, setRunning, busy, error, stale, deviceLive, device, isPhys: isPhysProp, stepSeconds }) {
   const isPhys = isPhysProp ?? isPhysOf(d);
   const provKind = isPhys ? 'MEASURED' : 'SIMULATED';
   const [range, setRange] = useState('all');
@@ -249,7 +115,7 @@ export function LivePage({ d, role, actions, running, setRunning, busy, error, s
           </Card>
         </div>
         <div className="tq-stack tq-sticky-side">
-          <SimControls d={d} role={role} actions={actions} running={running} setRunning={setRunning} busy={busy} error={error} />
+          <SimControls d={d} role={role} actions={actions} running={running} setRunning={setRunning} busy={busy} error={error} stale={stale} stepSeconds={stepSeconds} />
         </div>
       </div>
     </>
@@ -315,6 +181,8 @@ export function PredictionsPage({ d, go }) {
   const [sel, setSel] = useState(null);
   const [signal, setSignal] = useState('housing');
   const p = preds.find((x) => x.action === sel) || preds[0];
+  const rank = lastOf(d.log, 'c2_ranking');
+  const chosen = rank && latestAt != null && Math.abs(rank.t - latestAt) < 1 ? rank.chosen : null;   // the C2 choice logged with this set of predictions
   const cur = { rpm: w?.rpm, housing: w?.housing, vib_rms: w?.vib_rms };
   const dg = signal === 'vib_rms' ? 3 : 1;
   const chart = p ? [{ h: 0, mean: cur[signal] ?? null }, ...[30, 60, 120].map((h, i) => {
@@ -335,7 +203,7 @@ export function PredictionsPage({ d, go }) {
               <div className="tq-stack" role="group" aria-label="Select intervention">
                 {preds.map((x) => (
                   <button type="button" key={x.action} className="tq-select-card" aria-pressed={p?.action === x.action} onClick={() => setSel(x.action)}>
-                    <div className="tq-option-title"><strong>{title(x.action)}</strong><StatusPill status={x.status} /></div>
+                    <div className="tq-option-title"><strong>{title(x.action)}</strong><span className="tq-row">{chosen === x.action && <Pill tone="info">C2 lowest risk</Pill>}<StatusPill status={x.status} /></span></div>
                     <div className="tq-option-meta">risk of crossing a limit {fmt(x.risk * 100, 0)}% · speed @120 s <span className="tq-num">{fmt(x.mean_at_30_60_120?.rpm?.[2], 0)} rpm</span></div>
                     {x.status_reasons?.length > 0 && <div className="tq-option-meta">{x.status_reasons.map(title).join(', ')}</div>}
                   </button>))}
@@ -353,6 +221,17 @@ export function PredictionsPage({ d, go }) {
                   <dt>Current {title(signal)}</dt><dd className="tq-num">{fmt(cur[signal], dg)}</dd>
                   <dt>Predicted @120 s</dt><dd className="tq-num">{fmt(p.mean_at_30_60_120?.[signal]?.[2], dg)}</dd>
                   <dt>90% interval @120 s</dt><dd className="tq-num">{fmt(p.lo_120?.[signal], dg)}–{fmt(p.hi_120?.[signal], dg)}</dd>
+                </dl>)}
+              {p && (
+                <table className="tq-table" data-testid="pred-horizons"><caption className="tq-sr">Predicted {title(signal)} by horizon</caption>
+                  <thead><tr><th scope="col">Horizon</th><th scope="col">Predicted mean</th><th scope="col">90% interval</th></tr></thead>
+                  <tbody>
+                    <tr><th scope="row">now <ProvBadge kind="SIMULATED" /></th><td className="tq-num">{fmt(cur[signal], dg)}</td><td className="tq-muted">simulated reading, not a prediction</td></tr>
+                    {[30, 60, 120].map((h, i) => { const lo = p.lo_at_30_60_120?.[signal]?.[i]; const hi = p.hi_at_30_60_120?.[signal]?.[i]; return (
+                      <tr key={h}><th scope="row">+{h} s <ProvBadge kind="PREDICTED" /></th><td className="tq-num">{fmt(p.mean_at_30_60_120?.[signal]?.[i], dg)}</td><td className="tq-num">{lo != null && hi != null ? `${fmt(lo, dg)}–${fmt(hi, dg)}` : 'no interval'}</td></tr>); })}
+                  </tbody></table>)}
+              {p && (
+                <dl className="tq-kv">
                   <dt>Interval method</dt><dd>{p.interval_method || '—'}</dd><dt>Validated by experiments</dt><dd>{p.validated_by_experiments ? 'yes' : 'no'}</dd></dl>)}
               <p className="tq-muted">A prediction never commands the motor. Actions are proposed by the decision gate and checked by the Safety Supervisor.</p>
               {go && <CardLink onClick={() => go('interventions')}>Open Interventions</CardLink>}
@@ -497,6 +376,7 @@ export function RecoveryPage({ d, isPhys: isPhysProp }) {
     <>
       <PageHead title="Recovery Verification (C5)" sub="Recovery is declared only from fresh, valid samples observed after the device acknowledged an action." right={<ProvBadge kind={provKind} />} />
       <p className="tq-callout warn" role="note">A prediction of improvement is not a verified recovery.{isPhys ? '' : ' Records below are simulator observations, not hardware evidence.'}</p>
+      {!isPhys && <div className="tq-mb"><IncidentStory d={d} /></div>}
       <div className="tq-grid">
         {verifying && <Card title="Verifying recovery" id="c-ver"><Pill tone="wait">collecting fresh samples</Pill><p className="tq-muted">Verification is still in progress.</p></Card>}
         <Card title="Outcomes" id="c-out" className="tq-span" right={<ProvBadge kind={provKind} />}>
