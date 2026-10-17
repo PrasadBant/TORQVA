@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 KINDS = ("session", "incident", "decision", "prediction", "command", "outcome", "model_version", "case",
          "lab_session", "experiment", "attestation_candidate", "reference_state", "prediction_check",
-         "diagnostic_run")          # simulation-only analyst workbench record
+         "diagnostic_run", "counterfactual", "decision_receipt")          # simulation-only analyst workbench records
 
 
 class StaleRevision(Exception):

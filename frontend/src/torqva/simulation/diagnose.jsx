@@ -7,6 +7,8 @@ import { Card, Empty, Pill, ProvBadge, fmt, stateTone, PageHead } from '../share
 import { TEST_SPECS, TEST_OUTCOMES, FEATURE_LABEL, SCORE_STATUS } from '../shared/diagnostics.js';
 import { Kpi, DiagnosticsPage } from './pages.jsx';
 import { usePlan, title, pct } from './workbench.js';
+import { InvestigationTrace } from './trace.jsx';
+import { SufficiencyBadge } from './adaptive.jsx';
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 const z = (v) => (finite(v) ? `${v > 0 ? '+' : ''}${v.toFixed(1)}σ` : '—');
@@ -130,6 +132,19 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
         <p className="tq-muted">A ranking is not a confirmed fault. Bearing faults are not diagnosable with this sensor set.{post ? ` Ranked from ${post.n_windows} evidence window(s).` : ''}</p>
       </Card>
 
+      <Card title="Evidence sufficiency and what is still unknown" id="c-unknown" className="tq-mt" right={plan?.sufficiency ? <SufficiencyBadge s={plan.sufficiency} /> : null}>
+        {!plan?.sufficiency ? <Empty>{hasSim ? 'Waiting for the workbench plan.' : 'No simulation running.'}</Empty> : (
+          <>
+            <p data-testid="c1-sufficiency">{plan.sufficiency.reason}.</p>
+            <ul className="tq-list tq-small">
+              {!plan.sufficiency.c1_baseline_for_current_speed && <li>No healthy C1 baseline is learned for the current speed ({title(plan.sufficiency.c1_window_status) || 'no window'}): this speed cannot be judged against a baseline.</li>}
+              {plan.sufficiency.tests.filter((t) => !t.eligible).map((t) => <li key={t.test}>{t.test} cannot run now: {t.prerequisites.filter((p) => !p.ok).map((p) => p.detail || p.check).join('; ')}.</li>)}
+              <li>Bearing faults are not diagnosable with this sensor set; torque is not measured.</li>
+            </ul>
+          </>)}
+      </Card>
+
+      <div className="tq-mt"><InvestigationTrace d={d} focus={['observation', 'hypothesis']} /></div>
       <div className="tq-mt"><DiagnosticsPage d={d} head={false} /></div>
     </>
   );

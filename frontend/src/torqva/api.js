@@ -76,6 +76,13 @@ export const api = {
   wbPredict: (targets) => req(`/simulation/workbench/predict?${targets.map((t) => `targets=${encodeURIComponent(t)}`).join('&')}`),   // a pure read
   wbCheck: (body) => req('/simulation/workbench/check', { method: 'POST', body }),
   wbRequest: (body) => req('/simulation/workbench/request', { method: 'POST', body }),
+  wbAdaptive: (budget) => req('/simulation/workbench/adaptive', { method: 'POST', body: { budget } }),
+  wbCounterfactual: (body) => req('/simulation/workbench/counterfactual', { method: 'POST', body }),
+  wbCounterfactualGet: (id) => req(`/simulation/workbench/counterfactual/${encodeURIComponent(id)}`),
+  wbCounterfactualRerun: (id) => req(`/simulation/workbench/counterfactual/${encodeURIComponent(id)}/rerun`, { method: 'POST' }),
+  wbTrace: (incident) => req(`/simulation/workbench/trace${incident ? `?incident=${encodeURIComponent(incident)}` : ''}`),
+  wbReceipts: () => req('/simulation/workbench/receipts'),
+  wbReceipt: (id) => req(`/simulation/workbench/receipts/${encodeURIComponent(id)}`),
   approve: () => req('/approvals/approve', { method: 'POST' }),
   reject: () => req('/approvals/reject', { method: 'POST' }),
   stop: () => req('/commands/stop', { method: 'POST' }),

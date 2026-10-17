@@ -110,6 +110,25 @@ class Basis(BaseModel):
     posterior_windows: int = 0
 
 
+class AdaptiveIn(BaseModel):
+    budget: int = Field(default=3, ge=1, le=3)
+
+
+class CounterfactualIn(BaseModel):
+    targets: List[float] = Field(default_factory=list, max_length=3)
+    include_continue: bool = True
+    include_stop: bool = False
+    horizon_s: int = Field(default=120, description="30 | 60 | 120 | 180 | 300")
+
+    @field_validator("targets")
+    @classmethod
+    def _finite(cls, v):
+        import math
+        if any(not math.isfinite(x) or x <= 0 or x > 3000 for x in v):
+            raise ValueError("every target must be a finite rpm in (0, 3000]")
+        return v
+
+
 class ActionIn(BaseModel):
     action: str = Field(max_length=20, description="REDUCE_SPEED | STOP")
     target_rpm: Optional[float] = Field(default=None, gt=0, le=3000, allow_inf_nan=False)
@@ -349,7 +368,40 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
     def wb_request(body: ActionIn, p: Principal = Depends(need(Role.OPERATOR))):
         audit(p, "analyst_action_requested", action=body.action, target_rpm=body.target_rpm, candidate=body.candidate_id)
         return _wb_call(lambda o: _wb.request_action(o, body.action, body.target_rpm, body.basis.model_dump() if body.basis else None,
-                                                     body.candidate_id, p.role, p.user))
+                                                     body.candidate_id, p.role, p.user, service.scenario))
+
+    @r.post("/simulation/workbench/adaptive")
+    def wb_adaptive(body: AdaptiveIn, p: Principal = Depends(need(Role.OPERATOR))):
+        audit(p, "adaptive_diagnosis", budget=body.budget)
+        return _wb_call(lambda o: _wb.run_adaptive(o, o.dm, o.hm, body.budget, p.user, service.scenario))
+
+    @r.post("/simulation/workbench/counterfactual")
+    def wb_counterfactual(body: CounterfactualIn, p: Principal = Depends(need(Role.OPERATOR))):
+        audit(p, "counterfactual_experiment", targets=body.targets, horizon_s=body.horizon_s)
+        return _wb_call(lambda o: _wb.counterfactual(o, body.targets, body.include_continue, body.include_stop, body.horizon_s,
+                                                     service.scenario, service._injected, p.user))
+
+    @r.get("/simulation/workbench/counterfactual/{rid}")
+    def wb_counterfactual_get(rid: str, p: Principal = Depends(need(Role.VIEWER))):
+        return _wb_call(lambda o: _wb.counterfactual_get(o, rid))
+
+    @r.post("/simulation/workbench/counterfactual/{rid}/rerun")
+    def wb_counterfactual_rerun(rid: str, p: Principal = Depends(need(Role.OPERATOR))):
+        return _wb_call(lambda o: _wb.counterfactual_rerun(o, rid))
+
+    from . import investigation as _inv
+
+    @r.get("/simulation/workbench/trace")
+    def wb_trace(incident: Optional[str] = None, p: Principal = Depends(need(Role.VIEWER))):
+        return _wb_call(lambda o: _inv.trace(o, incident))
+
+    @r.get("/simulation/workbench/receipts")
+    def wb_receipts(p: Principal = Depends(need(Role.VIEWER))):
+        return _wb_call(lambda o: _inv.receipts(o))
+
+    @r.get("/simulation/workbench/receipts/{rid}")
+    def wb_receipt(rid: str, p: Principal = Depends(need(Role.VIEWER))):
+        return _wb_call(lambda o: _inv.receipt(o, rid))
 
     # ---------------- approvals / stop (operator) ----------------
     @r.post("/approvals/approve")

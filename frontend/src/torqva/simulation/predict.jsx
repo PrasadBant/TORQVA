@@ -10,6 +10,8 @@ import { ResponseChart } from '../shared/lazyCharts.jsx';
 import { PredictionsPage } from './pages.jsx';
 import { StatusPill } from './c2c4.jsx';
 import { usePlan, title, pct, fmtRpm } from './workbench.js';
+import { CounterfactualLab } from './counterfactual.jsx';
+import { InvestigationTrace } from './trace.jsx';
 
 const LABELS = ['A', 'B', 'C'];
 const SIG = { housing: ['Housing temperature', '°C', 1], rpm: ['Speed', 'rpm', 0], vib_rms: ['Vibration RMS (simulator model)', 'g', 3], current: ['Current', 'A', 2] };
@@ -63,7 +65,7 @@ function MiniResponse({ p, signal, cur, domain }) {
   return <div role="img" aria-label={`Predicted ${SIG[signal][0]} with 90 percent interval`} className="tq-chart"><ResponseChart data={data} height={170} yDomain={domain} /></div>;
 }
 
-export function SimPredictionsPage({ d, go, wb, setWb, stale }) {
+export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
   const { plan } = usePlan(d);
   const s = d.status || {};
   const hasSim = s.t !== undefined && s.t !== null;
@@ -168,6 +170,8 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale }) {
             <ErrorBox error={err} />
           </Card>)}
 
+      <CounterfactualLab targets={valid} role={role} stale={stale} hasRanking={!!post} hasSim={hasSim} />
+
       {sel && (
         <div className="tq-callout info tq-mt" role="status" data-testid="selection">
           <strong>{sel.action === 'STOP' ? 'Selected: STOP (coast)' : `Selected: Action ${sel.label} — target ${fmtRpm(sel.target_rpm)} rpm`}</strong>
@@ -175,6 +179,7 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale }) {
           <button type="button" className="tq-btn tq-primary" onClick={() => go('interventions')}>Review on Interventions <ArrowRight size={14} aria-hidden="true" /></button>
         </div>)}
 
+      <div className="tq-mt"><InvestigationTrace d={d} focus={['prediction']} /></div>
       <h3 className="tq-section-head tq-mt">The pipeline's own comparison</h3>
       <PredictionsPage d={d} go={go} head={false} />
     </>

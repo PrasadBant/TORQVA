@@ -1156,3 +1156,28 @@
 .tq-life-dot { width: 14px; height: 14px; margin: 2px 0 0 1px; border-radius: 50%; border: 2px solid var(--tone); background: color-mix(in srgb, var(--tone) 22%, var(--tq-s1)); position: relative; z-index: 1; }
 .tq-life-step.is-todo .tq-life-dot { border-style: dashed; background: var(--tq-s1); }
 .tq-life-step p { margin: 2px 0 0; }
+
+/* ---------------------------------------------------------------- Investigation trace, adaptive prerequisites, decision receipts */
+.tq-tracebar { list-style: none; margin: 4px 0 12px; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.tq-trace-stage { --tone: var(--tq-off); width: 100%; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: var(--tq-r-s);
+  border: 1px solid var(--tq-border); border-top: 3px solid color-mix(in srgb, var(--tone) 70%, var(--tq-border)); background: var(--tq-s2);
+  color: var(--tq-text-2); font: 500 12.5px var(--tq-font); cursor: pointer; min-width: 0; }
+.tq-trace-stage span:nth-child(2) { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tq-trace-stage.is-reached { --tone: var(--tq-ok); color: var(--tq-text); }
+.tq-trace-stage.is-focus { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tq-accent) 45%, transparent); }
+.tq-trace-stage[aria-pressed="true"] { background: var(--tq-accent-soft); border-color: color-mix(in srgb, var(--tq-accent) 55%, var(--tq-border)); }
+.tq-trace-stage:focus-visible { outline: none; box-shadow: var(--tq-ring); }
+.tq-trace-n { font-size: 11.5px; color: var(--tq-muted); }
+.tq-trace-events { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.tq-trace-ev { width: 100%; display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 8px; text-align: left;
+  background: none; border: 0; border-left: 2px solid var(--tq-border-strong); color: var(--tq-text); font: 13px var(--tq-font); cursor: pointer; }
+.tq-trace-ev:hover { background: var(--tq-s2); }
+.tq-trace-ev:focus-visible { outline: none; box-shadow: var(--tq-ring); }
+.tq-trace-json { font: 11.5px var(--tq-mono); overflow-wrap: anywhere; white-space: pre-wrap; color: var(--tq-text-2); }
+.tq-prereq { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 12px; }
+.tq-prereq li { display: flex; gap: 4px; align-items: flex-start; } .tq-prereq li.ok { color: var(--tq-ok); } .tq-prereq li.no { color: var(--tq-crit); }
+.tq-prereq svg { flex: none; margin-top: 2px; }
+.tq-receipt { margin-top: 12px; padding: 14px 16px; border-radius: var(--tq-r); border: 1px solid var(--tq-border); background: var(--tq-s2); display: grid; gap: 8px; min-width: 0; }
+.tq-receipt .tq-section-title { margin: 6px 0 0; }
+@media (max-width: 1100px) { .tq-tracebar { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .tq-tracebar { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tq-trace-ev { grid-template-columns: 44px minmax(0, 1fr); } .tq-trace-ev .tq-ev-inc { display: none; } }

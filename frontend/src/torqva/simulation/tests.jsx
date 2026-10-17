@@ -10,6 +10,8 @@ import { TEST_SPECS, TEST_OUTCOMES, ASSESSMENT } from '../shared/diagnostics.js'
 import { TestsPage } from './pages.jsx';
 import { canControl } from './scenario.jsx';
 import { usePlan, title, pct, fmtRpm } from './workbench.js';
+import { AdaptivePanel } from './adaptive.jsx';
+import { InvestigationTrace } from './trace.jsx';
 
 // Fixed simulated durations of the backend tests (workbench.validate_sequence / diagnostics.run_test_on_sim).
 const FIXED_S = { T1: 60, T3: 300, T4: 50 };
@@ -184,6 +186,9 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale }) {
       <p className="tq-callout info" role="note"><Info size={14} aria-hidden="true" /> Tests run on a copy of the live simulated motor (same state and injected fault). The live run, its incident and its commands are not changed, and no device is involved.</p>
       {planErr && planErr !== 'unavailable' && hasSim && <p className="tq-callout warn">The workbench plan could not be loaded: {planErr}</p>}
 
+      <AdaptivePanel plan={plan} role={role} stale={stale} d={d} onDone={reload} />
+
+      <h3 className="tq-section-head tq-mt">Or build a fixed sequence</h3>
       <Card title="Available tests" id="c-catalog" right={<ProvBadge kind="SIMULATED" />}>
         <div className="tq-catalog" data-testid="test-catalog">
           {cards.map(([k, x]) => {
@@ -230,6 +235,7 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale }) {
 
       {wb?.run && <div className="tq-mt"><SequenceResult run={wb.run} onAddTest={(t) => setSeq([{ type: t }])} /></div>}
 
+      <div className="tq-mt"><InvestigationTrace d={d} focus={['test']} /></div>
       <h3 className="tq-section-head tq-mt">Tests run by the pipeline itself</h3>
       <TestsPage d={d} c2c4={c2c4} head={false} />
     </>

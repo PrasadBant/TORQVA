@@ -10,6 +10,8 @@ import { InterventionsPage } from './pages.jsx';
 import { canControl } from './scenario.jsx';
 import { currentIncident } from './pipeline.js';
 import { title, pct, fmtRpm } from './workbench.js';
+import { ReceiptsPanel } from './receipts.jsx';
+import { InvestigationTrace } from './trace.jsx';
 
 const GATE_TONE = { ACT: 'ok', RUN_DIAGNOSTIC_TEST: 'info', REQUEST_MORE_DATA: 'wait', ESCALATE_HUMAN: 'wait', SAFE_STOP: 'stop', SENSOR_UNRELIABLE: 'crit' };
 const ACKED = ['ACCEPTED', 'COMPLETED'];
@@ -75,6 +77,7 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [confirm, setConfirm] = useState(false);
+  const [refused, setRefused] = useState(null);          // the receipt the backend wrote for a refused request
   const pendKey = s.pending_approval ? `${s.pending_approval.action}-${JSON.stringify(s.pending_approval.params)}` : 'none';
   const body = sel ? { action: sel.action, target_rpm: sel.action === 'REDUCE_SPEED' ? sel.target_rpm : null, basis: sel.basis, candidate_id: sel.candidate_id } : null;
   const check = useCallback(async () => {
@@ -85,7 +88,7 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
   const request = async () => {
     setBusy(true); setErr(null);
     try { const r = await api.wbRequest(body); setWb((x) => ({ ...x, selection: null, lastRequest: r })); setChk(null); setConfirm(false); }
-    catch (e) { setErr(e); check(); } finally { setBusy(false); }
+    catch (e) { setErr(e); setRefused((String(e.message || '').match(/decision receipt (R-\d+)/) || [])[1] || null); check(); } finally { setBusy(false); }
   };
   const age = sel && s.t !== undefined ? s.t - sel.basis.t : null;
   const p = sel?.prediction;
@@ -158,6 +161,8 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
         </div>)}
 
       <div className="tq-mt"><ActionLifecycle d={d} /></div>
+      <div className="tq-mt"><ReceiptsPanel d={d} focusId={refused || last?.receipt_id} /></div>
+      <div className="tq-mt"><InvestigationTrace d={d} focus={['decision', 'outcome']} /></div>
       <h3 className="tq-section-head tq-mt">Proposals, decisions and commands recorded by the pipeline</h3>
       <InterventionsPage d={d} role={role} actions={actions} error={error} head={false} />
     </>

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import copy
 import itertools
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -188,6 +188,7 @@ def plan(orch, dm, hm) -> Dict[str, Any]:
                                                   "gate_min_info_gain_nats": orch.gate_cfg.min_info_gain_nats},
         "gate": None if g is None else {"verdict": g.verdict.value, "reason": g.reason, "test": g.test},
         "limits": limits_view(orch), "quick_rpm": quick_rpm(orch), "suggested_targets": suggested_targets(orch),
+        "sufficiency": sufficiency(orch, dm),
     }
 
 
@@ -572,24 +573,388 @@ def check_action(orch, action: str, target: Optional[float], basis: Optional[Dic
             "prediction_now": fresh, "basis_now": basis_of(orch), "provenance": "SIMULATED"}
 
 
+def _features(orch) -> List[Dict[str, Any]]:
+    Z = _evidence_matrix(orch)
+    if Z is None:
+        return []
+    zbar = Z.mean(axis=0)
+    return [{"feature": FEATURES[i], "mean_z": _r(zbar[i], 2)} for i in np.argsort(-np.abs(zbar))[:6]]
+
+
 def request_action(orch, action: str, target: Optional[float], basis: Optional[Dict[str, Any]], candidate_id: Optional[str],
-                   role: Role, user: str = "") -> Dict[str, Any]:
+                   role: Role, user: str = "", scenario: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from .investigation import write_receipt
     chk = check_action(orch, action, target, basis, role, user)
-    if not chk["executable"]:
-        raise WorkbenchError("; ".join(chk["blockers"]))
+    chk["basis_supplied"] = basis
+    rid = f"R-{next(_ids):04d}"
+    req = {"action": action, "target_rpm": target, "candidate_id": candidate_id, "requested_by": user, "role": role.value}
+    feats = _features(orch)
+    if not chk["executable"]:                                       # a refusal leaves a receipt too, so it is as visible as an acceptance
+        write_receipt(orch, rid, req, "REFUSED", chk, feats, scenario)
+        orch._log("analyst_action", action=action, target_rpm=target, candidate=candidate_id, receipt=rid, decision="REFUSED", blockers=chk["blockers"])
+        raise WorkbenchError("; ".join(chk["blockers"]) + f" (decision receipt {rid})")
     why = f"Analyst selected {action}" + (f" to {float(target):.0f} rpm" if action == "REDUCE_SPEED" else "") + f" (candidate {candidate_id or '—'})"
     p = _proposal(orch, action, target, role, user, why)
     pred = orch.pred.predict(orch.post, orch._state_summary(), action, float(target or 0.0))
     orch._pred_choice, orch._predicted_at = pred, orch.now          # the prediction_check record compares against THIS target
+    import copy as _copy
+    frozen = _copy.deepcopy(chk)                                    # the evidence as it stood before anything was dispatched
     orch._log("analyst_action", action=action, target_rpm=target, candidate=candidate_id, gate=(chk["gate"] or {}).get("verdict"),
-              supervisor=chk["supervisor"]["verdict"], replaces=chk["pending"])
+              supervisor=chk["supervisor"]["verdict"], replaces=chk["pending"], receipt=rid)
     before = orch.cmd
     orch.pending = p
     orch.approve(role)                                              # -> Safety Supervisor -> dispatcher; nothing else can send
     rec = orch.cmd if orch.cmd is not before else None              # never report an earlier command as this request's
-    return {"requested": {"action": action, "target_rpm": target, "candidate_id": candidate_id}, "gate": chk["gate"],
+    write_receipt(orch, rid, req, "ACCEPTED" if rec is not None else "REFUSED", frozen, feats, scenario, command_id=rec.id if rec else None)
+    return {"requested": {"action": action, "target_rpm": target, "candidate_id": candidate_id}, "receipt_id": rid, "gate": chk["gate"],
             "supervisor": chk["supervisor"], "prediction_at_request": chk["prediction_now"],
             "command": None if rec is None else {"id": rec.id, "action": rec.action.value, "params": rec.params, "status": rec.status.value},
             "incident_state": orch.inc.state.value if orch.inc else None,
             "note": "Dispatched to the simulated device; an acknowledgement is not recovery. C5 decides from fresh windows after the ack.",
             "provenance": "SIMULATED"}
+
+
+# ================================================================================================ adaptive diagnostic testing (C4)
+# Evidence-sufficiency statuses. Each is assigned by one rule below, nowhere else:
+#   SUFFICIENT_EVIDENCE      the ranking meets the gate's own confidence rule (gate.decide: p >= p_confident, margin >= margin_confident,
+#                            not unfamiliar / conflicted / uncorroborated, and a look-alike diagnosis has had a test)
+#   MORE_EVIDENCE_REQUIRED   not yet sufficient, and either no ranking exists yet or an eligible test is expected to remove at least the
+#                            gate's minimum information gain
+#   INVALID_INPUT            the recent windows (or a test's windows) fail validity, or a stop limit was crossed during a test
+#   TEST_NOT_SUPPORTED       no remaining test is runnable here (no learned signature, motor not driven, required signal missing)
+#   INCONCLUSIVE             not sufficient, and no eligible test is worth running, the budget is exhausted, or a test outcome was
+#                            unlike every learned signature
+SUFFICIENCY = ("SUFFICIENT_EVIDENCE", "MORE_EVIDENCE_REQUIRED", "INVALID_INPUT", "TEST_NOT_SUPPORTED", "INCONCLUSIVE")
+TEST_SIGNALS = {"T1": ("rpm", "current", "v1x", "v2x", "v3x"), "T3": ("housing", "current", "ambient"), "T4": ("rpm",)}
+TEST_FOR = {"T1": "imbalance vs looseness vs a faulty vibration channel", "T3": "cooling failure vs overload",
+            "T4": "friction / overload vs cooling or electrical faults"}
+MAX_ADAPTIVE_BUDGET = len(TESTS)
+OBS_MEANING = {"T1": ["1x vibration speed exponent", "2x+3x harmonics speed exponent", "log change of current per rpm"],
+               "T3": ["housing thermal-residual slope, °C per 100 s"], "T4": ["ln tau of the coast-down (s)"]}
+
+
+def _sufficient(post: Optional[Posterior], tests_run: int, gcfg) -> Tuple[bool, str]:
+    if post is None:
+        return False, "no hypothesis ranking exists yet"
+    needs_test = post.top.value in gcfg.test_required_for and tests_run == 0
+    why = []
+    if post.top_p < gcfg.p_confident:
+        why.append(f"top probability {post.top_p:.2f} < {gcfg.p_confident:.2f}")
+    if post.margin < gcfg.margin_confident:
+        why.append(f"margin {post.margin:.2f} < {gcfg.margin_confident:.2f}")
+    flags = {"ood": "evidence unlike every learned signature", "conflict": "test evidence conflicts with the ranking",
+             "uncorroborated": "the test's own likelihood does not support the top hypothesis"}
+    why += [txt for flag, txt in flags.items() if getattr(post, flag, False)]
+    if needs_test:
+        why.append(f"'{post.top.value}' cannot be told from its look-alike without a speed-step test")
+    if why:
+        return False, "; ".join(why)
+    return True, f"'{post.top.value}' at {post.top_p:.2f}, margin {post.margin:.2f}, meets the gate's confidence rule"
+
+
+def _test_options(post: Optional[Posterior], ws: Sequence, driven: bool, tt, dm, done: Sequence[str]) -> List[Dict[str, Any]]:
+    """Every C4 test with its prerequisites checked against the given windows. Gain is computed only for eligible tests."""
+    out = []
+    recent = list(ws)[-10:]
+    valid = sum(w.valid for w in recent) / len(recent) if recent else 0.0
+    for t in TESTS:
+        pre = [("learned outcome signature", t in dm.models, "learned in simulation" if t in dm.models else "no signature learned"),
+               ("not already run in this investigation", t not in done, "" if t not in done else "already run"),
+               ("motor driven", bool(driven), "" if driven else "the simulated motor is not driven")]
+        missing = [s for s in TEST_SIGNALS[t] if not recent or not all(np.isfinite(getattr(w, s, np.nan)) for w in recent)]
+        pre.append(("required signals present: " + ", ".join(TEST_SIGNALS[t]), not missing, ("missing: " + ", ".join(missing)) if missing else ""))
+        pre.append(("recent windows valid (>= 80 %)", valid >= 0.8, f"{valid:.0%} valid"))
+        if t == "T3":
+            pre.append(("thermal model fitted", bool(getattr(tt, "fitted", False)), ""))
+        ok = all(p[1] for p in pre)
+        gain = _r(max(0.0, dm.expected_info_gain(post, t)), 3) if (ok and post is not None) else None
+        out.append({"test": t, "distinguishes": TEST_FOR[t], "eligible": ok, "expected_info_gain_nats": gain,
+                    "prerequisites": [{"check": c, "ok": bool(v), "detail": d} for c, v, d in pre], "ends_with_motor_stopped": t == "T4"})
+    return out
+
+
+def sufficiency(orch, dm) -> Dict[str, Any]:
+    """The evidence-sufficiency status of the live run, before anything is run."""
+    post, gcfg = orch.post, orch.gate_cfg
+    tests_run = orch.inc.tests_run if orch.inc else 0
+    done = [l["test"] for l in orch.log if l.get("kind") == "test_result" and orch.inc and l.get("incident") == orch.inc.id]
+    opts = _test_options(post, orch.buf, orch.dev.sim.setpoint > 0, orch.tt, dm, done)
+    recent = orch.buf[-10:]
+    valid = (sum(w.valid for w in recent) / len(recent)) if recent else 0.0
+    ok, why = _sufficient(post, tests_run, gcfg)
+    worth = sorted([o for o in opts if o["eligible"] and (o["expected_info_gain_nats"] or 0) >= gcfg.min_info_gain_nats],
+                   key=lambda o: -o["expected_info_gain_nats"])
+    if recent and valid < 0.8:
+        st, why = "INVALID_INPUT", f"only {valid:.0%} of the last {len(recent)} windows are valid"
+    elif ok:
+        st = "SUFFICIENT_EVIDENCE"
+    elif post is None or worth:
+        st = "MORE_EVIDENCE_REQUIRED"
+        if worth:
+            why += f"; {worth[0]['test']} is expected to remove {worth[0]['expected_info_gain_nats']:.2f} nats"
+    elif not any(o["eligible"] for o in opts):
+        st, why = "TEST_NOT_SUPPORTED", why + "; no remaining test is runnable"
+    else:
+        st, why = "INCONCLUSIVE", why + f"; no eligible test is expected to remove {gcfg.min_info_gain_nats:.2f} nats or more"
+    baseline = orch.scores[-1].status if orch.scores else None
+    return {"status": st, "reason": why, "tests": opts, "tests_run_in_incident": tests_run,
+            "c1_baseline_for_current_speed": baseline not in (None, "UNLEARNED_BIN"), "c1_window_status": baseline,
+            "rule": "SUFFICIENT_EVIDENCE uses the decision gate's own confidence rule (GateConfig)",
+            "min_info_gain_nats": gcfg.min_info_gain_nats}
+
+
+def run_adaptive(orch, dm, hm, budget: int = 3, user: str = "", scenario: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Choose, run and re-assess C4 tests one at a time on a copy of the live simulated motor, by expected information gain among the
+    tests whose prerequisites hold, until the evidence is sufficient, nothing worth running remains, an input fails, or the budget ends."""
+    if not (1 <= int(budget) <= MAX_ADAPTIVE_BUDGET):
+        raise WorkbenchError(f"budget must be 1–{MAX_ADAPTIVE_BUDGET} tests", 422)
+    if orch.dev.estop:
+        raise WorkbenchError("the simulated device has latched an emergency stop; clear it before testing")
+    if orch.test_running:
+        raise WorkbenchError(f"the pipeline is running test {orch.test_running} on the live simulation; wait for it to finish")
+    lim, gcfg = orch.sup.limits, orch.gate_cfg
+    sim, det, tt = copy.deepcopy(orch.dev.sim), copy.deepcopy(orch.det), copy.deepcopy(orch.tt)
+    post = orch.post
+    tests_run = orch.inc.tests_run if orch.inc else 0
+    ws_hist = list(orch.buf[-30:])
+    rows: List[Dict[str, Any]] = []
+    stages: List[Dict[str, Any]] = []
+    done: List[str] = []
+    final_status, final_reason = None, None
+    while True:
+        ok, why = _sufficient(post, tests_run, gcfg)
+        if ok:
+            final_status, final_reason = "SUFFICIENT_EVIDENCE", why
+            break
+        if post is None:
+            final_status, final_reason = "MORE_EVIDENCE_REQUIRED", "no hypothesis ranking exists yet: C1 must flag a persistent anomaly first, so no test can be chosen"
+            break
+        if len(stages) >= budget:
+            final_status, final_reason = "INCONCLUSIVE", f"the test budget ({budget}) is used up and {why}"
+            break
+        recent = ws_hist[-10:]
+        if recent and sum(w.valid for w in recent) / len(recent) < 0.8:
+            final_status, final_reason = "INVALID_INPUT", "the recent windows are not valid enough to plan a test"
+            break
+        opts = _test_options(post, ws_hist, sim.setpoint > 0, tt, dm, done)
+        eligible = [o for o in opts if o["eligible"]]
+        if not eligible:
+            final_status = "TEST_NOT_SUPPORTED"
+            final_reason = "no remaining test is runnable: " + "; ".join(
+                f"{o['test']}: {next((p['detail'] or p['check']) for p in o['prerequisites'] if not p['ok'])}" for o in opts)
+            break
+        best = max(eligible, key=lambda o: o["expected_info_gain_nats"])
+        if best["expected_info_gain_nats"] < gcfg.min_info_gain_nats:
+            final_status = "INCONCLUSIVE"
+            final_reason = (f"{why}; the most informative eligible test ({best['test']}) would remove only {best['expected_info_gain_nats']:.2f} nats "
+                            f"(the gate requires {gcfg.min_info_gain_nats:.2f})")
+            break
+        alts = []
+        for o in opts:
+            if o["test"] == best["test"]:
+                continue
+            if not o["eligible"]:
+                failed = [p["check"] + (f" ({p['detail']})" if p["detail"] else "") for p in o["prerequisites"] if not p["ok"]]
+                because = "prerequisite failed: " + "; ".join(failed)
+            else:
+                because = f"lower expected gain ({o['expected_info_gain_nats']:.2f} nats)"
+            alts.append({"test": o["test"], "eligible": o["eligible"], "expected_info_gain_nats": o["expected_info_gain_nats"], "not_selected_because": because})
+        stage = {"index": len(stages), "selected": best["test"], "distinguishes": best["distinguishes"],
+                 "leading_hypotheses": [(h.value, _r(p)) for h, p in post.ranked()[:2]], "why_more_evidence": why,
+                 "expected_info_gain_nats": best["expected_info_gain_nats"],
+                 "selection_reason": f"largest expected information gain among the eligible tests ({best['expected_info_gain_nats']:.2f} nats)",
+                 "alternatives": alts, "required_signals": list(TEST_SIGNALS[best["test"]]), "posterior_before": _post_view(post)}
+        obs, ws = _run_fixed(sim, best["test"], tt)
+        s0, crossed = len(rows), None
+        for w in ws:
+            tt.update(w)
+            sc = det.score(w)
+            rows.append(_row(w, sc, len(stages), best["test"]))
+            crossed = crossed or _limit_crossed(w, lim)
+        ws_hist += ws
+        stage.update(observation=[_r(x, 4) for x in obs], observation_meaning=OBS_MEANING[best["test"]], summary=_summary(rows[s0:], None))
+        valid = sum(w.valid for w in ws) / max(1, len(ws))
+        done.append(best["test"])
+        if crossed or valid < 0.8:
+            stage.update(status="aborted" if crossed else "invalid", reason=crossed or f"only {valid:.0%} of the test's windows were valid",
+                         posterior_after=_post_view(post), ranking_changed=False)
+            stages.append(stage)
+            final_status, final_reason = "INVALID_INPUT", f"{best['test']} {stage['status']}: {stage['reason']}"
+            break
+        new = dm.update(post, best["test"], obs)
+        tests_run += 1
+        stage.update(status="completed", posterior_after=_post_view(new), ranking_changed=new.top != post.top,
+                     top_probability_change=_r(new.top_p - post.top_p, 3))
+        stages.append(stage)
+        post = new
+        if new.ood:
+            final_status, final_reason = "INCONCLUSIVE", f"the {best['test']} outcome was unlike every learned signature; no diagnosis is forced"
+            break
+    rid = f"A-{next(_ids):04d}"
+    record = {"id": rid, "mode": "adaptive", "provenance": "SIMULATED", "executed_on": "a copy of the live simulated motor (the live run was not changed)",
+              "started_at_sim_t": orch.now, "requested_by": user, "budget": budget, "stages": stages, "status": final_status, "reason": final_reason,
+              "posterior_start": _post_view(orch.post), "posterior_final": _post_view(post),
+              "stopping_rule": ("stop at SUFFICIENT_EVIDENCE (the gate's confidence rule), when no eligible test reaches the gate's minimum "
+                                "information gain, on invalid input or an unfamiliar outcome, or when the budget is used"),
+              "scenario_truth": (orch.dev.sim.truth.fault.value if orch.dev.sim.truth.fault else None), "scenario_note": _scenario_note(orch, scenario)}
+    orch._put("diagnostic_run", rid, record, "SIMULATED", orch.now)
+    orch._log("diagnostic_run", id=rid, mode="adaptive", tests=[s["selected"] for s in stages], status=final_status)
+    return {**record, "series": rows}
+
+
+# ================================================================================================ counterfactual experiment lab (C2)
+# Every branch starts from ONE deep copy of the live simulated motor (state, injected fault and random stream) taken under the service
+# lock, so all candidates see identical starting conditions; each branch gets its own copy of that snapshot. Snapshots are kept in memory
+# (the last MAX_SNAPSHOTS) so an experiment can be re-run exactly; the recorded inputs are stored with the result.
+_SNAPSHOTS: Dict[str, Dict[str, Any]] = {}
+MAX_SNAPSHOTS = 20
+CF_HORIZONS = (30, 60, 120, 180, 300)
+CF_SIGNALS = ("rpm", "current", "voltage", "power", "housing", "vib_rms")
+
+
+def _digest(obj) -> str:
+    import hashlib
+    import pickle
+    return hashlib.sha256(pickle.dumps(obj, protocol=4)).hexdigest()[:16]
+
+
+def _branch(snap: Dict[str, Any], action: str, target: Optional[float], horizon: int, risk_limits: Dict[str, float]) -> Dict[str, Any]:
+    from .lab import window_hash
+    from .schemas import Hypothesis
+    sim, det, tt = copy.deepcopy(snap["sim"]), copy.deepcopy(snap["det"]), copy.deepcopy(snap["tt"])
+    inj = dict(snap["inject"]) if snap.get("inject") else None      # the scenario's scheduled injection, applied as the service applies it
+    t0 = sim.t
+    if action == "REDUCE_SPEED":
+        sim.set_setpoint(float(target))
+    elif action == "STOP":
+        sim.stop()
+    rows, wins = [], []
+    for _ in range(horizon):
+        if inj and not inj["done"] and sim.t >= inj["at"]:
+            sim.inject(Hypothesis(inj["fault"]), inj["severity"], inj["clears_below_rpm"])
+            inj["done"] = True
+        w = sim.step(1.0)
+        tt.update(w)
+        sc = det.score(w)
+        r = _row(w, sc, 0, action)
+        r["dt"] = round(w.t - t0, 1)
+        rows.append(r)
+        wins.append(w)
+    last = rows[-10:]
+
+    def mean(k):
+        v = [x[k] for x in last if x[k] is not None]
+        return _r(float(np.mean(v)), 4) if v else None
+
+    scored = [x for x in rows if x["score"] is not None]
+    over = {s: sum(1 for x in rows if x[s] is not None and x[s] > lv) for s, lv in risk_limits.items() if s in CF_SIGNALS}
+    metrics = {"final_mean_last_10s": {s: mean(s) for s in CF_SIGNALS},
+               "max": {s: _r(max((x[s] for x in rows if x[s] is not None), default=float("nan")), 4) for s in ("housing", "current", "vib_rms")},
+               "seconds_above_warn_limit": over, "exceeded_a_warn_limit": any(v > 0 for v in over.values()),
+               "c1_flagged_fraction": _r(sum(x["anomalous"] for x in scored) / len(scored), 3) if scored else None,
+               "c1_scored_windows": len(scored), "valid_windows": sum(x["valid"] for x in rows)}
+    return {"rows": rows, "metrics": metrics, "window_hash": window_hash(wins)}
+
+
+def counterfactual(orch, targets: Sequence[float], include_continue: bool, include_stop: bool, horizon: int,
+                   scenario: Optional[Dict[str, Any]] = None, injected: bool = True, user: str = "") -> Dict[str, Any]:
+    lim = orch.sup.limits
+    if horizon not in CF_HORIZONS:
+        raise WorkbenchError(f"horizon must be one of {CF_HORIZONS} s", 422)
+    ts = []
+    for t in targets:
+        t = float(t)
+        if not np.isfinite(t) or not (0 < t <= lim.max_rpm):
+            raise WorkbenchError(f"target {t} rpm is outside (0, {lim.max_rpm:.0f}] rpm", 422)
+        if t not in ts:
+            ts.append(t)
+    if len(ts) > MAX_TARGETS:
+        raise WorkbenchError(f"at most {MAX_TARGETS} targets", 422)
+    cands = ([("CONTINUE_MONITORING", None)] if include_continue else []) + [("REDUCE_SPEED", t) for t in ts] + ([("STOP", 0.0)] if include_stop else [])
+    if len(cands) < 2:
+        raise WorkbenchError("choose at least two candidates to compare", 422)
+    if len(orch.buf) < 10:
+        raise WorkbenchError("at least 10 simulated windows are needed before branching")
+    if orch.dev.estop:
+        raise WorkbenchError("the simulated device has latched an emergency stop; there is nothing to branch from")
+    sc = dict(scenario or {})
+    inject = ({"fault": sc["fault"], "severity": sc["severity"], "clears_below_rpm": sc.get("clears_below_rpm"),
+               "at": float(sc["inject_after_s"]), "done": False} if sc.get("fault") and not injected else None)
+    snap = {"sim": copy.deepcopy(orch.dev.sim), "det": copy.deepcopy(orch.det), "tt": copy.deepcopy(orch.tt), "inject": inject}
+    sp = float(orch.dev.sim.setpoint)
+    post, st = orch.post, orch._state_summary()
+    rid = f"CF-{next(_ids):04d}"
+    w0 = orch.buf[-1]
+    inputs = {"start_sim_t": orch.now, "session": orch.session, "scenario": sc, "seed": sc.get("seed"), "setpoint_rpm": sp,
+              "candidates": [{"action": a, "target_rpm": t} for a, t in cands], "horizon_s": horizon,
+              "scheduled_injection_in_branches": inject, "state_digest": _digest(snap["sim"]),
+              "model_versions": {"hypothesis_model": orch.hm.version, "c4_signatures": orch.dm.version, "c2_predictor": orch.pred.version,
+                                 "c1_detector": getattr(orch.det, "version", None)}}
+    branches = []
+    for a, t in cands:
+        label = {"CONTINUE_MONITORING": "Continue", "STOP": "STOP (coast)"}.get(a) or f"Reduce to {t:.0f} rpm"
+        b = {"action": a, "target_rpm": t, "label": label, "within_supervisor_envelope": a != "REDUCE_SPEED" or (sp * lim.min_speed_fraction <= t < sp)}
+        try:
+            run = _branch(snap, a, t, horizon, orch.pred.risk_limits)
+            b.update(status="completed", observed=run["rows"], metrics=run["metrics"], window_hash=run["window_hash"])
+        except Exception as e:                              # a failed branch is reported as failed, never as a result
+            b.update(status="failed", error=f"{type(e).__name__}: {e}")
+        if post is None:
+            b["prediction"] = {"unavailable": "C2 is conditional on a hypothesis ranking and none exists yet"}
+        elif b["status"] == "completed":
+            p = orch.pred.predict(post, st, a, float(t or 0.0))
+            hs = [h for h in CHECK_HORIZONS if h <= horizon]
+            obs_at = {h: next((r for r in b["observed"] if abs(r["dt"] - h) < 0.51), None) for h in hs}
+            prow = []
+            for h in hs:
+                for s in p.mean:
+                    o = obs_at[h][s] if obs_at[h] else None
+                    lo, hi = float(p.lo[s][h - 1]), float(p.hi[s][h - 1])
+                    prow.append({"horizon_s": h, "signal": s, "predicted_mean": _r(p.mean[s][h - 1], 4), "lo": _r(lo, 4), "hi": _r(hi, 4),
+                                 "observed": o, "inside_interval": (o is not None and lo - 1e-9 <= o <= hi + 1e-9)})
+            b["prediction"] = {"status": p.status, "status_reasons": p.status_reasons, "interval_method": p.interval_method, "rows": prow}
+        branches.append(b)
+    record = {"id": rid, "provenance": "SIMULATED", "requested_by": user, "inputs": inputs,
+              "start": {"t": w0.t, "rpm": w0.rpm, "setpoint": w0.setpoint, "current": w0.current, "voltage": w0.voltage, "housing": w0.housing,
+                        "vib_rms": w0.vib_rms, "valid": w0.valid, "injected_fault": orch.dev.sim.truth.fault.value if orch.dev.sim.truth.fault else None},
+              "branches": branches, "risk_limits": orch.pred.risk_limits,
+              "metric_definitions": {
+                  "final_mean_last_10s": "mean of the last 10 simulated 1 s windows of the branch",
+                  "max": "largest value over the horizon",
+                  "seconds_above_warn_limit": "number of 1 s windows above the C2 predictor's warning limit for that signal",
+                  "c1_flagged_fraction": "windows above the C1 threshold / windows C1 could score",
+                  "inside_interval": "the observed simulated value at that horizon lies inside C2's 90 % interval (one sample, not a coverage estimate)"},
+              "note": ("Observed values are simulated branch trajectories from identical starting conditions; predictions are C2 outputs made at the "
+                       "start. Branches act on simulator copies, not on the device, and do not change the live run.")}
+    _SNAPSHOTS[rid] = snap
+    while len(_SNAPSHOTS) > MAX_SNAPSHOTS:
+        _SNAPSHOTS.pop(next(iter(_SNAPSHOTS)))
+    orch._put("counterfactual", rid, record, "SIMULATED", orch.now)
+    orch._log("counterfactual", id=rid, candidates=[b["label"] for b in branches], horizon_s=horizon)
+    return record
+
+
+def counterfactual_get(orch, rid: str) -> Dict[str, Any]:
+    rec = orch.get("counterfactual", rid)
+    if rec is None:
+        raise WorkbenchError(f"experiment {rid} was not found in this run", 404)
+    rec.pop("_provenance", None)
+    rec["rerunnable"] = rid in _SNAPSHOTS
+    return rec
+
+
+def counterfactual_rerun(orch, rid: str) -> Dict[str, Any]:
+    rec = counterfactual_get(orch, rid)
+    snap = _SNAPSHOTS.get(rid)
+    if snap is None:
+        raise WorkbenchError(f"the starting state of {rid} is no longer held in memory (only the last {MAX_SNAPSHOTS} are kept and none survive a "
+                             "backend restart); its recorded inputs remain available")
+    out = []
+    for b in rec["branches"]:
+        if b["status"] != "completed":
+            out.append({"label": b["label"], "identical": None, "note": "the original branch failed"})
+            continue
+        run = _branch(snap, b["action"], b["target_rpm"], rec["inputs"]["horizon_s"], rec["risk_limits"])
+        out.append({"label": b["label"], "original_hash": b["window_hash"], "rerun_hash": run["window_hash"], "identical": run["window_hash"] == b["window_hash"]})
+    return {"id": rid, "state_digest": rec["inputs"]["state_digest"], "state_digest_now": _digest(snap["sim"]), "branches": out,
+            "identical": all(x["identical"] for x in out if x["identical"] is not None)}

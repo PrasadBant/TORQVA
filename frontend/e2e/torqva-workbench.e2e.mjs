@@ -72,6 +72,16 @@ check('the response chart is drawn from recorded windows', (await page.locator('
 check('the result separates ground truth from TORQVA\'s ranking', /Scenario ground truth/.test(await page.textContent('section[aria-labelledby=c-run]')) && /TORQVA ranking after the tests/.test(await page.textContent('section[aria-labelledby=c-run]')));
 await shot('c4');
 
+// C4 adaptive investigation on the simulator copy
+const preAd = await api('/status');
+check('C4 shows an evidence-sufficiency status', /SUFFICIENT EVIDENCE|MORE EVIDENCE REQUIRED|INVALID INPUT|TEST NOT SUPPORTED|INCONCLUSIVE/.test(await page.textContent('section[aria-labelledby=c-adaptive]')));
+await page.click('[data-testid=run-adaptive]');
+await page.waitForSelector('[data-testid=adaptive-result]', { timeout: 60000 });
+const postAd = await api('/status');
+check('the adaptive investigation ends with a stated status and reason, and the live run did not move', /SUFFICIENT EVIDENCE|MORE EVIDENCE REQUIRED|INVALID INPUT|TEST NOT SUPPORTED|INCONCLUSIVE/.test(await page.textContent('[data-testid=adaptive-result]')) && preAd.t === postAd.t);
+await page.waitForFunction(() => document.querySelector('[data-testid=trace-test]')?.dataset.reached === 'yes', null, { timeout: 10000 }).catch(() => {});
+check('the trace on C4 records the diagnostic runs', (await page.getAttribute('[data-testid=trace-test]', 'data-reached')) === 'yes');
+
 // C2: a custom target triggers a fresh prediction for that target
 await nav('Predictions');
 await page.waitForSelector('[data-testid=cand-A] .recharts-wrapper', { timeout: 20000 });
@@ -79,6 +89,15 @@ await page.fill('[data-testid=target-A] input', '1400');
 const sawPending = await page.waitForSelector('[data-testid=pending-A]', { timeout: 3000 }).then(() => true).catch(() => false);
 await page.waitForSelector('[data-testid=cand-A] .recharts-wrapper', { timeout: 20000 });
 check('changing a target marks it pending, then shows a prediction for the new target', sawPending && /1,400/.test(await page.textContent('[data-testid=cmp-table]')));
+// C2 counterfactual lab: identical start, separate branches, reproducible
+const preCf = await api('/status');
+await page.click('[data-testid=run-cf]');
+await page.waitForSelector('[data-testid=cf-result]', { timeout: 60000 });
+const postCf = await api('/status');
+check('the counterfactual lab compares branches without changing the live run', (await page.locator('[data-testid=cf-result] .tq-cand').count()) >= 2 && preCf.t === postCf.t && preCf.device.setpoint_rpm === postCf.device.setpoint_rpm);
+check('the branch comparison is charted from observed branch windows', (await page.locator('[data-testid=cf-chart] .recharts-line').count()) >= 2);
+await page.click('[data-testid=cf-rerun]');
+check('re-running the experiment reproduces every branch', await page.waitForSelector('text=reproduced: every branch identical', { timeout: 20000 }).then(() => true).catch(() => false));
 const selBtn = page.locator('[data-testid=cand-A] button:has-text("Select Action A")');
 check('the select control names the actual target', /target 1,400 rpm/.test(await selBtn.textContent()));
 await selBtn.click();
@@ -101,6 +120,18 @@ if (allowed) {
   await page.waitForFunction(() => document.querySelector('[data-testid=life-requested]')?.dataset.state === 'done', null, { timeout: 10000 }).catch(() => {});
   check('the lifecycle shows the request but not a recovery', (await page.getAttribute('[data-testid=life-requested]', 'data-state')) === 'done' && (await page.getAttribute('[data-testid=life-verified]', 'data-state')) !== 'done');
   check('an analyst-approved decision is shown as such', /analyst's selection/.test(await page.textContent('[data-testid=life-decision]')));
+  await page.waitForSelector('[data-testid=receipt]', { timeout: 15000 }).catch(() => {});
+  const rc = await page.textContent('[data-testid=receipt]').catch(() => '');
+  check('the request has a decision receipt with its evidence and a lifecycle from records', /ACCEPTED/.test(rc) && /snapshot digest matches/.test(rc) && /Gate/.test(rc) && !/RECOVERED/.test(await page.textContent('[data-testid=receipt-lifecycle]')));
+  const errsBefore = errors.length;
+  const refused = await page.evaluate(() => fetch('/api/torqva/simulation/workbench/request', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + sessionStorage.getItem('torqva.token') },
+    body: JSON.stringify({ action: 'REDUCE_SPEED', target_rpm: 1300, basis: { t: 0, setpoint_rpm: 1800 } }) }).then(async (r) => ({ code: r.status, detail: (await r.json()).detail })));
+  check('a refused request is refused by the backend and leaves a receipt', refused.code === 409 && /decision receipt R-/.test(refused.detail), refused.detail);
+  await page.waitForTimeout(300);
+  for (let i = errors.length - 1; i >= errsBefore; i--) if (/status of 409/.test(errors[i])) { errors.splice(i, 1); break; }   // only the deliberate refusal above
+  await page.waitForFunction(() => /REFUSED/.test(document.querySelector('[data-testid=receipt-list]')?.textContent || ''), null, { timeout: 15000 }).catch(() => {});
+  check('the refusal is listed as visibly as the acceptance', /REFUSED/.test(await page.textContent('[data-testid=receipt-list]')));
+  check('the trace on C3 reaches the safety decision', (await page.getAttribute('[data-testid=trace-decision]', 'data-reached')) === 'yes');
 } else {
   check('when the check refuses, the reason is shown and nothing is sent', /Why it cannot be requested now/.test(await page.textContent('main')) && (await api('/commands')).every((c) => c.action !== 'REDUCE_SPEED'));
 }
