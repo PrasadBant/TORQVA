@@ -1,7 +1,7 @@
 // Scenario Studio: configure, start and advance a run of the backend's software simulator. Every control maps to an existing route
 // (POST /simulation/start with the StartSimulation fields, /simulation/step, /commands/stop); nothing here reaches hardware, and the
 // simulated motor's STOP is labelled as such.
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Play, Pause, StopCircle, RotateCcw, StepForward, Clock } from 'lucide-react';
 import { Card, Empty, ErrorBox, ProvBadge, fmt, canControl } from '../shared/components.jsx';
 import { lifecycle, scenarioText, hasSimOf, title } from './pipeline.js';
@@ -16,9 +16,11 @@ const DEFAULTS = { fault: 'imbalance', severity: 0.5, transient: true, approval:
 const intIn = (v, [lo, hi]) => v !== '' && Number.isInteger(Number(v)) && Number(v) >= lo && Number(v) <= hi;
 const numIn = (v, [lo, hi]) => v !== '' && Number.isFinite(Number(v)) && Number(v) >= lo && Number(v) <= hi;
 
-export function ScenarioStudio({ d, role, actions, running, setRunning, busy, error, stale, stepSeconds = 5 }) {
+export function ScenarioStudio({ d, role, actions, running, setRunning, busy, error, stale, stepSeconds = 5, compact = false, go }) {
   const [form, setForm] = useState(DEFAULTS);
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+  const touched = useRef(false);            // the user has edited the new-scenario form
+  const submitted = useRef(false);          // the user pressed Start new simulation
+  const set = (k) => (e) => { touched.current = true; setForm({ ...form, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }); };
   const s = d.status || {};
   const hasSim = hasSimOf(s);
   const ctl = canControl(role);
@@ -40,6 +42,15 @@ export function ScenarioStudio({ d, role, actions, running, setRunning, busy, er
   const sc = s.scenario || {};
   const injected = sc.fault && Number.isFinite(s.t) && Number.isFinite(sc.inject_after_s) ? s.t >= sc.inject_after_s : null;
 
+  // Open at first render when no run exists. When a NEW scenario actually starts (the user's own start, or the development auto-start of an
+  // untouched form) it folds away; it never closes while the user is editing, and a failed start leaves it open with the error below.
+  const [newOpen] = useState(() => !hasSim);
+  const newRef = useRef(null);
+  const scenarioKey = hasSim ? JSON.stringify(sc) : '';
+  useEffect(() => {
+    if (!scenarioKey || !newRef.current) return;
+    if (submitted.current || !touched.current) { newRef.current.open = false; submitted.current = false; touched.current = false; }
+  }, [scenarioKey]);
   return (
     <Card title="Scenario Studio" id="c-scn" right={<ProvBadge kind="SIMULATED" />}>
       <div className="tq-motor-state-box" data-testid="sim-state">
@@ -47,7 +58,7 @@ export function ScenarioStudio({ d, role, actions, running, setRunning, busy, er
           <span className="tq-motor-state-label">Current simulation</span>
           <strong className={`tq-motor-state-value ${life.key === 'running' ? 'running' : life.key === 'paused' || life.key === 'ready' ? 'stopped' : ''}`}>{life.label}</strong>
         </div>
-        {!hasSim ? <Empty>No simulation has been started. Configure a scenario below.</Empty> : (
+        {!hasSim ? <Empty>No simulation has been started. {compact ? 'Start one from Scenario Studio on the Overview.' : 'Configure a scenario below.'}</Empty> : (
           <div className="tq-motor-state-grid">
             <div className="tq-motor-state-item"><span className="tq-muted">Simulation time</span><strong className="tq-num">{fmt(s.t, 0)} s</strong></div>
             <div className="tq-motor-state-item"><span className="tq-muted">Scenario</span><strong>{scenarioText(sc)}</strong></div>
@@ -70,8 +81,12 @@ export function ScenarioStudio({ d, role, actions, running, setRunning, busy, er
       </div>
       <p className="tq-muted tq-small">{life.detail} STOP coasts the simulated motor through the same Safety Supervisor path as every other command; it does not stop a real motor.{!ctl ? ` Your role (${role}) can press STOP only.` : ''}</p>
 
-      <form className="tq-form tq-scn-form" onSubmit={(e) => { e.preventDefault(); if (!bad.length) start(); }} aria-label="Configure a new scenario">
-        <p className="tq-section-title">New scenario</p>
+      {compact ? (
+        <p className="tq-small tq-muted" data-testid="scn-compact">New scenarios are configured in Scenario Studio on the Overview{go ? <> · <button type="button" className="tq-linkbtn" onClick={() => go('overview')}>Open Overview</button></> : ''}.</p>
+      ) : (
+      <details ref={newRef} className="tq-disclosure tq-scn-new" data-testid="scn-new" open={newOpen || undefined}>
+      <summary><span className="tq-disclosure-title">Configure a new scenario</span><span className="tq-disclosure-meta">{hasSim ? 'replaces the current run' : 'no simulation is running yet'}</span></summary>
+      <form className="tq-form tq-scn-form tq-disclosure-body" onSubmit={(e) => { e.preventDefault(); if (!bad.length) { submitted.current = true; start(); } }} aria-label="Configure a new scenario">
         {!ctl && <Empty>Your role ({role}) can view but not start simulations.</Empty>}
         <div className="tq-scn-grid">
           <label>Injected fault
@@ -104,6 +119,7 @@ export function ScenarioStudio({ d, role, actions, running, setRunning, busy, er
           {hasSim && <span className="tq-muted tq-small">Replaces the current run; its records stay in the store but leave these pages.</span>}
         </div>
       </form>
+      </details>)}
       <ErrorBox error={error} />
     </Card>
   );

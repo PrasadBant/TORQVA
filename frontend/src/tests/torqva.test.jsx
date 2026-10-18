@@ -109,7 +109,12 @@ describe('TORQVA workspace', () => {
 
   it('viewer cannot start a simulation but can always press STOP', async () => {
     await signedIn({ role: 'viewer' });
+    // Live Monitor keeps the run controls and STOP; a new scenario is configured in Scenario Studio on the Overview.
     fireEvent.click(screen.getByRole('button', { name: /Live Monitor/ }));
+    expect(screen.getByRole('button', { name: /Stop motor/ })).toBeEnabled();
+    expect(screen.getByTestId('scn-compact')).toHaveTextContent('Scenario Studio on the Overview');
+    expect(screen.queryByRole('button', { name: 'Start new simulation' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Overview/ }));
     expect(screen.getByRole('button', { name: 'Start new simulation' })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Stop motor/ })).toBeEnabled();
   });

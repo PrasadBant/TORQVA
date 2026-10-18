@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Empty, Pill, ProvBadge, fmt } from '../shared/components.jsx';
+import { Card, Empty, Pill, ProvBadge, fmt, Disclosure } from '../shared/components.jsx';
 import { C2C4Validation } from './c2c4.jsx';
 
 const pct = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v) ? 'unavailable' : `${fmt(v * 100, d)}%`);
@@ -33,13 +33,14 @@ function RunCard({ evalRun, evalError, loading }) {
         <Row label="False recovery declarations" value={get(r, 'c5.cases') === undefined ? 'unavailable' : `${get(r, 'c5.FALSE_RECOVERY_DECLARATIONS')} of ${r.c5.cases} cases`} />
       </tbody></table>
       <p className="tq-muted">This run measured the conformal quantile only. The Phase 10 table measures the intervals the predictor actually returns, which cover less.</p>
-      <h4>Run history</h4>
+      <Disclosure summary="Run history and provenance" meta={`${runs.length} committed run(s)`} testid="eval-runs" className="tq-mt">
       <p className="tq-muted">Only the committed evaluation runs below exist; there is no longer history. The newest is chosen by run number: {evalRun.selection || 'newest run'}.</p>
       {runs.length > 0 && (
         <table className="tq-table"><caption className="tq-sr">Available evaluation runs</caption>
           <thead><tr><th scope="col">File</th><th scope="col">git</th><th scope="col">Config</th><th scope="col">Runtime</th><th scope="col">Regime sections</th></tr></thead>
           <tbody>{runs.map((x) => (<tr key={x.file}><td>{x.file}{x.file === evalRun.file && <> <Pill tone="info">shown</Pill></>}</td><td>{x.git_sha ?? '—'}</td><td>{x.config_hash ?? '—'}</td>
             <td className="tq-num">{x.runtime_s != null ? `${x.runtime_s} s` : '—'}</td><td>{x.has_regimes ? 'yes' : 'no'}</td></tr>))}</tbody></table>)}
+      </Disclosure>
     </Card>
   );
 }
@@ -56,6 +57,8 @@ function Phase12Card({ p }) {
   return (
     <Card title="Phase 12 generalization check (fresh seeds)" id="c-p12" className="tq-span" right={<ProvBadge kind="SIMULATED" />}>
       <p className="tq-warnbox" role="note">{p.WARNING}</p>
+      <p className="tq-muted">C4 calibration adopted: <strong>{p.c4_adopt ? 'yes' : 'no'}</strong>. No variant satisfies the pre-registered bar, including the shipped one on the decision-worse criterion.</p>
+      <Disclosure summary="View per-regime results" meta={`${p.n_c2_cases} C2 cases · ${p.n_c4_sessions} C4 sessions`} testid="eval-p12-tables">
       <h4>C2: coverage and abstention by regime ({p.n_c2_cases} cases; 90 % target)</h4>
       <table className="tq-table"><caption className="tq-sr">Phase 12 C2 coverage by regime</caption>
         <thead><tr><th scope="col">Regime</th>{c2v.map((k) => <th scope="col" key={k}>{V_LABEL[k]}</th>)}</tr></thead>
@@ -72,7 +75,7 @@ function Phase12Card({ p }) {
             <td className="tq-num">{pct(v.confident_wrong)} <span className="tq-muted">[{pct(v.confident_wrong_ci95?.[0])}–{pct(v.confident_wrong_ci95?.[1])}]</span></td>
             <td className="tq-num">{pct(v.inconclusive)}</td><td className="tq-num">{pct(v.decision_worse_than_prior)}</td>
             <td>{v.meets_acceptance_bar ? <Pill tone="ok">yes</Pill> : <Pill tone="warn">no (worst regime {v.worst_regime}: {pct(v.worst_regime_confident_wrong)})</Pill>}</td></tr>); })}</tbody></table>
-      <p className="tq-muted">C4 calibration adopted: <strong>{p.c4_adopt ? 'yes' : 'no'}</strong>. No variant satisfies the pre-registered bar, including the shipped one on the decision-worse criterion.</p>
+      </Disclosure>
     </Card>
   );
 }

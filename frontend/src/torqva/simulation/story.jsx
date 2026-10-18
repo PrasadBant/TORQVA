@@ -1,7 +1,7 @@
 // Incident story: one simulated incident from injection to resolution, built only from this run's records (/log, /outcomes, /status).
 // Scenario ground truth, TORQVA's diagnosis, the C2 prediction and the observed outcome are shown side by side and never merged.
 import React, { useState } from 'react';
-import { Card, Empty, Pill, ProvBadge, fmt } from '../shared/components.jsx';
+import { Card, Empty, Pill, ProvBadge, fmt, Disclosure } from '../shared/components.jsx';
 import { incidentIds, title, outcomeTone } from './pipeline.js';
 import { EventTimeline } from './events.jsx';
 
@@ -62,8 +62,9 @@ export function IncidentStory({ d }) {
           <p className="tq-muted">{(out.reasons || []).map(title).join(', ') || 'no reason recorded'}</p>
           {Object.keys(out.criteria || {}).length > 0 && <ul className="tq-list">{Object.entries(out.criteria).map(([k, v]) => <li key={k}><Pill tone={v ? 'ok' : 'crit'}>{v ? 'pass' : 'fail'}</Pill> {title(k)}</li>)}</ul>}
         </div>)}
-      <p className="tq-section-title tq-mt">Sequence {opened ? `(opened at t = ${fmt(opened.t, 0)} s)` : ''}</p>
-      <EventTimeline log={d.log} incident={id} limit={40} />
+      <Disclosure summary="View the event sequence" meta={opened ? `opened at t = ${fmt(opened.t, 0)} s` : 'records of this incident'} testid="story-sequence" className="tq-mt">
+        <EventTimeline log={d.log} incident={id} limit={40} />
+      </Disclosure>
     </Card>
   );
 }

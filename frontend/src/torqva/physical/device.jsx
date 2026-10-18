@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Octagon } from 'lucide-react';
 import { api, getToken, ApiError } from '../api.js';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, PageHead, CardLink } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, PageHead, CardLink, Disclosure } from '../shared/components.jsx';
 import { HistoryChart } from '../shared/lazyCharts.jsx';
 
 const defaultWs = (import.meta.env && import.meta.env.MODE === 'test') ? null : (url) => new WebSocket(url);
@@ -265,6 +265,10 @@ export function CommissioningCard({ role }) {
     <Card title="Commissioning (human record)" id="c-comm" right={<Pill tone={c.physical_control_enabled ? 'warn' : 'stop'}>{c.physical_control_enabled ? 'RECORD ENABLED' : 'NOT ENABLED'}</Pill>}>
       <p className="tq-muted">{c.note} Only an admin can change it; every change needs written evidence and is audited.</p>
       {c.load_error && <div className="tq-callout crit" role="alert">{c.load_error}</div>}
+      <p data-testid="commissioning-summary"><strong className="tq-num">{c.items.filter((i) => i.status === 'VERIFIED').length} of {c.items.length}</strong> requirements verified
+        {c.items.some((i) => i.status === 'BLOCKED') && <> · <Pill tone="stop">{`${c.items.filter((i) => i.status === 'BLOCKED').length} blocked`}</Pill></>}
+        {' '}· approved limits {c.limits ? `version ${c.limits.version}` : 'none'}</p>
+      <Disclosure summary={admin ? 'Review and edit the commissioning record' : 'View the commissioning checklist'} meta={admin ? 'attest requirements with written evidence, approve limits, enable the record' : 'requirements, evidence and approved limits'} testid="commissioning-edit">
       <table className="tq-table tq-table-wrap" data-testid="commissioning"><caption className="tq-sr">Commissioning checklist</caption>
         <thead><tr><th scope="col">Requirement</th><th scope="col">Status</th><th scope="col">Evidence</th>{admin && <th scope="col">Action</th>}</tr></thead>
         <tbody>{c.items.map((i) => (
@@ -302,6 +306,7 @@ export function CommissioningCard({ role }) {
           </div>
           </fieldset>
         </form>)}
+      </Disclosure>
       <ErrorBox error={err} />
       <p className="tq-muted">Approved limits are sent to the board over the authenticated session and must be confirmed by it. Enabling the record does not enable motion: the firmware interlocks (E-stop input, secure session) are checked separately and still refuse START and speed.</p>
     </Card>

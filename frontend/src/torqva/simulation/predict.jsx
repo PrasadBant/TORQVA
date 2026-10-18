@@ -5,7 +5,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { api } from '../api.js';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, PageHead } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, PageHead, Disclosure } from '../shared/components.jsx';
 import { ResponseChart } from '../shared/lazyCharts.jsx';
 import { PredictionsPage } from './pages.jsx';
 import { StatusPill } from './c2c4.jsx';
@@ -170,7 +170,6 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
             <ErrorBox error={err} />
           </Card>)}
 
-      <CounterfactualLab targets={valid} role={role} stale={stale} hasRanking={!!post} hasSim={hasSim} />
 
       {sel && (
         <div className="tq-callout info tq-mt" role="status" data-testid="selection">
@@ -179,9 +178,15 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
           <button type="button" className="tq-btn tq-primary" onClick={() => go('interventions')}>Review on Interventions <ArrowRight size={14} aria-hidden="true" /></button>
         </div>)}
 
-      <div className="tq-mt"><InvestigationTrace d={d} focus={['prediction']} /></div>
-      <h3 className="tq-section-head tq-mt">The pipeline's own comparison</h3>
-      <PredictionsPage d={d} go={go} head={false} />
+      <Disclosure summary="Run a counterfactual experiment" meta="compare the candidates on copies of one simulator snapshot and re-run exactly" testid="c2-counterfactual">
+        <CounterfactualLab targets={valid} role={role} stale={stale} hasRanking={!!post} hasSim={hasSim} />
+      </Disclosure>
+      <Disclosure summary="Inspect the pipeline's own C2 comparison" meta="what the automatic pipeline compared, and its predicted-vs-observed record" testid="c2-pipeline">
+        <PredictionsPage d={d} go={go} head={false} />
+      </Disclosure>
+      <Disclosure summary="View investigation trace" meta="every record of this incident, from observation to outcome" testid="c2-trace">
+        <InvestigationTrace d={d} focus={['prediction']} />
+      </Disclosure>
     </>
   );
 }

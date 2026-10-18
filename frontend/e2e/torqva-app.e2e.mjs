@@ -74,7 +74,12 @@ const dev = await page.textContent('main');
 check('physical device shown as not connected, simulated device distinguished', /not connected/.test(dev) && /software simulator/.test(dev));
 
 // simulator controls: start a faulty run, run it, and watch for an incident
-await page.click('nav button:has-text("Live Monitor")');
+await page.click('nav button:has-text("Overview")');            // scenarios are configured in Scenario Studio on the Overview
+for (let i = 0; i < 20; i++) {   // the new-scenario form is a disclosure in Scenario Studio; it folds once when the run state first loads
+  await page.evaluate(() => document.querySelectorAll('[data-testid=scn-new]').forEach((x) => { x.open = true; }));
+  await page.waitForTimeout(300);
+  if (await page.evaluate(() => [...document.querySelectorAll('[data-testid=scn-new]')].every((x) => x.open))) break;
+}
 await page.selectOption('label:has-text("Injected fault") select', 'looseness');
 await page.click('button:has-text("Start new simulation")');
 await page.waitForTimeout(800);

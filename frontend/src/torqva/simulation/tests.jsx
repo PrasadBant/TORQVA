@@ -4,7 +4,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, ArrowUp, ArrowDown, Play, Gauge, Info } from 'lucide-react';
 import { api } from '../api.js';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, PageHead } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, PageHead, Disclosure } from '../shared/components.jsx';
 import { TrendLines } from '../shared/lazyCharts.jsx';
 import { TEST_SPECS, TEST_OUTCOMES, ASSESSMENT } from '../shared/diagnostics.js';
 import { TestsPage } from './pages.jsx';
@@ -235,9 +235,12 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale }) {
 
       {wb?.run && <div className="tq-mt"><SequenceResult run={wb.run} onAddTest={(t) => setSeq([{ type: t }])} /></div>}
 
-      <div className="tq-mt"><InvestigationTrace d={d} focus={['test']} /></div>
-      <h3 className="tq-section-head tq-mt">Tests run by the pipeline itself</h3>
-      <TestsPage d={d} c2c4={c2c4} head={false} />
+      <Disclosure summary="Inspect tests run by the pipeline itself" meta="tests the decision gate proposed, their latest result and the C4 calibration status" testid="c4-pipeline">
+        <TestsPage d={d} c2c4={c2c4} head={false} />
+      </Disclosure>
+      <Disclosure summary="View investigation trace" meta="every record of this incident, from observation to outcome" testid="c4-trace">
+        <InvestigationTrace d={d} focus={['test']} />
+      </Disclosure>
     </>
   );
 }

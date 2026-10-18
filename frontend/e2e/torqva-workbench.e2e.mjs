@@ -30,6 +30,11 @@ await page.goto(URL);
 await page.waitForSelector('[data-testid=sim-status-strip]', { timeout: 30000 });
 
 // a faulty run that holds its action for a human decision
+for (let i = 0; i < 20; i++) {   // the new-scenario form is a disclosure in Scenario Studio; it folds once when the run state first loads
+  await page.evaluate(() => document.querySelectorAll('[data-testid=scn-new]').forEach((x) => { x.open = true; }));
+  await page.waitForTimeout(300);
+  if (await page.evaluate(() => [...document.querySelectorAll('[data-testid=scn-new]')].every((x) => x.open))) break;
+}
 await page.selectOption('label:has-text("Injected fault") select', 'imbalance');
 await page.fill('label:has-text("Inject fault at") input', '10');
 await page.check('text=Require human approval');
@@ -91,6 +96,7 @@ await page.waitForSelector('[data-testid=cand-A] .recharts-wrapper', { timeout: 
 check('changing a target marks it pending, then shows a prediction for the new target', sawPending && /1,400/.test(await page.textContent('[data-testid=cmp-table]')));
 // C2 counterfactual lab: identical start, separate branches, reproducible
 const preCf = await api('/status');
+await page.click('[data-testid=c2-counterfactual] > summary');    // the counterfactual lab is an advanced disclosure on C2
 await page.click('[data-testid=run-cf]');
 await page.waitForSelector('[data-testid=cf-result]', { timeout: 60000 });
 const postCf = await api('/status');
@@ -120,6 +126,7 @@ if (allowed) {
   await page.waitForFunction(() => document.querySelector('[data-testid=life-requested]')?.dataset.state === 'done', null, { timeout: 10000 }).catch(() => {});
   check('the lifecycle shows the request but not a recovery', (await page.getAttribute('[data-testid=life-requested]', 'data-state')) === 'done' && (await page.getAttribute('[data-testid=life-verified]', 'data-state')) !== 'done');
   check('an analyst-approved decision is shown as such', /analyst's selection/.test(await page.textContent('[data-testid=life-decision]')));
+  await page.evaluate(() => { const x = document.querySelector('[data-testid=c3-receipts]'); if (x) x.open = true; });   // receipts: audit-trail disclosure on C3
   await page.waitForSelector('[data-testid=receipt]', { timeout: 15000 }).catch(() => {});
   const rc = await page.textContent('[data-testid=receipt]').catch(() => '');
   check('the request has a decision receipt with its evidence and a lifecycle from records', /ACCEPTED/.test(rc) && /snapshot digest matches/.test(rc) && /Gate/.test(rc) && !/RECOVERED/.test(await page.textContent('[data-testid=receipt-lifecycle]')));

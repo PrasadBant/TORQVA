@@ -43,9 +43,14 @@ check('exploring every part in physical mode sends nothing to the backend', writ
 check('no motor-command control on the physical twin', (await page.locator('[data-testid=twin-page] button:has-text("START"), [data-testid=twin-page] button:has-text("STOP"), [data-testid=twin-page] input[type=range]').count()) === 0);
 await shot('twin-physical-disconnected');
 
-// ---- simulation mode: start a run on the existing Live Monitor controls, then watch the twin
+// ---- simulation mode: start a run from Scenario Studio on the Overview, then watch the twin
 await page.click('button:has-text("Simulation mode (demo)")');
-await nav('Live Monitor');
+await nav('Overview');
+for (let i = 0; i < 20; i++) {   // the new-scenario form is a disclosure in Scenario Studio; it folds once when the run state first loads
+  await page.evaluate(() => document.querySelectorAll('[data-testid=scn-new]').forEach((x) => { x.open = true; }));
+  await page.waitForTimeout(300);
+  if (await page.evaluate(() => [...document.querySelectorAll('[data-testid=scn-new]')].every((x) => x.open))) break;
+}
 await page.click('button:has-text("Start new simulation")');
 await page.waitForTimeout(800);
 await page.click('button:has-text("Run")');

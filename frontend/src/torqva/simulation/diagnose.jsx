@@ -2,10 +2,10 @@
 // model's own evidence → recommended next test. Everything shown comes from the simulator's records or the workbench plan; a hypothesis is a
 // ranking, never a confirmed fault, and the scenario's injected fault is shown apart as ground truth.
 import React from 'react';
-import { Gauge, Thermometer, Waves, Zap, Plug, FlaskConical, ArrowRight } from 'lucide-react';
-import { Card, Empty, Pill, ProvBadge, fmt, stateTone, PageHead } from '../shared/components.jsx';
+import { FlaskConical, ArrowRight } from 'lucide-react';
+import { Card, Empty, Pill, ProvBadge, fmt, stateTone, PageHead, Disclosure } from '../shared/components.jsx';
 import { TEST_SPECS, TEST_OUTCOMES, FEATURE_LABEL, SCORE_STATUS } from '../shared/diagnostics.js';
-import { Kpi, DiagnosticsPage } from './pages.jsx';
+import { DiagnosticsPage } from './pages.jsx';
 import { usePlan, title, pct } from './workbench.js';
 import { InvestigationTrace } from './trace.jsx';
 import { SufficiencyBadge } from './adaptive.jsx';
@@ -68,7 +68,6 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
   const hasSim = s.t !== undefined && s.t !== null;
   const [tone, head, detail] = conditionOf(d, plan, stale);
   const val = (v) => (hasSim && w && w.valid !== false ? v : null);
-  const tail = (d.telemetry?.samples || []).slice(-60);
   const injected = sc.fault && finite(s.t) && finite(sc.inject_after_s) && s.t >= sc.inject_after_s;
   const rec = plan?.recommended_test;
   const spec = rec && TEST_SPECS[rec.test];
@@ -83,13 +82,12 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
       {error && error !== 'unavailable' && hasSim && <p className="tq-callout warn">The workbench plan could not be loaded: {error}</p>}
 
       <Card title="Operating condition" id="c-cond" right={<ProvBadge kind="SIMULATED" />}>
-        <div className="tq-kpis" data-testid="c1-kpis">
-          <Kpi label="Speed" icon={Gauge} value={val(w?.rpm)} unit="rpm" digits={0} data={tail} dataKey="rpm" prov="SIMULATED" note={hasSim ? `setpoint ${fmt(s.device?.setpoint_rpm, 0)} rpm` : undefined} />
-          <Kpi label="Current" icon={Zap} value={val(w?.current)} unit="A" digits={2} data={tail} dataKey="current" prov="SIMULATED" color="var(--tq-chart-4)" />
-          <Kpi label="Supply voltage" icon={Plug} value={val(w?.voltage)} unit="V" digits={2} data={tail} dataKey="voltage" prov="SIMULATED" color="var(--tq-chart-3)" />
-          <Kpi label="Housing temperature" icon={Thermometer} value={val(w?.housing)} unit="°C" data={tail} dataKey="housing" prov="SIMULATED" color="var(--tq-chart-2)" />
-          <Kpi label="Vibration RMS (simulator model)" icon={Waves} value={val(w?.vib_rms)} unit="g" digits={3} data={tail} dataKey="vib_rms" prov="SIMULATED" color="var(--tq-chart-3)" />
-        </div>
+        {/* One compact line of the current readings (the trends live on Live Monitor); a missing value reads UNAVAILABLE, never 0. */}
+        <dl className="tq-readings" data-testid="c1-kpis">
+          {[['Speed', w?.rpm, 'rpm', 0], ['Current', w?.current, 'A', 2], ['Supply voltage', w?.voltage, 'V', 2], ['Housing', w?.housing, '°C', 1], ['Vibration RMS', w?.vib_rms, 'g', 3]].map(([l, v, u, dg]) => (
+            <div key={l}><dt>{l}</dt><dd className="tq-num">{val(v) == null ? 'UNAVAILABLE' : `${fmt(v, dg)} ${u}`}</dd><ProvBadge kind="SIMULATED" /></div>))}
+          {hasSim && <div><dt>Setpoint</dt><dd className="tq-num">{fmt(s.device?.setpoint_rpm, 0)} rpm</dd></div>}
+        </dl>
         <dl className="tq-kv tq-mt">
           <dt>C1 window status</dt><dd>{plan?.c1 ? <Pill tone={plan.c1.score_over_threshold === null ? 'info' : plan.c1.anomalous ? 'warn' : 'ok'}>{title(plan.c1.status)}</Pill> : '—'}</dd>
           <dt>Score ÷ learned threshold</dt><dd className="tq-num">{plan?.c1 ? fmt(plan.c1.score_over_threshold, 2) : '—'}</dd>
@@ -144,8 +142,10 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
           </>)}
       </Card>
 
-      <div className="tq-mt"><InvestigationTrace d={d} focus={['observation', 'hypothesis']} /></div>
       <div className="tq-mt"><DiagnosticsPage d={d} head={false} /></div>
+      <Disclosure summary="View investigation trace" meta="every record of this incident, from observation to outcome" testid="c1-trace">
+        <InvestigationTrace d={d} focus={['observation', 'hypothesis']} />
+      </Disclosure>
     </>
   );
 }

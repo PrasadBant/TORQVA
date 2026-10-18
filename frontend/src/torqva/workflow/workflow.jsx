@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Play, Check, X, ShieldCheck, Ban, RefreshCw, ChevronRight } from 'lucide-react';
 import { api, ApiError } from '../api.js';
-import { Card, Empty, ErrorBox, Pill, PageHead, PosteriorBars, ProvBadge, fmt, title, pct, fmtRpm as rpm, canControl } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, Pill, PageHead, PosteriorBars, ProvBadge, fmt, title, pct, fmtRpm as rpm, canControl, Disclosure } from '../shared/components.jsx';
 import { TrendLines } from '../shared/lazyCharts.jsx';
 
 const MIN_GAP_MS = 2500;
@@ -274,8 +274,10 @@ function EvidenceAndDiagnosis({ c }) {
             </dl>)}
         </div>
       </div>
+      {(t?.stages?.length > 0 || (top && (top.supporting?.length > 0 || top.contradicting?.length > 0))) && (
+      <Disclosure summary="View evidence" meta="each test stage's observation and the features behind the leading hypothesis" testid="wf-evidence-more" className="tq-mt">
       {t?.stages?.length > 0 && (
-        <div className="tq-table-wrap tq-mt"><table className="tq-table" data-testid="wf-test-stages"><caption className="tq-sr">Test stage results</caption>
+        <div className="tq-table-wrap"><table className="tq-table" data-testid="wf-test-stages"><caption className="tq-sr">Test stage results</caption>
           <thead><tr><th scope="col">Stage</th><th scope="col">Status</th><th scope="col">Observation (derived)</th><th scope="col">Ranking before → after</th></tr></thead>
           <tbody>{t.stages.map((s) => (
             <tr key={s.index}><th scope="row">{s.test === 'profile' ? 'Speed profile' : s.test}{s.simulated_seconds ? <span className="tq-muted tq-small tq-num"> {s.simulated_seconds} s</span> : null}</th>
@@ -293,6 +295,7 @@ function EvidenceAndDiagnosis({ c }) {
           </ul>
           <p className="tq-muted tq-small">{dx.feature_evidence_source}.</p>
         </div>)}
+      </Disclosure>)}
       {dx?.missing?.length > 0 && <p className="tq-callout warn">Limits on this conclusion: {dx.missing.join('; ')}.</p>}
       {dx?.scenario_note && <p className="tq-muted tq-small">Scenario ground truth: {dx.scenario_truth ? title(dx.scenario_truth) : 'no active fault'} — {dx.scenario_note}</p>}
     </Card>
@@ -344,12 +347,14 @@ function Recommendation({ wf, ctl, busy, onAuthorize, onDecline }) {
         </div>
       </div>
       {rec.ranking?.length > 0 && (
-        <div className="tq-table-wrap tq-mt"><table className="tq-table tq-small" data-testid="wf-candidates"><caption className="tq-sr">Candidate actions compared by C2</caption>
+        <Disclosure summary="Compare all candidates" meta={`${rec.ranking.length} candidates ranked by C2 · why each was or was not chosen`} testid="wf-candidates-more" className="tq-mt">
+        <div className="tq-table-wrap"><table className="tq-table tq-small" data-testid="wf-candidates"><caption className="tq-sr">Candidate actions compared by C2</caption>
           <thead><tr><th scope="col">Rank</th><th scope="col">Candidate</th><th scope="col">Action</th><th scope="col">Target</th><th scope="col">Risk</th><th scope="col">C2 status</th><th scope="col">Selection</th></tr></thead>
           <tbody>{rec.ranking.map((r) => (
             <tr key={r.candidate_id} className={r.candidate_id === rec.candidate_id ? 'is-on' : ''}><td className="tq-num">{r.rank}</td><td>{r.label}{r.pipeline_default ? <span className="tq-muted"> (pipeline default)</span> : ''}</td><td>{title(r.action)}</td>
               <td className="tq-num">{r.action === 'REDUCE_SPEED' ? `${rpm(r.target_rpm)} rpm` : r.action === 'STOP' ? 'stop' : '—'}</td><td className="tq-num">{fmt(r.risk, 2)}</td><td>{title(r.status)}</td>
-              <td>{r.candidate_id === rec.candidate_id ? <Pill tone="ok">recommended</Pill> : r.eligible ? 'eligible' : <span className="tq-muted">{r.excluded_because}</span>}</td></tr>))}</tbody></table></div>)}
+              <td>{r.candidate_id === rec.candidate_id ? <Pill tone="ok">recommended</Pill> : r.eligible ? 'eligible' : <span className="tq-muted">{r.excluded_because}</span>}</td></tr>))}</tbody></table></div>
+        </Disclosure>)}
       {awaiting && (
         <div className="tq-callout info tq-wf-auth" data-testid="wf-authorize-box">
           <strong>Authorization required: {rec.headline}</strong>
@@ -392,12 +397,14 @@ function Verification({ wf, go }) {
       </ol>
       {wf.status === 'VERIFYING_OUTCOME' && <p className="tq-callout info">C5 decides from fresh simulated windows after the acknowledgement. The simulation must advance (Run, or Step on the Live Monitor) for verification to finish.</p>}
       {v?.predicted_vs_observed?.length > 0 && (
+        <Disclosure summary="Compare the prediction with what was observed" meta={`${v.predicted_vs_observed.filter((r) => r.inside_interval).length} of ${v.predicted_vs_observed.length} samples inside the 90 % interval`} testid="wf-pvo-more">
         <div className="tq-table-wrap"><table className="tq-table tq-small" data-testid="wf-pvo"><caption className="tq-sr">Predicted versus observed</caption>
           <thead><tr><th scope="col">Signal</th><th scope="col">At</th><th scope="col">Predicted (interval)</th><th scope="col">Observed (SIM)</th><th scope="col">Inside</th></tr></thead>
           <tbody>{v.predicted_vs_observed.map((r) => { const [n, u, dg] = SIGNAL[r.signal] || [r.signal, '', 2]; return (
             <tr key={`${r.signal}${r.horizon_s}`}><th scope="row">{n}</th><td className="tq-num">{r.horizon_s} s</td><td className="tq-num">{fmt(r.predicted_mean, dg)} ({fmt(r.lo, dg)}–{fmt(r.hi, dg)}) {u}</td>
               <td className="tq-num">{fmt(r.observed, dg)} {u}</td><td>{r.inside_interval ? <Pill tone="ok">yes</Pill> : <Pill tone="warn">no</Pill>}</td></tr>); })}</tbody></table>
-          <p className="tq-muted tq-small">Single samples at each horizon; a predicted improvement is not an observed one, and neither is a recovery verdict.</p></div>)}
+          <p className="tq-muted tq-small">Single samples at each horizon; a predicted improvement is not an observed one, and neither is a recovery verdict.</p></div>
+        </Disclosure>)}
       <p className="tq-small">{iv.receipt_id && <>Decision receipt <strong>{iv.receipt_id}</strong> · </>}<button type="button" className="tq-linkbtn" onClick={() => go?.('interventions')}>Open Interventions <ChevronRight size={12} aria-hidden="true" /></button></p>
     </Card>
   );

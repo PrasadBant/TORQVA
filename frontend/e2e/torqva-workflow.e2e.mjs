@@ -33,6 +33,11 @@ await page.goto(URL);
 await page.waitForSelector('[data-testid=sim-status-strip]', { timeout: 30000 });
 
 // a faulty run whose pipeline holds its action for a human decision
+for (let i = 0; i < 20; i++) {   // the new-scenario form is a disclosure in Scenario Studio; it folds once when the run state first loads
+  await page.evaluate(() => document.querySelectorAll('[data-testid=scn-new]').forEach((x) => { x.open = true; }));
+  await page.waitForTimeout(300);
+  if (await page.evaluate(() => [...document.querySelectorAll('[data-testid=scn-new]')].every((x) => x.open))) break;
+}
 await page.selectOption('label:has-text("Injected fault") select', 'imbalance');
 await page.fill('label:has-text("Inject fault at") input', '10');
 await page.check('text=Require human approval');

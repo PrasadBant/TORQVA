@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Check, X, Gauge, Thermometer, Waves, Zap } from 'lucide-react';
-import { Card, Empty, ErrorBox, Pill, PosteriorBars, ProvBadge, fmt, title, PageHead, CardLink } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, Pill, PosteriorBars, ProvBadge, fmt, fmtRpm, title, PageHead, CardLink, Disclosure } from '../shared/components.jsx';
 import { Sparkline, TrendLines, ScoreChart, ResponseChart } from '../shared/lazyCharts.jsx';
 import { C2C4Validation, DiagnosticTests, PredictionChecks, StatusPill } from './c2c4.jsx';
 import { ScenarioStudio, FAULTS, canControl } from './scenario.jsx';
@@ -46,7 +46,7 @@ export const SimControls = ScenarioStudio;
 
 /* ------------------------------------------------------------------ 2. Live monitoring */
 const RANGES = [['60', 'Last 60 s'], ['180', 'Last 3 min'], ['all', 'All (≤300 windows)']];
-export function LivePage({ d, role, actions, running, setRunning, busy, error, stale, deviceLive, device, isPhys: isPhysProp, stepSeconds }) {
+export function LivePage({ d, role, actions, running, setRunning, busy, error, stale, deviceLive, device, isPhys: isPhysProp, stepSeconds, go }) {
   const isPhys = isPhysProp ?? isPhysOf(d);
   const provKind = isPhys ? 'MEASURED' : 'SIMULATED';
   const [range, setRange] = useState('all');
@@ -117,7 +117,7 @@ export function LivePage({ d, role, actions, running, setRunning, busy, error, s
           </Card>
         </div>
         <div className="tq-stack tq-sticky-side">
-          <SimControls d={d} role={role} actions={actions} running={running} setRunning={setRunning} busy={busy} error={error} stale={stale} stepSeconds={stepSeconds} />
+          <SimControls d={d} role={role} actions={actions} running={running} setRunning={setRunning} busy={busy} error={error} stale={stale} stepSeconds={stepSeconds} compact go={go} />
         </div>
       </div>
     </>
@@ -136,23 +136,40 @@ export function DiagnosticsPage({ d, isPhys: isPhysProp, head = true }) {
   const above = data.filter((x) => x.score != null && x.score > 1).length;
   const regime = !last ? ['off', 'No data'] : last.score == null ? ['info', `Not scored: ${title(last.score_status)}`] : last.score > 1 ? ['crit', 'Abnormal (above learned threshold)'] : ['ok', 'Normal (within learned band)'];
   const unfamiliar = hyp?.label === 'unfamiliar' || (d.log || []).some((l) => l.kind === 'c1_unfamiliar_regime');
+  const scoreCard = (
+    <Card title="Anomaly score ÷ learned threshold (log scale)" id="c-score" right={<ProvBadge kind={provKind} />}>
+      {!data.length ? <Empty>No telemetry yet.</Empty> : (
+        <div role="img" aria-label="Anomaly score over time" className="tq-chart"><ScoreChart data={data} height={240} /></div>)}
+      <p className="tq-chart-note">Gaps = windows excluded (speed changing) or operating point not learned. {above} of {data.length} windows above threshold.</p>
+    </Card>);
+  const timelineCard = (
+    <Card title="Incident timeline" id="c-hist">
+      {!inc ? <Empty>No incident yet.</Empty> : (
+        <ol className="tq-timeline">{inc.history.map((h, i) => (<li key={i}><span className="tq-muted">{title(h[0])}</span> → <strong>{title(h[2])}</strong> <span className="tq-muted">({h[1]})</span></li>))}</ol>)}
+    </Card>);
+  const whyCard = (
+    <Card title={head ? 'Why this hypothesis' : 'Gate inputs behind the latest verdict'} id="c-why">
+      {!hyp ? <Empty>No explanation yet; hypotheses appear once an anomaly has persisted.</Empty> : (
+        <><p>Top hypothesis <strong>{title(hyp.ranked?.[0]?.[0])}</strong> is <strong>{hyp.label}</strong>.</p>
+          {gate ? <p>Decision gate: <Pill tone={gate.verdict === 'ACT' ? 'ok' : 'warn'}>{title(gate.verdict)}</Pill> {gate.reason}</p> : null}
+          {gate && <table className="tq-table"><caption className="tq-sr">Gate inputs</caption><tbody>{Object.entries(gate.inputs).map(([k, v]) => (<tr key={k}><th scope="row">{title(k)}</th><td className="tq-num">{String(v)}</td></tr>))}</tbody></table>}</>)}
+    </Card>);
+  if (!head) {                       // embedded in the C1 workspace: the score is evidence; the timeline and raw gate inputs are detail
+    return (
+      <>
+        {scoreCard}
+        <Disclosure summary="Inspect gate inputs and incident timeline" meta={gate ? `latest verdict ${title(gate.verdict)}` : 'no gate decision yet'} testid="c1-gate-inputs">
+          <div className="tq-split">{timelineCard}{whyCard}</div>
+        </Disclosure>
+      </>);
+  }
   return (
     <>
       {head && <PageHead title="AI Diagnostics (C1)" sub="Anomaly detection and fault hypotheses with the evidence behind them." right={<ProvBadge kind={provKind} />} />}
       <div className="tq-split">
+        <div className="tq-stack">{scoreCard}{timelineCard}</div>
         <div className="tq-stack">
-          <Card title="Anomaly score ÷ learned threshold (log scale)" id="c-score" right={<ProvBadge kind={provKind} />}>
-            {!data.length ? <Empty>No telemetry yet.</Empty> : (
-              <div role="img" aria-label="Anomaly score over time" className="tq-chart"><ScoreChart data={data} height={240} /></div>)}
-            <p className="tq-chart-note">Gaps = windows excluded (speed changing) or operating point not learned. {above} of {data.length} windows above threshold.</p>
-          </Card>
-          <Card title="Incident timeline" id="c-hist">
-            {!inc ? <Empty>No incident yet.</Empty> : (
-              <ol className="tq-timeline">{inc.history.map((h, i) => (<li key={i}><span className="tq-muted">{title(h[0])}</span> → <strong>{title(h[2])}</strong> <span className="tq-muted">({h[1]})</span></li>))}</ol>)}
-          </Card>
-        </div>
-        <div className="tq-stack">
-          {head && <><Card title="Operating regime" id="c-regime">
+          <Card title="Operating regime" id="c-regime">
             <p><Pill tone={regime[0]}>{regime[1]}</Pill></p>
             {unfamiliar && <p className="tq-callout warn">An unfamiliar operating regime was seen. It is not confirmed healthy and cannot authorise an action.</p>}
             <dl className="tq-kv"><dt>Sensor validity</dt><dd>{!w ? '—' : w.valid === false ? <Pill tone="crit">invalid</Pill> : <Pill tone="ok">valid</Pill>}</dd>
@@ -161,13 +178,8 @@ export function DiagnosticsPage({ d, isPhys: isPhysProp, head = true }) {
           <Card title="Fault hypotheses" id="c-hyp" right={<ProvBadge kind={provKind} />}>
             <PosteriorBars ranked={hyp?.ranked} label={hyp?.label} />
             <p className="tq-muted">Probabilities are produced by the backend from learned class signatures. Bearing faults are not diagnosable with this sensor set.</p>
-          </Card></>}
-          <Card title={head ? 'Why this hypothesis' : 'Gate inputs behind the latest verdict'} id="c-why">
-            {!hyp ? <Empty>No explanation yet; hypotheses appear once an anomaly has persisted.</Empty> : (
-              <><p>Top hypothesis <strong>{title(hyp.ranked?.[0]?.[0])}</strong> is <strong>{hyp.label}</strong>.</p>
-                {gate ? <p>Decision gate: <Pill tone={gate.verdict === 'ACT' ? 'ok' : 'warn'}>{title(gate.verdict)}</Pill> {gate.reason}</p> : null}
-                {gate && <table className="tq-table"><caption className="tq-sr">Gate inputs</caption><tbody>{Object.entries(gate.inputs).map(([k, v]) => (<tr key={k}><th scope="row">{title(k)}</th><td className="tq-num">{String(v)}</td></tr>))}</tbody></table>}</>)}
           </Card>
+          {whyCard}
         </div>
       </div>
     </>
@@ -295,36 +307,46 @@ export function TestsPage({ d, c2c4, head = true }) {
 }
 
 /* ------------------------------------------------------------------ 6. Interventions (C3) */
+/** The pipeline's action held for a human decision, with Approve / Reject. The C3 workspace shows it first: it is the page's primary decision. */
+export function ApprovalCard({ d, role, actions, error }) {
+  const pend = d.status?.pending_approval; const ctl = canControl(role);
+  return (
+    <Card title="Awaiting your decision" id="c-appr" right={pend ? <Pill tone="wait">decision required</Pill> : null}>
+      {!pend ? <Empty>No action is waiting for approval.</Empty> : (
+        <div data-testid="approval">
+          <p><Pill tone="wait">{title(pend.action)}</Pill> <strong className="tq-num">{pend.params?.rpm ? `to ${fmtRpm(pend.params.rpm)} rpm` : JSON.stringify(pend.params)}</strong></p><p>{pend.rationale}</p>
+          <div className="tq-row">
+            <button className="tq-btn tq-primary" onClick={actions.approve} disabled={!ctl}><Check size={14} aria-hidden="true" /> Approve</button>
+            <button className="tq-btn" onClick={actions.reject} disabled={!ctl}><X size={14} aria-hidden="true" /> Reject</button>
+          </div>
+          <p className="tq-muted tq-small">Approving re-runs the Safety Supervisor on the current state; only a simulated-device acknowledgement counts, and only C5 declares recovery.</p>
+          {!ctl && <p className="tq-muted">Approving requires role operator or admin.</p>}
+        </div>)}
+      <ErrorBox error={error} />
+    </Card>
+  );
+}
+
 export function InterventionsPage({ d, role, actions, error, isPhys: isPhysProp, head = true }) {
   const isPhys = isPhysProp ?? isPhysOf(d);
   const provKind = isPhys ? 'MEASURED' : 'SIMULATED';
-  const s = d.status || {}; const pend = s.pending_approval; const ctl = canControl(role);
   const gate = [...(d.decisions || [])].reverse().find((x) => x.inputs);
   const sup = (d.log || []).filter((l) => l.kind === 'supervisor').slice(-8).reverse();
   const cmds = (d.commands || []).filter((c) => c.action !== 'HEARTBEAT').slice(-8).reverse();
   return (
     <>
       {head && <PageHead title="Interventions (C3)" sub="What the system proposes, what the gate and Safety Supervisor decided, and what the device acknowledged." right={<ProvBadge kind={provKind} />} />}
-      <p className="tq-callout" role="note">This page never commands a motor directly. Every action passes the decision gate and the deterministic Safety Supervisor on the backend; the frontend can only approve or reject what the backend proposes.</p>
+      {head && <p className="tq-callout" role="note">This page never commands a motor directly. Every action passes the decision gate and the deterministic Safety Supervisor on the backend; the frontend can only approve or reject what the backend proposes.</p>}
       <div className="tq-split">
         <div className="tq-stack">
           <Card title="Decision gate" id="c-gate" right={<ProvBadge kind={provKind} />}>
             {!gate ? <Empty>The gate has not evaluated yet.</Empty> : (
               <><p><Pill tone={gate.verdict === 'ACT' ? 'ok' : gate.verdict === 'SAFE_STOP' ? 'stop' : 'warn'}>{title(gate.verdict)}</Pill></p><p>{gate.reason}</p>
-                <table className="tq-table"><caption className="tq-sr">Gate preconditions</caption><tbody>{Object.entries(gate.inputs).map(([k, v]) => (<tr key={k}><th scope="row">{title(k)}</th><td className="tq-num">{String(v)}</td></tr>))}</tbody></table></>)}
+                <Disclosure summary="Inspect gate inputs" meta={`${Object.keys(gate.inputs).length} recorded inputs`} testid="gate-inputs">
+                  <table className="tq-table"><caption className="tq-sr">Gate preconditions</caption><tbody>{Object.entries(gate.inputs).map(([k, v]) => (<tr key={k}><th scope="row">{title(k)}</th><td className="tq-num">{String(v)}</td></tr>))}</tbody></table>
+                </Disclosure></>)}
           </Card>
-          <Card title="Awaiting your decision" id="c-appr">
-            {!pend ? <Empty>No action is waiting for approval.</Empty> : (
-              <>
-                <p><Pill tone="wait">{title(pend.action)}</Pill> <span className="tq-num">{JSON.stringify(pend.params)}</span></p><p>{pend.rationale}</p>
-                <div className="tq-row">
-                  <button className="tq-btn tq-primary" onClick={actions.approve} disabled={!ctl}><Check size={14} aria-hidden="true" /> Approve</button>
-                  <button className="tq-btn" onClick={actions.reject} disabled={!ctl}><X size={14} aria-hidden="true" /> Reject</button>
-                </div>
-                {!ctl && <p className="tq-muted">Approving requires role operator or admin.</p>}
-              </>)}
-            <ErrorBox error={error} />
-          </Card>
+          {head && <ApprovalCard d={d} role={role} actions={actions} error={error} />}
         </div>
         <div className="tq-stack">
           <Card title="Safety supervisor decisions" id="c-sup" right={<ProvBadge kind={provKind} />}>
@@ -428,8 +450,10 @@ export function DevicesPage({ d, user, role, rows, auditError, apiBase, device, 
             {role !== 'admin' ? <Empty>The audit log is visible to admins only.</Empty> : (<>
               <ErrorBox error={auditError} />
               {!rows?.length ? <Empty>No audit events yet.</Empty> : (
-                <table className="tq-table"><thead><tr><th scope="col">#</th><th scope="col">Kind</th><th scope="col">Actor</th><th scope="col">Detail</th></tr></thead>
-                  <tbody>{rows.slice(-30).reverse().map((r) => (<tr key={r.n}><td className="tq-num">{r.n}</td><td>{r.kind}</td><td>{r.actor}</td><td className="tq-muted">{JSON.stringify(r.detail).slice(0, 120)}</td></tr>))}</tbody></table>)}</>)}
+                <Disclosure summary="View audit trail" meta={`latest ${Math.min(30, rows.length)} of ${rows.length} entries`} testid="audit-trail">
+                  <div className="tq-table-wrap"><table className="tq-table"><thead><tr><th scope="col">#</th><th scope="col">Kind</th><th scope="col">Actor</th><th scope="col">Detail</th></tr></thead>
+                    <tbody>{rows.slice(-30).reverse().map((r) => (<tr key={r.n}><td className="tq-num">{r.n}</td><td>{r.kind}</td><td>{r.actor}</td><td className="tq-muted">{JSON.stringify(r.detail).slice(0, 120)}</td></tr>))}</tbody></table></div>
+                </Disclosure>)}</>)}
           </Card>
         </div>
       </div>

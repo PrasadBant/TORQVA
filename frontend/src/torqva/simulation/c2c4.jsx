@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Empty, Pill, ProvBadge, fmt } from '../shared/components.jsx';
+import { Card, Empty, Pill, ProvBadge, fmt, Disclosure } from '../shared/components.jsx';
 
 const STATUS_TONE = { supported: 'ok', unsupported: 'crit', insufficiently_validated: 'warn' };
 const STATUS_TEXT = {
@@ -79,6 +79,8 @@ export function C2C4Validation({ data, error }) {
     <Card title="C2 / C4 validation (Phase 10)" id="c-c2c4" className="tq-span" right={<ProvBadge kind="SIMULATED" />}>
       <p className="tq-warnbox" role="note">{data.WARNING}</p>
       <Pill tone="warn">unvalidated against hardware</Pill>
+      {data.phase11?.c4_calibration && <p className="tq-muted">C4 calibration: {data.phase11.c4_calibration.adopted ? 'adopted' : 'NOT adopted (failed the pre-registered validation bar)'}; shipped C4 behaviour is unchanged.</p>}
+      <Disclosure summary="View per-regime results" meta="C2 interval coverage, C4 test value and the Phase 11 opt-in variant, by regime" testid="eval-c2c4-tables" className="tq-mt">
       <h4>C2: coverage of the intervals actually returned (target 90 %)</h4>
       <table className="tq-table"><caption className="tq-sr">C2 interval coverage by regime</caption>
         <thead><tr><th scope="col">Regime</th>{variants.map(([k, n]) => <th scope="col" key={k}>{n}</th>)}<th scope="col">Width (norm.) control → candidate</th></tr></thead>
@@ -101,8 +103,8 @@ export function C2C4Validation({ data, error }) {
             <tr key={rg}><td>{rg.replaceAll('_', ' ')}</td><td className="tq-num">{e.n_cases}</td>
               <td className="tq-num">{pct(e.coverage)} <span className="tq-muted">[{pct(e.coverage_ci95[0])}–{pct(e.coverage_ci95[1])}]</span></td>
               <td className="tq-num">{pct(e.overload)}</td><td className="tq-num">{pct(e.trusted_frac)}</td><td className="tq-num">{pct(e.coverage_when_trusted)}</td></tr>))}</tbody></table>
-        <p className="tq-muted">C4 calibration: {data.phase11.c4_calibration?.adopted ? 'adopted' : 'NOT adopted (failed the pre-registered validation bar)'}; shipped C4 behaviour is unchanged.</p>
       </>)}
+      </Disclosure>
       <h4>Limitations</h4>
       <ul className="tq-list">{(data.limitations || []).map((l) => <li key={l}>{l}</li>)}</ul>
     </Card>

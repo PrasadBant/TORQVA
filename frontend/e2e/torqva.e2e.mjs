@@ -19,6 +19,7 @@ const shot = (n) => page.screenshot({ path: `${OUT}/${n}.png`, fullPage: true })
 const results = [];
 const check = (name, ok, extra = '') => { results.push(`${ok ? 'PASS' : 'FAIL'}  ${name} ${extra}`); };
 // At narrow widths the navigation is behind a toggle (the same helper as the other scripts).
+const runBtn = () => page.getByRole('button', { name: 'Run', exact: true });   // the simulator's Run button (not 'Run Diagnostic Workflow')
 const navTo = async (name) => {
   const t = page.locator('[data-testid="nav-toggle"]');
   if (await t.isVisible() && (await t.getAttribute('aria-expanded')) !== 'true') await t.click();
@@ -28,18 +29,23 @@ const navTo = async (name) => {
 await page.goto(BASE + '/#/torqva');
 await page.fill('input[type=password]', TOKEN);
 await page.click('button:has-text("Sign in")');
-await page.click('nav button:has-text("Live Monitor")');
+await page.click('nav button:has-text("Overview")');            // scenarios are configured in Scenario Studio on the Overview
+for (let i = 0; i < 20; i++) {   // the new-scenario form is a disclosure in Scenario Studio; it folds once when the run state first loads
+  await page.evaluate(() => document.querySelectorAll('[data-testid=scn-new]').forEach((x) => { x.open = true; }));
+  await page.waitForTimeout(300);
+  if (await page.evaluate(() => [...document.querySelectorAll('[data-testid=scn-new]')].every((x) => x.open))) break;
+}
 await page.waitForSelector('text=Start new simulation');
 check('banner visible on sign-in', await page.isVisible('[data-testid=sim-banner]'));
-check('Run/STOP disabled before any simulation', await page.isDisabled('button:has-text("Run")') && await page.isDisabled('button[aria-label="Stop motor (coast) in the simulator"]'));
+check('Run/STOP disabled before any simulation', await runBtn().isDisabled() && await page.isDisabled('button[aria-label="Stop motor (coast) in the simulator"]'));
 
 // ---- scenario with human approval
 await page.check('text=Require human approval');
 await page.click('button:has-text("Start new simulation")');
-await page.waitForSelector('button:has-text("Run"):not([disabled])', { timeout: 60000 }).catch(() => {});   // first start builds the models (several seconds on a fresh backend)
-check('Run enabled right after start (sim time 0)', await page.isEnabled('button:has-text("Run")'));
+await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Run' && !b.disabled), null, { timeout: 60000 }).catch(() => {});   // first start builds the models (several seconds on a fresh backend)
+check('Run enabled right after start (sim time 0)', await runBtn().isEnabled());
 check('STOP enabled right after start', await page.isEnabled('button[aria-label="Stop motor (coast) in the simulator"]'));
-await page.click('button:has-text("Run")');
+await runBtn().click();
 await page.click('nav button:has-text("Interventions")');
 await page.waitForSelector('button:has-text("Approve"):not([disabled])', { timeout: 120000 });
 await shot('10-awaiting-approval');

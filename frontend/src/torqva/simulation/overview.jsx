@@ -114,11 +114,9 @@ export function SimOverview({ d, role, go, actions, running, setRunning, busy, e
       <PipelineView d={d} go={go} />
 
       <div className="tq-split">
-        <Card title="Active incident" id="c-inc" right={inc ? <Pill tone={stateTone(inc.state)}>{title(inc.state)}</Pill> : null}>
+        <Card title={inc ? `Active incident ${inc.id}` : 'Active incident'} id="c-inc" right={inc ? <Pill tone={stateTone(inc.state)}>{title(inc.state)}</Pill> : null}>
           {!hasSim ? <Empty>No simulation is running.</Empty> : !inc ? <Empty>No open incident. {s.closed_incidents ? `${s.closed_incidents} closed in this run; see Recovery for their story.` : 'C1 opens one when an anomaly persists.'}</Empty> : (
             <dl className="tq-kv">
-              <dt>Incident</dt><dd>{inc.id}</dd>
-              <dt>State</dt><dd><Pill tone={stateTone(inc.state)}>{title(inc.state)}</Pill></dd>
               <dt>Diagnostic tests run</dt><dd className="tq-num">{inc.tests_run ?? 0}</dd>
               <dt>Extra data requests</dt><dd className="tq-num">{inc.data_requests ?? 0}</dd>
               {gate && <><dt>Latest gate verdict</dt><dd><Pill tone={gate.verdict === 'ACT' ? 'ok' : gate.verdict === 'SAFE_STOP' ? 'stop' : 'warn'}>{title(gate.verdict)}</Pill> <span className="tq-muted">{gate.reason}</span></dd></>}

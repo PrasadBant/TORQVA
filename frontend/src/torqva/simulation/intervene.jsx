@@ -5,8 +5,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ShieldCheck, Send, X, ArrowLeft, RefreshCw } from 'lucide-react';
 import { api } from '../api.js';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, PageHead } from '../shared/components.jsx';
-import { InterventionsPage } from './pages.jsx';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, PageHead, Disclosure } from '../shared/components.jsx';
+import { InterventionsPage, ApprovalCard } from './pages.jsx';
 import { canControl } from './scenario.jsx';
 import { currentIncident } from './pipeline.js';
 import { title, pct, fmtRpm } from './workbench.js';
@@ -99,6 +99,7 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
       <PageHead title="Interventions (C3)" sub="Review the selected action, see what the decision gate and the Safety Supervisor say, and request it only when they allow it."
         right={<><ProvBadge kind="SIMULATED" />{sel ? <Pill tone="info">{sel.action === 'STOP' ? 'STOP selected' : `Action ${sel.label} · ${fmtRpm(sel.target_rpm)} rpm`}</Pill> : <Pill tone="off">nothing selected</Pill>}</>} />
       <p className="tq-callout" role="note">Every action passes the decision gate and the deterministic Safety Supervisor on the backend, then goes to the simulated device. A prediction never authorises an action, and nothing on this page reaches a physical motor.</p>
+      {d.status?.pending_approval && <div className="tq-mb"><ApprovalCard d={d} role={role} actions={actions} error={error} /></div>}
 
       <div className="tq-split">
         <Card title="Selected action" id="c-selrev" right={<ProvBadge kind="PREDICTED" />}>
@@ -161,10 +162,15 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
         </div>)}
 
       <div className="tq-mt"><ActionLifecycle d={d} /></div>
-      <div className="tq-mt"><ReceiptsPanel d={d} focusId={refused || last?.receipt_id} /></div>
-      <div className="tq-mt"><InvestigationTrace d={d} focus={['decision', 'outcome']} /></div>
-      <h3 className="tq-section-head tq-mt">Proposals, decisions and commands recorded by the pipeline</h3>
-      <InterventionsPage d={d} role={role} actions={actions} error={error} head={false} />
+      <Disclosure summary="View audit trail: Decision Receipts" meta="every request, accepted or refused, with its frozen evidence" testid="c3-receipts" open={!!(refused || last?.receipt_id)}>
+        <ReceiptsPanel d={d} focusId={refused || last?.receipt_id} />
+      </Disclosure>
+      <Disclosure summary="Pipeline records: gate, Safety Supervisor and commands" meta="what the backend decided and what the device acknowledged" testid="c3-records">
+        <InterventionsPage d={d} role={role} actions={actions} error={error} head={false} />
+      </Disclosure>
+      <Disclosure summary="View investigation trace" meta="every record of this incident, from observation to outcome" testid="c3-trace">
+        <InvestigationTrace d={d} focus={['decision', 'outcome']} />
+      </Disclosure>
     </>
   );
 }
