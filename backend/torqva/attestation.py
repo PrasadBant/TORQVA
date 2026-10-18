@@ -24,16 +24,15 @@ import hashlib
 import json
 import math
 import threading
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .c1_robust import (NONVIB_IDX, VIB_IDX, AdaptiveBaselineDetector, ReferenceConfig, ReferenceRegistry, SessionReference,
-                        _estimate_nuisance, _probe, _steady_models)
+from .c1_robust import (NONVIB_IDX, AdaptiveBaselineDetector, ReferenceConfig, ReferenceRegistry, SessionReference, _estimate_nuisance, _probe, _steady_models)
 from .schemas import Role
-from .sim import FEATURES, Window
+from .sim import Window
 from .store import StaleRevision, Store
 from .supervisor import mandatory_stop_reasons
 

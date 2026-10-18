@@ -2,7 +2,9 @@
 // Nothing here is estimated: every stage state comes from a record the backend wrote. A stage the pipeline has not reached says so; it is never
 // shown as successful because the scenario started. Log entries carry {t, kind, incident} (backend pipeline._log).
 
-export const title = (s) => String(s ?? '').replaceAll('_', ' ');
+import { title } from '../shared/components.jsx';
+
+export { title };
 const fmt = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v) ? '—' : Number(v).toFixed(d));
 const lastWhere = (xs, f) => { for (let i = (xs || []).length - 1; i >= 0; i--) if (f(xs[i])) return xs[i]; return null; };
 export const hasSimOf = (s) => !!s && s.t !== undefined && s.t !== null;

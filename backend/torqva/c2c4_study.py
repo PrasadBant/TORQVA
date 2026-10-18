@@ -20,22 +20,20 @@ import hashlib
 import io
 import json
 import os
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 
 from .c1_study import wilson
-from .c2_robust import (CAL_SEEDS, CAL_SPEEDS, CAL_SEV, FAMILIAR_STATUS as FAMILIAR, MIN_CELL_N, NoiseAwarePredictor, PersistenceConformalPredictor,
-                        PREDICTION_TARGETS, make_case)
+from .c2_robust import CAL_SEEDS, CAL_SPEEDS, CAL_SEV, NoiseAwarePredictor, PersistenceConformalPredictor, PREDICTION_TARGETS, make_case
 from .c4_robust import (LOOSENESS_STYLES, SENSOR_STYLES, TEST_SPECS, ConflictGuard, StyleAwareDiagnosticsModel, classify_test_result, style_regime)
-from .detection import ThermalTracker
 from .diagnostics import run_test_on_sim
 from .evaluation import build_models
 from .hypotheses import HYPS, Posterior
-from .prediction import ACTIONS as ACT_FRAC_UNUSED, CHECK_HORIZONS, NOISE_FLOOR, SIGNALS, InterventionPredictor, StateSummary
-from .scenarios import ACTIONS, posterior_from
+from .prediction import CHECK_HORIZONS, NOISE_FLOOR, SIGNALS
+from .scenarios import ACTIONS
 from .schemas import Hypothesis
-from .sim import REGIMES, MotorSim, Regime, rollout
+from .sim import REGIMES, MotorSim, Regime
 
 DOCS_EVAL = os.path.join(os.path.dirname(__file__), "..", "..", "docs", "eval")
 SELECTION_FILE = os.path.join(DOCS_EVAL, "c2c4_phase10_selection.json")
@@ -256,7 +254,6 @@ def c4_final(det, tt, hm, dm) -> Dict:
                 g = _c4_agg(cs["control"])
                 out["matrix_baseline"][f"{test}|{a.value}-vs-{b.value}"] = {"accuracy_after": g["accuracy_after"], "inconclusive": g["inconclusive"], "n": g["n"]}
     # realistic: pre-test posterior from C1 evidence in flagged sessions, then T1 (looseness / sensor fault only), vs the no-test decision
-    from .scenarios import warm_session
     for rn in ("baseline(stuck)", "confusable_sensor(noisy-harmonics)", "intermittent(held-out style)", "noisy x2", "hard"):
         rg = C4_REGIMES[rn]
         rows = {k: [] for k in V}

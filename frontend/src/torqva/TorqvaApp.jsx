@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { Activity, Box, Gauge, ListChecks, Microscope, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap, Usb, SlidersHorizontal, Sun, Moon, ClipboardCheck, Menu, KeyRound, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Activity, Box, Gauge, ListChecks, Microscope, Workflow, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap, Usb, SlidersHorizontal, Sun, Moon, ClipboardCheck, Menu, KeyRound, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { api, setToken, getToken, ApiError } from './api.js';
 import { SimulationBanner, Pill, Logo, NavContext, PageHead, Empty } from './shared/components.jsx';
 import { prefetchCharts } from './shared/lazyCharts.jsx';
@@ -24,6 +24,7 @@ const NAV_GROUPS = [
   {
     heading: 'Diagnostics',
     items: [
+      ['workflow', 'Diagnostic Workflow', Workflow, 'C4→C3'],
       ['diagnostics', 'AI Diagnostics', Microscope, 'C1'],
       ['tests', 'Diagnostic Tests', TestTube2, 'C4'],
     ],
@@ -63,6 +64,8 @@ const SimDiagnosticsPage = lazy(() => import('./simulation/diagnose.jsx').then((
 const SimTestsPage = lazy(() => import('./simulation/tests.jsx').then((m) => ({ default: m.SimTestsPage })));
 const SimPredictionsPage = lazy(() => import('./simulation/predict.jsx').then((m) => ({ default: m.SimPredictionsPage })));
 const SimInterventionsPage = lazy(() => import('./simulation/intervene.jsx').then((m) => ({ default: m.SimInterventionsPage })));
+// The unified workflow: one component for both modes (the backend's mode-specific adapter decides what can run).
+const WorkflowPage = lazy(() => import('./workflow/workflow.jsx').then((m) => ({ default: m.WorkflowPage })));
 const pageFallback = <Empty loading>Loading…</Empty>;
 
 const NAV = NAV_GROUPS.flatMap((g) => g.items);
@@ -303,6 +306,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     overview: <SimOverview {...ctx} stepSeconds={stepSeconds} />, live: <LivePage {...ctx} stepSeconds={stepSeconds} />, twin: <Suspense fallback={twinFallback}><SimTwinPage d={d} running={running} stale={stale} go={go} /></Suspense>, diagnostics: <Suspense fallback={pageFallback}><SimDiagnosticsPage {...ctx} /></Suspense>,
     predictions: <Suspense fallback={pageFallback}><SimPredictionsPage {...ctx} /></Suspense>, tests: <Suspense fallback={pageFallback}><SimTestsPage {...ctx} c2c4={c2c4.data} /></Suspense>,
     interventions: <Suspense fallback={pageFallback}><SimInterventionsPage {...ctx} /></Suspense>,
+    workflow: <Suspense fallback={pageFallback}><WorkflowPage mode="SIMULATION" d={d} role={user.role} stale={stale} go={go} /></Suspense>,
     recovery: <RecoveryPage {...ctx} />, learning: <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>,
     evaluation: (<><PageHead title="Evaluation and Research" sub="Simulation evaluation artifacts, baselines versus candidates, provenance and known limitations." />
       <Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} /></>),
@@ -330,6 +334,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     predictions: <PhysicalAiPage stream={device} layer="C2" go={go} />,
     tests: <PhysicalAiPage stream={device} layer="C4" go={go} />,
     interventions: <PhysicalAiPage stream={device} layer="C3" go={go} />,
+    workflow: <Suspense fallback={pageFallback}><WorkflowPage mode="PHYSICAL" role={user.role} stale={false} go={go} /></Suspense>,
     recovery: phys('C5', <RecoveryPage {...ctx} />),
     learning: phys('C6', <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>),
     evaluation: (<><div className="tq-callout info" role="note" data-testid="eval-sim-note"><strong>SIMULATION EVIDENCE</strong> These are results from the software simulator. They say nothing about this physical device.</div>{simPages.evaluation}</>),

@@ -3,14 +3,12 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.detection import BaselineDetector, ThermalTracker
-from torqva.diagnostics import DiagnosticsModel, run_test_on_sim
-from torqva.gate import GateConfig, GateInputs, TestOption, decide
-from torqva.hypotheses import HYPS, HypothesisModel, Posterior
+from torqva.diagnostics import run_test_on_sim
+from torqva.gate import GateInputs, TestOption, decide
+from torqva.hypotheses import HYPS, Posterior
 from torqva.schemas import GateVerdict, Hypothesis
 from torqva.sim import MotorSim
 

@@ -129,6 +129,18 @@ class CounterfactualIn(BaseModel):
         return v
 
 
+class WorkflowIn(BaseModel):
+    mode: str = Field(default="SIMULATION", max_length=12, description="SIMULATION | PHYSICAL")
+    pattern: str = Field(max_length=12, description="T1 | T3 | T4 | SWEEP | ADAPTIVE")
+    execution_policy: str = Field(default="require_confirmation", max_length=24, description="require_confirmation | auto_when_permitted")
+    idempotency_key: Optional[str] = Field(default=None, min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_.:-]+$")
+    budget: int = Field(default=3, ge=1, le=3)
+
+
+class WorkflowCancelIn(BaseModel):
+    reason: str = Field(default="", max_length=2000)
+
+
 class ActionIn(BaseModel):
     action: str = Field(max_length=20, description="REDUCE_SPEED | STOP")
     target_rpm: Optional[float] = Field(default=None, gt=0, le=3000, allow_inf_nan=False)
@@ -402,6 +414,44 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
     @r.get("/simulation/workbench/receipts/{rid}")
     def wb_receipt(rid: str, p: Principal = Depends(need(Role.VIEWER))):
         return _wb_call(lambda o: _inv.receipt(o, rid))
+
+    # ---------------- unified diagnostic workflow (both modes; see workflow.py) ----------------
+    from . import workflow as _wf
+
+    def _wf_call(fn):
+        try:
+            return fn()
+        except _wf.WorkflowError as e:
+            raise HTTPException(e.status, str(e))
+        except _wb.WorkbenchError as e:
+            raise HTTPException(e.status, str(e))
+
+    @r.get("/workflow/patterns")
+    def wf_patterns(mode: str = Query("SIMULATION", max_length=12), p: Principal = Depends(need(Role.VIEWER))):
+        return _wf_call(lambda: _wf.patterns(service, mode))
+
+    @r.post("/workflow/runs")
+    def wf_start(body: WorkflowIn, p: Principal = Depends(need(Role.OPERATOR))):
+        audit(p, "workflow_requested", mode=body.mode, pattern=body.pattern, policy=body.execution_policy, key=body.idempotency_key)
+        return _wf_call(lambda: _wf.start(service, body.mode, body.pattern, body.execution_policy, body.idempotency_key, p.user, p.role, body.budget))
+
+    @r.get("/workflow/runs")
+    def wf_runs(mode: str = Query("SIMULATION", max_length=12), p: Principal = Depends(need(Role.VIEWER))):
+        return _wf_call(lambda: _wf.runs(service, mode))
+
+    @r.get("/workflow/runs/{wid}")
+    def wf_get(wid: str, p: Principal = Depends(need(Role.VIEWER))):
+        return _wf_call(lambda: _wf.get(service, wid))
+
+    @r.post("/workflow/runs/{wid}/authorize")
+    def wf_authorize(wid: str, p: Principal = Depends(need(Role.OPERATOR))):
+        audit(p, "workflow_authorize", id=wid)
+        return _wf_call(lambda: _wf.authorize(service, wid, p.role, p.user))
+
+    @r.post("/workflow/runs/{wid}/cancel")
+    def wf_cancel(wid: str, body: WorkflowCancelIn, p: Principal = Depends(need(Role.OPERATOR))):
+        audit(p, "workflow_cancel", id=wid, reason=body.reason)
+        return _wf_call(lambda: _wf.cancel(service, wid, p.role, p.user, body.reason))
 
     # ---------------- approvals / stop (operator) ----------------
     @r.post("/approvals/approve")

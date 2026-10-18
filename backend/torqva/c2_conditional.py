@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .c2_robust import NoiseAwarePredictor, CellStat
+from .c2_robust import NoiseAwarePredictor
 from .hypotheses import HYPS, Posterior
 from .prediction import CHECK_HORIZONS, SIGNALS, StateSummary
 from .schemas import Hypothesis

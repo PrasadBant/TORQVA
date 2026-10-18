@@ -17,19 +17,17 @@ Every session is logged (seed, speed, regime config, ground truth, per-variant v
 from __future__ import annotations
 
 import argparse
-import copy
 import gzip
 import hashlib
 import json
 import math
 import os
-from dataclasses import asdict, dataclass, field, replace
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from dataclasses import asdict, dataclass, replace
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .c1_robust import (AdaptiveBaselineDetector, CoherenceConfig, ReferenceConfig, ReferenceRegistry, RobustBaselineDetector,
-                        VIB, assess_session, first_confirmed)
+from .c1_robust import (AdaptiveBaselineDetector, CoherenceConfig, ReferenceConfig, ReferenceRegistry, RobustBaselineDetector, assess_session, first_confirmed)
 from .detection import BaselineDetector, ThermalTracker
 from .evaluation import SPEEDS_LEARNED
 from .schemas import Hypothesis

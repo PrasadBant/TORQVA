@@ -110,7 +110,7 @@ class InterventionPredictor:
     def fit(self, thermal: ThermalTracker, setpoints=(900, 1500, 2100), severity: float = 0.7, seeds=(1, 2)) -> None:
         self.thermal = thermal
         for h in HYPS:
-            pairs, curr, coasts, vibs = [], [], [], []
+            pairs, curr, coasts = [], [], []
             for seed in seeds:
                 for sp in setpoints:
                     s = MotorSim(700 + seed); s.set_setpoint(sp); s.run(40); s.inject(h, severity)

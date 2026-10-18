@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from .detection import ThermalTracker
-from .diagnostics import TESTS, DiagnosticsModel, OutcomeModel, run_test_on_sim
+from .diagnostics import TESTS, DiagnosticsModel, run_test_on_sim
 from .hypotheses import HYPS, Posterior
 from .schemas import Hypothesis
 from .sim import MotorSim, Regime

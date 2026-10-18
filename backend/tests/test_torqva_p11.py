@@ -16,10 +16,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import torqva.c2cov_study as cov
 import torqva.c4cal_study as c4s
 from torqva.c2_conditional import (DOMAIN_NOISE_RATIO, MIN_CLASS_N, ConditionalPredictor, RegimeGatedPredictor, weighted_quantile)
-from torqva.c2_robust import NoiseAwarePredictor, build_noise_aware, make_case
-from torqva.c4_robust import (CalibratedDiagnostics, ConflictGuard, StyleAwareDiagnosticsModel, chi2_sf_df3, classify_test_result, expected_calibration_error,
-                              fit_joint_temperatures, fit_temperature, style_regime)
-from torqva.diagnostics import run_test_on_sim
+from torqva.c2_robust import NoiseAwarePredictor, make_case
+from torqva.c4_robust import (CalibratedDiagnostics, StyleAwareDiagnosticsModel, chi2_sf_df3, classify_test_result, expected_calibration_error, fit_joint_temperatures, fit_temperature)
 from torqva.gate import GateInputs, decide
 from torqva.hypotheses import HYPS, Posterior
 from torqva.incident import S
@@ -148,7 +146,6 @@ def test_calibrated_wrapper_is_compatible_with_the_pipeline_and_aborts_never_dia
     for _ in range(40):
         o.step()
     sim.inject(Hy.LOOSENESS, 0.6)
-    n_res = 0
     for _ in range(1500):
         o.step()
         if o.test_running is not None:

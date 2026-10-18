@@ -10,8 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from torqva.hypotheses import HYPS, HypothesisModel
-from torqva.learning import (CaseRecord, LabelSource, LearningRegistry, Status, eligible, evaluate_model,
-                             split_by_provenance)
+from torqva.learning import CaseRecord, LabelSource, LearningRegistry, Status, eligible, split_by_provenance
 from torqva.scenarios import posterior_from, warm_session
 from torqva.schemas import Hypothesis, Provenance, RecoveryOutcome
 

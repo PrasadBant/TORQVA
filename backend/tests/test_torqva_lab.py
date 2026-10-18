@@ -1,6 +1,5 @@
 """Lab: reproducible sessions, checklist enforcement, blind integrity, matched experiments, regimes (simulation)."""
 import hashlib
-import json
 import sys
 from pathlib import Path
 
@@ -10,7 +9,6 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva import lab
 from torqva.api import create_router
 from torqva.auth import TokenAuth
 from torqva.schemas import Hypothesis

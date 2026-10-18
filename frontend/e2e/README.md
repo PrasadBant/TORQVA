@@ -4,8 +4,14 @@
 recovery, keyboard navigation, responsive widths (1024/768/390, no horizontal overflow), and a simulated network failure.
 
     npm i --no-save playwright-core
-    # backend running with TORQVA_TOKENS containing the sha256 of your token; frontend: npm run dev
-    TORQVA_TOKEN=<token> node e2e/torqva.e2e.mjs
+    # a FRESH backend (no simulation started yet) running with TORQVA_TOKENS containing the sha256 of your token, and a frontend
+    # without the automatic dev sign-in, e.g. `npx vite --port 5174 --host 127.0.0.1` beside `npm run dev:sim` (admin token
+    # torqva-local-dev-token):
+    TORQVA_TOKEN=<token> BASE_URL=http://127.0.0.1:5174 node e2e/torqva.e2e.mjs
+
+It selects simulation mode itself (the app opens in physical mode) and checks 30 items. On a backend that already ran a simulation the
+"Run/STOP disabled before any simulation" check fails by design. The device WebSocket is refused from a port the backend's CORS list does
+not include, which shows up only as a console message.
 
 Not wired into `npm test`: Playwright is not a project dependency (adding it needs sign-off).
 
@@ -24,5 +30,7 @@ Start the frontend with `npm run dev -- --host 127.0.0.1` (the scripts use 127.0
 The app opens in physical mode, so `torqva-lab`, `torqva-c2c4` and `torqva-attestation` set the remembered mode to simulation before loading the page.
 
 `torqva-app.e2e.mjs` (frontend redesign) drives the root route `/` with the dev server's automatic sign-in: every page, SIM provenance labels, simulator controls, the backend-unreachable stale warning and recovery, and 1440/1024/768/390 px layouts. Start everything with `npm run dev` (it launches the backend with a local-only token and the app with the matching dev token), then `node e2e/torqva-app.e2e.mjs`. The older E2E scripts sign in with a typed token, so run them against `npm run dev:ui` plus your own backend started with `TORQVA_TOKENS` (the automatic dev sign-in is off there because `VITE_TORQVA_DEV_TOKEN` is unset).
+
+`torqva-workflow.e2e.mjs` drives the one-click Diagnostic Workflow against `npm run dev:sim`: a scenario that holds its action for approval, the five test patterns with live prerequisites, one double-click that sends exactly one request (with an idempotency key), seven analytical stages completed without another click, the diagnosis, recommended RPM, adjustments and candidate comparison, nothing sent before authorization, exactly one command with the recommended target after it, C5 verification after simulated time passes, the record restored after navigating away, 768/390 px layouts, and the same page in physical mode blocked with no simulator or device traffic (30 checks): `node e2e/torqva-workflow.e2e.mjs`.
 
 `torqva-workbench.e2e.mjs` drives the analyst workflow in simulation mode against `npm run dev:sim`: a scenario that holds its action for approval, C1 conditions and hypotheses, a two-step RPM profile validated and run on a simulator copy (live time unchanged), a custom C2 target that is re-predicted before it can be selected, the C3 gate and Supervisor check and a confirmed request that reaches the simulated device with that exact target, the lifecycle, 1024/768/390 px layouts, the adaptive investigation, the counterfactual lab and its exact re-run, Decision Receipts for an accepted and a refused request, the investigation trace, and the same pages locked in physical mode with no simulator calls (45 checks): `node e2e/torqva-workbench.e2e.mjs`.

@@ -73,7 +73,6 @@ def test_false_alarm_rate_on_unseen_healthy_sessions_is_low():
         for sp in SPEEDS:
             sim.set_setpoint(sp)
             w = sim.run(60)[20:]                 # past transient
-            sc = scored(det, tt, w) if False else None
             tt.reset(w[0].housing)
             for x in w:
                 tt.update(x)

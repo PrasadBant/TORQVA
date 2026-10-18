@@ -1,13 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Usb, Octagon, Play, StopCircle, Sliders, AlertTriangle, CheckCircle2, ShieldCheck, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, Lock, Unlock } from 'lucide-react';
+import { Usb, Octagon, Play, ShieldCheck, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, Lock, Unlock } from 'lucide-react';
 import { api } from '../api.js';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, useNavContext, PageHead } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, useNavContext, PageHead } from '../shared/components.jsx';
 import { DeviceLive, CommissioningCard, canOperate, STATE_TONE } from './device.jsx';
 import { TEST_SPECS } from '../shared/diagnostics.js';
 
 const WAITING = 'WAITING FOR VALID PHYSICAL TELEMETRY';
 const ago = (unix) => (unix ? `${fmt(Math.max(0, Date.now() / 1000 - unix), 1)} s ago` : 'never');
-const title = (s) => String(s ?? '').replaceAll('_', ' ');
 const isLive = (snap) => !!(snap?.handshake && snap?.origin === 'physical_device');
 
 // ── Speed classification ─────────────────────────────────────────────────────

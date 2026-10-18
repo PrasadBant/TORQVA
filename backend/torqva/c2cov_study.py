@@ -29,7 +29,7 @@ from .c2_robust import NoiseAwarePredictor, make_case
 from .c2c4_study import score_cases
 from .evaluation import build_models
 from .hypotheses import HYPS
-from .prediction import CHECK_HORIZONS, NOISE_FLOOR, SIGNALS
+from .prediction import NOISE_FLOOR, SIGNALS
 from .schemas import Hypothesis as Hy
 from .sim import REGIMES, Regime
 

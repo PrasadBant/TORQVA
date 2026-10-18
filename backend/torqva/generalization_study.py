@@ -18,7 +18,6 @@ import json
 import os
 from typing import Dict
 
-import numpy as np
 
 from . import c2cov_study as c2s
 from . import c4cal_study as c4s

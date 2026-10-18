@@ -83,6 +83,13 @@ export const api = {
   wbTrace: (incident) => req(`/simulation/workbench/trace${incident ? `?incident=${encodeURIComponent(incident)}` : ''}`),
   wbReceipts: () => req('/simulation/workbench/receipts'),
   wbReceipt: (id) => req(`/simulation/workbench/receipts/${encodeURIComponent(id)}`),
+  // Unified diagnostic workflow (both modes; the backend enforces mode isolation, roles and every safety gate).
+  wfPatterns: (mode) => req(`/workflow/patterns?mode=${encodeURIComponent(mode)}`),
+  wfStart: (body) => req('/workflow/runs', { method: 'POST', body }),
+  wfRuns: (mode) => req(`/workflow/runs?mode=${encodeURIComponent(mode)}`),
+  wfGet: (id) => req(`/workflow/runs/${encodeURIComponent(id)}`),
+  wfAuthorize: (id) => req(`/workflow/runs/${encodeURIComponent(id)}/authorize`, { method: 'POST' }),
+  wfCancel: (id, reason = '') => req(`/workflow/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: { reason } }),
   approve: () => req('/approvals/approve', { method: 'POST' }),
   reject: () => req('/approvals/reject', { method: 'POST' }),
   stop: () => req('/commands/stop', { method: 'POST' }),

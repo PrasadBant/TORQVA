@@ -2,7 +2,7 @@
 // (plan.sufficiency, POST /simulation/workbench/adaptive); this module only displays them. Measured expected information gain is shown as a
 // number in nats; the explanations next to it are the backend's stated reasons, not a second scoring.
 import React, { useState } from 'react';
-import { Compass, Play, Check, X } from 'lucide-react';
+import { Compass, Check, X } from 'lucide-react';
 import { api } from '../api.js';
 import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt } from '../shared/components.jsx';
 import { TrendLines } from '../shared/lazyCharts.jsx';

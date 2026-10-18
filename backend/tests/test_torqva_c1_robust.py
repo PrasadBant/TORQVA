@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from torqva import c1_study
 from torqva.c1_robust import (AdaptiveBaselineDetector, CoherenceConfig, ReferenceConfig, ReferenceRegistry,
                               RobustBaselineDetector, assess_session)
-from torqva.detection import BaselineDetector, ThermalTracker
+from torqva.detection import BaselineDetector
 from torqva.hypotheses import HYPS
 from torqva.pipeline import Orchestrator, PipelineConfig
 from torqva.prediction import InterventionPredictor

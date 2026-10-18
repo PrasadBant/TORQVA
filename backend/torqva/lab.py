@@ -15,16 +15,14 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from .hypotheses import HYPS
 from .prediction import SIGNALS, StateSummary
 from .schemas import Hypothesis
 from .scenarios import posterior_from
-from .sim import REGIMES, MotorSim, Window, rollout
+from .sim import REGIMES, MotorSim, Window
 
 CHECKLIST = [
     ("guard", "Guard is fitted around all rotating parts"),

@@ -7,7 +7,7 @@ One simulated second per `step()`. The orchestrator never sends anything to the 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Sequence
 
 import numpy as np
@@ -440,12 +440,17 @@ class Orchestrator:
     def _state_summary(self) -> StateSummary:
         return StateSummary.from_windows(self.buf)
 
-    def gate_inputs(self):
-        """The deterministic gate's inputs for the current state (used by the pipeline and by the analyst's action check)."""
+    def gate_inputs(self, post: Optional[Posterior] = None, extra_tests: int = 0):
+        """The deterministic gate's inputs for the current state (used by the pipeline and by the analyst's action check).
+        The unified workflow passes the ranking its diagnostic test produced (`post`) and the number of tests whose signature updated it
+        (`extra_tests`); everything else is the live state, exactly as the pipeline builds it. Without an open incident the incident's
+        default request and test budgets apply."""
+        post = self.post if post is None else post
+        inc = self.inc if self.inc is not None else Incident("-")
         ctx = self._ctx()
         st = self._state_summary()
-        cont = self.pred.predict(self.post, st, "CONTINUE_MONITORING")
-        trust = self.pred.trust(self.post, op_familiar=self.last_status in ("OK", "INTERPOLATED", "FROZEN"), st=st)
+        cont = self.pred.predict(post, st, "CONTINUE_MONITORING")
+        trust = self.pred.trust(post, op_familiar=self.last_status in ("OK", "INTERPOLATED", "FROZEN"), st=st)
         best = None
         allowed = []
         for t in self.cfg.allowed_tests:
@@ -453,14 +458,14 @@ class Orchestrator:
                                               source=ProposalSource.GATE, role=self.role), ctx)
             if d.verdict in (DecisionVerdict.ALLOW, DecisionVerdict.DEFER):
                 allowed.append(t)
-        bt = self.dm.best_test(self.post, allowed) if allowed else None
+        bt = self.dm.best_test(post, allowed) if allowed else None
         if bt:
             best = TestOption(bt[0], bt[1], True)
         recent_valid = all(w.valid for w in self.buf[-10:])
         gi = GateInputs(mandatory_stop=bool(mandatory_stop_reasons(ctx, self.sup.limits)), risk=cont.risk, data_ok=recent_valid,
-                        sensor_unreliable=not recent_valid, posterior=self.post, c2_trusted=trust.trusted, best_test=best,
-                        data_requests=self.inc.data_requests, max_data_requests=self.inc.max_data_requests,
-                        tests_run=self.inc.tests_run, max_tests=self.inc.max_tests,
+                        sensor_unreliable=not recent_valid, posterior=post, c2_trusted=trust.trusted, best_test=best,
+                        data_requests=inc.data_requests, max_data_requests=inc.max_data_requests,
+                        tests_run=inc.tests_run + extra_tests, max_tests=inc.max_tests,
                         op_point_familiar=self.last_status in ("OK", "INTERPOLATED", "FROZEN"))
         return gi, trust
 

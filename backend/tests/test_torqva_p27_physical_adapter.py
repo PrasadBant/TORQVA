@@ -1,5 +1,4 @@
 """Phase 27: the physical-telemetry adapter. Real firmware-core frames (fitl) go through the real bridge into the adapter. Nothing claims AI inference on real data."""
-import json
 import sys
 import time
 from pathlib import Path

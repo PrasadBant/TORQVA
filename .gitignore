@@ -40,6 +40,13 @@ Thumbs.db
 
 # Temporary Scratch Files
 scratch/
+# agent / tooling intermediates (AGENTS.md: never committed, regenerable)
+.tmp/
+# screenshots written by the browser E2E scripts
+frontend/e2e-shots/
+# local knowledge-graph output (graphify)
+graphify-out/
+.graphify_python
 
 # TORQVA
 esp32/torqva_fw/.pio/

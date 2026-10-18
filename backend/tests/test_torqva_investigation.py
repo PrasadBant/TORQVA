@@ -1,7 +1,6 @@
 """Evidence-to-action trace, counterfactual experiment lab, adaptive diagnostic testing with evidence sufficiency, and Decision Receipts
 (simulation only). Real SimulationService runs throughout; where a test sets a state by hand (a posterior, invalid windows, no learned
 signatures) the comment says so."""
-import copy
 import hashlib
 import sys
 from pathlib import Path

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt } from '../shared/components.jsx';
+import { Card, Empty, Pill, ProvBadge, fmt } from '../shared/components.jsx';
 
 const STATUS_TONE = { supported: 'ok', unsupported: 'crit', insufficiently_validated: 'warn' };
 const STATUS_TEXT = {

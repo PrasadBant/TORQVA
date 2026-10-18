@@ -9,6 +9,8 @@ const BASE = process.env.BASE_URL || 'http://127.0.0.1:5173';
 const OUT = process.env.SHOTS_DIR || './e2e-shots'; fs.mkdirSync(OUT, { recursive: true });
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+// The app opens in physical mode; this script exercises the simulator, so it selects simulation mode first (as the other scripts do).
+await page.addInitScript(() => { try { localStorage.setItem('torqva.mode', 'SIMULATION'); } catch { /* storage unavailable */ } });
 const consoleMsgs = [], bad = [];
 page.on('console', (m) => { if (['error', 'warning'].includes(m.type())) consoleMsgs.push(`${m.type()}: ${m.text()}`); });
 page.on('pageerror', (e) => consoleMsgs.push('pageerror: ' + e.message));
@@ -16,6 +18,12 @@ page.on('response', (r) => { if (r.status() >= 400) bad.push(`${r.status()} ${r.
 const shot = (n) => page.screenshot({ path: `${OUT}/${n}.png`, fullPage: true });
 const results = [];
 const check = (name, ok, extra = '') => { results.push(`${ok ? 'PASS' : 'FAIL'}  ${name} ${extra}`); };
+// At narrow widths the navigation is behind a toggle (the same helper as the other scripts).
+const navTo = async (name) => {
+  const t = page.locator('[data-testid="nav-toggle"]');
+  if (await t.isVisible() && (await t.getAttribute('aria-expanded')) !== 'true') await t.click();
+  await page.click(`nav button:has-text("${name}")`);
+};
 
 await page.goto(BASE + '/#/torqva');
 await page.fill('input[type=password]', TOKEN);
@@ -23,14 +31,14 @@ await page.click('button:has-text("Sign in")');
 await page.click('nav button:has-text("Live Monitor")');
 await page.waitForSelector('text=Start new simulation');
 check('banner visible on sign-in', await page.isVisible('[data-testid=sim-banner]'));
-check('Run/STOP disabled before any simulation', await page.isDisabled('button:has-text("Run")') && await page.isDisabled('button[aria-label="Stop motor (coast)"]'));
+check('Run/STOP disabled before any simulation', await page.isDisabled('button:has-text("Run")') && await page.isDisabled('button[aria-label="Stop motor (coast) in the simulator"]'));
 
 // ---- scenario with human approval
 await page.check('text=Require human approval');
 await page.click('button:has-text("Start new simulation")');
 await page.waitForSelector('button:has-text("Run"):not([disabled])', { timeout: 60000 }).catch(() => {});   // first start builds the models (several seconds on a fresh backend)
 check('Run enabled right after start (sim time 0)', await page.isEnabled('button:has-text("Run")'));
-check('STOP enabled right after start', await page.isEnabled('button[aria-label="Stop motor (coast)"]'));
+check('STOP enabled right after start', await page.isEnabled('button[aria-label="Stop motor (coast) in the simulator"]'));
 await page.click('button:has-text("Run")');
 await page.click('nav button:has-text("Interventions")');
 await page.waitForSelector('button:has-text("Approve"):not([disabled])', { timeout: 120000 });
@@ -68,7 +76,7 @@ check('focus is visible (outline)', ring !== 'none', `outline=${ring}`);
 for (const w of [1024, 768, 390]) {
   await page.setViewportSize({ width: w, height: 900 });
   for (const v of ['Overview', 'Live Monitor', 'AI Diagnostics', 'Interventions', 'Recovery', 'Evaluation']) {
-    await page.click(`nav button:has-text("${v}")`); await page.waitForTimeout(400);
+    await navTo(v); await page.waitForTimeout(400);
     const ov = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     check(`no horizontal page overflow @${w} ${v}`, ov <= 1, `overflow=${ov}px`);
     if (w === 390 && ['Interventions', 'Live Monitor'].includes(v)) await shot(`14-w390-${v}`);
@@ -79,7 +87,7 @@ await page.setViewportSize({ width: 1440, height: 900 });
 // ---- error state: stop backend, UI must show an error and not crash
 await page.click('nav button:has-text("Live Monitor")');
 await page.route('**/api/torqva/**', (r) => r.abort());
-await page.click('button[aria-label="Stop motor (coast)"]');
+await page.click('button[aria-label="Stop motor (coast) in the simulator"]');
 await page.waitForTimeout(2500);
 await shot('15-backend-down');
 const txt = await page.textContent('body');

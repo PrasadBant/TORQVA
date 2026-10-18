@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from torqva.api import create_router, install_error_handlers
 from torqva.auth import TokenAuth
 from torqva.dispatch import CommandDispatcher
-from torqva.gate import GateConfig, GateInputs, decide
+from torqva.gate import GateInputs, decide
 from torqva.hypotheses import Posterior
 from torqva.schemas import (ActionType, CommandStatus, Connection, DecisionVerdict, DeviceSafetyState, GateVerdict, Hypothesis as Hy, Mode, ProposalSource,
                             ProposedAction, Role)

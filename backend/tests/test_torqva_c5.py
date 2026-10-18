@@ -7,7 +7,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from torqva.dispatch import CommandRecord
-from torqva.recovery import RecoveryConfig, assess
+from torqva.recovery import assess
 from torqva.schemas import ActionType, CommandStatus, Hypothesis, RecoveryOutcome
 from torqva.sim import MotorSim
 

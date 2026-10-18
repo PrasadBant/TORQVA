@@ -2,7 +2,7 @@
 // fixed responses (marked STUB below); what is tested is that the pages show exactly what the backend returned, send the right requests,
 // and never present a refusal, a failed branch or a changed snapshot as a success.
 import React from 'react';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { InvestigationTrace } from '../torqva/simulation/trace.jsx';
 import { AdaptivePanel } from '../torqva/simulation/adaptive.jsx';

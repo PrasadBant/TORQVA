@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Check, X, Gauge, Thermometer, Waves, Zap } from 'lucide-react';
-import { Card, Empty, ErrorBox, Pill, PosteriorBars, ProvBadge, fmt, stateTone, PageHead, CardLink } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, Pill, PosteriorBars, ProvBadge, fmt, title, PageHead, CardLink } from '../shared/components.jsx';
 import { Sparkline, TrendLines, ScoreChart, ResponseChart } from '../shared/lazyCharts.jsx';
 import { C2C4Validation, DiagnosticTests, PredictionChecks, StatusPill } from './c2c4.jsx';
 import { ScenarioStudio, FAULTS, canControl } from './scenario.jsx';
@@ -18,7 +18,6 @@ export const isPhysOf = (d) => !!(
   d?.status?.origin === 'physical_device' ||
   (Array.isArray(d?.telemetry) && d?.telemetry[0]?.provenance === 'MEASURED')
 );
-const title = (s) => String(s ?? '').replaceAll('_', ' ');
 const samplesOf = (d) => d.telemetry?.samples || [];
 
 /** A latest-value tile. A missing or invalid sensor reads UNAVAILABLE, never zero. */

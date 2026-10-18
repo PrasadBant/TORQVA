@@ -16,15 +16,14 @@ Candidates compared against the control (see c2c4_study.py):
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
 from .hypotheses import HYPS, Posterior
-from .prediction import (ACTIONS, CHECK_HORIZONS, SIGNALS, InterventionPredictor, Prediction, StateSummary, TrustResult,
-                         persistence_prediction)
-from .sim import REGIMES, MotorSim, Regime, Window, rollout
+from .prediction import CHECK_HORIZONS, SIGNALS, InterventionPredictor, Prediction, StateSummary, TrustResult, persistence_prediction
+from .sim import REGIMES, MotorSim, Regime, rollout
 
 Z90 = 1.645                  # one-sided 95 % normal quantile: half-width of a 90 % interval for pure Gaussian noise
 

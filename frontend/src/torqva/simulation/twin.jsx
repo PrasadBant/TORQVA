@@ -4,10 +4,9 @@
 import React from 'react';
 import { DigitalTwin } from '../shared/twin.jsx';
 import { TrendLines } from '../shared/lazyCharts.jsx';
-import { Empty, fmt, stateTone } from '../shared/components.jsx';
+import { Empty, fmt, stateTone, title } from '../shared/components.jsx';
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
-const title = (s) => String(s ?? '').replaceAll('_', ' ');
 // The simulated device's e-stop reasons (simdevice._check_safety) and the sensor whose simulated reading tripped it.
 const SIM_TRIP_PART = { TEMP_STOP: 'temp', OVER_CURRENT_INSTANT: 'ina', VOLTAGE: 'ina', HEARTBEAT_LOST: 'controller' };
 // Where the simulator applies each injectable fault (sim.py): the component the scenario's ground truth refers to.

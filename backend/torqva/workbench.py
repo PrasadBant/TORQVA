@@ -30,7 +30,7 @@ from .gate import decide
 from .hypotheses import HYPS, Posterior
 from .incident import S
 from .lab import LabError, validate_profile
-from .prediction import CHECK_HORIZONS, SIGNALS
+from .prediction import CHECK_HORIZONS
 from .schemas import ActionType, DecisionVerdict, GateVerdict, ProposalSource, ProposedAction, Role
 from .sim import FEATURES
 
@@ -254,7 +254,9 @@ def validate_sequence(steps: Sequence[Dict[str, Any]], max_rpm: float) -> List[D
 
 
 def run_sequence(orch, dm, hm, steps: Sequence[Dict[str, Any]], stop_when_confident: bool = True, user: str = "",
-                 scenario: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                 scenario: Optional[Dict[str, Any]] = None, capture: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """`capture`, when given, receives the final Posterior object, whether any evidence informed it, and the tests whose learned
+    signature updated it (the unified workflow carries these into C2 and the gate; the HTTP record is unchanged)."""
     lim = orch.sup.limits
     seq = validate_sequence(steps, lim.max_rpm)
     if orch.dev.estop:
@@ -427,6 +429,10 @@ def run_sequence(orch, dm, hm, steps: Sequence[Dict[str, Any]], stop_when_confid
     }
     orch._put("diagnostic_run", rid, {k: v for k, v in record.items()}, "SIMULATED", orch.now)
     orch._log("diagnostic_run", id=rid, tests=[s["type"] for s in seq], category=cat[0], statuses=statuses)
+    if capture is not None:
+        capture.update(posterior=final, informed=bool(informed[0]), anomalous_windows=len(all_z),
+                       signature_tests=[r["type"] for r in results if r.get("signature_applied")]
+                       + ["T1" for r in results if any(p.get("t1_signature_applied") for p in r.get("speed_scaling") or [])])
     return {**record, "series": rows if len(rows) <= 2400 else rows[:: int(np.ceil(len(rows) / 2400))]}
 
 
@@ -703,9 +709,11 @@ def sufficiency(orch, dm) -> Dict[str, Any]:
             "min_info_gain_nats": gcfg.min_info_gain_nats}
 
 
-def run_adaptive(orch, dm, hm, budget: int = 3, user: str = "", scenario: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def run_adaptive(orch, dm, hm, budget: int = 3, user: str = "", scenario: Optional[Dict[str, Any]] = None,
+                 capture: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Choose, run and re-assess C4 tests one at a time on a copy of the live simulated motor, by expected information gain among the
-    tests whose prerequisites hold, until the evidence is sufficient, nothing worth running remains, an input fails, or the budget ends."""
+    tests whose prerequisites hold, until the evidence is sufficient, nothing worth running remains, an input fails, or the budget ends.
+    `capture` receives the final Posterior object (see run_sequence)."""
     if not (1 <= int(budget) <= MAX_ADAPTIVE_BUDGET):
         raise WorkbenchError(f"budget must be 1–{MAX_ADAPTIVE_BUDGET} tests", 422)
     if orch.dev.estop:
@@ -799,6 +807,9 @@ def run_adaptive(orch, dm, hm, budget: int = 3, user: str = "", scenario: Option
               "scenario_truth": (orch.dev.sim.truth.fault.value if orch.dev.sim.truth.fault else None), "scenario_note": _scenario_note(orch, scenario)}
     orch._put("diagnostic_run", rid, record, "SIMULATED", orch.now)
     orch._log("diagnostic_run", id=rid, mode="adaptive", tests=[s["selected"] for s in stages], status=final_status)
+    if capture is not None:
+        capture.update(posterior=post, informed=post is not None, anomalous_windows=None,
+                       signature_tests=[s["selected"] for s in stages if s["status"] == "completed"])
     return {**record, "series": rows}
 
 

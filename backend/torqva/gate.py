@@ -5,7 +5,7 @@ Uncertainty never delays a stop: rule 1 is evaluated first and ignores confidenc
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import Dict, Optional
 
 from .hypotheses import Posterior

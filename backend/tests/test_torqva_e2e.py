@@ -15,7 +15,7 @@ from torqva.incident import S
 from torqva.pipeline import Orchestrator, PipelineConfig
 from torqva.prediction import InterventionPredictor
 from torqva.scenarios import action_cases
-from torqva.schemas import (ActionType, CommandStatus, Hypothesis, Mode, Provenance, RecoveryOutcome, Role)
+from torqva.schemas import ActionType, Hypothesis, Mode, Provenance, Role
 from torqva.simdevice import SimDevice
 from torqva.sim import MotorSim
 from torqva.store import Store

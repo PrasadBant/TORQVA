@@ -5,10 +5,9 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { DigitalTwin } from '../shared/twin.jsx';
 import { HistoryChart } from '../shared/lazyCharts.jsx';
-import { Empty, ErrorBox, fmt } from '../shared/components.jsx';
+import { Empty, ErrorBox, fmt, title } from '../shared/components.jsx';
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
-const title = (s) => String(s ?? '').replaceAll('_', ' ');
 const ago = (unix) => (unix ? `${fmt(Math.max(0, Date.now() / 1000 - unix), 1)} s ago` : 'never');
 // Signals the backend keeps history for (serial_bridge.history_series); anything else has no trend.
 const HISTORY = new Set(['rpm', 'current', 'voltage', 'power', 'duty', 'housing', 'acceleration']);

@@ -8,7 +8,6 @@ import copy
 import os
 import threading
 from pathlib import Path
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from .attestation import AttestationService

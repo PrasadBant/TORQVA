@@ -1,7 +1,7 @@
 // Analyst workflow (simulation): sequence validation, honest condition and lifecycle read-outs, predictions tied to their exact target,
 // stale results never selectable, and a request that only happens after the backend's check allows it and the analyst confirms.
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { validateSequence } from '../torqva/simulation/tests.jsx';
 import { explainPrediction, SimPredictionsPage } from '../torqva/simulation/predict.jsx';

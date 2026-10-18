@@ -1,7 +1,8 @@
 """Persistence for TORQVA records: a small typed document store on SQLite (in-memory or file).
 
-Kinds: incident, decision, prediction, command, outcome, model_version, case, audit.  Audit rows are
-append-only (no update/delete API). Every row carries its data provenance (SIMULATED | MEASURED).
+Document kinds are the KINDS whitelist below (a write of any other kind is refused); audit rows live in their own append-only table
+(no update/delete API, enforced by triggers) and reference versions are immutable. Every document carries its data provenance
+(SIMULATED | MEASURED | PREDICTED).
 """
 from __future__ import annotations
 
@@ -11,9 +12,10 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-KINDS = ("session", "incident", "decision", "prediction", "command", "outcome", "model_version", "case",
+KINDS = ("incident", "decision", "prediction", "command", "outcome", "case",
          "lab_session", "experiment", "attestation_candidate", "reference_state", "prediction_check",
-         "diagnostic_run", "counterfactual", "decision_receipt")          # simulation-only analyst workbench records
+         "diagnostic_run", "counterfactual", "decision_receipt",           # simulation-only analyst workbench records
+         "workflow")                                                         # unified diagnostic workflow (workflow.py), either mode
 
 
 class StaleRevision(Exception):

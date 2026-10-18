@@ -3,12 +3,12 @@
 // simulated motor's STOP is labelled as such.
 import React, { useState } from 'react';
 import { Play, Pause, StopCircle, RotateCcw, StepForward, Clock } from 'lucide-react';
-import { Card, Empty, ErrorBox, ProvBadge, fmt } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, ProvBadge, fmt, canControl } from '../shared/components.jsx';
 import { lifecycle, scenarioText, hasSimOf, title } from './pipeline.js';
 
 // The faults the backend accepts (schemas.Hypothesis; POST /simulation/start rejects anything else).
 export const FAULTS = ['imbalance', 'looseness', 'overload', 'cooling_failure', 'supply_voltage', 'sensor_fault'];
-export const canControl = (role) => role === 'operator' || role === 'admin';
+export { canControl };
 // StartSimulation limits and defaults (backend api.py).
 const LIMITS = { setpoint: [1, 3000], inject: [0, 3600] };
 const DEFAULTS = { fault: 'imbalance', severity: 0.5, transient: true, approval: false, seed: 1, setpoint: 1800, inject: 40 };

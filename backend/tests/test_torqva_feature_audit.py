@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
-from fastapi.routing import APIRoute, APIWebSocketRoute
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -35,6 +35,8 @@ ROLE = {
     ("POST", "/simulation/workbench/sequence"): "operator", ("POST", "/simulation/workbench/request"): "operator",
     ("POST", "/simulation/workbench/adaptive"): "operator", ("POST", "/simulation/workbench/counterfactual"): "operator",
     ("GET", "/simulation/workbench/counterfactual/{rid}"): "viewer", ("POST", "/simulation/workbench/counterfactual/{rid}/rerun"): "operator",
+    ("GET", "/workflow/patterns"): "viewer", ("POST", "/workflow/runs"): "operator", ("GET", "/workflow/runs"): "viewer",
+    ("GET", "/workflow/runs/{wid}"): "viewer", ("POST", "/workflow/runs/{wid}/authorize"): "operator", ("POST", "/workflow/runs/{wid}/cancel"): "operator",
     ("GET", "/simulation/workbench/trace"): "viewer", ("GET", "/simulation/workbench/receipts"): "viewer", ("GET", "/simulation/workbench/receipts/{rid}"): "viewer",
     ("POST", "/simulation/start"): "operator", ("POST", "/simulation/step"): "operator", ("POST", "/approvals/approve"): "operator",
     ("POST", "/approvals/reject"): "operator", ("POST", "/commands/stop"): "viewer", ("POST", "/commands/reset-estop"): "admin",

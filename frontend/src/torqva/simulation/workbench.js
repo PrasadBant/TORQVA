@@ -28,6 +28,4 @@ export function usePlan(d) {
   return { ...state, reload: load };
 }
 
-export const fmtRpm = (v) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : Math.round(Number(v)).toLocaleString('en-US'));
-export const title = (s) => String(s ?? '').replaceAll('_', ' ');
-export const pct = (p, d = 0) => (p === null || p === undefined || !Number.isFinite(p) ? '—' : `${(p * 100).toFixed(d)}%`);
+export { fmtRpm, title, pct } from '../shared/components.jsx';

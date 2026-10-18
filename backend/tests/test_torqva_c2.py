@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from torqva.hypotheses import HYPS, Posterior
-from torqva.prediction import (ACTIONS, SIGNALS, InterventionPredictor, StateSummary, persistence_prediction)
+from torqva.prediction import SIGNALS, InterventionPredictor, StateSummary, persistence_prediction
 from torqva.scenarios import action_cases
 from torqva.schemas import Hypothesis
 

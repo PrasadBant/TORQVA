@@ -1,0 +1,7018 @@
+{
+ "healthy": {
+  "id": "WF-0001",
+  "mode": "SIMULATION",
+  "provenance": "SIMULATED",
+  "session": "S1",
+  "pattern": {
+   "id": "T3",
+   "name": "Thermal observation (T3)",
+   "purpose": "Hold speed for 300 s and compare the housing temperature with the fitted thermal model.",
+   "investigates": "cooling failure vs overload",
+   "budget": null,
+   "sequence": [
+    {
+     "rpm": 1800.0,
+     "hold_s": 300,
+     "what": "hold and observe the housing temperature"
+    }
+   ],
+   "signals": [
+    "housing",
+    "current",
+    "ambient"
+   ],
+   "expected_observations": [
+    "housing thermal-residual slope, \u00b0C per 100 s"
+   ]
+  },
+  "execution_policy": "require_confirmation",
+  "idempotency_key": null,
+  "requested_by": "olga",
+  "role": "operator",
+  "created_unix": 1792305266.801,
+  "status": "COMPLETED",
+  "stages": [
+   {
+    "stage": "VALIDATING",
+    "status": "completed",
+    "started_unix": 1792305266.801,
+    "started_sim_t": 30.0,
+    "ended_unix": 1792305266.801,
+    "ended_sim_t": 30.0,
+    "summary": "9 prerequisites hold"
+   },
+   {
+    "stage": "RUNNING_DIAGNOSTIC_TEST",
+    "status": "completed",
+    "started_unix": 1792305266.801,
+    "started_sim_t": 30.0,
+    "ended_unix": 1792305266.994,
+    "ended_sim_t": 30.0,
+    "summary": "diagnostic run D-0001 finished on the copy"
+   },
+   {
+    "stage": "COLLECTING_EVIDENCE",
+    "status": "completed",
+    "started_unix": 1792305266.994,
+    "started_sim_t": 30.0,
+    "ended_unix": 1792305266.994,
+    "ended_sim_t": 30.0,
+    "summary": "300 simulated windows (100% valid), 300 scored by C1, 0% flagged"
+   },
+   {
+    "stage": "ANALYSING_EVIDENCE",
+    "status": "completed",
+    "started_unix": 1792305266.994,
+    "started_sim_t": 30.0,
+    "ended_unix": 1792305266.994,
+    "ended_sim_t": 30.0,
+    "summary": "no anomaly detected: 0% of the scored windows were above the learned threshold over the tested setpoints"
+   },
+   {
+    "stage": "GENERATING_DIAGNOSIS",
+    "status": "completed",
+    "started_unix": 1792305266.994,
+    "started_sim_t": 30.0,
+    "ended_unix": 1792305266.994,
+    "ended_sim_t": 30.0,
+    "summary": "No anomaly detected: consistent with the learned healthy baseline"
+   },
+   {
+    "stage": "CALCULATING_PREDICTIONS",
+    "status": "completed",
+    "started_unix": 1792305266.994,
+    "started_sim_t": 30.0,
+    "ended_unix": 1792305266.994,
+    "ended_sim_t": 30.0,
+    "summary": "unavailable: C2 predicts outcomes conditional on a fault-hypothesis ranking, and the evidence gives none"
+   },
+   {
+    "stage": "GENERATING_RECOMMENDATION",
+    "status": "completed",
+    "started_unix": 1792305266.994,
+    "started_sim_t": 30.0,
+    "ended_unix": 1792305266.994,
+    "ended_sim_t": 30.0,
+    "summary": "Maintain the current setpoint (1800 rpm); no intervention needed"
+   }
+  ],
+  "events": [
+   {
+    "unix": 1792305266.801,
+    "sim_t": 30.0,
+    "from": "READY",
+    "to": "VALIDATING",
+    "summary": "checking the run, telemetry freshness, prerequisites and safety limits"
+   },
+   {
+    "unix": 1792305266.801,
+    "sim_t": 30.0,
+    "from": "VALIDATING",
+    "to": "RUNNING_DIAGNOSTIC_TEST",
+    "summary": "Thermal observation (T3) on a copy of the live simulated motor"
+   },
+   {
+    "unix": 1792305266.994,
+    "sim_t": 30.0,
+    "from": "RUNNING_DIAGNOSTIC_TEST",
+    "to": "COLLECTING_EVIDENCE",
+    "summary": "assembling stage results, observations and missing signals"
+   },
+   {
+    "unix": 1792305266.994,
+    "sim_t": 30.0,
+    "from": "COLLECTING_EVIDENCE",
+    "to": "ANALYSING_EVIDENCE",
+    "summary": "checking validity and evidence sufficiency"
+   },
+   {
+    "unix": 1792305266.994,
+    "sim_t": 30.0,
+    "from": "ANALYSING_EVIDENCE",
+    "to": "GENERATING_DIAGNOSIS",
+    "summary": "ranking the fault hypotheses with the test evidence"
+   },
+   {
+    "unix": 1792305266.994,
+    "sim_t": 30.0,
+    "from": "GENERATING_DIAGNOSIS",
+    "to": "CALCULATING_PREDICTIONS",
+    "summary": "C2 prediction for every candidate action"
+   },
+   {
+    "unix": 1792305266.994,
+    "sim_t": 30.0,
+    "from": "CALCULATING_PREDICTIONS",
+    "to": "GENERATING_RECOMMENDATION",
+    "summary": "decision gate and C2 ranking"
+   },
+   {
+    "unix": 1792305266.994,
+    "sim_t": 30.0,
+    "from": "GENERATING_RECOMMENDATION",
+    "to": "COMPLETED",
+    "summary": "Maintain the current setpoint (1800 rpm); no intervention needed"
+   }
+  ],
+  "context": {
+   "initial_telemetry": {
+    "t": 30.0,
+    "rpm": 1803.9,
+    "setpoint": 1800.0,
+    "current": 1.3506,
+    "voltage": 23.609,
+    "power": 31.853,
+    "housing": 22.654,
+    "vib_rms": 0.0754,
+    "valid": true,
+    "driven": true,
+    "provenance": "SIMULATED",
+    "age_s": 0.0,
+    "windows_available": 30,
+    "fresh": true
+   },
+   "initial_state": {
+    "session": "S1",
+    "t": 30.0,
+    "setpoint_rpm": 1800.0,
+    "estop": false,
+    "incident": null,
+    "pending_approval": null,
+    "human_approval_required": true,
+    "execution_note": "This scenario holds the pipeline's actions for human approval, so a workflow recommendation can be carried into that approval point."
+   },
+   "prerequisites": [
+    {
+     "check": "simulated device not in emergency stop",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "motor driven (setpoint above 0)",
+     "ok": true,
+     "detail": "setpoint 1800 rpm"
+    },
+    {
+     "check": "no pipeline test running on the live motor",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "at least 10 telemetry windows",
+     "ok": true,
+     "detail": "30 windows"
+    },
+    {
+     "check": "recent windows valid (>= 80 %)",
+     "ok": true,
+     "detail": "100% of the last 10 valid"
+    },
+    {
+     "check": "required signals present: housing, current, ambient",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "learned outcome signature",
+     "ok": true,
+     "detail": "learned in simulation"
+    },
+    {
+     "check": "thermal model fitted",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "Safety Supervisor permits this test on the current state",
+     "ok": true,
+     "detail": "DEFER: awaiting_human_approval"
+    }
+   ],
+   "test": {
+    "run_id": "D-0001",
+    "executed_on": "a copy of the live simulated motor (the live run was not changed)",
+    "provenance": "SIMULATED",
+    "stages": [
+     {
+      "index": 0,
+      "test": "T3",
+      "status": "completed",
+      "reason": null,
+      "posterior_before": null,
+      "posterior_after": {
+       "ranked": [
+        [
+         "supply_voltage",
+         0.2007
+        ],
+        [
+         "imbalance",
+         0.2007
+        ],
+        [
+         "looseness",
+         0.2007
+        ],
+        [
+         "sensor_fault",
+         0.1986
+        ],
+        [
+         "overload",
+         0.1977
+        ],
+        [
+         "cooling_failure",
+         0.0016
+        ]
+       ],
+       "label": "insufficient",
+       "top": "supply_voltage",
+       "top_p": 0.2007,
+       "margin": 0.0001,
+       "ood": false,
+       "n_windows": 0,
+       "entropy_nats": 1.6187
+      },
+      "simulated_seconds": 300,
+      "observation": [
+       -0.0074
+      ],
+      "observation_meaning": [
+       "housing thermal-residual slope, \u00b0C per 100 s"
+      ],
+      "summary": {
+       "target_rpm": null,
+       "windows": 300,
+       "valid_windows": 300,
+       "scored_windows": 300,
+       "mean_rpm_settled": 1799.9627,
+       "tracking_error_rpm": null,
+       "mean_current": 1.3503,
+       "mean_voltage": 23.5976,
+       "mean_power": 31.853,
+       "mean_vib_rms": 0.0747,
+       "housing_start": 22.663,
+       "housing_end": 27.667,
+       "flagged_fraction": 0.0,
+       "mean_score_over_threshold": 0.242,
+       "unscored_statuses": []
+      },
+      "signature_applied": true,
+      "fixed_parameters": "hold speed and observe 300 s"
+     }
+    ],
+    "simulated_seconds": 300,
+    "status": "consistent_with_baseline",
+    "stopped_early": null,
+    "series": [
+     {
+      "t": 31.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1798.3,
+      "current": 1.3623,
+      "voltage": 23.568,
+      "power": 31.853,
+      "housing": 22.663,
+      "vib_rms": 0.0731,
+      "valid": true,
+      "score": 0.094,
+      "score_status": "OK",
+      "anomalous": false
+     },
+     {
+      "t": 32.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1799.5,
+      "current": 1.3585,
+      "voltage": 23.59,
+      "power": 31.853,
+      "housing": 22.633,
+      "vib_rms": 0.0783,
+      "valid": true,
+      "score": 0.26,
+      "score_status": "OK",
+      "anomalous": false
+     },
+     {
+      "t": 33.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1804.0,
+      "current": 1.3422,
+      "voltage": 23.629,
+      "power": 31.853,
+      "housing": 22.734,
+      "vib_rms": 0.0809,
+      "valid": true,
+      "score": 0.182,
+      "score_status": "OK",
+      "anomalous": false
+     },
+     {
+      "t": 34.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1797.9,
+      "current": 1.3728,
+      "voltage": 23.564,
+      "power": 31.853,
+      "housing": 22.684,
+      "vib_rms": 0.0719,
+      "valid": true,
+      "score": 0.182,
+      "score_status": "OK",
+      "anomalous": false
+     },
+     {
+      "t": 35.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1799.0,
+      "current": 1.3607,
+      "voltage": 23.611,
+      "power": 31.853,
+      "housing": 22.728,
+      "vib_rms": 0.0785,
+      "valid": true,
+      "score": 0.335,
+      "score_status": "OK",
+      "anomalous": false
+     },
+     {
+      "t": 36.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1803.1,
+      "current": 1.3344,
+      "voltage": 23.644,
+      "power": 31.853,
+      "housing": 22.807,
+      "vib_rms": 0.0749,
+      "valid": true,
+      "score": 0.096,
+      "score_status": "OK",
+      "anomalous": false
+     }
+    ],
+    "series_step": 1
+   },
+   "evidence": {
+    "windows": 300,
+    "valid_fraction": 1.0,
+    "scored_windows": 300,
+    "c1_flagged_fraction": 0.0,
+    "signals_present": [
+     "rpm",
+     "setpoint",
+     "current",
+     "voltage",
+     "power",
+     "housing",
+     "vib_rms"
+    ],
+    "signals_missing": [],
+    "unscored_statuses": [],
+    "tested_setpoints_rpm": [
+     1800.0
+    ],
+    "live_c1": {
+     "anomalous_run": 0,
+     "confirm_windows": 10,
+     "last_status": "OK"
+    },
+    "kinds": {
+     "measured": "simulated window values (rpm, current, voltage, power, housing, vibration RMS)",
+     "derived": "C1 score \u00f7 threshold, flagged fractions, test observations (exponents, thermal slope, coast-down tau), tracking error",
+     "suspected": "fault hypotheses and their probabilities"
+    }
+   },
+   "analysis": {
+    "condition": "NO_ANOMALY_DETECTED",
+    "detail": "0% of the scored windows were above the learned threshold over the tested setpoints",
+    "sufficiency": null,
+    "sufficiency_rule": "the decision gate's own confidence rule (GateConfig)",
+    "ranking_used": false,
+    "tests_with_signature_applied": [
+     "T3"
+    ],
+    "tests_run_counted": 1,
+    "c1_category_on_copy": "consistent_with_baseline",
+    "stage_statuses": [
+     "completed"
+    ],
+    "live_ranking": null,
+    "summary": "no anomaly detected: 0% of the scored windows were above the learned threshold over the tested setpoints"
+   },
+   "diagnosis": {
+    "headline": "No anomaly detected: consistent with the learned healthy baseline",
+    "condition": "NO_ANOMALY_DETECTED",
+    "detail": "0% of the scored windows were above the learned threshold over the tested setpoints",
+    "provenance": "DERIVED",
+    "primary": null,
+    "ranked": [],
+    "posterior": null,
+    "hypotheses": [],
+    "feature_evidence_source": "C1 z-scores of the live run's anomalous windows, decomposed by the hypothesis model's own log-likelihood",
+    "test_changed_leading_hypothesis": null,
+    "live_ranking_top": null,
+    "missing": [
+     "no anomalous C1 windows in the live run yet, so per-feature evidence for the hypotheses is unavailable"
+    ],
+    "unscored_note": "C1 compares each window with the healthy baseline learned per speed bin; windows in an unlearned bin are not compared",
+    "sufficiency": null,
+    "sufficient_for_operational_recommendation": true,
+    "recommended_next_test": {
+     "test": "T1",
+     "expected_info_gain_nats": 1.097,
+     "worth_running": true
+    },
+    "scenario_truth": null,
+    "scenario_note": "no fault was active in the simulated motor when the test started \u2014 ground truth is shown for the simulation only and never used by TORQVA."
+   },
+   "predictions": {
+    "available": false,
+    "reason": "C2 predicts outcomes conditional on a fault-hypothesis ranking, and the evidence gives none",
+    "summary": "unavailable: C2 predicts outcomes conditional on a fault-hypothesis ranking, and the evidence gives none",
+    "candidates": [],
+    "references": []
+   },
+   "recommendation": {
+    "basis": {
+     "t": 30.0,
+     "setpoint_rpm": 1800.0,
+     "incident": null,
+     "posterior_top": null,
+     "posterior_label": null,
+     "posterior_windows": 0
+    },
+    "current_rpm": 1803.9,
+    "current_setpoint_rpm": 1800.0,
+    "target_rpm": null,
+    "change_rpm": null,
+    "candidate_id": null,
+    "gate": null,
+    "ranking": [],
+    "predicted_outcome": null,
+    "limitations": [
+     "the diagnostic test ran on a copy of the live simulated motor; the live motor was not stepped by it"
+    ],
+    "constraints": [
+     "REDUCE_SPEED must stay in [540, 1800) rpm (Safety Supervisor); max 3000 rpm"
+    ],
+    "provenance": "DERIVED",
+    "control_resolution": "1 rpm setpoint command; workflow targets use a 10 rpm grid",
+    "kind": "NO_CHANGE",
+    "action": "CONTINUE_MONITORING",
+    "headline": "Maintain the current setpoint (1800 rpm); no intervention needed",
+    "why": [
+     "0% of the scored windows were above the learned threshold over the tested setpoints",
+     "C1 found no persistent anomaly, so there is no fault to act on"
+    ],
+    "adjustments": [
+     {
+      "parameter": "speed setpoint",
+      "from_rpm": 1800.0,
+      "to_rpm": 1800.0,
+      "change_rpm": 0.0,
+      "why": "the motor behaves like the learned healthy baseline at the tested setpoints"
+     }
+    ],
+    "actionable": false,
+    "decision_rule": "no anomaly \u2192 no action (C2 and the gate are conditional on a fault ranking)"
+   }
+  },
+  "blockers": [],
+  "next_step": "Nothing needs to change. Keep monitoring; re-run the workflow if C1 flags an anomaly.",
+  "outcome": "NO_INTERVENTION_NEEDED",
+  "headline": "Maintain the current setpoint (1800 rpm); no intervention needed",
+  "finished_unix": 1792305266.994
+ },
+ "patterns_sim": {
+  "mode": "SIMULATION",
+  "provenance": "SIMULATED",
+  "patterns": [
+   {
+    "id": "T1",
+    "name": "Speed-step response (T1)",
+    "purpose": "Hold the setpoint for 20 s, step down to 70 % for 40 s and measure how the vibration orders and the current scale with speed.",
+    "investigates": "imbalance vs looseness vs a faulty vibration channel",
+    "signals": [
+     "rpm",
+     "current",
+     "v1x",
+     "v2x",
+     "v3x"
+    ],
+    "sequence": [
+     {
+      "rpm": 1800.0,
+      "hold_s": 20,
+      "what": "baseline at the current setpoint"
+     },
+     {
+      "rpm": 1260.0,
+      "hold_s": 40,
+      "what": "step down to 70 %"
+     }
+    ],
+    "duration_s": 60,
+    "expected_observations": [
+     "1x vibration speed exponent",
+     "2x+3x harmonics speed exponent",
+     "log change of current per rpm"
+    ],
+    "prerequisites": [
+     {
+      "check": "simulated device not in emergency stop",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "motor driven (setpoint above 0)",
+      "ok": true,
+      "detail": "setpoint 1800 rpm"
+     },
+     {
+      "check": "no pipeline test running on the live motor",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "at least 10 telemetry windows",
+      "ok": true,
+      "detail": "60 windows"
+     },
+     {
+      "check": "recent windows valid (>= 80 %)",
+      "ok": true,
+      "detail": "100% of the last 10 valid"
+     },
+     {
+      "check": "required signals present: rpm, current, v1x, v2x, v3x",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "learned outcome signature",
+      "ok": true,
+      "detail": "learned in simulation"
+     },
+     {
+      "check": "Safety Supervisor permits this test on the current state",
+      "ok": true,
+      "detail": "DEFER: awaiting_human_approval"
+     }
+    ],
+    "available": true,
+    "availability": {
+     "SIMULATION": "available (runs on a copy of the live simulated motor)",
+     "PHYSICAL": "not available: the supported firmware accepts only STOP, START, SET_SPEED and C1 cannot consume its telemetry"
+    },
+    "ends_with_motor_stopped": false,
+    "runs_on": "a copy of the live simulated motor (the live run is not perturbed)"
+   },
+   {
+    "id": "T3",
+    "name": "Thermal observation (T3)",
+    "purpose": "Hold speed for 300 s and compare the housing temperature with the fitted thermal model.",
+    "investigates": "cooling failure vs overload",
+    "signals": [
+     "housing",
+     "current",
+     "ambient"
+    ],
+    "sequence": [
+     {
+      "rpm": 1800.0,
+      "hold_s": 300,
+      "what": "hold and observe the housing temperature"
+     }
+    ],
+    "duration_s": 300,
+    "expected_observations": [
+     "housing thermal-residual slope, \u00b0C per 100 s"
+    ],
+    "prerequisites": [
+     {
+      "check": "simulated device not in emergency stop",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "motor driven (setpoint above 0)",
+      "ok": true,
+      "detail": "setpoint 1800 rpm"
+     },
+     {
+      "check": "no pipeline test running on the live motor",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "at least 10 telemetry windows",
+      "ok": true,
+      "detail": "60 windows"
+     },
+     {
+      "check": "recent windows valid (>= 80 %)",
+      "ok": true,
+      "detail": "100% of the last 10 valid"
+     },
+     {
+      "check": "required signals present: housing, current, ambient",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "learned outcome signature",
+      "ok": true,
+      "detail": "learned in simulation"
+     },
+     {
+      "check": "thermal model fitted",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "Safety Supervisor permits this test on the current state",
+      "ok": true,
+      "detail": "DEFER: awaiting_human_approval"
+     }
+    ],
+    "available": true,
+    "availability": {
+     "SIMULATION": "available (runs on a copy of the live simulated motor)",
+     "PHYSICAL": "not available: the supported firmware accepts only STOP, START, SET_SPEED and C1 cannot consume its telemetry"
+    },
+    "ends_with_motor_stopped": false,
+    "runs_on": "a copy of the live simulated motor (the live run is not perturbed)"
+   },
+   {
+    "id": "T4",
+    "name": "Coast-down (T4)",
+    "purpose": "Run 10 s, disable the driver and measure the coast-down time constant over 40 s.",
+    "investigates": "friction / overload vs cooling or electrical faults",
+    "signals": [
+     "rpm"
+    ],
+    "sequence": [
+     {
+      "rpm": 1800.0,
+      "hold_s": 10,
+      "what": "run"
+     },
+     {
+      "rpm": 0.0,
+      "hold_s": 40,
+      "what": "driver disabled: coast-down (ends stopped)"
+     }
+    ],
+    "duration_s": 50,
+    "expected_observations": [
+     "ln tau of the coast-down (s)"
+    ],
+    "prerequisites": [
+     {
+      "check": "simulated device not in emergency stop",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "motor driven (setpoint above 0)",
+      "ok": true,
+      "detail": "setpoint 1800 rpm"
+     },
+     {
+      "check": "no pipeline test running on the live motor",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "at least 10 telemetry windows",
+      "ok": true,
+      "detail": "60 windows"
+     },
+     {
+      "check": "recent windows valid (>= 80 %)",
+      "ok": true,
+      "detail": "100% of the last 10 valid"
+     },
+     {
+      "check": "required signals present: rpm",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "learned outcome signature",
+      "ok": true,
+      "detail": "learned in simulation"
+     },
+     {
+      "check": "Safety Supervisor permits this test on the current state",
+      "ok": true,
+      "detail": "DEFER: awaiting_human_approval"
+     }
+    ],
+    "available": true,
+    "availability": {
+     "SIMULATION": "available (runs on a copy of the live simulated motor)",
+     "PHYSICAL": "not available: the supported firmware accepts only STOP, START, SET_SPEED and C1 cannot consume its telemetry"
+    },
+    "ends_with_motor_stopped": true,
+    "runs_on": "a copy of the live simulated motor (the live run is not perturbed)"
+   },
+   {
+    "id": "SWEEP",
+    "name": "Speed-response sweep",
+    "purpose": "Hold 100 %, 70 % and 85 % of the current setpoint for 60 s each and score every window with C1; the 100 \u2192 70 % step is the condition the T1 signature was learned at.",
+    "investigates": "whether the anomaly depends on speed; imbalance vs looseness when the T1 conditions are met",
+    "signals": [
+     "current",
+     "rpm",
+     "v1x",
+     "v2x",
+     "v3x",
+     "vib_rms"
+    ],
+    "sequence": [
+     {
+      "rpm": 1800.0,
+      "hold_s": 60,
+      "what": "100% of the setpoint"
+     },
+     {
+      "rpm": 1260.0,
+      "hold_s": 60,
+      "what": "70% of the setpoint"
+     },
+     {
+      "rpm": 1530.0,
+      "hold_s": 60,
+      "what": "85% of the setpoint"
+     }
+    ],
+    "duration_s": 180,
+    "expected_observations": [
+     "settled speed and tracking error per step",
+     "mean current, voltage, power and vibration RMS per step",
+     "C1 flagged fraction per step",
+     "speed-scaling exponents for each step pair (the T1 signature only where its learned conditions hold)"
+    ],
+    "prerequisites": [
+     {
+      "check": "simulated device not in emergency stop",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "motor driven (setpoint above 0)",
+      "ok": true,
+      "detail": "setpoint 1800 rpm"
+     },
+     {
+      "check": "no pipeline test running on the live motor",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "at least 10 telemetry windows",
+      "ok": true,
+      "detail": "60 windows"
+     },
+     {
+      "check": "recent windows valid (>= 80 %)",
+      "ok": true,
+      "detail": "100% of the last 10 valid"
+     },
+     {
+      "check": "required signals present: current, rpm, v1x, v2x, v3x, vib_rms",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "speed profile valid (every step at most 3000 rpm)",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "every step inside 30%\u2013100 % of the setpoint (never above it)",
+      "ok": true,
+      "detail": "1800, 1260, 1530 rpm"
+     }
+    ],
+    "available": true,
+    "availability": {
+     "SIMULATION": "available (runs on a copy of the live simulated motor)",
+     "PHYSICAL": "not available: the supported firmware accepts only STOP, START, SET_SPEED and C1 cannot consume its telemetry"
+    },
+    "ends_with_motor_stopped": false,
+    "runs_on": "a copy of the live simulated motor (the live run is not perturbed)"
+   },
+   {
+    "id": "ADAPTIVE",
+    "name": "Adaptive (TORQVA selects the tests)",
+    "purpose": "TORQVA picks T1, T3 or T4 one at a time by expected information gain until the gate's confidence rule is met, nothing worth running remains, or the budget is used.",
+    "investigates": "whichever leading hypotheses are least separated by the current evidence",
+    "signals": [
+     "ambient",
+     "current",
+     "housing",
+     "rpm",
+     "v1x",
+     "v2x",
+     "v3x"
+    ],
+    "sequence": [],
+    "duration_s": null,
+    "expected_observations": [
+     "per selected test: its learned observation (T1 exponents, T3 thermal slope or T4 coast-down tau)"
+    ],
+    "prerequisites": [
+     {
+      "check": "simulated device not in emergency stop",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "motor driven (setpoint above 0)",
+      "ok": true,
+      "detail": "setpoint 1800 rpm"
+     },
+     {
+      "check": "no pipeline test running on the live motor",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "at least 10 telemetry windows",
+      "ok": true,
+      "detail": "60 windows"
+     },
+     {
+      "check": "recent windows valid (>= 80 %)",
+      "ok": true,
+      "detail": "100% of the last 10 valid"
+     },
+     {
+      "check": "required signals present: ambient, current, housing, rpm, v1x, v2x, v3x",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "a hypothesis ranking exists (C1 has confirmed a persistent anomaly)",
+      "ok": true,
+      "detail": ""
+     },
+     {
+      "check": "at least one C4 test is eligible",
+      "ok": true,
+      "detail": "T1, T3, T4"
+     }
+    ],
+    "available": true,
+    "availability": {
+     "SIMULATION": "available (runs on a copy of the live simulated motor)",
+     "PHYSICAL": "not available: the supported firmware accepts only STOP, START, SET_SPEED and C1 cannot consume its telemetry"
+    },
+    "ends_with_motor_stopped": false,
+    "runs_on": "a copy of the live simulated motor (the live run is not perturbed)"
+   }
+  ],
+  "policies": [
+   "require_confirmation",
+   "auto_when_permitted"
+  ],
+  "context": {
+   "session": "S2",
+   "t": 60.0,
+   "setpoint_rpm": 1800.0,
+   "estop": false,
+   "incident": {
+    "id": "INC-001",
+    "state": "AWAITING_APPROVAL"
+   },
+   "pending_approval": {
+    "action": "REDUCE_SPEED",
+    "params": {
+     "rpm": 1260.0
+    }
+   },
+   "human_approval_required": true,
+   "execution_note": "This scenario holds the pipeline's actions for human approval, so a workflow recommendation can be carried into that approval point."
+  },
+  "limits": {
+   "max_rpm": 3000.0,
+   "profile_hold_s": [
+    5,
+    900
+   ],
+   "profile_max_s": 1800,
+   "sequence_max_s": 2400,
+   "max_steps": 6,
+   "setpoint_rpm": 1800.0,
+   "reduce_envelope_rpm": [
+    540.0,
+    1800.0
+   ],
+   "reduce_envelope_note": "REDUCE_SPEED must be at least 30% of the current setpoint and below it (Safety Supervisor)",
+   "stop_limits": {
+    "housing_c": 60.0,
+    "current_a": 4.0,
+    "voltage_v": [
+     20.0,
+     25.5
+    ],
+    "vib_rms_g": 2.0
+   }
+  }
+ },
+ "awaiting": {
+  "id": "WF-0002",
+  "mode": "SIMULATION",
+  "provenance": "SIMULATED",
+  "session": "S2",
+  "pattern": {
+   "id": "T3",
+   "name": "Thermal observation (T3)",
+   "purpose": "Hold speed for 300 s and compare the housing temperature with the fitted thermal model.",
+   "investigates": "cooling failure vs overload",
+   "budget": null,
+   "sequence": [
+    {
+     "rpm": 1800.0,
+     "hold_s": 300,
+     "what": "hold and observe the housing temperature"
+    }
+   ],
+   "signals": [
+    "housing",
+    "current",
+    "ambient"
+   ],
+   "expected_observations": [
+    "housing thermal-residual slope, \u00b0C per 100 s"
+   ]
+  },
+  "execution_policy": "require_confirmation",
+  "idempotency_key": null,
+  "requested_by": "olga",
+  "role": "operator",
+  "created_unix": 1792305267.243,
+  "status": "AWAITING_AUTHORIZATION",
+  "stages": [
+   {
+    "stage": "VALIDATING",
+    "status": "completed",
+    "started_unix": 1792305267.243,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.29,
+    "ended_sim_t": 60.0,
+    "summary": "9 prerequisites hold"
+   },
+   {
+    "stage": "RUNNING_DIAGNOSTIC_TEST",
+    "status": "completed",
+    "started_unix": 1792305267.29,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.332,
+    "ended_sim_t": 60.0,
+    "summary": "diagnostic run D-0002 finished on the copy"
+   },
+   {
+    "stage": "COLLECTING_EVIDENCE",
+    "status": "completed",
+    "started_unix": 1792305267.332,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.332,
+    "ended_sim_t": 60.0,
+    "summary": "300 simulated windows (100% valid), 300 scored by C1, 100% flagged"
+   },
+   {
+    "stage": "ANALYSING_EVIDENCE",
+    "status": "completed",
+    "started_unix": 1792305267.332,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.332,
+    "ended_sim_t": 60.0,
+    "summary": "fault hypothesis supported: 'imbalance' at 1.00, margin 1.00, meets the gate's confidence rule"
+   },
+   {
+    "stage": "GENERATING_DIAGNOSIS",
+    "status": "completed",
+    "started_unix": 1792305267.332,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.332,
+    "ended_sim_t": 60.0,
+    "summary": "Suspected imbalance (100%, margin 1.00)"
+   },
+   {
+    "stage": "CALCULATING_PREDICTIONS",
+    "status": "completed",
+    "started_unix": 1792305267.332,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.336,
+    "ended_sim_t": 60.0,
+    "summary": "5 candidates predicted (5 supported)"
+   },
+   {
+    "stage": "GENERATING_RECOMMENDATION",
+    "status": "completed",
+    "started_unix": 1792305267.336,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.401,
+    "ended_sim_t": 60.0,
+    "summary": "Reduce speed from 1800 to 1260 rpm"
+   },
+   {
+    "stage": "AWAITING_AUTHORIZATION",
+    "status": "waiting",
+    "started_unix": 1792305267.401,
+    "started_sim_t": 60.0,
+    "ended_unix": null,
+    "ended_sim_t": null,
+    "summary": "Reduce speed from 1800 to 1260 rpm"
+   }
+  ],
+  "events": [
+   {
+    "unix": 1792305267.243,
+    "sim_t": 60.0,
+    "from": "READY",
+    "to": "VALIDATING",
+    "summary": "checking the run, telemetry freshness, prerequisites and safety limits"
+   },
+   {
+    "unix": 1792305267.29,
+    "sim_t": 60.0,
+    "from": "VALIDATING",
+    "to": "RUNNING_DIAGNOSTIC_TEST",
+    "summary": "Thermal observation (T3) on a copy of the live simulated motor"
+   },
+   {
+    "unix": 1792305267.332,
+    "sim_t": 60.0,
+    "from": "RUNNING_DIAGNOSTIC_TEST",
+    "to": "COLLECTING_EVIDENCE",
+    "summary": "assembling stage results, observations and missing signals"
+   },
+   {
+    "unix": 1792305267.332,
+    "sim_t": 60.0,
+    "from": "COLLECTING_EVIDENCE",
+    "to": "ANALYSING_EVIDENCE",
+    "summary": "checking validity and evidence sufficiency"
+   },
+   {
+    "unix": 1792305267.332,
+    "sim_t": 60.0,
+    "from": "ANALYSING_EVIDENCE",
+    "to": "GENERATING_DIAGNOSIS",
+    "summary": "ranking the fault hypotheses with the test evidence"
+   },
+   {
+    "unix": 1792305267.332,
+    "sim_t": 60.0,
+    "from": "GENERATING_DIAGNOSIS",
+    "to": "CALCULATING_PREDICTIONS",
+    "summary": "C2 prediction for every candidate action"
+   },
+   {
+    "unix": 1792305267.336,
+    "sim_t": 60.0,
+    "from": "CALCULATING_PREDICTIONS",
+    "to": "GENERATING_RECOMMENDATION",
+    "summary": "decision gate and C2 ranking"
+   },
+   {
+    "unix": 1792305267.401,
+    "sim_t": 60.0,
+    "from": "GENERATING_RECOMMENDATION",
+    "to": "AWAITING_AUTHORIZATION",
+    "summary": "Reduce speed from 1800 to 1260 rpm"
+   }
+  ],
+  "context": {
+   "initial_telemetry": {
+    "t": 60.0,
+    "rpm": 1803.2,
+    "setpoint": 1800.0,
+    "current": 1.3289,
+    "voltage": 23.557,
+    "power": 31.853,
+    "housing": 23.233,
+    "vib_rms": 0.2959,
+    "valid": true,
+    "driven": true,
+    "provenance": "SIMULATED",
+    "age_s": 0.0,
+    "windows_available": 60,
+    "fresh": true
+   },
+   "initial_state": {
+    "session": "S2",
+    "t": 60.0,
+    "setpoint_rpm": 1800.0,
+    "estop": false,
+    "incident": {
+     "id": "INC-001",
+     "state": "AWAITING_APPROVAL"
+    },
+    "pending_approval": {
+     "action": "REDUCE_SPEED",
+     "params": {
+      "rpm": 1260.0
+     }
+    },
+    "human_approval_required": true,
+    "execution_note": "This scenario holds the pipeline's actions for human approval, so a workflow recommendation can be carried into that approval point."
+   },
+   "prerequisites": [
+    {
+     "check": "simulated device not in emergency stop",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "motor driven (setpoint above 0)",
+     "ok": true,
+     "detail": "setpoint 1800 rpm"
+    },
+    {
+     "check": "no pipeline test running on the live motor",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "at least 10 telemetry windows",
+     "ok": true,
+     "detail": "60 windows"
+    },
+    {
+     "check": "recent windows valid (>= 80 %)",
+     "ok": true,
+     "detail": "100% of the last 10 valid"
+    },
+    {
+     "check": "required signals present: housing, current, ambient",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "learned outcome signature",
+     "ok": true,
+     "detail": "learned in simulation"
+    },
+    {
+     "check": "thermal model fitted",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "Safety Supervisor permits this test on the current state",
+     "ok": true,
+     "detail": "DEFER: awaiting_human_approval"
+    }
+   ],
+   "test": {
+    "run_id": "D-0002",
+    "executed_on": "a copy of the live simulated motor (the live run was not changed)",
+    "provenance": "SIMULATED",
+    "stages": [
+     {
+      "index": 0,
+      "test": "T3",
+      "status": "completed",
+      "reason": null,
+      "posterior_before": {
+       "ranked": [
+        [
+         "imbalance",
+         1.0
+        ],
+        [
+         "sensor_fault",
+         0.0
+        ],
+        [
+         "looseness",
+         0.0
+        ],
+        [
+         "overload",
+         0.0
+        ],
+        [
+         "cooling_failure",
+         0.0
+        ],
+        [
+         "supply_voltage",
+         0.0
+        ]
+       ],
+       "label": "confident",
+       "top": "imbalance",
+       "top_p": 1.0,
+       "margin": 1.0,
+       "ood": false,
+       "n_windows": 11,
+       "entropy_nats": 0.0
+      },
+      "posterior_after": {
+       "ranked": [
+        [
+         "imbalance",
+         1.0
+        ],
+        [
+         "looseness",
+         0.0
+        ],
+        [
+         "supply_voltage",
+         0.0
+        ],
+        [
+         "sensor_fault",
+         0.0
+        ],
+        [
+         "overload",
+         0.0
+        ],
+        [
+         "cooling_failure",
+         0.0
+        ]
+       ],
+       "label": "confident",
+       "top": "imbalance",
+       "top_p": 1.0,
+       "margin": 1.0,
+       "ood": false,
+       "n_windows": 11,
+       "entropy_nats": 0.0
+      },
+      "simulated_seconds": 300,
+      "observation": [
+       -0.0058
+      ],
+      "observation_meaning": [
+       "housing thermal-residual slope, \u00b0C per 100 s"
+      ],
+      "summary": {
+       "target_rpm": null,
+       "windows": 300,
+       "valid_windows": 300,
+       "scored_windows": 300,
+       "mean_rpm_settled": 1799.866,
+       "tracking_error_rpm": null,
+       "mean_current": 1.3512,
+       "mean_voltage": 23.5967,
+       "mean_power": 31.853,
+       "mean_vib_rms": 0.2857,
+       "housing_start": 23.32,
+       "housing_end": 28.095,
+       "flagged_fraction": 1.0,
+       "mean_score_over_threshold": 150.922,
+       "unscored_statuses": []
+      },
+      "signature_applied": true,
+      "fixed_parameters": "hold speed and observe 300 s"
+     }
+    ],
+    "simulated_seconds": 300,
+    "status": "hypothesis_supported",
+    "stopped_early": null,
+    "series": [
+     {
+      "t": 61.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1799.8,
+      "current": 1.3345,
+      "voltage": 23.596,
+      "power": 31.853,
+      "housing": 23.32,
+      "vib_rms": 0.2915,
+      "valid": true,
+      "score": 159.363,
+      "score_status": "OK",
+      "anomalous": true
+     },
+     {
+      "t": 62.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1797.6,
+      "current": 1.3363,
+      "voltage": 23.572,
+      "power": 31.853,
+      "housing": 23.311,
+      "vib_rms": 0.2767,
+      "valid": true,
+      "score": 138.247,
+      "score_status": "OK",
+      "anomalous": true
+     },
+     {
+      "t": 63.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1800.7,
+      "current": 1.3307,
+      "voltage": 23.538,
+      "power": 31.853,
+      "housing": 23.306,
+      "vib_rms": 0.2953,
+      "valid": true,
+      "score": 164.449,
+      "score_status": "OK",
+      "anomalous": true
+     },
+     {
+      "t": 64.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1799.7,
+      "current": 1.3574,
+      "voltage": 23.57,
+      "power": 31.853,
+      "housing": 23.309,
+      "vib_rms": 0.2846,
+      "valid": true,
+      "score": 149.913,
+      "score_status": "OK",
+      "anomalous": true
+     },
+     {
+      "t": 65.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1799.2,
+      "current": 1.3495,
+      "voltage": 23.646,
+      "power": 31.853,
+      "housing": 23.34,
+      "vib_rms": 0.2586,
+      "valid": true,
+      "score": 114.241,
+      "score_status": "OK",
+      "anomalous": true
+     },
+     {
+      "t": 66.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1800.8,
+      "current": 1.3273,
+      "voltage": 23.572,
+      "power": 31.853,
+      "housing": 23.41,
+      "vib_rms": 0.3028,
+      "valid": true,
+      "score": 175.323,
+      "score_status": "OK",
+      "anomalous": true
+     }
+    ],
+    "series_step": 1
+   },
+   "evidence": {
+    "windows": 300,
+    "valid_fraction": 1.0,
+    "scored_windows": 300,
+    "c1_flagged_fraction": 1.0,
+    "signals_present": [
+     "rpm",
+     "setpoint",
+     "current",
+     "voltage",
+     "power",
+     "housing",
+     "vib_rms"
+    ],
+    "signals_missing": [],
+    "unscored_statuses": [],
+    "tested_setpoints_rpm": [
+     1800.0
+    ],
+    "live_c1": {
+     "anomalous_run": 20,
+     "confirm_windows": 10,
+     "last_status": "OK"
+    },
+    "kinds": {
+     "measured": "simulated window values (rpm, current, voltage, power, housing, vibration RMS)",
+     "derived": "C1 score \u00f7 threshold, flagged fractions, test observations (exponents, thermal slope, coast-down tau), tracking error",
+     "suspected": "fault hypotheses and their probabilities"
+    }
+   },
+   "analysis": {
+    "condition": "FAULT_HYPOTHESIS_SUPPORTED",
+    "detail": "'imbalance' at 1.00, margin 1.00, meets the gate's confidence rule",
+    "sufficiency": "SUFFICIENT_EVIDENCE",
+    "sufficiency_rule": "the decision gate's own confidence rule (GateConfig)",
+    "ranking_used": true,
+    "tests_with_signature_applied": [
+     "T3"
+    ],
+    "tests_run_counted": 1,
+    "c1_category_on_copy": "hypothesis_supported",
+    "stage_statuses": [
+     "completed"
+    ],
+    "live_ranking": {
+     "ranked": [
+      [
+       "imbalance",
+       1.0
+      ],
+      [
+       "sensor_fault",
+       0.0
+      ],
+      [
+       "looseness",
+       0.0
+      ],
+      [
+       "overload",
+       0.0
+      ],
+      [
+       "cooling_failure",
+       0.0
+      ],
+      [
+       "supply_voltage",
+       0.0
+      ]
+     ],
+     "label": "confident",
+     "top": "imbalance",
+     "top_p": 1.0,
+     "margin": 1.0,
+     "ood": false,
+     "n_windows": 11,
+     "entropy_nats": 0.0
+    },
+    "summary": "fault hypothesis supported: 'imbalance' at 1.00, margin 1.00, meets the gate's confidence rule"
+   },
+   "diagnosis": {
+    "headline": "Suspected imbalance (100%, margin 1.00)",
+    "condition": "FAULT_HYPOTHESIS_SUPPORTED",
+    "detail": "'imbalance' at 1.00, margin 1.00, meets the gate's confidence rule",
+    "provenance": "DERIVED",
+    "primary": {
+     "hypothesis": "imbalance",
+     "probability": 1.0,
+     "margin": 1.0,
+     "label": "confident",
+     "kind": "suspected explanation"
+    },
+    "ranked": [
+     [
+      "imbalance",
+      1.0
+     ],
+     [
+      "sensor_fault",
+      0.0
+     ],
+     [
+      "looseness",
+      0.0
+     ],
+     [
+      "overload",
+      0.0
+     ],
+     [
+      "cooling_failure",
+      0.0
+     ],
+     [
+      "supply_voltage",
+      0.0
+     ]
+    ],
+    "posterior": {
+     "ranked": [
+      [
+       "imbalance",
+       1.0
+      ],
+      [
+       "sensor_fault",
+       0.0
+      ],
+      [
+       "looseness",
+       0.0
+      ],
+      [
+       "overload",
+       0.0
+      ],
+      [
+       "cooling_failure",
+       0.0
+      ],
+      [
+       "supply_voltage",
+       0.0
+      ]
+     ],
+     "label": "confident",
+     "top": "imbalance",
+     "top_p": 1.0,
+     "margin": 1.0,
+     "ood": false,
+     "n_windows": 45,
+     "entropy_nats": 0.0
+    },
+    "hypotheses": [
+     {
+      "hypothesis": "imbalance",
+      "probability": 1.0,
+      "compared_with": "sensor_fault",
+      "supporting": [
+       {
+        "feature": "vhf",
+        "observed_z": -0.3,
+        "signature_z": 0.41,
+        "relative_loglik": 56.255
+       },
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": 29.96,
+        "relative_loglik": 11.163
+       },
+       {
+        "feature": "v3x",
+        "observed_z": 0.35,
+        "signature_z": 0.27,
+        "relative_loglik": 8.879
+       }
+      ],
+      "contradicting": [],
+      "best_separating_test": {
+       "test": "T1",
+       "versus": "sensor_fault",
+       "separation": 12.45
+      }
+     },
+     {
+      "hypothesis": "sensor_fault",
+      "probability": 0.0,
+      "compared_with": "imbalance",
+      "supporting": [],
+      "contradicting": [
+       {
+        "feature": "vhf",
+        "observed_z": -0.3,
+        "signature_z": 11.1,
+        "relative_loglik": -56.255
+       },
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": -3.61,
+        "relative_loglik": -11.163
+       },
+       {
+        "feature": "v3x",
+        "observed_z": 0.35,
+        "signature_z": 25.75,
+        "relative_loglik": -8.879
+       }
+      ],
+      "best_separating_test": {
+       "test": "T1",
+       "versus": "imbalance",
+       "separation": 12.45
+      }
+     },
+     {
+      "hypothesis": "looseness",
+      "probability": 0.0,
+      "compared_with": "imbalance",
+      "supporting": [],
+      "contradicting": [
+       {
+        "feature": "v2x",
+        "observed_z": 0.14,
+        "signature_z": 29.98,
+        "relative_loglik": -396.763
+       },
+       {
+        "feature": "v3x",
+        "observed_z": 0.35,
+        "signature_z": 29.97,
+        "relative_loglik": -380.707
+       },
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": 0.22,
+        "relative_loglik": -247.802
+       }
+      ],
+      "best_separating_test": {
+       "test": "T1",
+       "versus": "imbalance",
+       "separation": 5.0
+      }
+     },
+     {
+      "hypothesis": "overload",
+      "probability": 0.0,
+      "compared_with": "imbalance",
+      "supporting": [],
+      "contradicting": [
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": 0.22,
+        "relative_loglik": -247.802
+       },
+       {
+        "feature": "vib_rms",
+        "observed_z": 30.0,
+        "signature_z": 0.62,
+        "relative_loglik": -226.003
+       },
+       {
+        "feature": "power",
+        "observed_z": 0.0,
+        "signature_z": 20.13,
+        "relative_loglik": -5.866
+       }
+      ],
+      "best_separating_test": {
+       "test": "T4",
+       "versus": "imbalance",
+       "separation": 2.16
+      }
+     },
+     {
+      "hypothesis": "cooling_failure",
+      "probability": 0.0,
+      "compared_with": "imbalance",
+      "supporting": [
+       {
+        "feature": "vhf",
+        "observed_z": -0.3,
+        "signature_z": -0.21,
+        "relative_loglik": 0.067
+       }
+      ],
+      "contradicting": [
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": 0.01,
+        "relative_loglik": -266.12
+       },
+       {
+        "feature": "vib_rms",
+        "observed_z": 30.0,
+        "signature_z": 0.04,
+        "relative_loglik": -254.444
+       },
+       {
+        "feature": "thermal_resid",
+        "observed_z": -0.06,
+        "signature_z": 5.79,
+        "relative_loglik": -2.759
+       }
+      ],
+      "best_separating_test": {
+       "test": "T3",
+       "versus": "imbalance",
+       "separation": 2.59
+      }
+     },
+     {
+      "hypothesis": "supply_voltage",
+      "probability": 0.0,
+      "compared_with": "imbalance",
+      "supporting": [],
+      "contradicting": [
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": 0.22,
+        "relative_loglik": -247.802
+       },
+       {
+        "feature": "vib_rms",
+        "observed_z": 30.0,
+        "signature_z": 0.22,
+        "relative_loglik": -245.295
+       },
+       {
+        "feature": "duty",
+        "observed_z": -0.02,
+        "signature_z": 2.66,
+        "relative_loglik": -2.067
+       }
+      ],
+      "best_separating_test": {
+       "test": "T1",
+       "versus": "imbalance",
+       "separation": 0.1
+      }
+     }
+    ],
+    "feature_evidence_source": "C1 z-scores of the live run's anomalous windows, decomposed by the hypothesis model's own log-likelihood",
+    "test_changed_leading_hypothesis": false,
+    "live_ranking_top": "imbalance",
+    "missing": [],
+    "unscored_note": "C1 compares each window with the healthy baseline learned per speed bin; windows in an unlearned bin are not compared",
+    "sufficiency": "SUFFICIENT_EVIDENCE",
+    "sufficient_for_operational_recommendation": true,
+    "recommended_next_test": {
+     "test": "T1",
+     "expected_info_gain_nats": 0.0,
+     "worth_running": false
+    },
+    "scenario_truth": "imbalance",
+    "scenario_note": "the copy carries the injected fault (imbalance); it is scenario ground truth, not a TORQVA diagnosis \u2014 ground truth is shown for the simulation only and never used by TORQVA."
+   },
+   "predictions": {
+    "available": true,
+    "provenance": "PREDICTED",
+    "conditioned_on": {
+     "ranked": [
+      [
+       "imbalance",
+       1.0
+      ],
+      [
+       "sensor_fault",
+       0.0
+      ],
+      [
+       "looseness",
+       0.0
+      ],
+      [
+       "overload",
+       0.0
+      ],
+      [
+       "cooling_failure",
+       0.0
+      ],
+      [
+       "supply_voltage",
+       0.0
+      ]
+     ],
+     "label": "confident",
+     "top": "imbalance",
+     "top_p": 1.0,
+     "margin": 1.0,
+     "ood": false,
+     "n_windows": 45,
+     "entropy_nats": 0.0
+    },
+    "basis": {
+     "t": 60.0,
+     "setpoint_rpm": 1800.0,
+     "incident": "INC-001",
+     "posterior_top": "imbalance",
+     "posterior_label": "confident",
+     "posterior_windows": 11
+    },
+    "state_now": {
+     "rpm": 1801.0,
+     "setpoint_rpm": 1800.0,
+     "current": 1.352,
+     "housing": 23.15,
+     "vib_rms": 0.2912,
+     "averaged_windows": 10,
+     "provenance": "SIMULATED"
+    },
+    "candidates": [
+     {
+      "candidate_id": "WF-0002-A",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 1260.0,
+      "horizons_s": [
+       30,
+       60,
+       120
+      ],
+      "mean": {
+       "rpm": [
+        1260.0,
+        1260.0,
+        1260.0
+       ],
+       "vib_rms": [
+        0.143,
+        0.143,
+        0.143
+       ],
+       "current": [
+        1.051,
+        1.051,
+        1.051
+       ],
+       "housing": [
+        23.4931,
+        23.8197,
+        24.4317
+       ]
+      },
+      "lo": {
+       "rpm": [
+        1257.0,
+        1257.0,
+        1254.4503
+       ],
+       "vib_rms": [
+        0.1329,
+        0.1225,
+        0.1303
+       ],
+       "current": [
+        1.011,
+        1.011,
+        0.9912
+       ],
+       "housing": [
+        23.2755,
+        23.6441,
+        24.2245
+       ]
+      },
+      "hi": {
+       "rpm": [
+        1263.0,
+        1263.0,
+        1265.5497
+       ],
+       "vib_rms": [
+        0.1531,
+        0.1635,
+        0.1557
+       ],
+       "current": [
+        1.091,
+        1.091,
+        1.1108
+       ],
+       "housing": [
+        23.7107,
+        23.9953,
+        24.6389
+       ]
+      },
+      "risk": 0.0,
+      "risk_by_signal": {
+       "housing": 0.0,
+       "vib_rms": 0.0,
+       "current": 0.0
+      },
+      "status": "supported",
+      "status_reasons": [],
+      "interval_method": "split_conformal_floor",
+      "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+      "within_supervisor_envelope": true,
+      "basis": {
+       "t": 60.0,
+       "setpoint_rpm": 1800.0,
+       "incident": "INC-001",
+       "posterior_top": "imbalance",
+       "posterior_label": "confident",
+       "posterior_windows": 11
+      },
+      "provenance": "PREDICTED",
+      "label": "A",
+      "why_target": "the pipeline's own reduction (70% of setpoint)",
+      "fraction_of_setpoint": 0.7,
+      "pipeline_default": true
+     },
+     {
+      "candidate_id": "WF-0002-B",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 1530.0,
+      "horizons_s": [
+       30,
+       60,
+       120
+      ],
+      "mean": {
+       "rpm": [
+        1530.0,
+        1530.0,
+        1530.0
+       ],
+       "vib_rms": [
+        0.2105,
+        0.2105,
+        0.2105
+       ],
+       "current": [
+        1.201,
+        1.201,
+        1.201
+       ],
+       "housing": [
+        23.6106,
+        24.0516,
+        24.8779
+       ]
+      },
+      "lo": {
+       "rpm": [
+        1527.0,
+        1527.0,
+        1524.4503
+       ],
+       "vib_rms": [
+        0.2003,
+        0.19,
+        0.1978
+       ],
+       "current": [
+        1.161,
+        1.161,
+        1.1412
+       ],
+       "housing": [
+        23.393,
+        23.876,
+        24.6706
+       ]
+      },
+      "hi": {
+       "rpm": [
+        1533.0,
+        1533.0,
+        1535.5497
+       ],
+       "vib_rms": [
+        0.2206,
+        0.231,
+        0.2231
+       ],
+       "current": [
+        1.241,
+        1.241,
+        1.2608
+       ],
+       "housing": [
+        23.8282,
+        24.2272,
+        25.0851
+       ]
+      },
+      "risk": 0.0,
+      "risk_by_signal": {
+       "housing": 0.0,
+       "vib_rms": 0.0,
+       "current": 0.0
+      },
+      "status": "supported",
+      "status_reasons": [],
+      "interval_method": "split_conformal_floor",
+      "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+      "within_supervisor_envelope": true,
+      "basis": {
+       "t": 60.0,
+       "setpoint_rpm": 1800.0,
+       "incident": "INC-001",
+       "posterior_top": "imbalance",
+       "posterior_label": "confident",
+       "posterior_windows": 11
+      },
+      "provenance": "PREDICTED",
+      "label": "B",
+      "why_target": "a smaller reduction",
+      "fraction_of_setpoint": 0.85,
+      "pipeline_default": false
+     },
+     {
+      "candidate_id": "WF-0002-C",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 900.0,
+      "horizons_s": [
+       30,
+       60,
+       120
+      ],
+      "mean": {
+       "rpm": [
+        900.0,
+        900.0,
+        900.0
+       ],
+       "vib_rms": [
+        0.0732,
+        0.0732,
+        0.0732
+       ],
+       "current": [
+        0.851,
+        0.851,
+        0.851
+       ],
+       "housing": [
+        23.3604,
+        23.5583,
+        23.9289
+       ]
+      },
+      "lo": {
+       "rpm": [
+        897.0,
+        897.0,
+        894.4503
+       ],
+       "vib_rms": [
+        0.0631,
+        0.0527,
+        0.0605
+       ],
+       "current": [
+        0.811,
+        0.811,
+        0.7912
+       ],
+       "housing": [
+        23.1428,
+        23.3826,
+        23.7217
+       ]
+      },
+      "hi": {
+       "rpm": [
+        903.0,
+        903.0,
+        905.5497
+       ],
+       "vib_rms": [
+        0.0833,
+        0.0937,
+        0.0859
+       ],
+       "current": [
+        0.891,
+        0.891,
+        0.9108
+       ],
+       "housing": [
+        23.578,
+        23.7339,
+        24.1361
+       ]
+      },
+      "risk": 0.0,
+      "risk_by_signal": {
+       "housing": 0.0,
+       "vib_rms": 0.0,
+       "current": 0.0
+      },
+      "status": "supported",
+      "status_reasons": [],
+      "interval_method": "split_conformal_floor",
+      "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+      "within_supervisor_envelope": true,
+      "basis": {
+       "t": 60.0,
+       "setpoint_rpm": 1800.0,
+       "incident": "INC-001",
+       "posterior_top": "imbalance",
+       "posterior_label": "confident",
+       "posterior_windows": 11
+      },
+      "provenance": "PREDICTED",
+      "label": "C",
+      "why_target": "a larger reduction",
+      "fraction_of_setpoint": 0.5,
+      "pipeline_default": false
+     }
+    ],
+    "references": [
+     {
+      "candidate_id": "WF-0002-CONTINUE_MONITORING",
+      "action": "CONTINUE_MONITORING",
+      "target_rpm": null,
+      "horizons_s": [
+       30,
+       60,
+       120
+      ],
+      "mean": {
+       "rpm": [
+        1801.0372,
+        1801.0372,
+        1801.0372
+       ],
+       "vib_rms": [
+        0.2912,
+        0.2912,
+        0.2912
+       ],
+       "current": [
+        1.3516,
+        1.3516,
+        1.3516
+       ],
+       "housing": [
+        23.744,
+        24.3151,
+        25.3853
+       ]
+      },
+      "lo": {
+       "rpm": [
+        1798.0372,
+        1798.0372,
+        1795.4659
+       ],
+       "vib_rms": [
+        0.2779,
+        0.2769,
+        0.2714
+       ],
+       "current": [
+        1.3116,
+        1.3116,
+        1.2962
+       ],
+       "housing": [
+        23.5393,
+        24.1215,
+        25.1693
+       ]
+      },
+      "hi": {
+       "rpm": [
+        1804.0372,
+        1804.0372,
+        1806.6085
+       ],
+       "vib_rms": [
+        0.3045,
+        0.3055,
+        0.311
+       ],
+       "current": [
+        1.3916,
+        1.3916,
+        1.4069
+       ],
+       "housing": [
+        23.9486,
+        24.5088,
+        25.6012
+       ]
+      },
+      "risk": 0.0,
+      "risk_by_signal": {
+       "housing": 0.0,
+       "vib_rms": 0.0,
+       "current": 0.0
+      },
+      "status": "supported",
+      "status_reasons": [],
+      "interval_method": "split_conformal_floor",
+      "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+      "within_supervisor_envelope": true,
+      "basis": {
+       "t": 60.0,
+       "setpoint_rpm": 1800.0,
+       "incident": "INC-001",
+       "posterior_top": "imbalance",
+       "posterior_label": "confident",
+       "posterior_windows": 11
+      },
+      "provenance": "PREDICTED",
+      "label": "Continue",
+      "why_target": "reference"
+     },
+     {
+      "candidate_id": "WF-0002-STOP",
+      "action": "STOP",
+      "target_rpm": 0.0,
+      "horizons_s": [
+       30,
+       60,
+       120
+      ],
+      "mean": {
+       "rpm": [
+        2.1579,
+        0.0026,
+        0.0
+       ],
+       "vib_rms": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "current": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "housing": [
+        23.0983,
+        23.0513,
+        22.9634
+       ]
+      },
+      "lo": {
+       "rpm": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "vib_rms": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "current": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "housing": [
+        22.929,
+        22.8657,
+        22.7659
+       ]
+      },
+      "hi": {
+       "rpm": [
+        5.1579,
+        3.0026,
+        3.1941
+       ],
+       "vib_rms": [
+        0.0677,
+        0.067,
+        0.0861
+       ],
+       "current": [
+        0.04,
+        0.04,
+        0.04
+       ],
+       "housing": [
+        23.2675,
+        23.237,
+        23.1608
+       ]
+      },
+      "risk": 0.0,
+      "risk_by_signal": {
+       "housing": 0.0,
+       "vib_rms": 0.0,
+       "current": 0.0
+      },
+      "status": "supported",
+      "status_reasons": [],
+      "interval_method": "split_conformal_floor",
+      "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+      "within_supervisor_envelope": true,
+      "basis": {
+       "t": 60.0,
+       "setpoint_rpm": 1800.0,
+       "incident": "INC-001",
+       "posterior_top": "imbalance",
+       "posterior_label": "confident",
+       "posterior_windows": 11
+      },
+      "provenance": "PREDICTED",
+      "label": "Stop",
+      "why_target": "reference"
+     }
+    ],
+    "trust": {
+     "trusted": true,
+     "reasons": []
+    },
+    "validated_by_experiments": false,
+    "model_version": 2,
+    "risk_limits": {
+     "housing": 50.0,
+     "vib_rms": 0.35,
+     "current": 2.2
+    },
+    "target_grid": "targets are on a 10 rpm grid inside the Safety Supervisor envelope [540, 1800) rpm (REDUCE_SPEED may not increase speed)",
+    "summary": "5 candidates predicted (5 supported)"
+   },
+   "recommendation": {
+    "basis": {
+     "t": 60.0,
+     "setpoint_rpm": 1800.0,
+     "incident": "INC-001",
+     "posterior_top": "imbalance",
+     "posterior_label": "confident",
+     "posterior_windows": 11
+    },
+    "current_rpm": 1801.0,
+    "current_setpoint_rpm": 1800.0,
+    "target_rpm": 1260.0,
+    "change_rpm": -540.0,
+    "candidate_id": "WF-0002-A",
+    "gate": {
+     "verdict": "ACT",
+     "reason": "Top hypothesis 'imbalance' at 1.00 with margin 1.00; predictions trusted.",
+     "test": null,
+     "inputs": {
+      "mandatory_stop": false,
+      "risk": 0.0,
+      "data_ok": true,
+      "sensor_unreliable": false,
+      "top": "imbalance",
+      "top_p": 1.0,
+      "margin": 1.0,
+      "posterior_label": "confident",
+      "ood": false,
+      "conflict": false,
+      "n_windows": 45,
+      "c2_trusted": true,
+      "op_point_familiar": true,
+      "best_test": "T1",
+      "best_test_gain": -0.0,
+      "best_test_safe": true,
+      "data_requests": 0,
+      "tests_run": 1
+     },
+     "c2_trust_reasons": [],
+     "evaluated_with": "the diagnosis ranking and the live state"
+    },
+    "ranking": [
+     {
+      "candidate_id": "WF-0002-CONTINUE_MONITORING",
+      "label": "Continue",
+      "action": "CONTINUE_MONITORING",
+      "target_rpm": null,
+      "rank": 1,
+      "pipeline_default": false,
+      "risk": 0.0,
+      "status": "supported",
+      "operational_cost": 0.0,
+      "eligible": false,
+      "excluded_because": "reference: once the gate says ACT the pipeline acts with the best non-continue action"
+     },
+     {
+      "candidate_id": "WF-0002-A",
+      "label": "A",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 1260.0,
+      "rank": 2,
+      "pipeline_default": true,
+      "risk": 0.0,
+      "status": "supported",
+      "operational_cost": 0.3,
+      "eligible": true,
+      "excluded_because": null
+     },
+     {
+      "candidate_id": "WF-0002-B",
+      "label": "B",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 1530.0,
+      "rank": 3,
+      "pipeline_default": false,
+      "risk": 0.0,
+      "status": "supported",
+      "operational_cost": 0.3,
+      "eligible": true,
+      "excluded_because": null
+     },
+     {
+      "candidate_id": "WF-0002-C",
+      "label": "C",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 900.0,
+      "rank": 4,
+      "pipeline_default": false,
+      "risk": 0.0,
+      "status": "supported",
+      "operational_cost": 0.3,
+      "eligible": true,
+      "excluded_because": null
+     },
+     {
+      "candidate_id": "WF-0002-STOP",
+      "label": "Stop",
+      "action": "STOP",
+      "target_rpm": 0.0,
+      "rank": 5,
+      "pipeline_default": false,
+      "risk": 0.0,
+      "status": "supported",
+      "operational_cost": 1.0,
+      "eligible": true,
+      "excluded_because": null
+     }
+    ],
+    "predicted_outcome": {
+     "candidate_id": "WF-0002-A",
+     "risk": 0.0,
+     "risk_by_signal": {
+      "housing": 0.0,
+      "vib_rms": 0.0,
+      "current": 0.0
+     },
+     "status": "supported",
+     "interval_method": "split_conformal_floor",
+     "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+     "rows": [
+      {
+       "signal": "rpm",
+       "horizon_s": 30,
+       "now": 1801.0,
+       "predicted_mean": 1260.0,
+       "lo": 1257.0,
+       "hi": 1263.0
+      },
+      {
+       "signal": "rpm",
+       "horizon_s": 60,
+       "now": 1801.0,
+       "predicted_mean": 1260.0,
+       "lo": 1257.0,
+       "hi": 1263.0
+      },
+      {
+       "signal": "rpm",
+       "horizon_s": 120,
+       "now": 1801.0,
+       "predicted_mean": 1260.0,
+       "lo": 1254.4503,
+       "hi": 1265.5497
+      },
+      {
+       "signal": "vib_rms",
+       "horizon_s": 30,
+       "now": 0.2912,
+       "predicted_mean": 0.143,
+       "lo": 0.1329,
+       "hi": 0.1531
+      },
+      {
+       "signal": "vib_rms",
+       "horizon_s": 60,
+       "now": 0.2912,
+       "predicted_mean": 0.143,
+       "lo": 0.1225,
+       "hi": 0.1635
+      },
+      {
+       "signal": "vib_rms",
+       "horizon_s": 120,
+       "now": 0.2912,
+       "predicted_mean": 0.143,
+       "lo": 0.1303,
+       "hi": 0.1557
+      },
+      {
+       "signal": "current",
+       "horizon_s": 30,
+       "now": 1.352,
+       "predicted_mean": 1.051,
+       "lo": 1.011,
+       "hi": 1.091
+      },
+      {
+       "signal": "current",
+       "horizon_s": 60,
+       "now": 1.352,
+       "predicted_mean": 1.051,
+       "lo": 1.011,
+       "hi": 1.091
+      },
+      {
+       "signal": "current",
+       "horizon_s": 120,
+       "now": 1.352,
+       "predicted_mean": 1.051,
+       "lo": 0.9912,
+       "hi": 1.1108
+      },
+      {
+       "signal": "housing",
+       "horizon_s": 30,
+       "now": 23.15,
+       "predicted_mean": 23.4931,
+       "lo": 23.2755,
+       "hi": 23.7107
+      },
+      {
+       "signal": "housing",
+       "horizon_s": 60,
+       "now": 23.15,
+       "predicted_mean": 23.8197,
+       "lo": 23.6441,
+       "hi": 23.9953
+      },
+      {
+       "signal": "housing",
+       "horizon_s": 120,
+       "now": 23.15,
+       "predicted_mean": 24.4317,
+       "lo": 24.2245,
+       "hi": 24.6389
+      }
+     ],
+     "continue_risk": 0.0,
+     "kind": "predicted outcome (not an observation, not a guarantee)"
+    },
+    "limitations": [
+     "C2 is unvalidated by intervention experiments: predictions are model outputs, not guarantees or measurements",
+     "the diagnostic test ran on a copy of the live simulated motor; the live motor was not stepped by it"
+    ],
+    "constraints": [
+     "REDUCE_SPEED must stay in [540, 1800) rpm (Safety Supervisor); max 3000 rpm"
+    ],
+    "provenance": "DERIVED",
+    "control_resolution": "1 rpm setpoint command; workflow targets use a 10 rpm grid",
+    "kind": "INTERVENTION",
+    "action": "REDUCE_SPEED",
+    "headline": "Reduce speed from 1800 to 1260 rpm",
+    "why": [
+     "Top hypothesis 'imbalance' at 1.00 with margin 1.00; predictions trusted.",
+     "C2 ranks A first among eligible actions (risk 0.00 vs 0.00 if nothing changes)"
+    ],
+    "adjustments": [
+     {
+      "parameter": "speed setpoint",
+      "from_rpm": 1800.0,
+      "to_rpm": 1260.0,
+      "change_rpm": -540.0,
+      "why": "the pipeline's own reduction (70% of setpoint)",
+      "constraint": "REDUCE_SPEED must stay in [540, 1800) rpm (Safety Supervisor); max 3000 rpm",
+      "expected": "vibration RMS at 120 s predicted 0.143 g (90 % interval 0.130\u20130.156) vs 0.291 g now"
+     }
+    ],
+    "actionable": true,
+    "decision_rule": "gate ACT \u2192 the pipeline's C2 ranking rule"
+   },
+   "execution_check": {
+    "executable": true,
+    "blockers": [],
+    "path": "analyst_request",
+    "gate": {
+     "verdict": "ACT",
+     "reason": "Top hypothesis 'imbalance' at 1.00 with margin 1.00; predictions trusted.",
+     "test": null,
+     "c2_trust_reasons": []
+    },
+    "supervisor": {
+     "verdict": "ALLOW",
+     "reasons": [
+      "checks_passed"
+     ]
+    },
+    "awaiting_decision": true,
+    "pending": {
+     "action": "REDUCE_SPEED",
+     "params": {
+      "rpm": 1260.0
+     },
+     "rationale": "C2 ranks REDUCE_SPEED first (risk 0.00)"
+    },
+    "stale": [],
+    "pipeline_command": null,
+    "prediction_now": {
+     "candidate_id": "X-3",
+     "action": "REDUCE_SPEED",
+     "target_rpm": 1260.0,
+     "horizons_s": [
+      30,
+      60,
+      120
+     ],
+     "mean": {
+      "rpm": [
+       1260.0,
+       1260.0,
+       1260.0
+      ],
+      "vib_rms": [
+       0.143,
+       0.143,
+       0.143
+      ],
+      "current": [
+       1.051,
+       1.051,
+       1.051
+      ],
+      "housing": [
+       23.4931,
+       23.8197,
+       24.4317
+      ]
+     },
+     "lo": {
+      "rpm": [
+       1257.0,
+       1257.0,
+       1254.4503
+      ],
+      "vib_rms": [
+       0.1329,
+       0.1225,
+       0.1303
+      ],
+      "current": [
+       1.011,
+       1.011,
+       0.9912
+      ],
+      "housing": [
+       23.2755,
+       23.6441,
+       24.2245
+      ]
+     },
+     "hi": {
+      "rpm": [
+       1263.0,
+       1263.0,
+       1265.5497
+      ],
+      "vib_rms": [
+       0.1531,
+       0.1635,
+       0.1557
+      ],
+      "current": [
+       1.091,
+       1.091,
+       1.1108
+      ],
+      "housing": [
+       23.7107,
+       23.9953,
+       24.6389
+      ]
+     },
+     "risk": 0.0,
+     "risk_by_signal": {
+      "housing": 0.0,
+      "vib_rms": 0.0,
+      "current": 0.0
+     },
+     "status": "supported",
+     "status_reasons": [],
+     "interval_method": "split_conformal_floor",
+     "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+     "within_supervisor_envelope": true,
+     "basis": {
+      "t": 60.0,
+      "setpoint_rpm": 1800.0,
+      "incident": "INC-001",
+      "posterior_top": "imbalance",
+      "posterior_label": "confident",
+      "posterior_windows": 11
+     },
+     "provenance": "PREDICTED"
+    },
+    "basis_now": {
+     "t": 60.0,
+     "setpoint_rpm": 1800.0,
+     "incident": "INC-001",
+     "posterior_top": "imbalance",
+     "posterior_label": "confident",
+     "posterior_windows": 11
+    }
+   },
+   "authorization": {
+    "required": true,
+    "decision": null,
+    "expires": "when the recommendation's basis is older than 30 simulated seconds or the setpoint, incident or ranking changes"
+   }
+  },
+  "blockers": [],
+  "next_step": "Authorize or decline: Reduce speed from 1800 to 1260 rpm.",
+  "outcome": "AWAITING_AUTHORIZATION",
+  "headline": "Reduce speed from 1800 to 1260 rpm"
+ },
+ "verifying": {
+  "id": "WF-0002",
+  "mode": "SIMULATION",
+  "provenance": "SIMULATED",
+  "session": "S2",
+  "pattern": {
+   "id": "T3",
+   "name": "Thermal observation (T3)",
+   "purpose": "Hold speed for 300 s and compare the housing temperature with the fitted thermal model.",
+   "investigates": "cooling failure vs overload",
+   "budget": null,
+   "sequence": [
+    {
+     "rpm": 1800.0,
+     "hold_s": 300,
+     "what": "hold and observe the housing temperature"
+    }
+   ],
+   "signals": [
+    "housing",
+    "current",
+    "ambient"
+   ],
+   "expected_observations": [
+    "housing thermal-residual slope, \u00b0C per 100 s"
+   ]
+  },
+  "execution_policy": "require_confirmation",
+  "idempotency_key": null,
+  "requested_by": "olga",
+  "role": "operator",
+  "created_unix": 1792305267.243,
+  "status": "VERIFYING_OUTCOME",
+  "stages": [
+   {
+    "stage": "VALIDATING",
+    "status": "completed",
+    "started_unix": 1792305267.243,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.29,
+    "ended_sim_t": 60.0,
+    "summary": "9 prerequisites hold"
+   },
+   {
+    "stage": "RUNNING_DIAGNOSTIC_TEST",
+    "status": "completed",
+    "started_unix": 1792305267.29,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.332,
+    "ended_sim_t": 60.0,
+    "summary": "diagnostic run D-0002 finished on the copy"
+   },
+   {
+    "stage": "COLLECTING_EVIDENCE",
+    "status": "completed",
+    "started_unix": 1792305267.332,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.332,
+    "ended_sim_t": 60.0,
+    "summary": "300 simulated windows (100% valid), 300 scored by C1, 100% flagged"
+   },
+   {
+    "stage": "ANALYSING_EVIDENCE",
+    "status": "completed",
+    "started_unix": 1792305267.332,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.332,
+    "ended_sim_t": 60.0,
+    "summary": "fault hypothesis supported: 'imbalance' at 1.00, margin 1.00, meets the gate's confidence rule"
+   },
+   {
+    "stage": "GENERATING_DIAGNOSIS",
+    "status": "completed",
+    "started_unix": 1792305267.332,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.332,
+    "ended_sim_t": 60.0,
+    "summary": "Suspected imbalance (100%, margin 1.00)"
+   },
+   {
+    "stage": "CALCULATING_PREDICTIONS",
+    "status": "completed",
+    "started_unix": 1792305267.332,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.336,
+    "ended_sim_t": 60.0,
+    "summary": "5 candidates predicted (5 supported)"
+   },
+   {
+    "stage": "GENERATING_RECOMMENDATION",
+    "status": "completed",
+    "started_unix": 1792305267.336,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.401,
+    "ended_sim_t": 60.0,
+    "summary": "Reduce speed from 1800 to 1260 rpm"
+   },
+   {
+    "stage": "AWAITING_AUTHORIZATION",
+    "status": "completed",
+    "started_unix": 1792305267.401,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.438,
+    "ended_sim_t": 60.0,
+    "summary": "Reduce speed from 1800 to 1260 rpm"
+   },
+   {
+    "stage": "EXECUTING_ACTION",
+    "status": "completed",
+    "started_unix": 1792305267.438,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.475,
+    "ended_sim_t": 60.0,
+    "summary": "Reduce speed from 1800 to 1260 rpm via the C3 analyst path"
+   },
+   {
+    "stage": "VERIFYING_OUTCOME",
+    "status": "waiting",
+    "started_unix": 1792305267.475,
+    "started_sim_t": 60.0,
+    "ended_unix": null,
+    "ended_sim_t": null,
+    "summary": "command #61 PENDING; waiting for C5"
+   }
+  ],
+  "events": [
+   {
+    "unix": 1792305267.243,
+    "sim_t": 60.0,
+    "from": "READY",
+    "to": "VALIDATING",
+    "summary": "checking the run, telemetry freshness, prerequisites and safety limits"
+   },
+   {
+    "unix": 1792305267.29,
+    "sim_t": 60.0,
+    "from": "VALIDATING",
+    "to": "RUNNING_DIAGNOSTIC_TEST",
+    "summary": "Thermal observation (T3) on a copy of the live simulated motor"
+   },
+   {
+    "unix": 1792305267.332,
+    "sim_t": 60.0,
+    "from": "RUNNING_DIAGNOSTIC_TEST",
+    "to": "COLLECTING_EVIDENCE",
+    "summary": "assembling stage results, observations and missing signals"
+   },
+   {
+    "unix": 1792305267.332,
+    "sim_t": 60.0,
+    "from": "COLLECTING_EVIDENCE",
+    "to": "ANALYSING_EVIDENCE",
+    "summary": "checking validity and evidence sufficiency"
+   },
+   {
+    "unix": 1792305267.332,
+    "sim_t": 60.0,
+    "from": "ANALYSING_EVIDENCE",
+    "to": "GENERATING_DIAGNOSIS",
+    "summary": "ranking the fault hypotheses with the test evidence"
+   },
+   {
+    "unix": 1792305267.332,
+    "sim_t": 60.0,
+    "from": "GENERATING_DIAGNOSIS",
+    "to": "CALCULATING_PREDICTIONS",
+    "summary": "C2 prediction for every candidate action"
+   },
+   {
+    "unix": 1792305267.336,
+    "sim_t": 60.0,
+    "from": "CALCULATING_PREDICTIONS",
+    "to": "GENERATING_RECOMMENDATION",
+    "summary": "decision gate and C2 ranking"
+   },
+   {
+    "unix": 1792305267.401,
+    "sim_t": 60.0,
+    "from": "GENERATING_RECOMMENDATION",
+    "to": "AWAITING_AUTHORIZATION",
+    "summary": "Reduce speed from 1800 to 1260 rpm"
+   },
+   {
+    "unix": 1792305267.438,
+    "sim_t": 60.0,
+    "from": "AWAITING_AUTHORIZATION",
+    "to": "EXECUTING_ACTION",
+    "summary": "Reduce speed from 1800 to 1260 rpm via the C3 analyst path"
+   },
+   {
+    "unix": 1792305267.475,
+    "sim_t": 60.0,
+    "from": "EXECUTING_ACTION",
+    "to": "VERIFYING_OUTCOME",
+    "summary": "command #61 PENDING; waiting for C5"
+   }
+  ],
+  "context": {
+   "initial_telemetry": {
+    "t": 60.0,
+    "rpm": 1803.2,
+    "setpoint": 1800.0,
+    "current": 1.3289,
+    "voltage": 23.557,
+    "power": 31.853,
+    "housing": 23.233,
+    "vib_rms": 0.2959,
+    "valid": true,
+    "driven": true,
+    "provenance": "SIMULATED",
+    "age_s": 0.0,
+    "windows_available": 60,
+    "fresh": true
+   },
+   "initial_state": {
+    "session": "S2",
+    "t": 60.0,
+    "setpoint_rpm": 1800.0,
+    "estop": false,
+    "incident": {
+     "id": "INC-001",
+     "state": "AWAITING_APPROVAL"
+    },
+    "pending_approval": {
+     "action": "REDUCE_SPEED",
+     "params": {
+      "rpm": 1260.0
+     }
+    },
+    "human_approval_required": true,
+    "execution_note": "This scenario holds the pipeline's actions for human approval, so a workflow recommendation can be carried into that approval point."
+   },
+   "prerequisites": [
+    {
+     "check": "simulated device not in emergency stop",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "motor driven (setpoint above 0)",
+     "ok": true,
+     "detail": "setpoint 1800 rpm"
+    },
+    {
+     "check": "no pipeline test running on the live motor",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "at least 10 telemetry windows",
+     "ok": true,
+     "detail": "60 windows"
+    },
+    {
+     "check": "recent windows valid (>= 80 %)",
+     "ok": true,
+     "detail": "100% of the last 10 valid"
+    },
+    {
+     "check": "required signals present: housing, current, ambient",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "learned outcome signature",
+     "ok": true,
+     "detail": "learned in simulation"
+    },
+    {
+     "check": "thermal model fitted",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "Safety Supervisor permits this test on the current state",
+     "ok": true,
+     "detail": "DEFER: awaiting_human_approval"
+    }
+   ],
+   "test": {
+    "run_id": "D-0002",
+    "executed_on": "a copy of the live simulated motor (the live run was not changed)",
+    "provenance": "SIMULATED",
+    "stages": [
+     {
+      "index": 0,
+      "test": "T3",
+      "status": "completed",
+      "reason": null,
+      "posterior_before": {
+       "ranked": [
+        [
+         "imbalance",
+         1.0
+        ],
+        [
+         "sensor_fault",
+         0.0
+        ],
+        [
+         "looseness",
+         0.0
+        ],
+        [
+         "overload",
+         0.0
+        ],
+        [
+         "cooling_failure",
+         0.0
+        ],
+        [
+         "supply_voltage",
+         0.0
+        ]
+       ],
+       "label": "confident",
+       "top": "imbalance",
+       "top_p": 1.0,
+       "margin": 1.0,
+       "ood": false,
+       "n_windows": 11,
+       "entropy_nats": 0.0
+      },
+      "posterior_after": {
+       "ranked": [
+        [
+         "imbalance",
+         1.0
+        ],
+        [
+         "looseness",
+         0.0
+        ],
+        [
+         "supply_voltage",
+         0.0
+        ],
+        [
+         "sensor_fault",
+         0.0
+        ],
+        [
+         "overload",
+         0.0
+        ],
+        [
+         "cooling_failure",
+         0.0
+        ]
+       ],
+       "label": "confident",
+       "top": "imbalance",
+       "top_p": 1.0,
+       "margin": 1.0,
+       "ood": false,
+       "n_windows": 11,
+       "entropy_nats": 0.0
+      },
+      "simulated_seconds": 300,
+      "observation": [
+       -0.0058
+      ],
+      "observation_meaning": [
+       "housing thermal-residual slope, \u00b0C per 100 s"
+      ],
+      "summary": {
+       "target_rpm": null,
+       "windows": 300,
+       "valid_windows": 300,
+       "scored_windows": 300,
+       "mean_rpm_settled": 1799.866,
+       "tracking_error_rpm": null,
+       "mean_current": 1.3512,
+       "mean_voltage": 23.5967,
+       "mean_power": 31.853,
+       "mean_vib_rms": 0.2857,
+       "housing_start": 23.32,
+       "housing_end": 28.095,
+       "flagged_fraction": 1.0,
+       "mean_score_over_threshold": 150.922,
+       "unscored_statuses": []
+      },
+      "signature_applied": true,
+      "fixed_parameters": "hold speed and observe 300 s"
+     }
+    ],
+    "simulated_seconds": 300,
+    "status": "hypothesis_supported",
+    "stopped_early": null,
+    "series": [
+     {
+      "t": 61.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1799.8,
+      "current": 1.3345,
+      "voltage": 23.596,
+      "power": 31.853,
+      "housing": 23.32,
+      "vib_rms": 0.2915,
+      "valid": true,
+      "score": 159.363,
+      "score_status": "OK",
+      "anomalous": true
+     },
+     {
+      "t": 62.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1797.6,
+      "current": 1.3363,
+      "voltage": 23.572,
+      "power": 31.853,
+      "housing": 23.311,
+      "vib_rms": 0.2767,
+      "valid": true,
+      "score": 138.247,
+      "score_status": "OK",
+      "anomalous": true
+     },
+     {
+      "t": 63.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1800.7,
+      "current": 1.3307,
+      "voltage": 23.538,
+      "power": 31.853,
+      "housing": 23.306,
+      "vib_rms": 0.2953,
+      "valid": true,
+      "score": 164.449,
+      "score_status": "OK",
+      "anomalous": true
+     },
+     {
+      "t": 64.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1799.7,
+      "current": 1.3574,
+      "voltage": 23.57,
+      "power": 31.853,
+      "housing": 23.309,
+      "vib_rms": 0.2846,
+      "valid": true,
+      "score": 149.913,
+      "score_status": "OK",
+      "anomalous": true
+     },
+     {
+      "t": 65.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1799.2,
+      "current": 1.3495,
+      "voltage": 23.646,
+      "power": 31.853,
+      "housing": 23.34,
+      "vib_rms": 0.2586,
+      "valid": true,
+      "score": 114.241,
+      "score_status": "OK",
+      "anomalous": true
+     },
+     {
+      "t": 66.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1800.8,
+      "current": 1.3273,
+      "voltage": 23.572,
+      "power": 31.853,
+      "housing": 23.41,
+      "vib_rms": 0.3028,
+      "valid": true,
+      "score": 175.323,
+      "score_status": "OK",
+      "anomalous": true
+     }
+    ],
+    "series_step": 1
+   },
+   "evidence": {
+    "windows": 300,
+    "valid_fraction": 1.0,
+    "scored_windows": 300,
+    "c1_flagged_fraction": 1.0,
+    "signals_present": [
+     "rpm",
+     "setpoint",
+     "current",
+     "voltage",
+     "power",
+     "housing",
+     "vib_rms"
+    ],
+    "signals_missing": [],
+    "unscored_statuses": [],
+    "tested_setpoints_rpm": [
+     1800.0
+    ],
+    "live_c1": {
+     "anomalous_run": 20,
+     "confirm_windows": 10,
+     "last_status": "OK"
+    },
+    "kinds": {
+     "measured": "simulated window values (rpm, current, voltage, power, housing, vibration RMS)",
+     "derived": "C1 score \u00f7 threshold, flagged fractions, test observations (exponents, thermal slope, coast-down tau), tracking error",
+     "suspected": "fault hypotheses and their probabilities"
+    }
+   },
+   "analysis": {
+    "condition": "FAULT_HYPOTHESIS_SUPPORTED",
+    "detail": "'imbalance' at 1.00, margin 1.00, meets the gate's confidence rule",
+    "sufficiency": "SUFFICIENT_EVIDENCE",
+    "sufficiency_rule": "the decision gate's own confidence rule (GateConfig)",
+    "ranking_used": true,
+    "tests_with_signature_applied": [
+     "T3"
+    ],
+    "tests_run_counted": 1,
+    "c1_category_on_copy": "hypothesis_supported",
+    "stage_statuses": [
+     "completed"
+    ],
+    "live_ranking": {
+     "ranked": [
+      [
+       "imbalance",
+       1.0
+      ],
+      [
+       "sensor_fault",
+       0.0
+      ],
+      [
+       "looseness",
+       0.0
+      ],
+      [
+       "overload",
+       0.0
+      ],
+      [
+       "cooling_failure",
+       0.0
+      ],
+      [
+       "supply_voltage",
+       0.0
+      ]
+     ],
+     "label": "confident",
+     "top": "imbalance",
+     "top_p": 1.0,
+     "margin": 1.0,
+     "ood": false,
+     "n_windows": 11,
+     "entropy_nats": 0.0
+    },
+    "summary": "fault hypothesis supported: 'imbalance' at 1.00, margin 1.00, meets the gate's confidence rule"
+   },
+   "diagnosis": {
+    "headline": "Suspected imbalance (100%, margin 1.00)",
+    "condition": "FAULT_HYPOTHESIS_SUPPORTED",
+    "detail": "'imbalance' at 1.00, margin 1.00, meets the gate's confidence rule",
+    "provenance": "DERIVED",
+    "primary": {
+     "hypothesis": "imbalance",
+     "probability": 1.0,
+     "margin": 1.0,
+     "label": "confident",
+     "kind": "suspected explanation"
+    },
+    "ranked": [
+     [
+      "imbalance",
+      1.0
+     ],
+     [
+      "sensor_fault",
+      0.0
+     ],
+     [
+      "looseness",
+      0.0
+     ],
+     [
+      "overload",
+      0.0
+     ],
+     [
+      "cooling_failure",
+      0.0
+     ],
+     [
+      "supply_voltage",
+      0.0
+     ]
+    ],
+    "posterior": {
+     "ranked": [
+      [
+       "imbalance",
+       1.0
+      ],
+      [
+       "sensor_fault",
+       0.0
+      ],
+      [
+       "looseness",
+       0.0
+      ],
+      [
+       "overload",
+       0.0
+      ],
+      [
+       "cooling_failure",
+       0.0
+      ],
+      [
+       "supply_voltage",
+       0.0
+      ]
+     ],
+     "label": "confident",
+     "top": "imbalance",
+     "top_p": 1.0,
+     "margin": 1.0,
+     "ood": false,
+     "n_windows": 45,
+     "entropy_nats": 0.0
+    },
+    "hypotheses": [
+     {
+      "hypothesis": "imbalance",
+      "probability": 1.0,
+      "compared_with": "sensor_fault",
+      "supporting": [
+       {
+        "feature": "vhf",
+        "observed_z": -0.3,
+        "signature_z": 0.41,
+        "relative_loglik": 56.255
+       },
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": 29.96,
+        "relative_loglik": 11.163
+       },
+       {
+        "feature": "v3x",
+        "observed_z": 0.35,
+        "signature_z": 0.27,
+        "relative_loglik": 8.879
+       }
+      ],
+      "contradicting": [],
+      "best_separating_test": {
+       "test": "T1",
+       "versus": "sensor_fault",
+       "separation": 12.45
+      }
+     },
+     {
+      "hypothesis": "sensor_fault",
+      "probability": 0.0,
+      "compared_with": "imbalance",
+      "supporting": [],
+      "contradicting": [
+       {
+        "feature": "vhf",
+        "observed_z": -0.3,
+        "signature_z": 11.1,
+        "relative_loglik": -56.255
+       },
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": -3.61,
+        "relative_loglik": -11.163
+       },
+       {
+        "feature": "v3x",
+        "observed_z": 0.35,
+        "signature_z": 25.75,
+        "relative_loglik": -8.879
+       }
+      ],
+      "best_separating_test": {
+       "test": "T1",
+       "versus": "imbalance",
+       "separation": 12.45
+      }
+     },
+     {
+      "hypothesis": "looseness",
+      "probability": 0.0,
+      "compared_with": "imbalance",
+      "supporting": [],
+      "contradicting": [
+       {
+        "feature": "v2x",
+        "observed_z": 0.14,
+        "signature_z": 29.98,
+        "relative_loglik": -396.763
+       },
+       {
+        "feature": "v3x",
+        "observed_z": 0.35,
+        "signature_z": 29.97,
+        "relative_loglik": -380.707
+       },
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": 0.22,
+        "relative_loglik": -247.802
+       }
+      ],
+      "best_separating_test": {
+       "test": "T1",
+       "versus": "imbalance",
+       "separation": 5.0
+      }
+     },
+     {
+      "hypothesis": "overload",
+      "probability": 0.0,
+      "compared_with": "imbalance",
+      "supporting": [],
+      "contradicting": [
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": 0.22,
+        "relative_loglik": -247.802
+       },
+       {
+        "feature": "vib_rms",
+        "observed_z": 30.0,
+        "signature_z": 0.62,
+        "relative_loglik": -226.003
+       },
+       {
+        "feature": "power",
+        "observed_z": 0.0,
+        "signature_z": 20.13,
+        "relative_loglik": -5.866
+       }
+      ],
+      "best_separating_test": {
+       "test": "T4",
+       "versus": "imbalance",
+       "separation": 2.16
+      }
+     },
+     {
+      "hypothesis": "cooling_failure",
+      "probability": 0.0,
+      "compared_with": "imbalance",
+      "supporting": [
+       {
+        "feature": "vhf",
+        "observed_z": -0.3,
+        "signature_z": -0.21,
+        "relative_loglik": 0.067
+       }
+      ],
+      "contradicting": [
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": 0.01,
+        "relative_loglik": -266.12
+       },
+       {
+        "feature": "vib_rms",
+        "observed_z": 30.0,
+        "signature_z": 0.04,
+        "relative_loglik": -254.444
+       },
+       {
+        "feature": "thermal_resid",
+        "observed_z": -0.06,
+        "signature_z": 5.79,
+        "relative_loglik": -2.759
+       }
+      ],
+      "best_separating_test": {
+       "test": "T3",
+       "versus": "imbalance",
+       "separation": 2.59
+      }
+     },
+     {
+      "hypothesis": "supply_voltage",
+      "probability": 0.0,
+      "compared_with": "imbalance",
+      "supporting": [],
+      "contradicting": [
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": 0.22,
+        "relative_loglik": -247.802
+       },
+       {
+        "feature": "vib_rms",
+        "observed_z": 30.0,
+        "signature_z": 0.22,
+        "relative_loglik": -245.295
+       },
+       {
+        "feature": "duty",
+        "observed_z": -0.02,
+        "signature_z": 2.66,
+        "relative_loglik": -2.067
+       }
+      ],
+      "best_separating_test": {
+       "test": "T1",
+       "versus": "imbalance",
+       "separation": 0.1
+      }
+     }
+    ],
+    "feature_evidence_source": "C1 z-scores of the live run's anomalous windows, decomposed by the hypothesis model's own log-likelihood",
+    "test_changed_leading_hypothesis": false,
+    "live_ranking_top": "imbalance",
+    "missing": [],
+    "unscored_note": "C1 compares each window with the healthy baseline learned per speed bin; windows in an unlearned bin are not compared",
+    "sufficiency": "SUFFICIENT_EVIDENCE",
+    "sufficient_for_operational_recommendation": true,
+    "recommended_next_test": {
+     "test": "T1",
+     "expected_info_gain_nats": 0.0,
+     "worth_running": false
+    },
+    "scenario_truth": "imbalance",
+    "scenario_note": "the copy carries the injected fault (imbalance); it is scenario ground truth, not a TORQVA diagnosis \u2014 ground truth is shown for the simulation only and never used by TORQVA."
+   },
+   "predictions": {
+    "available": true,
+    "provenance": "PREDICTED",
+    "conditioned_on": {
+     "ranked": [
+      [
+       "imbalance",
+       1.0
+      ],
+      [
+       "sensor_fault",
+       0.0
+      ],
+      [
+       "looseness",
+       0.0
+      ],
+      [
+       "overload",
+       0.0
+      ],
+      [
+       "cooling_failure",
+       0.0
+      ],
+      [
+       "supply_voltage",
+       0.0
+      ]
+     ],
+     "label": "confident",
+     "top": "imbalance",
+     "top_p": 1.0,
+     "margin": 1.0,
+     "ood": false,
+     "n_windows": 45,
+     "entropy_nats": 0.0
+    },
+    "basis": {
+     "t": 60.0,
+     "setpoint_rpm": 1800.0,
+     "incident": "INC-001",
+     "posterior_top": "imbalance",
+     "posterior_label": "confident",
+     "posterior_windows": 11
+    },
+    "state_now": {
+     "rpm": 1801.0,
+     "setpoint_rpm": 1800.0,
+     "current": 1.352,
+     "housing": 23.15,
+     "vib_rms": 0.2912,
+     "averaged_windows": 10,
+     "provenance": "SIMULATED"
+    },
+    "candidates": [
+     {
+      "candidate_id": "WF-0002-A",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 1260.0,
+      "horizons_s": [
+       30,
+       60,
+       120
+      ],
+      "mean": {
+       "rpm": [
+        1260.0,
+        1260.0,
+        1260.0
+       ],
+       "vib_rms": [
+        0.143,
+        0.143,
+        0.143
+       ],
+       "current": [
+        1.051,
+        1.051,
+        1.051
+       ],
+       "housing": [
+        23.4931,
+        23.8197,
+        24.4317
+       ]
+      },
+      "lo": {
+       "rpm": [
+        1257.0,
+        1257.0,
+        1254.4503
+       ],
+       "vib_rms": [
+        0.1329,
+        0.1225,
+        0.1303
+       ],
+       "current": [
+        1.011,
+        1.011,
+        0.9912
+       ],
+       "housing": [
+        23.2755,
+        23.6441,
+        24.2245
+       ]
+      },
+      "hi": {
+       "rpm": [
+        1263.0,
+        1263.0,
+        1265.5497
+       ],
+       "vib_rms": [
+        0.1531,
+        0.1635,
+        0.1557
+       ],
+       "current": [
+        1.091,
+        1.091,
+        1.1108
+       ],
+       "housing": [
+        23.7107,
+        23.9953,
+        24.6389
+       ]
+      },
+      "risk": 0.0,
+      "risk_by_signal": {
+       "housing": 0.0,
+       "vib_rms": 0.0,
+       "current": 0.0
+      },
+      "status": "supported",
+      "status_reasons": [],
+      "interval_method": "split_conformal_floor",
+      "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+      "within_supervisor_envelope": true,
+      "basis": {
+       "t": 60.0,
+       "setpoint_rpm": 1800.0,
+       "incident": "INC-001",
+       "posterior_top": "imbalance",
+       "posterior_label": "confident",
+       "posterior_windows": 11
+      },
+      "provenance": "PREDICTED",
+      "label": "A",
+      "why_target": "the pipeline's own reduction (70% of setpoint)",
+      "fraction_of_setpoint": 0.7,
+      "pipeline_default": true
+     },
+     {
+      "candidate_id": "WF-0002-B",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 1530.0,
+      "horizons_s": [
+       30,
+       60,
+       120
+      ],
+      "mean": {
+       "rpm": [
+        1530.0,
+        1530.0,
+        1530.0
+       ],
+       "vib_rms": [
+        0.2105,
+        0.2105,
+        0.2105
+       ],
+       "current": [
+        1.201,
+        1.201,
+        1.201
+       ],
+       "housing": [
+        23.6106,
+        24.0516,
+        24.8779
+       ]
+      },
+      "lo": {
+       "rpm": [
+        1527.0,
+        1527.0,
+        1524.4503
+       ],
+       "vib_rms": [
+        0.2003,
+        0.19,
+        0.1978
+       ],
+       "current": [
+        1.161,
+        1.161,
+        1.1412
+       ],
+       "housing": [
+        23.393,
+        23.876,
+        24.6706
+       ]
+      },
+      "hi": {
+       "rpm": [
+        1533.0,
+        1533.0,
+        1535.5497
+       ],
+       "vib_rms": [
+        0.2206,
+        0.231,
+        0.2231
+       ],
+       "current": [
+        1.241,
+        1.241,
+        1.2608
+       ],
+       "housing": [
+        23.8282,
+        24.2272,
+        25.0851
+       ]
+      },
+      "risk": 0.0,
+      "risk_by_signal": {
+       "housing": 0.0,
+       "vib_rms": 0.0,
+       "current": 0.0
+      },
+      "status": "supported",
+      "status_reasons": [],
+      "interval_method": "split_conformal_floor",
+      "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+      "within_supervisor_envelope": true,
+      "basis": {
+       "t": 60.0,
+       "setpoint_rpm": 1800.0,
+       "incident": "INC-001",
+       "posterior_top": "imbalance",
+       "posterior_label": "confident",
+       "posterior_windows": 11
+      },
+      "provenance": "PREDICTED",
+      "label": "B",
+      "why_target": "a smaller reduction",
+      "fraction_of_setpoint": 0.85,
+      "pipeline_default": false
+     },
+     {
+      "candidate_id": "WF-0002-C",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 900.0,
+      "horizons_s": [
+       30,
+       60,
+       120
+      ],
+      "mean": {
+       "rpm": [
+        900.0,
+        900.0,
+        900.0
+       ],
+       "vib_rms": [
+        0.0732,
+        0.0732,
+        0.0732
+       ],
+       "current": [
+        0.851,
+        0.851,
+        0.851
+       ],
+       "housing": [
+        23.3604,
+        23.5583,
+        23.9289
+       ]
+      },
+      "lo": {
+       "rpm": [
+        897.0,
+        897.0,
+        894.4503
+       ],
+       "vib_rms": [
+        0.0631,
+        0.0527,
+        0.0605
+       ],
+       "current": [
+        0.811,
+        0.811,
+        0.7912
+       ],
+       "housing": [
+        23.1428,
+        23.3826,
+        23.7217
+       ]
+      },
+      "hi": {
+       "rpm": [
+        903.0,
+        903.0,
+        905.5497
+       ],
+       "vib_rms": [
+        0.0833,
+        0.0937,
+        0.0859
+       ],
+       "current": [
+        0.891,
+        0.891,
+        0.9108
+       ],
+       "housing": [
+        23.578,
+        23.7339,
+        24.1361
+       ]
+      },
+      "risk": 0.0,
+      "risk_by_signal": {
+       "housing": 0.0,
+       "vib_rms": 0.0,
+       "current": 0.0
+      },
+      "status": "supported",
+      "status_reasons": [],
+      "interval_method": "split_conformal_floor",
+      "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+      "within_supervisor_envelope": true,
+      "basis": {
+       "t": 60.0,
+       "setpoint_rpm": 1800.0,
+       "incident": "INC-001",
+       "posterior_top": "imbalance",
+       "posterior_label": "confident",
+       "posterior_windows": 11
+      },
+      "provenance": "PREDICTED",
+      "label": "C",
+      "why_target": "a larger reduction",
+      "fraction_of_setpoint": 0.5,
+      "pipeline_default": false
+     }
+    ],
+    "references": [
+     {
+      "candidate_id": "WF-0002-CONTINUE_MONITORING",
+      "action": "CONTINUE_MONITORING",
+      "target_rpm": null,
+      "horizons_s": [
+       30,
+       60,
+       120
+      ],
+      "mean": {
+       "rpm": [
+        1801.0372,
+        1801.0372,
+        1801.0372
+       ],
+       "vib_rms": [
+        0.2912,
+        0.2912,
+        0.2912
+       ],
+       "current": [
+        1.3516,
+        1.3516,
+        1.3516
+       ],
+       "housing": [
+        23.744,
+        24.3151,
+        25.3853
+       ]
+      },
+      "lo": {
+       "rpm": [
+        1798.0372,
+        1798.0372,
+        1795.4659
+       ],
+       "vib_rms": [
+        0.2779,
+        0.2769,
+        0.2714
+       ],
+       "current": [
+        1.3116,
+        1.3116,
+        1.2962
+       ],
+       "housing": [
+        23.5393,
+        24.1215,
+        25.1693
+       ]
+      },
+      "hi": {
+       "rpm": [
+        1804.0372,
+        1804.0372,
+        1806.6085
+       ],
+       "vib_rms": [
+        0.3045,
+        0.3055,
+        0.311
+       ],
+       "current": [
+        1.3916,
+        1.3916,
+        1.4069
+       ],
+       "housing": [
+        23.9486,
+        24.5088,
+        25.6012
+       ]
+      },
+      "risk": 0.0,
+      "risk_by_signal": {
+       "housing": 0.0,
+       "vib_rms": 0.0,
+       "current": 0.0
+      },
+      "status": "supported",
+      "status_reasons": [],
+      "interval_method": "split_conformal_floor",
+      "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+      "within_supervisor_envelope": true,
+      "basis": {
+       "t": 60.0,
+       "setpoint_rpm": 1800.0,
+       "incident": "INC-001",
+       "posterior_top": "imbalance",
+       "posterior_label": "confident",
+       "posterior_windows": 11
+      },
+      "provenance": "PREDICTED",
+      "label": "Continue",
+      "why_target": "reference"
+     },
+     {
+      "candidate_id": "WF-0002-STOP",
+      "action": "STOP",
+      "target_rpm": 0.0,
+      "horizons_s": [
+       30,
+       60,
+       120
+      ],
+      "mean": {
+       "rpm": [
+        2.1579,
+        0.0026,
+        0.0
+       ],
+       "vib_rms": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "current": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "housing": [
+        23.0983,
+        23.0513,
+        22.9634
+       ]
+      },
+      "lo": {
+       "rpm": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "vib_rms": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "current": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "housing": [
+        22.929,
+        22.8657,
+        22.7659
+       ]
+      },
+      "hi": {
+       "rpm": [
+        5.1579,
+        3.0026,
+        3.1941
+       ],
+       "vib_rms": [
+        0.0677,
+        0.067,
+        0.0861
+       ],
+       "current": [
+        0.04,
+        0.04,
+        0.04
+       ],
+       "housing": [
+        23.2675,
+        23.237,
+        23.1608
+       ]
+      },
+      "risk": 0.0,
+      "risk_by_signal": {
+       "housing": 0.0,
+       "vib_rms": 0.0,
+       "current": 0.0
+      },
+      "status": "supported",
+      "status_reasons": [],
+      "interval_method": "split_conformal_floor",
+      "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+      "within_supervisor_envelope": true,
+      "basis": {
+       "t": 60.0,
+       "setpoint_rpm": 1800.0,
+       "incident": "INC-001",
+       "posterior_top": "imbalance",
+       "posterior_label": "confident",
+       "posterior_windows": 11
+      },
+      "provenance": "PREDICTED",
+      "label": "Stop",
+      "why_target": "reference"
+     }
+    ],
+    "trust": {
+     "trusted": true,
+     "reasons": []
+    },
+    "validated_by_experiments": false,
+    "model_version": 2,
+    "risk_limits": {
+     "housing": 50.0,
+     "vib_rms": 0.35,
+     "current": 2.2
+    },
+    "target_grid": "targets are on a 10 rpm grid inside the Safety Supervisor envelope [540, 1800) rpm (REDUCE_SPEED may not increase speed)",
+    "summary": "5 candidates predicted (5 supported)"
+   },
+   "recommendation": {
+    "basis": {
+     "t": 60.0,
+     "setpoint_rpm": 1800.0,
+     "incident": "INC-001",
+     "posterior_top": "imbalance",
+     "posterior_label": "confident",
+     "posterior_windows": 11
+    },
+    "current_rpm": 1801.0,
+    "current_setpoint_rpm": 1800.0,
+    "target_rpm": 1260.0,
+    "change_rpm": -540.0,
+    "candidate_id": "WF-0002-A",
+    "gate": {
+     "verdict": "ACT",
+     "reason": "Top hypothesis 'imbalance' at 1.00 with margin 1.00; predictions trusted.",
+     "test": null,
+     "inputs": {
+      "mandatory_stop": false,
+      "risk": 0.0,
+      "data_ok": true,
+      "sensor_unreliable": false,
+      "top": "imbalance",
+      "top_p": 1.0,
+      "margin": 1.0,
+      "posterior_label": "confident",
+      "ood": false,
+      "conflict": false,
+      "n_windows": 45,
+      "c2_trusted": true,
+      "op_point_familiar": true,
+      "best_test": "T1",
+      "best_test_gain": -0.0,
+      "best_test_safe": true,
+      "data_requests": 0,
+      "tests_run": 1
+     },
+     "c2_trust_reasons": [],
+     "evaluated_with": "the diagnosis ranking and the live state"
+    },
+    "ranking": [
+     {
+      "candidate_id": "WF-0002-CONTINUE_MONITORING",
+      "label": "Continue",
+      "action": "CONTINUE_MONITORING",
+      "target_rpm": null,
+      "rank": 1,
+      "pipeline_default": false,
+      "risk": 0.0,
+      "status": "supported",
+      "operational_cost": 0.0,
+      "eligible": false,
+      "excluded_because": "reference: once the gate says ACT the pipeline acts with the best non-continue action"
+     },
+     {
+      "candidate_id": "WF-0002-A",
+      "label": "A",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 1260.0,
+      "rank": 2,
+      "pipeline_default": true,
+      "risk": 0.0,
+      "status": "supported",
+      "operational_cost": 0.3,
+      "eligible": true,
+      "excluded_because": null
+     },
+     {
+      "candidate_id": "WF-0002-B",
+      "label": "B",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 1530.0,
+      "rank": 3,
+      "pipeline_default": false,
+      "risk": 0.0,
+      "status": "supported",
+      "operational_cost": 0.3,
+      "eligible": true,
+      "excluded_because": null
+     },
+     {
+      "candidate_id": "WF-0002-C",
+      "label": "C",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 900.0,
+      "rank": 4,
+      "pipeline_default": false,
+      "risk": 0.0,
+      "status": "supported",
+      "operational_cost": 0.3,
+      "eligible": true,
+      "excluded_because": null
+     },
+     {
+      "candidate_id": "WF-0002-STOP",
+      "label": "Stop",
+      "action": "STOP",
+      "target_rpm": 0.0,
+      "rank": 5,
+      "pipeline_default": false,
+      "risk": 0.0,
+      "status": "supported",
+      "operational_cost": 1.0,
+      "eligible": true,
+      "excluded_because": null
+     }
+    ],
+    "predicted_outcome": {
+     "candidate_id": "WF-0002-A",
+     "risk": 0.0,
+     "risk_by_signal": {
+      "housing": 0.0,
+      "vib_rms": 0.0,
+      "current": 0.0
+     },
+     "status": "supported",
+     "interval_method": "split_conformal_floor",
+     "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+     "rows": [
+      {
+       "signal": "rpm",
+       "horizon_s": 30,
+       "now": 1801.0,
+       "predicted_mean": 1260.0,
+       "lo": 1257.0,
+       "hi": 1263.0
+      },
+      {
+       "signal": "rpm",
+       "horizon_s": 60,
+       "now": 1801.0,
+       "predicted_mean": 1260.0,
+       "lo": 1257.0,
+       "hi": 1263.0
+      },
+      {
+       "signal": "rpm",
+       "horizon_s": 120,
+       "now": 1801.0,
+       "predicted_mean": 1260.0,
+       "lo": 1254.4503,
+       "hi": 1265.5497
+      },
+      {
+       "signal": "vib_rms",
+       "horizon_s": 30,
+       "now": 0.2912,
+       "predicted_mean": 0.143,
+       "lo": 0.1329,
+       "hi": 0.1531
+      },
+      {
+       "signal": "vib_rms",
+       "horizon_s": 60,
+       "now": 0.2912,
+       "predicted_mean": 0.143,
+       "lo": 0.1225,
+       "hi": 0.1635
+      },
+      {
+       "signal": "vib_rms",
+       "horizon_s": 120,
+       "now": 0.2912,
+       "predicted_mean": 0.143,
+       "lo": 0.1303,
+       "hi": 0.1557
+      },
+      {
+       "signal": "current",
+       "horizon_s": 30,
+       "now": 1.352,
+       "predicted_mean": 1.051,
+       "lo": 1.011,
+       "hi": 1.091
+      },
+      {
+       "signal": "current",
+       "horizon_s": 60,
+       "now": 1.352,
+       "predicted_mean": 1.051,
+       "lo": 1.011,
+       "hi": 1.091
+      },
+      {
+       "signal": "current",
+       "horizon_s": 120,
+       "now": 1.352,
+       "predicted_mean": 1.051,
+       "lo": 0.9912,
+       "hi": 1.1108
+      },
+      {
+       "signal": "housing",
+       "horizon_s": 30,
+       "now": 23.15,
+       "predicted_mean": 23.4931,
+       "lo": 23.2755,
+       "hi": 23.7107
+      },
+      {
+       "signal": "housing",
+       "horizon_s": 60,
+       "now": 23.15,
+       "predicted_mean": 23.8197,
+       "lo": 23.6441,
+       "hi": 23.9953
+      },
+      {
+       "signal": "housing",
+       "horizon_s": 120,
+       "now": 23.15,
+       "predicted_mean": 24.4317,
+       "lo": 24.2245,
+       "hi": 24.6389
+      }
+     ],
+     "continue_risk": 0.0,
+     "kind": "predicted outcome (not an observation, not a guarantee)"
+    },
+    "limitations": [
+     "C2 is unvalidated by intervention experiments: predictions are model outputs, not guarantees or measurements",
+     "the diagnostic test ran on a copy of the live simulated motor; the live motor was not stepped by it"
+    ],
+    "constraints": [
+     "REDUCE_SPEED must stay in [540, 1800) rpm (Safety Supervisor); max 3000 rpm"
+    ],
+    "provenance": "DERIVED",
+    "control_resolution": "1 rpm setpoint command; workflow targets use a 10 rpm grid",
+    "kind": "INTERVENTION",
+    "action": "REDUCE_SPEED",
+    "headline": "Reduce speed from 1800 to 1260 rpm",
+    "why": [
+     "Top hypothesis 'imbalance' at 1.00 with margin 1.00; predictions trusted.",
+     "C2 ranks A first among eligible actions (risk 0.00 vs 0.00 if nothing changes)"
+    ],
+    "adjustments": [
+     {
+      "parameter": "speed setpoint",
+      "from_rpm": 1800.0,
+      "to_rpm": 1260.0,
+      "change_rpm": -540.0,
+      "why": "the pipeline's own reduction (70% of setpoint)",
+      "constraint": "REDUCE_SPEED must stay in [540, 1800) rpm (Safety Supervisor); max 3000 rpm",
+      "expected": "vibration RMS at 120 s predicted 0.143 g (90 % interval 0.130\u20130.156) vs 0.291 g now"
+     }
+    ],
+    "actionable": true,
+    "decision_rule": "gate ACT \u2192 the pipeline's C2 ranking rule"
+   },
+   "execution_check": {
+    "executable": true,
+    "blockers": [],
+    "path": "analyst_request",
+    "gate": {
+     "verdict": "ACT",
+     "reason": "Top hypothesis 'imbalance' at 1.00 with margin 1.00; predictions trusted.",
+     "test": null,
+     "c2_trust_reasons": []
+    },
+    "supervisor": {
+     "verdict": "ALLOW",
+     "reasons": [
+      "checks_passed"
+     ]
+    },
+    "awaiting_decision": true,
+    "pending": {
+     "action": "REDUCE_SPEED",
+     "params": {
+      "rpm": 1260.0
+     },
+     "rationale": "C2 ranks REDUCE_SPEED first (risk 0.00)"
+    },
+    "stale": [],
+    "pipeline_command": null,
+    "prediction_now": {
+     "candidate_id": "X-4",
+     "action": "REDUCE_SPEED",
+     "target_rpm": 1260.0,
+     "horizons_s": [
+      30,
+      60,
+      120
+     ],
+     "mean": {
+      "rpm": [
+       1260.0,
+       1260.0,
+       1260.0
+      ],
+      "vib_rms": [
+       0.143,
+       0.143,
+       0.143
+      ],
+      "current": [
+       1.051,
+       1.051,
+       1.051
+      ],
+      "housing": [
+       23.4931,
+       23.8197,
+       24.4317
+      ]
+     },
+     "lo": {
+      "rpm": [
+       1257.0,
+       1257.0,
+       1254.4503
+      ],
+      "vib_rms": [
+       0.1329,
+       0.1225,
+       0.1303
+      ],
+      "current": [
+       1.011,
+       1.011,
+       0.9912
+      ],
+      "housing": [
+       23.2755,
+       23.6441,
+       24.2245
+      ]
+     },
+     "hi": {
+      "rpm": [
+       1263.0,
+       1263.0,
+       1265.5497
+      ],
+      "vib_rms": [
+       0.1531,
+       0.1635,
+       0.1557
+      ],
+      "current": [
+       1.091,
+       1.091,
+       1.1108
+      ],
+      "housing": [
+       23.7107,
+       23.9953,
+       24.6389
+      ]
+     },
+     "risk": 0.0,
+     "risk_by_signal": {
+      "housing": 0.0,
+      "vib_rms": 0.0,
+      "current": 0.0
+     },
+     "status": "supported",
+     "status_reasons": [],
+     "interval_method": "split_conformal_floor",
+     "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+     "within_supervisor_envelope": true,
+     "basis": {
+      "t": 60.0,
+      "setpoint_rpm": 1800.0,
+      "incident": "INC-001",
+      "posterior_top": "imbalance",
+      "posterior_label": "confident",
+      "posterior_windows": 11
+     },
+     "provenance": "PREDICTED"
+    },
+    "basis_now": {
+     "t": 60.0,
+     "setpoint_rpm": 1800.0,
+     "incident": "INC-001",
+     "posterior_top": "imbalance",
+     "posterior_label": "confident",
+     "posterior_windows": 11
+    }
+   },
+   "authorization": {
+    "required": true,
+    "decision": "AUTHORIZED",
+    "expires": "when the recommendation's basis is older than 30 simulated seconds or the setpoint, incident or ranking changes",
+    "by": "olga",
+    "role": "operator",
+    "unix": 1792305267.438,
+    "sim_t": 60.0,
+    "how": "authorized by the operator at the authorization step"
+   },
+   "intervention": {
+    "path": "analyst_request",
+    "requested_sim_t": 60.0,
+    "incident": "INC-001",
+    "receipt_id": "R-0006",
+    "command_id": 61,
+    "command": {
+     "id": 61,
+     "action": "REDUCE_SPEED",
+     "params": {
+      "rpm": 1260.0
+     },
+     "status": "PENDING"
+    },
+    "candidate_id": "WF-0002-A",
+    "provenance": "SIMULATED",
+    "note": "dispatched to the simulated device; an acknowledgement is not recovery"
+   },
+   "verification": {
+    "command": {
+     "id": 61,
+     "action": "REDUCE_SPEED",
+     "status": "PENDING",
+     "acked_sim_t": null,
+     "history": [
+      "SENT"
+     ],
+     "accepted": false,
+     "executed": false
+    },
+    "incident_state": "AWAITING_ACK",
+    "post_ack_windows": 0,
+    "provenance": "SIMULATED",
+    "c1_score_before": 154.691,
+    "c1_score_after": null,
+    "rpm_after": null,
+    "sim_t": 60.0,
+    "predicted_vs_observed": [],
+    "assessment": {
+     "outcome": "PENDING",
+     "reasons": [
+      "waiting for the acknowledgement"
+     ],
+     "by": "C5 recovery assessment (pipeline), in progress"
+    }
+   }
+  },
+  "blockers": [],
+  "next_step": "C5 verifies recovery from fresh simulated windows after the acknowledgement; the simulation must advance.",
+  "outcome": "AWAITING_VERIFICATION",
+  "headline": "Reduce speed from 1800 to 1260 rpm"
+ },
+ "completed": {
+  "id": "WF-0002",
+  "mode": "SIMULATION",
+  "provenance": "SIMULATED",
+  "session": "S2",
+  "pattern": {
+   "id": "T3",
+   "name": "Thermal observation (T3)",
+   "purpose": "Hold speed for 300 s and compare the housing temperature with the fitted thermal model.",
+   "investigates": "cooling failure vs overload",
+   "budget": null,
+   "sequence": [
+    {
+     "rpm": 1800.0,
+     "hold_s": 300,
+     "what": "hold and observe the housing temperature"
+    }
+   ],
+   "signals": [
+    "housing",
+    "current",
+    "ambient"
+   ],
+   "expected_observations": [
+    "housing thermal-residual slope, \u00b0C per 100 s"
+   ]
+  },
+  "execution_policy": "require_confirmation",
+  "idempotency_key": null,
+  "requested_by": "olga",
+  "role": "operator",
+  "created_unix": 1792305267.243,
+  "status": "COMPLETED",
+  "stages": [
+   {
+    "stage": "VALIDATING",
+    "status": "completed",
+    "started_unix": 1792305267.243,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.29,
+    "ended_sim_t": 60.0,
+    "summary": "9 prerequisites hold"
+   },
+   {
+    "stage": "RUNNING_DIAGNOSTIC_TEST",
+    "status": "completed",
+    "started_unix": 1792305267.29,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.332,
+    "ended_sim_t": 60.0,
+    "summary": "diagnostic run D-0002 finished on the copy"
+   },
+   {
+    "stage": "COLLECTING_EVIDENCE",
+    "status": "completed",
+    "started_unix": 1792305267.332,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.332,
+    "ended_sim_t": 60.0,
+    "summary": "300 simulated windows (100% valid), 300 scored by C1, 100% flagged"
+   },
+   {
+    "stage": "ANALYSING_EVIDENCE",
+    "status": "completed",
+    "started_unix": 1792305267.332,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.332,
+    "ended_sim_t": 60.0,
+    "summary": "fault hypothesis supported: 'imbalance' at 1.00, margin 1.00, meets the gate's confidence rule"
+   },
+   {
+    "stage": "GENERATING_DIAGNOSIS",
+    "status": "completed",
+    "started_unix": 1792305267.332,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.332,
+    "ended_sim_t": 60.0,
+    "summary": "Suspected imbalance (100%, margin 1.00)"
+   },
+   {
+    "stage": "CALCULATING_PREDICTIONS",
+    "status": "completed",
+    "started_unix": 1792305267.332,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.336,
+    "ended_sim_t": 60.0,
+    "summary": "5 candidates predicted (5 supported)"
+   },
+   {
+    "stage": "GENERATING_RECOMMENDATION",
+    "status": "completed",
+    "started_unix": 1792305267.336,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.401,
+    "ended_sim_t": 60.0,
+    "summary": "Reduce speed from 1800 to 1260 rpm"
+   },
+   {
+    "stage": "AWAITING_AUTHORIZATION",
+    "status": "completed",
+    "started_unix": 1792305267.401,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.438,
+    "ended_sim_t": 60.0,
+    "summary": "Reduce speed from 1800 to 1260 rpm"
+   },
+   {
+    "stage": "EXECUTING_ACTION",
+    "status": "completed",
+    "started_unix": 1792305267.438,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.475,
+    "ended_sim_t": 60.0,
+    "summary": "Reduce speed from 1800 to 1260 rpm via the C3 analyst path"
+   },
+   {
+    "stage": "VERIFYING_OUTCOME",
+    "status": "completed",
+    "started_unix": 1792305267.475,
+    "started_sim_t": 60.0,
+    "ended_unix": 1792305267.499,
+    "ended_sim_t": 260.0,
+    "summary": "C5: RECOVERED"
+   }
+  ],
+  "events": [
+   {
+    "unix": 1792305267.243,
+    "sim_t": 60.0,
+    "from": "READY",
+    "to": "VALIDATING",
+    "summary": "checking the run, telemetry freshness, prerequisites and safety limits"
+   },
+   {
+    "unix": 1792305267.29,
+    "sim_t": 60.0,
+    "from": "VALIDATING",
+    "to": "RUNNING_DIAGNOSTIC_TEST",
+    "summary": "Thermal observation (T3) on a copy of the live simulated motor"
+   },
+   {
+    "unix": 1792305267.332,
+    "sim_t": 60.0,
+    "from": "RUNNING_DIAGNOSTIC_TEST",
+    "to": "COLLECTING_EVIDENCE",
+    "summary": "assembling stage results, observations and missing signals"
+   },
+   {
+    "unix": 1792305267.332,
+    "sim_t": 60.0,
+    "from": "COLLECTING_EVIDENCE",
+    "to": "ANALYSING_EVIDENCE",
+    "summary": "checking validity and evidence sufficiency"
+   },
+   {
+    "unix": 1792305267.332,
+    "sim_t": 60.0,
+    "from": "ANALYSING_EVIDENCE",
+    "to": "GENERATING_DIAGNOSIS",
+    "summary": "ranking the fault hypotheses with the test evidence"
+   },
+   {
+    "unix": 1792305267.332,
+    "sim_t": 60.0,
+    "from": "GENERATING_DIAGNOSIS",
+    "to": "CALCULATING_PREDICTIONS",
+    "summary": "C2 prediction for every candidate action"
+   },
+   {
+    "unix": 1792305267.336,
+    "sim_t": 60.0,
+    "from": "CALCULATING_PREDICTIONS",
+    "to": "GENERATING_RECOMMENDATION",
+    "summary": "decision gate and C2 ranking"
+   },
+   {
+    "unix": 1792305267.401,
+    "sim_t": 60.0,
+    "from": "GENERATING_RECOMMENDATION",
+    "to": "AWAITING_AUTHORIZATION",
+    "summary": "Reduce speed from 1800 to 1260 rpm"
+   },
+   {
+    "unix": 1792305267.438,
+    "sim_t": 60.0,
+    "from": "AWAITING_AUTHORIZATION",
+    "to": "EXECUTING_ACTION",
+    "summary": "Reduce speed from 1800 to 1260 rpm via the C3 analyst path"
+   },
+   {
+    "unix": 1792305267.475,
+    "sim_t": 60.0,
+    "from": "EXECUTING_ACTION",
+    "to": "VERIFYING_OUTCOME",
+    "summary": "command #61 PENDING; waiting for C5"
+   },
+   {
+    "unix": 1792305267.499,
+    "sim_t": 260.0,
+    "from": "VERIFYING_OUTCOME",
+    "to": "COMPLETED",
+    "summary": "C5: RECOVERED"
+   }
+  ],
+  "context": {
+   "initial_telemetry": {
+    "t": 60.0,
+    "rpm": 1803.2,
+    "setpoint": 1800.0,
+    "current": 1.3289,
+    "voltage": 23.557,
+    "power": 31.853,
+    "housing": 23.233,
+    "vib_rms": 0.2959,
+    "valid": true,
+    "driven": true,
+    "provenance": "SIMULATED",
+    "age_s": 0.0,
+    "windows_available": 60,
+    "fresh": true
+   },
+   "initial_state": {
+    "session": "S2",
+    "t": 60.0,
+    "setpoint_rpm": 1800.0,
+    "estop": false,
+    "incident": {
+     "id": "INC-001",
+     "state": "AWAITING_APPROVAL"
+    },
+    "pending_approval": {
+     "action": "REDUCE_SPEED",
+     "params": {
+      "rpm": 1260.0
+     }
+    },
+    "human_approval_required": true,
+    "execution_note": "This scenario holds the pipeline's actions for human approval, so a workflow recommendation can be carried into that approval point."
+   },
+   "prerequisites": [
+    {
+     "check": "simulated device not in emergency stop",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "motor driven (setpoint above 0)",
+     "ok": true,
+     "detail": "setpoint 1800 rpm"
+    },
+    {
+     "check": "no pipeline test running on the live motor",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "at least 10 telemetry windows",
+     "ok": true,
+     "detail": "60 windows"
+    },
+    {
+     "check": "recent windows valid (>= 80 %)",
+     "ok": true,
+     "detail": "100% of the last 10 valid"
+    },
+    {
+     "check": "required signals present: housing, current, ambient",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "learned outcome signature",
+     "ok": true,
+     "detail": "learned in simulation"
+    },
+    {
+     "check": "thermal model fitted",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "check": "Safety Supervisor permits this test on the current state",
+     "ok": true,
+     "detail": "DEFER: awaiting_human_approval"
+    }
+   ],
+   "test": {
+    "run_id": "D-0002",
+    "executed_on": "a copy of the live simulated motor (the live run was not changed)",
+    "provenance": "SIMULATED",
+    "stages": [
+     {
+      "index": 0,
+      "test": "T3",
+      "status": "completed",
+      "reason": null,
+      "posterior_before": {
+       "ranked": [
+        [
+         "imbalance",
+         1.0
+        ],
+        [
+         "sensor_fault",
+         0.0
+        ],
+        [
+         "looseness",
+         0.0
+        ],
+        [
+         "overload",
+         0.0
+        ],
+        [
+         "cooling_failure",
+         0.0
+        ],
+        [
+         "supply_voltage",
+         0.0
+        ]
+       ],
+       "label": "confident",
+       "top": "imbalance",
+       "top_p": 1.0,
+       "margin": 1.0,
+       "ood": false,
+       "n_windows": 11,
+       "entropy_nats": 0.0
+      },
+      "posterior_after": {
+       "ranked": [
+        [
+         "imbalance",
+         1.0
+        ],
+        [
+         "looseness",
+         0.0
+        ],
+        [
+         "supply_voltage",
+         0.0
+        ],
+        [
+         "sensor_fault",
+         0.0
+        ],
+        [
+         "overload",
+         0.0
+        ],
+        [
+         "cooling_failure",
+         0.0
+        ]
+       ],
+       "label": "confident",
+       "top": "imbalance",
+       "top_p": 1.0,
+       "margin": 1.0,
+       "ood": false,
+       "n_windows": 11,
+       "entropy_nats": 0.0
+      },
+      "simulated_seconds": 300,
+      "observation": [
+       -0.0058
+      ],
+      "observation_meaning": [
+       "housing thermal-residual slope, \u00b0C per 100 s"
+      ],
+      "summary": {
+       "target_rpm": null,
+       "windows": 300,
+       "valid_windows": 300,
+       "scored_windows": 300,
+       "mean_rpm_settled": 1799.866,
+       "tracking_error_rpm": null,
+       "mean_current": 1.3512,
+       "mean_voltage": 23.5967,
+       "mean_power": 31.853,
+       "mean_vib_rms": 0.2857,
+       "housing_start": 23.32,
+       "housing_end": 28.095,
+       "flagged_fraction": 1.0,
+       "mean_score_over_threshold": 150.922,
+       "unscored_statuses": []
+      },
+      "signature_applied": true,
+      "fixed_parameters": "hold speed and observe 300 s"
+     }
+    ],
+    "simulated_seconds": 300,
+    "status": "hypothesis_supported",
+    "stopped_early": null,
+    "series": [
+     {
+      "t": 61.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1799.8,
+      "current": 1.3345,
+      "voltage": 23.596,
+      "power": 31.853,
+      "housing": 23.32,
+      "vib_rms": 0.2915,
+      "valid": true,
+      "score": 159.363,
+      "score_status": "OK",
+      "anomalous": true
+     },
+     {
+      "t": 62.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1797.6,
+      "current": 1.3363,
+      "voltage": 23.572,
+      "power": 31.853,
+      "housing": 23.311,
+      "vib_rms": 0.2767,
+      "valid": true,
+      "score": 138.247,
+      "score_status": "OK",
+      "anomalous": true
+     },
+     {
+      "t": 63.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1800.7,
+      "current": 1.3307,
+      "voltage": 23.538,
+      "power": 31.853,
+      "housing": 23.306,
+      "vib_rms": 0.2953,
+      "valid": true,
+      "score": 164.449,
+      "score_status": "OK",
+      "anomalous": true
+     },
+     {
+      "t": 64.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1799.7,
+      "current": 1.3574,
+      "voltage": 23.57,
+      "power": 31.853,
+      "housing": 23.309,
+      "vib_rms": 0.2846,
+      "valid": true,
+      "score": 149.913,
+      "score_status": "OK",
+      "anomalous": true
+     },
+     {
+      "t": 65.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1799.2,
+      "current": 1.3495,
+      "voltage": 23.646,
+      "power": 31.853,
+      "housing": 23.34,
+      "vib_rms": 0.2586,
+      "valid": true,
+      "score": 114.241,
+      "score_status": "OK",
+      "anomalous": true
+     },
+     {
+      "t": 66.0,
+      "test": "T3",
+      "step": 0,
+      "setpoint": 1800.0,
+      "rpm": 1800.8,
+      "current": 1.3273,
+      "voltage": 23.572,
+      "power": 31.853,
+      "housing": 23.41,
+      "vib_rms": 0.3028,
+      "valid": true,
+      "score": 175.323,
+      "score_status": "OK",
+      "anomalous": true
+     }
+    ],
+    "series_step": 1
+   },
+   "evidence": {
+    "windows": 300,
+    "valid_fraction": 1.0,
+    "scored_windows": 300,
+    "c1_flagged_fraction": 1.0,
+    "signals_present": [
+     "rpm",
+     "setpoint",
+     "current",
+     "voltage",
+     "power",
+     "housing",
+     "vib_rms"
+    ],
+    "signals_missing": [],
+    "unscored_statuses": [],
+    "tested_setpoints_rpm": [
+     1800.0
+    ],
+    "live_c1": {
+     "anomalous_run": 20,
+     "confirm_windows": 10,
+     "last_status": "OK"
+    },
+    "kinds": {
+     "measured": "simulated window values (rpm, current, voltage, power, housing, vibration RMS)",
+     "derived": "C1 score \u00f7 threshold, flagged fractions, test observations (exponents, thermal slope, coast-down tau), tracking error",
+     "suspected": "fault hypotheses and their probabilities"
+    }
+   },
+   "analysis": {
+    "condition": "FAULT_HYPOTHESIS_SUPPORTED",
+    "detail": "'imbalance' at 1.00, margin 1.00, meets the gate's confidence rule",
+    "sufficiency": "SUFFICIENT_EVIDENCE",
+    "sufficiency_rule": "the decision gate's own confidence rule (GateConfig)",
+    "ranking_used": true,
+    "tests_with_signature_applied": [
+     "T3"
+    ],
+    "tests_run_counted": 1,
+    "c1_category_on_copy": "hypothesis_supported",
+    "stage_statuses": [
+     "completed"
+    ],
+    "live_ranking": {
+     "ranked": [
+      [
+       "imbalance",
+       1.0
+      ],
+      [
+       "sensor_fault",
+       0.0
+      ],
+      [
+       "looseness",
+       0.0
+      ],
+      [
+       "overload",
+       0.0
+      ],
+      [
+       "cooling_failure",
+       0.0
+      ],
+      [
+       "supply_voltage",
+       0.0
+      ]
+     ],
+     "label": "confident",
+     "top": "imbalance",
+     "top_p": 1.0,
+     "margin": 1.0,
+     "ood": false,
+     "n_windows": 11,
+     "entropy_nats": 0.0
+    },
+    "summary": "fault hypothesis supported: 'imbalance' at 1.00, margin 1.00, meets the gate's confidence rule"
+   },
+   "diagnosis": {
+    "headline": "Suspected imbalance (100%, margin 1.00)",
+    "condition": "FAULT_HYPOTHESIS_SUPPORTED",
+    "detail": "'imbalance' at 1.00, margin 1.00, meets the gate's confidence rule",
+    "provenance": "DERIVED",
+    "primary": {
+     "hypothesis": "imbalance",
+     "probability": 1.0,
+     "margin": 1.0,
+     "label": "confident",
+     "kind": "suspected explanation"
+    },
+    "ranked": [
+     [
+      "imbalance",
+      1.0
+     ],
+     [
+      "sensor_fault",
+      0.0
+     ],
+     [
+      "looseness",
+      0.0
+     ],
+     [
+      "overload",
+      0.0
+     ],
+     [
+      "cooling_failure",
+      0.0
+     ],
+     [
+      "supply_voltage",
+      0.0
+     ]
+    ],
+    "posterior": {
+     "ranked": [
+      [
+       "imbalance",
+       1.0
+      ],
+      [
+       "sensor_fault",
+       0.0
+      ],
+      [
+       "looseness",
+       0.0
+      ],
+      [
+       "overload",
+       0.0
+      ],
+      [
+       "cooling_failure",
+       0.0
+      ],
+      [
+       "supply_voltage",
+       0.0
+      ]
+     ],
+     "label": "confident",
+     "top": "imbalance",
+     "top_p": 1.0,
+     "margin": 1.0,
+     "ood": false,
+     "n_windows": 45,
+     "entropy_nats": 0.0
+    },
+    "hypotheses": [
+     {
+      "hypothesis": "imbalance",
+      "probability": 1.0,
+      "compared_with": "sensor_fault",
+      "supporting": [
+       {
+        "feature": "vhf",
+        "observed_z": -0.3,
+        "signature_z": 0.41,
+        "relative_loglik": 56.255
+       },
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": 29.96,
+        "relative_loglik": 11.163
+       },
+       {
+        "feature": "v3x",
+        "observed_z": 0.35,
+        "signature_z": 0.27,
+        "relative_loglik": 8.879
+       }
+      ],
+      "contradicting": [],
+      "best_separating_test": {
+       "test": "T1",
+       "versus": "sensor_fault",
+       "separation": 12.45
+      }
+     },
+     {
+      "hypothesis": "sensor_fault",
+      "probability": 0.0,
+      "compared_with": "imbalance",
+      "supporting": [],
+      "contradicting": [
+       {
+        "feature": "vhf",
+        "observed_z": -0.3,
+        "signature_z": 11.1,
+        "relative_loglik": -56.255
+       },
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": -3.61,
+        "relative_loglik": -11.163
+       },
+       {
+        "feature": "v3x",
+        "observed_z": 0.35,
+        "signature_z": 25.75,
+        "relative_loglik": -8.879
+       }
+      ],
+      "best_separating_test": {
+       "test": "T1",
+       "versus": "imbalance",
+       "separation": 12.45
+      }
+     },
+     {
+      "hypothesis": "looseness",
+      "probability": 0.0,
+      "compared_with": "imbalance",
+      "supporting": [],
+      "contradicting": [
+       {
+        "feature": "v2x",
+        "observed_z": 0.14,
+        "signature_z": 29.98,
+        "relative_loglik": -396.763
+       },
+       {
+        "feature": "v3x",
+        "observed_z": 0.35,
+        "signature_z": 29.97,
+        "relative_loglik": -380.707
+       },
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": 0.22,
+        "relative_loglik": -247.802
+       }
+      ],
+      "best_separating_test": {
+       "test": "T1",
+       "versus": "imbalance",
+       "separation": 5.0
+      }
+     },
+     {
+      "hypothesis": "overload",
+      "probability": 0.0,
+      "compared_with": "imbalance",
+      "supporting": [],
+      "contradicting": [
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": 0.22,
+        "relative_loglik": -247.802
+       },
+       {
+        "feature": "vib_rms",
+        "observed_z": 30.0,
+        "signature_z": 0.62,
+        "relative_loglik": -226.003
+       },
+       {
+        "feature": "power",
+        "observed_z": 0.0,
+        "signature_z": 20.13,
+        "relative_loglik": -5.866
+       }
+      ],
+      "best_separating_test": {
+       "test": "T4",
+       "versus": "imbalance",
+       "separation": 2.16
+      }
+     },
+     {
+      "hypothesis": "cooling_failure",
+      "probability": 0.0,
+      "compared_with": "imbalance",
+      "supporting": [
+       {
+        "feature": "vhf",
+        "observed_z": -0.3,
+        "signature_z": -0.21,
+        "relative_loglik": 0.067
+       }
+      ],
+      "contradicting": [
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": 0.01,
+        "relative_loglik": -266.12
+       },
+       {
+        "feature": "vib_rms",
+        "observed_z": 30.0,
+        "signature_z": 0.04,
+        "relative_loglik": -254.444
+       },
+       {
+        "feature": "thermal_resid",
+        "observed_z": -0.06,
+        "signature_z": 5.79,
+        "relative_loglik": -2.759
+       }
+      ],
+      "best_separating_test": {
+       "test": "T3",
+       "versus": "imbalance",
+       "separation": 2.59
+      }
+     },
+     {
+      "hypothesis": "supply_voltage",
+      "probability": 0.0,
+      "compared_with": "imbalance",
+      "supporting": [],
+      "contradicting": [
+       {
+        "feature": "v1x",
+        "observed_z": 30.0,
+        "signature_z": 0.22,
+        "relative_loglik": -247.802
+       },
+       {
+        "feature": "vib_rms",
+        "observed_z": 30.0,
+        "signature_z": 0.22,
+        "relative_loglik": -245.295
+       },
+       {
+        "feature": "duty",
+        "observed_z": -0.02,
+        "signature_z": 2.66,
+        "relative_loglik": -2.067
+       }
+      ],
+      "best_separating_test": {
+       "test": "T1",
+       "versus": "imbalance",
+       "separation": 0.1
+      }
+     }
+    ],
+    "feature_evidence_source": "C1 z-scores of the live run's anomalous windows, decomposed by the hypothesis model's own log-likelihood",
+    "test_changed_leading_hypothesis": false,
+    "live_ranking_top": "imbalance",
+    "missing": [],
+    "unscored_note": "C1 compares each window with the healthy baseline learned per speed bin; windows in an unlearned bin are not compared",
+    "sufficiency": "SUFFICIENT_EVIDENCE",
+    "sufficient_for_operational_recommendation": true,
+    "recommended_next_test": {
+     "test": "T1",
+     "expected_info_gain_nats": 0.0,
+     "worth_running": false
+    },
+    "scenario_truth": "imbalance",
+    "scenario_note": "the copy carries the injected fault (imbalance); it is scenario ground truth, not a TORQVA diagnosis \u2014 ground truth is shown for the simulation only and never used by TORQVA."
+   },
+   "predictions": {
+    "available": true,
+    "provenance": "PREDICTED",
+    "conditioned_on": {
+     "ranked": [
+      [
+       "imbalance",
+       1.0
+      ],
+      [
+       "sensor_fault",
+       0.0
+      ],
+      [
+       "looseness",
+       0.0
+      ],
+      [
+       "overload",
+       0.0
+      ],
+      [
+       "cooling_failure",
+       0.0
+      ],
+      [
+       "supply_voltage",
+       0.0
+      ]
+     ],
+     "label": "confident",
+     "top": "imbalance",
+     "top_p": 1.0,
+     "margin": 1.0,
+     "ood": false,
+     "n_windows": 45,
+     "entropy_nats": 0.0
+    },
+    "basis": {
+     "t": 60.0,
+     "setpoint_rpm": 1800.0,
+     "incident": "INC-001",
+     "posterior_top": "imbalance",
+     "posterior_label": "confident",
+     "posterior_windows": 11
+    },
+    "state_now": {
+     "rpm": 1801.0,
+     "setpoint_rpm": 1800.0,
+     "current": 1.352,
+     "housing": 23.15,
+     "vib_rms": 0.2912,
+     "averaged_windows": 10,
+     "provenance": "SIMULATED"
+    },
+    "candidates": [
+     {
+      "candidate_id": "WF-0002-A",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 1260.0,
+      "horizons_s": [
+       30,
+       60,
+       120
+      ],
+      "mean": {
+       "rpm": [
+        1260.0,
+        1260.0,
+        1260.0
+       ],
+       "vib_rms": [
+        0.143,
+        0.143,
+        0.143
+       ],
+       "current": [
+        1.051,
+        1.051,
+        1.051
+       ],
+       "housing": [
+        23.4931,
+        23.8197,
+        24.4317
+       ]
+      },
+      "lo": {
+       "rpm": [
+        1257.0,
+        1257.0,
+        1254.4503
+       ],
+       "vib_rms": [
+        0.1329,
+        0.1225,
+        0.1303
+       ],
+       "current": [
+        1.011,
+        1.011,
+        0.9912
+       ],
+       "housing": [
+        23.2755,
+        23.6441,
+        24.2245
+       ]
+      },
+      "hi": {
+       "rpm": [
+        1263.0,
+        1263.0,
+        1265.5497
+       ],
+       "vib_rms": [
+        0.1531,
+        0.1635,
+        0.1557
+       ],
+       "current": [
+        1.091,
+        1.091,
+        1.1108
+       ],
+       "housing": [
+        23.7107,
+        23.9953,
+        24.6389
+       ]
+      },
+      "risk": 0.0,
+      "risk_by_signal": {
+       "housing": 0.0,
+       "vib_rms": 0.0,
+       "current": 0.0
+      },
+      "status": "supported",
+      "status_reasons": [],
+      "interval_method": "split_conformal_floor",
+      "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+      "within_supervisor_envelope": true,
+      "basis": {
+       "t": 60.0,
+       "setpoint_rpm": 1800.0,
+       "incident": "INC-001",
+       "posterior_top": "imbalance",
+       "posterior_label": "confident",
+       "posterior_windows": 11
+      },
+      "provenance": "PREDICTED",
+      "label": "A",
+      "why_target": "the pipeline's own reduction (70% of setpoint)",
+      "fraction_of_setpoint": 0.7,
+      "pipeline_default": true
+     },
+     {
+      "candidate_id": "WF-0002-B",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 1530.0,
+      "horizons_s": [
+       30,
+       60,
+       120
+      ],
+      "mean": {
+       "rpm": [
+        1530.0,
+        1530.0,
+        1530.0
+       ],
+       "vib_rms": [
+        0.2105,
+        0.2105,
+        0.2105
+       ],
+       "current": [
+        1.201,
+        1.201,
+        1.201
+       ],
+       "housing": [
+        23.6106,
+        24.0516,
+        24.8779
+       ]
+      },
+      "lo": {
+       "rpm": [
+        1527.0,
+        1527.0,
+        1524.4503
+       ],
+       "vib_rms": [
+        0.2003,
+        0.19,
+        0.1978
+       ],
+       "current": [
+        1.161,
+        1.161,
+        1.1412
+       ],
+       "housing": [
+        23.393,
+        23.876,
+        24.6706
+       ]
+      },
+      "hi": {
+       "rpm": [
+        1533.0,
+        1533.0,
+        1535.5497
+       ],
+       "vib_rms": [
+        0.2206,
+        0.231,
+        0.2231
+       ],
+       "current": [
+        1.241,
+        1.241,
+        1.2608
+       ],
+       "housing": [
+        23.8282,
+        24.2272,
+        25.0851
+       ]
+      },
+      "risk": 0.0,
+      "risk_by_signal": {
+       "housing": 0.0,
+       "vib_rms": 0.0,
+       "current": 0.0
+      },
+      "status": "supported",
+      "status_reasons": [],
+      "interval_method": "split_conformal_floor",
+      "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+      "within_supervisor_envelope": true,
+      "basis": {
+       "t": 60.0,
+       "setpoint_rpm": 1800.0,
+       "incident": "INC-001",
+       "posterior_top": "imbalance",
+       "posterior_label": "confident",
+       "posterior_windows": 11
+      },
+      "provenance": "PREDICTED",
+      "label": "B",
+      "why_target": "a smaller reduction",
+      "fraction_of_setpoint": 0.85,
+      "pipeline_default": false
+     },
+     {
+      "candidate_id": "WF-0002-C",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 900.0,
+      "horizons_s": [
+       30,
+       60,
+       120
+      ],
+      "mean": {
+       "rpm": [
+        900.0,
+        900.0,
+        900.0
+       ],
+       "vib_rms": [
+        0.0732,
+        0.0732,
+        0.0732
+       ],
+       "current": [
+        0.851,
+        0.851,
+        0.851
+       ],
+       "housing": [
+        23.3604,
+        23.5583,
+        23.9289
+       ]
+      },
+      "lo": {
+       "rpm": [
+        897.0,
+        897.0,
+        894.4503
+       ],
+       "vib_rms": [
+        0.0631,
+        0.0527,
+        0.0605
+       ],
+       "current": [
+        0.811,
+        0.811,
+        0.7912
+       ],
+       "housing": [
+        23.1428,
+        23.3826,
+        23.7217
+       ]
+      },
+      "hi": {
+       "rpm": [
+        903.0,
+        903.0,
+        905.5497
+       ],
+       "vib_rms": [
+        0.0833,
+        0.0937,
+        0.0859
+       ],
+       "current": [
+        0.891,
+        0.891,
+        0.9108
+       ],
+       "housing": [
+        23.578,
+        23.7339,
+        24.1361
+       ]
+      },
+      "risk": 0.0,
+      "risk_by_signal": {
+       "housing": 0.0,
+       "vib_rms": 0.0,
+       "current": 0.0
+      },
+      "status": "supported",
+      "status_reasons": [],
+      "interval_method": "split_conformal_floor",
+      "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+      "within_supervisor_envelope": true,
+      "basis": {
+       "t": 60.0,
+       "setpoint_rpm": 1800.0,
+       "incident": "INC-001",
+       "posterior_top": "imbalance",
+       "posterior_label": "confident",
+       "posterior_windows": 11
+      },
+      "provenance": "PREDICTED",
+      "label": "C",
+      "why_target": "a larger reduction",
+      "fraction_of_setpoint": 0.5,
+      "pipeline_default": false
+     }
+    ],
+    "references": [
+     {
+      "candidate_id": "WF-0002-CONTINUE_MONITORING",
+      "action": "CONTINUE_MONITORING",
+      "target_rpm": null,
+      "horizons_s": [
+       30,
+       60,
+       120
+      ],
+      "mean": {
+       "rpm": [
+        1801.0372,
+        1801.0372,
+        1801.0372
+       ],
+       "vib_rms": [
+        0.2912,
+        0.2912,
+        0.2912
+       ],
+       "current": [
+        1.3516,
+        1.3516,
+        1.3516
+       ],
+       "housing": [
+        23.744,
+        24.3151,
+        25.3853
+       ]
+      },
+      "lo": {
+       "rpm": [
+        1798.0372,
+        1798.0372,
+        1795.4659
+       ],
+       "vib_rms": [
+        0.2779,
+        0.2769,
+        0.2714
+       ],
+       "current": [
+        1.3116,
+        1.3116,
+        1.2962
+       ],
+       "housing": [
+        23.5393,
+        24.1215,
+        25.1693
+       ]
+      },
+      "hi": {
+       "rpm": [
+        1804.0372,
+        1804.0372,
+        1806.6085
+       ],
+       "vib_rms": [
+        0.3045,
+        0.3055,
+        0.311
+       ],
+       "current": [
+        1.3916,
+        1.3916,
+        1.4069
+       ],
+       "housing": [
+        23.9486,
+        24.5088,
+        25.6012
+       ]
+      },
+      "risk": 0.0,
+      "risk_by_signal": {
+       "housing": 0.0,
+       "vib_rms": 0.0,
+       "current": 0.0
+      },
+      "status": "supported",
+      "status_reasons": [],
+      "interval_method": "split_conformal_floor",
+      "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+      "within_supervisor_envelope": true,
+      "basis": {
+       "t": 60.0,
+       "setpoint_rpm": 1800.0,
+       "incident": "INC-001",
+       "posterior_top": "imbalance",
+       "posterior_label": "confident",
+       "posterior_windows": 11
+      },
+      "provenance": "PREDICTED",
+      "label": "Continue",
+      "why_target": "reference"
+     },
+     {
+      "candidate_id": "WF-0002-STOP",
+      "action": "STOP",
+      "target_rpm": 0.0,
+      "horizons_s": [
+       30,
+       60,
+       120
+      ],
+      "mean": {
+       "rpm": [
+        2.1579,
+        0.0026,
+        0.0
+       ],
+       "vib_rms": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "current": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "housing": [
+        23.0983,
+        23.0513,
+        22.9634
+       ]
+      },
+      "lo": {
+       "rpm": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "vib_rms": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "current": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "housing": [
+        22.929,
+        22.8657,
+        22.7659
+       ]
+      },
+      "hi": {
+       "rpm": [
+        5.1579,
+        3.0026,
+        3.1941
+       ],
+       "vib_rms": [
+        0.0677,
+        0.067,
+        0.0861
+       ],
+       "current": [
+        0.04,
+        0.04,
+        0.04
+       ],
+       "housing": [
+        23.2675,
+        23.237,
+        23.1608
+       ]
+      },
+      "risk": 0.0,
+      "risk_by_signal": {
+       "housing": 0.0,
+       "vib_rms": 0.0,
+       "current": 0.0
+      },
+      "status": "supported",
+      "status_reasons": [],
+      "interval_method": "split_conformal_floor",
+      "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+      "within_supervisor_envelope": true,
+      "basis": {
+       "t": 60.0,
+       "setpoint_rpm": 1800.0,
+       "incident": "INC-001",
+       "posterior_top": "imbalance",
+       "posterior_label": "confident",
+       "posterior_windows": 11
+      },
+      "provenance": "PREDICTED",
+      "label": "Stop",
+      "why_target": "reference"
+     }
+    ],
+    "trust": {
+     "trusted": true,
+     "reasons": []
+    },
+    "validated_by_experiments": false,
+    "model_version": 2,
+    "risk_limits": {
+     "housing": 50.0,
+     "vib_rms": 0.35,
+     "current": 2.2
+    },
+    "target_grid": "targets are on a 10 rpm grid inside the Safety Supervisor envelope [540, 1800) rpm (REDUCE_SPEED may not increase speed)",
+    "summary": "5 candidates predicted (5 supported)"
+   },
+   "recommendation": {
+    "basis": {
+     "t": 60.0,
+     "setpoint_rpm": 1800.0,
+     "incident": "INC-001",
+     "posterior_top": "imbalance",
+     "posterior_label": "confident",
+     "posterior_windows": 11
+    },
+    "current_rpm": 1801.0,
+    "current_setpoint_rpm": 1800.0,
+    "target_rpm": 1260.0,
+    "change_rpm": -540.0,
+    "candidate_id": "WF-0002-A",
+    "gate": {
+     "verdict": "ACT",
+     "reason": "Top hypothesis 'imbalance' at 1.00 with margin 1.00; predictions trusted.",
+     "test": null,
+     "inputs": {
+      "mandatory_stop": false,
+      "risk": 0.0,
+      "data_ok": true,
+      "sensor_unreliable": false,
+      "top": "imbalance",
+      "top_p": 1.0,
+      "margin": 1.0,
+      "posterior_label": "confident",
+      "ood": false,
+      "conflict": false,
+      "n_windows": 45,
+      "c2_trusted": true,
+      "op_point_familiar": true,
+      "best_test": "T1",
+      "best_test_gain": -0.0,
+      "best_test_safe": true,
+      "data_requests": 0,
+      "tests_run": 1
+     },
+     "c2_trust_reasons": [],
+     "evaluated_with": "the diagnosis ranking and the live state"
+    },
+    "ranking": [
+     {
+      "candidate_id": "WF-0002-CONTINUE_MONITORING",
+      "label": "Continue",
+      "action": "CONTINUE_MONITORING",
+      "target_rpm": null,
+      "rank": 1,
+      "pipeline_default": false,
+      "risk": 0.0,
+      "status": "supported",
+      "operational_cost": 0.0,
+      "eligible": false,
+      "excluded_because": "reference: once the gate says ACT the pipeline acts with the best non-continue action"
+     },
+     {
+      "candidate_id": "WF-0002-A",
+      "label": "A",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 1260.0,
+      "rank": 2,
+      "pipeline_default": true,
+      "risk": 0.0,
+      "status": "supported",
+      "operational_cost": 0.3,
+      "eligible": true,
+      "excluded_because": null
+     },
+     {
+      "candidate_id": "WF-0002-B",
+      "label": "B",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 1530.0,
+      "rank": 3,
+      "pipeline_default": false,
+      "risk": 0.0,
+      "status": "supported",
+      "operational_cost": 0.3,
+      "eligible": true,
+      "excluded_because": null
+     },
+     {
+      "candidate_id": "WF-0002-C",
+      "label": "C",
+      "action": "REDUCE_SPEED",
+      "target_rpm": 900.0,
+      "rank": 4,
+      "pipeline_default": false,
+      "risk": 0.0,
+      "status": "supported",
+      "operational_cost": 0.3,
+      "eligible": true,
+      "excluded_because": null
+     },
+     {
+      "candidate_id": "WF-0002-STOP",
+      "label": "Stop",
+      "action": "STOP",
+      "target_rpm": 0.0,
+      "rank": 5,
+      "pipeline_default": false,
+      "risk": 0.0,
+      "status": "supported",
+      "operational_cost": 1.0,
+      "eligible": true,
+      "excluded_because": null
+     }
+    ],
+    "predicted_outcome": {
+     "candidate_id": "WF-0002-A",
+     "risk": 0.0,
+     "risk_by_signal": {
+      "housing": 0.0,
+      "vib_rms": 0.0,
+      "current": 0.0
+     },
+     "status": "supported",
+     "interval_method": "split_conformal_floor",
+     "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+     "rows": [
+      {
+       "signal": "rpm",
+       "horizon_s": 30,
+       "now": 1801.0,
+       "predicted_mean": 1260.0,
+       "lo": 1257.0,
+       "hi": 1263.0
+      },
+      {
+       "signal": "rpm",
+       "horizon_s": 60,
+       "now": 1801.0,
+       "predicted_mean": 1260.0,
+       "lo": 1257.0,
+       "hi": 1263.0
+      },
+      {
+       "signal": "rpm",
+       "horizon_s": 120,
+       "now": 1801.0,
+       "predicted_mean": 1260.0,
+       "lo": 1254.4503,
+       "hi": 1265.5497
+      },
+      {
+       "signal": "vib_rms",
+       "horizon_s": 30,
+       "now": 0.2912,
+       "predicted_mean": 0.143,
+       "lo": 0.1329,
+       "hi": 0.1531
+      },
+      {
+       "signal": "vib_rms",
+       "horizon_s": 60,
+       "now": 0.2912,
+       "predicted_mean": 0.143,
+       "lo": 0.1225,
+       "hi": 0.1635
+      },
+      {
+       "signal": "vib_rms",
+       "horizon_s": 120,
+       "now": 0.2912,
+       "predicted_mean": 0.143,
+       "lo": 0.1303,
+       "hi": 0.1557
+      },
+      {
+       "signal": "current",
+       "horizon_s": 30,
+       "now": 1.352,
+       "predicted_mean": 1.051,
+       "lo": 1.011,
+       "hi": 1.091
+      },
+      {
+       "signal": "current",
+       "horizon_s": 60,
+       "now": 1.352,
+       "predicted_mean": 1.051,
+       "lo": 1.011,
+       "hi": 1.091
+      },
+      {
+       "signal": "current",
+       "horizon_s": 120,
+       "now": 1.352,
+       "predicted_mean": 1.051,
+       "lo": 0.9912,
+       "hi": 1.1108
+      },
+      {
+       "signal": "housing",
+       "horizon_s": 30,
+       "now": 23.15,
+       "predicted_mean": 23.4931,
+       "lo": 23.2755,
+       "hi": 23.7107
+      },
+      {
+       "signal": "housing",
+       "horizon_s": 60,
+       "now": 23.15,
+       "predicted_mean": 23.8197,
+       "lo": 23.6441,
+       "hi": 23.9953
+      },
+      {
+       "signal": "housing",
+       "horizon_s": 120,
+       "now": 23.15,
+       "predicted_mean": 24.4317,
+       "lo": 24.2245,
+       "hi": 24.6389
+      }
+     ],
+     "continue_risk": 0.0,
+     "kind": "predicted outcome (not an observation, not a guarantee)"
+    },
+    "limitations": [
+     "C2 is unvalidated by intervention experiments: predictions are model outputs, not guarantees or measurements",
+     "the diagnostic test ran on a copy of the live simulated motor; the live motor was not stepped by it"
+    ],
+    "constraints": [
+     "REDUCE_SPEED must stay in [540, 1800) rpm (Safety Supervisor); max 3000 rpm"
+    ],
+    "provenance": "DERIVED",
+    "control_resolution": "1 rpm setpoint command; workflow targets use a 10 rpm grid",
+    "kind": "INTERVENTION",
+    "action": "REDUCE_SPEED",
+    "headline": "Reduce speed from 1800 to 1260 rpm",
+    "why": [
+     "Top hypothesis 'imbalance' at 1.00 with margin 1.00; predictions trusted.",
+     "C2 ranks A first among eligible actions (risk 0.00 vs 0.00 if nothing changes)"
+    ],
+    "adjustments": [
+     {
+      "parameter": "speed setpoint",
+      "from_rpm": 1800.0,
+      "to_rpm": 1260.0,
+      "change_rpm": -540.0,
+      "why": "the pipeline's own reduction (70% of setpoint)",
+      "constraint": "REDUCE_SPEED must stay in [540, 1800) rpm (Safety Supervisor); max 3000 rpm",
+      "expected": "vibration RMS at 120 s predicted 0.143 g (90 % interval 0.130\u20130.156) vs 0.291 g now"
+     }
+    ],
+    "actionable": true,
+    "decision_rule": "gate ACT \u2192 the pipeline's C2 ranking rule"
+   },
+   "execution_check": {
+    "executable": true,
+    "blockers": [],
+    "path": "analyst_request",
+    "gate": {
+     "verdict": "ACT",
+     "reason": "Top hypothesis 'imbalance' at 1.00 with margin 1.00; predictions trusted.",
+     "test": null,
+     "c2_trust_reasons": []
+    },
+    "supervisor": {
+     "verdict": "ALLOW",
+     "reasons": [
+      "checks_passed"
+     ]
+    },
+    "awaiting_decision": true,
+    "pending": {
+     "action": "REDUCE_SPEED",
+     "params": {
+      "rpm": 1260.0
+     },
+     "rationale": "C2 ranks REDUCE_SPEED first (risk 0.00)"
+    },
+    "stale": [],
+    "pipeline_command": null,
+    "prediction_now": {
+     "candidate_id": "X-4",
+     "action": "REDUCE_SPEED",
+     "target_rpm": 1260.0,
+     "horizons_s": [
+      30,
+      60,
+      120
+     ],
+     "mean": {
+      "rpm": [
+       1260.0,
+       1260.0,
+       1260.0
+      ],
+      "vib_rms": [
+       0.143,
+       0.143,
+       0.143
+      ],
+      "current": [
+       1.051,
+       1.051,
+       1.051
+      ],
+      "housing": [
+       23.4931,
+       23.8197,
+       24.4317
+      ]
+     },
+     "lo": {
+      "rpm": [
+       1257.0,
+       1257.0,
+       1254.4503
+      ],
+      "vib_rms": [
+       0.1329,
+       0.1225,
+       0.1303
+      ],
+      "current": [
+       1.011,
+       1.011,
+       0.9912
+      ],
+      "housing": [
+       23.2755,
+       23.6441,
+       24.2245
+      ]
+     },
+     "hi": {
+      "rpm": [
+       1263.0,
+       1263.0,
+       1265.5497
+      ],
+      "vib_rms": [
+       0.1531,
+       0.1635,
+       0.1557
+      ],
+      "current": [
+       1.091,
+       1.091,
+       1.1108
+      ],
+      "housing": [
+       23.7107,
+       23.9953,
+       24.6389
+      ]
+     },
+     "risk": 0.0,
+     "risk_by_signal": {
+      "housing": 0.0,
+      "vib_rms": 0.0,
+      "current": 0.0
+     },
+     "status": "supported",
+     "status_reasons": [],
+     "interval_method": "split_conformal_floor",
+     "interval_meaning": "90 % interval for a single future 1 s simulated measurement; not a guarantee and not a probability of success",
+     "within_supervisor_envelope": true,
+     "basis": {
+      "t": 60.0,
+      "setpoint_rpm": 1800.0,
+      "incident": "INC-001",
+      "posterior_top": "imbalance",
+      "posterior_label": "confident",
+      "posterior_windows": 11
+     },
+     "provenance": "PREDICTED"
+    },
+    "basis_now": {
+     "t": 60.0,
+     "setpoint_rpm": 1800.0,
+     "incident": "INC-001",
+     "posterior_top": "imbalance",
+     "posterior_label": "confident",
+     "posterior_windows": 11
+    }
+   },
+   "authorization": {
+    "required": true,
+    "decision": "AUTHORIZED",
+    "expires": "when the recommendation's basis is older than 30 simulated seconds or the setpoint, incident or ranking changes",
+    "by": "olga",
+    "role": "operator",
+    "unix": 1792305267.438,
+    "sim_t": 60.0,
+    "how": "authorized by the operator at the authorization step"
+   },
+   "intervention": {
+    "path": "analyst_request",
+    "requested_sim_t": 60.0,
+    "incident": "INC-001",
+    "receipt_id": "R-0006",
+    "command_id": 61,
+    "command": {
+     "id": 61,
+     "action": "REDUCE_SPEED",
+     "params": {
+      "rpm": 1260.0
+     },
+     "status": "PENDING"
+    },
+    "candidate_id": "WF-0002-A",
+    "provenance": "SIMULATED",
+    "note": "dispatched to the simulated device; an acknowledgement is not recovery"
+   },
+   "verification": {
+    "command": {
+     "id": 61,
+     "action": "REDUCE_SPEED",
+     "status": "ACCEPTED",
+     "acked_sim_t": 61.0,
+     "history": [
+      "SENT",
+      "ACCEPTED"
+     ],
+     "accepted": true,
+     "executed": true
+    },
+    "incident_state": "CLOSED",
+    "post_ack_windows": 200,
+    "provenance": "SIMULATED",
+    "c1_score_before": 154.691,
+    "c1_score_after": 0.251,
+    "rpm_after": 1259.3,
+    "sim_t": 260.0,
+    "predicted_vs_observed": [
+     {
+      "signal": "rpm",
+      "horizon_s": 30,
+      "predicted_mean": 1260.0,
+      "lo": 1257.0,
+      "hi": 1263.0,
+      "observed": 1261.706,
+      "inside_interval": true
+     },
+     {
+      "signal": "rpm",
+      "horizon_s": 60,
+      "predicted_mean": 1260.0,
+      "lo": 1257.0,
+      "hi": 1263.0,
+      "observed": 1261.9281,
+      "inside_interval": true
+     },
+     {
+      "signal": "rpm",
+      "horizon_s": 120,
+      "predicted_mean": 1260.0,
+      "lo": 1254.4503,
+      "hi": 1265.5497,
+      "observed": 1257.1666,
+      "inside_interval": true
+     },
+     {
+      "signal": "vib_rms",
+      "horizon_s": 30,
+      "predicted_mean": 0.143,
+      "lo": 0.1329,
+      "hi": 0.1531,
+      "observed": 0.0369,
+      "inside_interval": false
+     },
+     {
+      "signal": "vib_rms",
+      "horizon_s": 60,
+      "predicted_mean": 0.143,
+      "lo": 0.1225,
+      "hi": 0.1635,
+      "observed": 0.0381,
+      "inside_interval": false
+     },
+     {
+      "signal": "vib_rms",
+      "horizon_s": 120,
+      "predicted_mean": 0.143,
+      "lo": 0.1303,
+      "hi": 0.1557,
+      "observed": 0.0396,
+      "inside_interval": false
+     },
+     {
+      "signal": "current",
+      "horizon_s": 30,
+      "predicted_mean": 1.051,
+      "lo": 1.011,
+      "hi": 1.091,
+      "observed": 1.0491,
+      "inside_interval": true
+     },
+     {
+      "signal": "current",
+      "horizon_s": 60,
+      "predicted_mean": 1.051,
+      "lo": 1.011,
+      "hi": 1.091,
+      "observed": 1.0665,
+      "inside_interval": true
+     },
+     {
+      "signal": "current",
+      "horizon_s": 120,
+      "predicted_mean": 1.051,
+      "lo": 0.9912,
+      "hi": 1.1108,
+      "observed": 1.0925,
+      "inside_interval": true
+     },
+     {
+      "signal": "housing",
+      "horizon_s": 30,
+      "predicted_mean": 23.4931,
+      "lo": 23.2755,
+      "hi": 23.7107,
+      "observed": 23.5401,
+      "inside_interval": true
+     },
+     {
+      "signal": "housing",
+      "horizon_s": 60,
+      "predicted_mean": 23.8197,
+      "lo": 23.6441,
+      "hi": 23.9953,
+      "observed": 23.9103,
+      "inside_interval": true
+     },
+     {
+      "signal": "housing",
+      "horizon_s": 120,
+      "predicted_mean": 24.4317,
+      "lo": 24.2245,
+      "hi": 24.6389,
+      "observed": 24.5355,
+      "inside_interval": true
+     }
+    ],
+    "pipeline_prediction_check": {
+     "comparison": "available",
+     "covered_fraction": 0.75,
+     "rows": [
+      {
+       "signal": "rpm",
+       "horizon_s": 30,
+       "observed": 1261.7060425441077,
+       "predicted": 1260.0000000000507,
+       "lo": 1257.0000000000507,
+       "hi": 1263.0000000000507,
+       "covered": true
+      },
+      {
+       "signal": "vib_rms",
+       "horizon_s": 30,
+       "observed": 0.03685638920817411,
+       "predicted": 0.14299233242600534,
+       "lo": 0.1328717485528236,
+       "hi": 0.15311291629918708,
+       "covered": false
+      },
+      {
+       "signal": "current",
+       "horizon_s": 30,
+       "observed": 1.0491456767649632,
+       "predicted": 1.0509856609584898,
+       "lo": 1.0109856609584897,
+       "hi": 1.0909856609584898,
+       "covered": true
+      },
+      {
+       "signal": "housing",
+       "horizon_s": 30,
+       "observed": 23.540116899534592,
+       "predicted": 23.49311310613824,
+       "lo": 23.275489912767778,
+       "hi": 23.7107362995087,
+       "covered": true
+      },
+      {
+       "signal": "rpm",
+       "horizon_s": 60,
+       "observed": 1261.9281384904627,
+       "predicted": 1260.0,
+       "lo": 1257.0,
+       "hi": 1263.0,
+       "covered": true
+      },
+      {
+       "signal": "vib_rms",
+       "horizon_s": 60,
+       "observed": 0.038110563617665835,
+       "predicted": 0.1429923324259939,
+       "lo": 0.12249022485483885,
+       "hi": 0.16349443999714897,
+       "covered": false
+      },
+      {
+       "signal": "current",
+       "horizon_s": 60,
+       "observed": 1.0665369282160209,
+       "predicted": 1.0509856609584616,
+       "lo": 1.0109856609584615,
+       "hi": 1.0909856609584616,
+       "covered": true
+      },
+      {
+       "signal": "housing",
+       "horizon_s": 60,
+       "observed": 23.910327977374386,
+       "predicted": 23.81973572907809,
+       "lo": 23.64412830473316,
+       "hi": 23.99534315342302,
+       "covered": true
+      },
+      {
+       "signal": "rpm",
+       "horizon_s": 120,
+       "observed": 1257.1666027408519,
+       "predicted": 1260.0,
+       "lo": 1254.4502624541062,
+       "hi": 1265.5497375458938,
+       "covered": true
+      },
+      {
+       "signal": "vib_rms",
+       "horizon_s": 120,
+       "observed": 0.039600266950134966,
+       "predicted": 0.1429923324259939,
+       "lo": 0.13031021374001267,
+       "hi": 0.15567445111197514,
+       "covered": false
+      },
+      {
+       "signal": "current",
+       "horizon_s": 120,
+       "observed": 1.0924948535351586,
+       "predicted": 1.0509856609584616,
+       "lo": 0.9911637117142211,
+       "hi": 1.110807610202702,
+       "covered": true
+      },
+      {
+       "signal": "housing",
+       "horizon_s": 120,
+       "observed": 24.535527538474938,
+       "predicted": 24.43169886242677,
+       "lo": 24.224474047983605,
+       "hi": 24.638923676869936,
+       "covered": true
+      }
+     ]
+    },
+    "assessment": {
+     "outcome": "RECOVERED",
+     "reasons": [
+      "fresh_window_within_learned_band"
+     ],
+     "criteria": {
+      "in_learned_band": true,
+      "trend_not_worsening": true
+     },
+     "observed": {
+      "frac_in_band": 1.0,
+      "score_over_threshold_mean": 0.24502661967889597,
+      "trend_per_min": 0.06372936897319917,
+      "rpm": 1260.0781278425745,
+      "housing": 25.01995529595484
+     },
+     "n_fresh": 61,
+     "by": "C5 recovery assessment (pipeline)"
+    }
+   }
+  },
+  "blockers": [],
+  "next_step": "Recovery verified by C5 on fresh simulated windows. Keep monitoring.",
+  "outcome": "RECOVERY_VERIFIED",
+  "headline": "Reduce speed from 1800 to 1260 rpm",
+  "finished_unix": 1792305267.499
+ },
+ "patterns_phys": {
+  "mode": "PHYSICAL",
+  "provenance": "MEASURED",
+  "patterns": [
+   {
+    "id": "T1",
+    "name": "Speed-step response (T1)",
+    "purpose": "Hold the setpoint for 20 s, step down to 70 % for 40 s and measure how the vibration orders and the current scale with speed.",
+    "investigates": "imbalance vs looseness vs a faulty vibration channel",
+    "signals": [
+     "rpm",
+     "current",
+     "v1x",
+     "v2x",
+     "v3x"
+    ],
+    "sequence": [],
+    "duration_s": null,
+    "expected_observations": [
+     "1x vibration speed exponent",
+     "2x+3x harmonics speed exponent",
+     "log change of current per rpm"
+    ],
+    "prerequisites": [
+     {
+      "check": "no TORQVA device handshake: the physical device is disconnected",
+      "ok": false,
+      "detail": ""
+     },
+     {
+      "check": "the supported firmware accepts only STOP, START, SET_SPEED: it has no diagnostic-test command, so no test pattern can run on the physical motor",
+      "ok": false,
+      "detail": ""
+     },
+     {
+      "check": "C1 analysis is not available: no device handshake (DEVICE DISCONNECTED or not a TORQVA device)",
+      "ok": false,
+      "detail": ""
+     }
+    ],
+    "available": false,
+    "availability": {
+     "SIMULATION": "available (runs on a copy of the live simulated motor)",
+     "PHYSICAL": "not available: the supported firmware accepts only STOP, START, SET_SPEED and C1 cannot consume its telemetry"
+    }
+   },
+   {
+    "id": "T3",
+    "name": "Thermal observation (T3)",
+    "purpose": "Hold speed for 300 s and compare the housing temperature with the fitted thermal model.",
+    "investigates": "cooling failure vs overload",
+    "signals": [
+     "housing",
+     "current",
+     "ambient"
+    ],
+    "sequence": [],
+    "duration_s": null,
+    "expected_observations": [
+     "housing thermal-residual slope, \u00b0C per 100 s"
+    ],
+    "prerequisites": [
+     {
+      "check": "no TORQVA device handshake: the physical device is disconnected",
+      "ok": false,
+      "detail": ""
+     },
+     {
+      "check": "the supported firmware accepts only STOP, START, SET_SPEED: it has no diagnostic-test command, so no test pattern can run on the physical motor",
+      "ok": false,
+      "detail": ""
+     },
+     {
+      "check": "C1 analysis is not available: no device handshake (DEVICE DISCONNECTED or not a TORQVA device)",
+      "ok": false,
+      "detail": ""
+     }
+    ],
+    "available": false,
+    "availability": {
+     "SIMULATION": "available (runs on a copy of the live simulated motor)",
+     "PHYSICAL": "not available: the supported firmware accepts only STOP, START, SET_SPEED and C1 cannot consume its telemetry"
+    }
+   },
+   {
+    "id": "T4",
+    "name": "Coast-down (T4)",
+    "purpose": "Run 10 s, disable the driver and measure the coast-down time constant over 40 s.",
+    "investigates": "friction / overload vs cooling or electrical faults",
+    "signals": [
+     "rpm"
+    ],
+    "sequence": [],
+    "duration_s": null,
+    "expected_observations": [
+     "ln tau of the coast-down (s)"
+    ],
+    "prerequisites": [
+     {
+      "check": "no TORQVA device handshake: the physical device is disconnected",
+      "ok": false,
+      "detail": ""
+     },
+     {
+      "check": "the supported firmware accepts only STOP, START, SET_SPEED: it has no diagnostic-test command, so no test pattern can run on the physical motor",
+      "ok": false,
+      "detail": ""
+     },
+     {
+      "check": "C1 analysis is not available: no device handshake (DEVICE DISCONNECTED or not a TORQVA device)",
+      "ok": false,
+      "detail": ""
+     }
+    ],
+    "available": false,
+    "availability": {
+     "SIMULATION": "available (runs on a copy of the live simulated motor)",
+     "PHYSICAL": "not available: the supported firmware accepts only STOP, START, SET_SPEED and C1 cannot consume its telemetry"
+    }
+   },
+   {
+    "id": "SWEEP",
+    "name": "Speed-response sweep",
+    "purpose": "Hold 100 %, 70 % and 85 % of the current setpoint for 60 s each and score every window with C1; the 100 \u2192 70 % step is the condition the T1 signature was learned at.",
+    "investigates": "whether the anomaly depends on speed; imbalance vs looseness when the T1 conditions are met",
+    "signals": [
+     "current",
+     "rpm",
+     "v1x",
+     "v2x",
+     "v3x",
+     "vib_rms"
+    ],
+    "sequence": [],
+    "duration_s": null,
+    "expected_observations": [
+     "settled speed and tracking error per step",
+     "mean current, voltage, power and vibration RMS per step",
+     "C1 flagged fraction per step",
+     "speed-scaling exponents for each step pair (the T1 signature only where its learned conditions hold)"
+    ],
+    "prerequisites": [
+     {
+      "check": "no TORQVA device handshake: the physical device is disconnected",
+      "ok": false,
+      "detail": ""
+     },
+     {
+      "check": "the supported firmware accepts only STOP, START, SET_SPEED: it has no diagnostic-test command, so no test pattern can run on the physical motor",
+      "ok": false,
+      "detail": ""
+     },
+     {
+      "check": "C1 analysis is not available: no device handshake (DEVICE DISCONNECTED or not a TORQVA device)",
+      "ok": false,
+      "detail": ""
+     }
+    ],
+    "available": false,
+    "availability": {
+     "SIMULATION": "available (runs on a copy of the live simulated motor)",
+     "PHYSICAL": "not available: the supported firmware accepts only STOP, START, SET_SPEED and C1 cannot consume its telemetry"
+    }
+   },
+   {
+    "id": "ADAPTIVE",
+    "name": "Adaptive (TORQVA selects the tests)",
+    "purpose": "TORQVA picks T1, T3 or T4 one at a time by expected information gain until the gate's confidence rule is met, nothing worth running remains, or the budget is used.",
+    "investigates": "whichever leading hypotheses are least separated by the current evidence",
+    "signals": [
+     "ambient",
+     "current",
+     "housing",
+     "rpm",
+     "v1x",
+     "v2x",
+     "v3x"
+    ],
+    "sequence": [],
+    "duration_s": null,
+    "expected_observations": [
+     "per selected test: its learned observation (T1 exponents, T3 thermal slope or T4 coast-down tau)"
+    ],
+    "prerequisites": [
+     {
+      "check": "no TORQVA device handshake: the physical device is disconnected",
+      "ok": false,
+      "detail": ""
+     },
+     {
+      "check": "the supported firmware accepts only STOP, START, SET_SPEED: it has no diagnostic-test command, so no test pattern can run on the physical motor",
+      "ok": false,
+      "detail": ""
+     },
+     {
+      "check": "C1 analysis is not available: no device handshake (DEVICE DISCONNECTED or not a TORQVA device)",
+      "ok": false,
+      "detail": ""
+     }
+    ],
+    "available": false,
+    "availability": {
+     "SIMULATION": "available (runs on a copy of the live simulated motor)",
+     "PHYSICAL": "not available: the supported firmware accepts only STOP, START, SET_SPEED and C1 cannot consume its telemetry"
+    }
+   }
+  ],
+  "policies": [
+   "require_confirmation",
+   "auto_when_permitted"
+  ]
+ },
+ "physical": {
+  "id": "WF-0003",
+  "mode": "PHYSICAL",
+  "provenance": "MEASURED",
+  "session": null,
+  "pattern": {
+   "id": "T1",
+   "name": "Speed-step response (T1)",
+   "purpose": "Hold the setpoint for 20 s, step down to 70 % for 40 s and measure how the vibration orders and the current scale with speed.",
+   "investigates": "imbalance vs looseness vs a faulty vibration channel",
+   "budget": null
+  },
+  "execution_policy": "require_confirmation",
+  "idempotency_key": null,
+  "requested_by": "olga",
+  "role": "operator",
+  "created_unix": 1792305267.503,
+  "status": "BLOCKED",
+  "stages": [
+   {
+    "stage": "VALIDATING",
+    "status": "blocked",
+    "started_unix": 1792305267.503,
+    "started_sim_t": null,
+    "ended_unix": 1792305267.503,
+    "ended_sim_t": null,
+    "summary": "no TORQVA device handshake: the physical device is disconnected; the supported firmware accepts only STOP, START, SET_SPEED: it has no diagnostic-test command, so no test pattern can run on the physical motor; C1 analysis is not available: no device handshake (DEVICE DISCONNECTED or not a TORQVA device); physical motion: DEVICE NOT CONNECTED; physical motion: SECURE DEVICE TRANSPORT NOT CONFIGURED; physical motion: APPROVED LIMITS NOT YET CONFIRMED BY THE DEVICE (sent over the authenticated session once it exists); physical motion: PHYSICAL CONTROL DISABLED"
+   }
+  ],
+  "events": [
+   {
+    "unix": 1792305267.503,
+    "sim_t": null,
+    "from": "READY",
+    "to": "VALIDATING",
+    "summary": "checking the physical device, its firmware capabilities and C1 input coverage"
+   },
+   {
+    "unix": 1792305267.503,
+    "sim_t": null,
+    "from": "VALIDATING",
+    "to": "BLOCKED",
+    "summary": "no TORQVA device handshake: the physical device is disconnected; the supported firmware accepts only STOP, START, SET_SPEED: it has no diagnostic-test command, so no test pattern can run on the physical motor; C1 analysis is not available: no device handshake (DEVICE DISCONNECTED or not a TORQVA device); physical motion: DEVICE NOT CONNECTED; physical motion: SECURE DEVICE TRANSPORT NOT CONFIGURED; physical motion: APPROVED LIMITS NOT YET CONFIRMED BY THE DEVICE (sent over the authenticated session once it exists); physical motion: PHYSICAL CONTROL DISABLED"
+   }
+  ],
+  "context": {
+   "initial_telemetry": {
+    "provenance": null,
+    "fresh": false,
+    "received_unix": null,
+    "values": {},
+    "note": "only valid, fresh physical measurements are recorded; a missing value is null, never zero"
+   }
+  },
+  "blockers": [
+   "no TORQVA device handshake: the physical device is disconnected",
+   "the supported firmware accepts only STOP, START, SET_SPEED: it has no diagnostic-test command, so no test pattern can run on the physical motor",
+   "C1 analysis is not available: no device handshake (DEVICE DISCONNECTED or not a TORQVA device)",
+   "physical motion: DEVICE NOT CONNECTED",
+   "physical motion: SECURE DEVICE TRANSPORT NOT CONFIGURED",
+   "physical motion: APPROVED LIMITS NOT YET CONFIRMED BY THE DEVICE (sent over the authenticated session once it exists)",
+   "physical motion: PHYSICAL CONTROL DISABLED"
+  ],
+  "next_step": "Nothing was sent to the motor. Running this workflow on hardware needs a firmware diagnostic-test command and a vibration measurement C1 can consume; until then use Simulation mode to exercise the workflow.",
+  "outcome": "BLOCKED_PHYSICAL_PREREQUISITES",
+  "headline": "Physical workflow blocked: the device cannot run diagnostic tests and C1 cannot analyse its telemetry",
+  "finished_unix": 1792305267.503
+ }
+}

@@ -165,7 +165,6 @@ class ThermalTracker:
         T = np.array([w.housing for w in windows])
         Ta = np.array([w.ambient for w in windows])
         I2 = np.array([w.current ** 2 for w in windows])
-        dT = np.diff(T)
         # smooth the noisy derivative over a lag of 10 s
         lag = 10
         y = (T[lag:] - T[:-lag]) / lag

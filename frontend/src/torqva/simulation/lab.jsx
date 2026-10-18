@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, PosteriorBars, fmt } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, PosteriorBars, fmt, canControl } from '../shared/components.jsx';
 import { api } from '../api.js';
 
 const FAULTS = ['imbalance', 'looseness', 'overload', 'cooling_failure', 'supply_voltage', 'sensor_fault'];
 const PURPOSES = ['commissioning', 'fault_run', 'experiment', 'evaluation'];
-const canControl = (role) => role === 'operator' || role === 'admin';
 const HIDDEN = (v) => typeof v === 'string' && v.startsWith('HIDDEN');
 
 function useAsync() {

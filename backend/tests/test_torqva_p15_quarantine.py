@@ -2,7 +2,6 @@
 import re
 from pathlib import Path
 
-import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 FW = ROOT / "esp32" / "torqva_fw"

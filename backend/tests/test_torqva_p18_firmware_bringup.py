@@ -9,7 +9,7 @@ import pytest
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from torqva.serial_bridge import FrameError, parse_frame, DeviceModel, Q_BITS
+from torqva.serial_bridge import FrameError, parse_frame, DeviceModel
 
 ROOT = Path(__file__).resolve().parents[2]
 FW = ROOT / "esp32" / "torqva_fw"

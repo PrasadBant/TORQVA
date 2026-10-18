@@ -18,12 +18,12 @@ import torqva.c2_robust as c2r
 import torqva.c2c4_study as study
 from torqva.c2_robust import (MIN_CELL_N, NONNEGATIVE, NoiseAwarePredictor, PREDICTION_TARGETS, PersistenceConformalPredictor, build_noise_aware, make_case)
 from torqva.c4_robust import ConflictGuard, StyleAwareDiagnosticsModel, TEST_SPECS, classify_test_result, style_regime
-from torqva.diagnostics import DiagnosticsModel, run_test_on_sim
+from torqva.diagnostics import run_test_on_sim
 from torqva.gate import GateInputs, decide
 from torqva.hypotheses import HYPS, Posterior
 from torqva.incident import S
 from torqva.pipeline import Orchestrator, PipelineConfig
-from torqva.prediction import ACTIONS, CHECK_HORIZONS, NOISE_FLOOR, SIGNALS, InterventionPredictor, StateSummary, estimate_noise
+from torqva.prediction import ACTIONS, NOISE_FLOOR, SIGNALS, InterventionPredictor, StateSummary, estimate_noise
 from torqva.schemas import ActionType, GateVerdict, Hypothesis, Mode, ProposalSource, ProposedAction, Role
 from torqva.sim import REGIMES, MotorSim
 from torqva.simdevice import SimDevice
@@ -317,7 +317,6 @@ def test_c2_has_no_path_to_the_device():
 
 def test_unsupported_prediction_blocks_the_action_and_is_recorded(stack, noise_aware, monkeypatch):
     o = build(stack, noise_aware, fault=Hy.IMBALANCE, sev=0.5)
-    from torqva.prediction import Prediction
     real = o.pred.predict
     def unsupported(post, st, action, target_rpm=0.0, H=120):
         p = real(post, st, action, target_rpm, H); p.status, p.status_reasons = "unsupported", ["forced_for_test"]; return p

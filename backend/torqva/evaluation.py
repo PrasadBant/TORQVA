@@ -11,13 +11,11 @@ Protocol: models are fitted on TRAIN sessions (seeds in TRAIN_SEEDS); every metr
 from __future__ import annotations
 
 import argparse
-import copy
 import hashlib
 import json
 import subprocess
 import time
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -30,7 +28,7 @@ from .prediction import InterventionPredictor, SIGNALS, StateSummary, persistenc
 from .recovery import assess
 from .scenarios import action_cases, posterior_from, warm_session
 from .schemas import ActionType, CommandStatus, Hypothesis, RecoveryOutcome
-from .sim import FEATURES, REGIMES, MotorSim, rollout
+from .sim import REGIMES, MotorSim, rollout
 
 TRAIN_SEEDS = (0, 101, 102, 11, 12)
 SPEEDS_LEARNED = [900, 1200, 1500, 1800, 2100]

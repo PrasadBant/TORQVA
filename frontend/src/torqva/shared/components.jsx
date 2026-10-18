@@ -38,15 +38,6 @@ export function CardLink({ onClick, children }) {
   return <div className="tq-card-foot"><button className="tq-link" onClick={onClick}>{children}<ArrowRight size={14} aria-hidden="true" /></button></div>;
 }
 
-export function Tabs({ tabs, value, onChange, label }) {
-  return (
-    <div className="tq-tabs" role="tablist" aria-label={label}>
-      {tabs.map(([k, name]) => (
-        <button key={k} role="tab" className="tq-tab" aria-selected={value === k} onClick={() => onChange(k)}>{name}</button>))}
-    </div>
-  );
-}
-
 /** Persistent, non-dismissable. TORQVA only serves simulated data in this build. */
 export function SimulationBanner({ mode = 'SIMULATION', physical = false }) {
   return (
@@ -150,4 +141,10 @@ export function PosteriorBars({ ranked = [], label }) {
   );
 }
 
+/** Shared text helpers (one definition each; simulation and physical pages import them from here). */
+export const title = (s) => String(s ?? '').replaceAll('_', ' ');
+export const pct = (p, d = 0) => (p === null || p === undefined || !Number.isFinite(p) ? '—' : `${(p * 100).toFixed(d)}%`);
+export const fmtRpm = (v) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : Math.round(Number(v)).toLocaleString('en-US'));
+/** Roles that may operate the simulator or request an action (the backend enforces the same rule). */
+export const canControl = (role) => role === 'operator' || role === 'admin';
 export const fmt = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v) ? '—' : Number(v).toFixed(d));
