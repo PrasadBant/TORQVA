@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Octagon } from 'lucide-react';
 import { api, getToken, ApiError } from '../api.js';
 import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, PageHead, CardLink, Disclosure } from '../shared/components.jsx';
 import { HistoryChart } from '../shared/lazyCharts.jsx';
@@ -103,7 +102,7 @@ function ConnPill({ snap }) {
 }
 
 /* ------------------------------------------------------------------ Device connection */
-export function DevicePage({ stream, role }) {
+export function DevicePage({ stream, role, go, simMode = false }) {
   const { snap, events, ws, error } = stream;
   const [ports, setPorts] = useState([]);
   const [form, setForm] = useState({ port: '', baud: 115200, expected: '' });
@@ -118,6 +117,12 @@ export function DevicePage({ stream, role }) {
     <>
       <PageHead title="Device Connection" sub="USB serial link to the ESP32-S3, owned by the backend. The browser never touches the port."
         right={<><Pill tone={o.tone}>{o.label}</Pill><ConnPill snap={snap} /></>} />
+      {(() => { const bl = snap?.control_blockers || ['DEVICE NOT CONNECTED']; return (
+        <p className={`tq-callout ${bl.length ? 'warn' : ''}`} role="status" data-testid="dev-readiness">
+          <strong>{bl.length ? `Physical motion blocked (${bl.length})` : 'No motion blocker reported'}</strong>{bl.length ? ` — ${bl[0]}${bl.length > 1 ? ` and ${bl.length - 1} more` : ''}.` : '.'}{' '}
+          {go && !simMode && <button type="button" className="tq-linkbtn" onClick={() => go('control')}>Review readiness and commissioning</button>}
+          {go && simMode && <>Physical Motor Control is available in Physical mode. To run the simulated motor, use <button type="button" className="tq-linkbtn" data-testid="dev-to-scenario" onClick={() => go('overview')}>Scenario Studio on Overview</button>.</>}
+        </p>); })()}
       <div className="tq-split">
         <div className="tq-stack">
           <Card title="Connection" id="c-devconn">
@@ -152,10 +157,10 @@ export function DevicePage({ stream, role }) {
                 <tbody>{Object.entries(snap.sensor_status).map(([k, v]) => (<tr key={k}><td>{title(k)}</td><td><Pill tone={v === 'valid' ? 'ok' : v === 'unavailable' ? 'off' : 'warn'}>{v}</Pill></td></tr>))}</tbody></table>)}
             <p className="tq-muted">unavailable = this firmware does not report it or no frame has arrived; invalid/stale readings are never shown as numbers.</p>
           </Card>
-          <Card title="Counters" id="c-devcnt">
+          <Disclosure summary="Connection diagnostics" meta={snap?.counters ? `frame counters · ${Object.values(snap.counters).reduce((x, y) => x + (Number(y) || 0), 0)} events counted` : 'no data'} testid="dev-counters">
             {!snap?.counters ? <Empty>No data.</Empty> : (
               <dl className="tq-kv">{Object.entries(snap.counters).map(([k, v]) => (<React.Fragment key={k}><dt>{title(k)}</dt><dd className="tq-num">{v}</dd></React.Fragment>))}</dl>)}
-          </Card>
+          </Disclosure>
         </div>
         <div className="tq-stack">
           <Card title="Serial port" id="c-devport">
@@ -246,7 +251,7 @@ export const STATE_TONE = { REQUESTED: 'info', REJECTED: 'crit', AUTHORIZED: 'wa
 const LIMIT_FIELDS = [['max_current_a', 'Max current (A)'], ['min_voltage_v', 'Min supply voltage (V)'], ['max_voltage_v', 'Max supply voltage (V)'], ['max_temp_c', 'Max housing temperature (°C)'], ['max_rpm', 'Max speed (rpm)'], ['max_duty_pct', 'Max duty (%)']];
 
 /** Commissioning record: human attestations with written evidence, approved limits and the explicit enable. A record, not a measurement; it never overrides the firmware. */
-export function CommissioningCard({ role }) {
+export function CommissioningCard({ role, expanded = false }) {
   const [c, setC] = useState(null);
   const [err, setErr] = useState(null);
   const [ev, setEv] = useState({});
@@ -268,8 +273,8 @@ export function CommissioningCard({ role }) {
       <p data-testid="commissioning-summary"><strong className="tq-num">{c.items.filter((i) => i.status === 'VERIFIED').length} of {c.items.length}</strong> requirements verified
         {c.items.some((i) => i.status === 'BLOCKED') && <> · <Pill tone="stop">{`${c.items.filter((i) => i.status === 'BLOCKED').length} blocked`}</Pill></>}
         {' '}· approved limits {c.limits ? `version ${c.limits.version}` : 'none'}</p>
-      <Disclosure summary={admin ? 'Review and edit the commissioning record' : 'View the commissioning checklist'} meta={admin ? 'attest requirements with written evidence, approve limits, enable the record' : 'requirements, evidence and approved limits'} testid="commissioning-edit">
-      <table className="tq-table tq-table-wrap" data-testid="commissioning"><caption className="tq-sr">Commissioning checklist</caption>
+      <Disclosure open={expanded} summary={admin ? 'Review and edit the commissioning record' : 'View the commissioning checklist'} meta={admin ? 'attest requirements with written evidence, approve limits, enable the record' : 'requirements, evidence and approved limits'} testid="commissioning-edit">
+      <div className="tq-table-wrap"><table className="tq-table" data-testid="commissioning"><caption className="tq-sr">Commissioning checklist</caption>
         <thead><tr><th scope="col">Requirement</th><th scope="col">Status</th><th scope="col">Evidence</th>{admin && <th scope="col">Action</th>}</tr></thead>
         <tbody>{c.items.map((i) => (
           <tr key={i.id}><td>{i.label}</td>
@@ -281,7 +286,7 @@ export function CommissioningCard({ role }) {
                 <button type="button" className="tq-btn" onClick={run(() => api.commissioningItem(i.id, { status: 'BLOCKED', evidence: ev[i.id] || '' }))}>Block</button>
                 <button type="button" className="tq-btn tq-ghost" onClick={run(() => api.commissioningItem(i.id, { status: 'NOT VERIFIED', evidence: '' }))}>Clear</button>
               </div></td>}
-          </tr>))}</tbody></table>
+          </tr>))}</tbody></table></div>
       <h4>Approved limits</h4>
       {c.limits ? <p className="tq-muted" data-testid="limits-approved">Version {c.limits.version}, approved by {c.limits.by}: {LIMIT_FIELDS.map(([k, l]) => `${l} ${c.limits[k]}`).join(' · ')}</p> : <p className="tq-muted">No limits are approved. Nothing is assumed.</p>}
       {c.limits_history?.length > 0 && (
@@ -290,6 +295,7 @@ export function CommissioningCard({ role }) {
             <li key={h.version}>v{h.version} · {h.by} · {new Date(h.at * 1000).toLocaleString()} · {h.previous ? LIMIT_FIELDS.filter(([k]) => h.previous[k] !== h.new[k]).map(([k, l]) => `${l}: ${h.previous[k]} → ${h.new[k]}`).join(', ') || 'unchanged' : 'first approval'}</li>))}</ul>
         </details>)}
       {admin && (
+        <Disclosure summary="Change approved limits or enable the record" meta="admin · written evidence and a confirmation phrase required" testid="commissioning-admin" className="tq-mt">
         <form className="tq-form" onSubmit={(e) => e.preventDefault()}>
           <fieldset className="tq-fieldset"><legend>Propose new limits</legend>
           <div className="tq-form-grid">{LIMIT_FIELDS.map(([k, l]) => <label key={k}>{l} <input type="number" min="0" value={lim[k] ?? ''} onChange={(e) => setLim({ ...lim, [k]: e.target.value })} /></label>)}</div>
@@ -305,7 +311,8 @@ export function CommissioningCard({ role }) {
             <button type="button" className="tq-btn" onClick={run(() => api.commissioningEnable({ enabled: false }))}>Disable</button>
           </div>
           </fieldset>
-        </form>)}
+        </form>
+        </Disclosure>)}
       </Disclosure>
       <ErrorBox error={err} />
       <p className="tq-muted">Approved limits are sent to the board over the authenticated session and must be confirmed by it. Enabling the record does not enable motion: the firmware interlocks (E-stop input, secure session) are checked separately and still refuse START and speed.</p>
@@ -313,85 +320,65 @@ export function CommissioningCard({ role }) {
   );
 }
 
-export function MotorControlPage({ stream, role }) {
-  const { snap, commands } = stream;
-  const [duty, setDuty] = useState('');
-  const [rpm, setRpm] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
-  const [last, setLast] = useState(null);
-  const [confirm, setConfirm] = useState(false);
-  const o = originOf(snap);
-  const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
-  const send = (body) => async () => { setBusy(true); setErr(null); try { setLast(await api.deviceCommand(body)); } catch (e) { setErr(e); } finally { setBusy(false); stream.refresh(); } };
-  const connected = snap && ['CONNECTED', 'STALE'].includes(snap.connection);
-  const blocked = blockers.length > 0;
+// The backend's interlock ids, grouped the way commissioning is done. An id the backend adds later lands under "Other checks", never hidden.
+const INTERLOCK_GROUPS = [
+  ['connect', 'Device connection', ['identity', 'handshake', 'telemetry', 'sensors'], 'device'],
+  ['firmware', 'Firmware and faults', ['fault', 'watchdog', 'driver'], 'record'],
+  ['estop', 'Emergency stop', ['estop'], 'record'],
+  ['auth', 'Authorization', ['session', 'supervisor'], null],
+  ['limits', 'Electrical limits', ['limits', 'psu'], 'record'],
+  ['commission', 'Commissioning', ['commissioning', 'board', 'wiring'], 'record'],
+];
+// What each status means for the analyst (the backend's own words are in the Evidence column).
+const ILK = { VERIFIED: ['ok', 'passed'], BLOCKED: ['stop', 'blocking'], 'NOT VERIFIED': ['warn', 'not verified'], UNAVAILABLE: ['off', 'unavailable'] };
+const toComm = () => { try { document.getElementById('c-comm')?.scrollIntoView({ block: 'start' }); } catch { /* not supported */ } };
+
+/** The backend's interlock report for physical motion as a grouped checklist (read-only). Hardware checks are never VERIFIED by software. */
+export function InterlocksCard({ snap, go }) {
+  const rows = snap?.interlocks;
+  const known = new Set(INTERLOCK_GROUPS.flatMap((g) => g[2]));
+  const groups = rows ? [...INTERLOCK_GROUPS, ['other', 'Other checks', rows.filter((r) => !known.has(r.id)).map((r) => r.id), null]]
+    .map(([key, name, ids, next]) => ({ key, name, next, items: ids.map((i) => rows.find((r) => r.id === i)).filter(Boolean) })).filter((g) => g.items.length) : [];
   return (
-    <>
-      <PageHead title="Motor Control" sub="Every request goes: authenticated backend → role check → Safety Supervisor → commissioning and interlocks → dispatcher → device validation → acknowledgement."
-        right={<><Pill tone={o.tone}>{o.label}</Pill><Pill tone={blockers.length ? 'stop' : 'info'}>{blockers.length ? blockers[0] : 'no blocker reported'}</Pill></>} />
-      <div className="tq-split">
-        <div className="tq-stack">
-          <Card title="Motor state" id="c-mstate">
-            {!snap?.handshake ? <Empty>No device is connected. Simulation controls are on the Live Monitor page.</Empty> : (
-              <dl className="tq-kv">
-                <dt>Drive</dt><dd>{snap.drive || '—'}</dd>
-                <dt>Device identity</dt><dd>{snap.device_id || '—'} <span className="tq-muted">({snap.identity})</span></dd>
-                <dt>Requested duty (command, not a measurement)</dt><dd className="tq-num">{snap.values?.duty?.value == null ? '—' : `${fmt(snap.values.duty.value, 1)} %`}</dd>
-                <dt>Measured speed (Hall sensor)</dt><dd className="tq-num">{snap.values?.rpm?.value == null ? 'UNAVAILABLE' : `${fmt(snap.values.rpm.value, 0)} rpm`}</dd>
-                <dt>Safety state</dt><dd>{snap.safety_state === 'EMERGENCY_STOP' ? <Pill tone="stop">LATCHED: {title(snap.trip_reason)}</Pill> : <Pill tone={snap.safety_state === 'OK' ? 'ok' : 'warn'}>{snap.safety_state || '—'}</Pill>}</dd>
-                <dt>Firmware motion permission</dt><dd>{snap.start_blocked_reason ? <Pill tone="warn">refused: {snap.start_blocked_reason}</Pill> : <Pill tone="info">no interlock refusal reported</Pill>}</dd>
-                <dt>Motor current</dt><dd className="tq-num">{snap.values?.current?.valid ? `${fmt(snap.values.current.value, 2)} A` : 'UNAVAILABLE'}</dd>
-                <dt>Housing temperature</dt><dd className="tq-num">{snap.values?.housing?.valid ? `${fmt(snap.values.housing.value, 1)} °C` : 'UNAVAILABLE'}</dd>
-                <dt>Vibration RMS</dt><dd>UNAVAILABLE <span className="tq-muted">(not implemented; raw acceleration is a different quantity)</span></dd>
-                <dt>Telemetry</dt><dd>{snap.telemetry_fresh ? <Pill tone="ok">live</Pill> : <Pill tone="crit">STALE</Pill>}</dd>
-              </dl>)}
-          </Card>
-          <Card title="Request motion" id="c-mctl" right={<ProvBadge kind="MEASURED" />}>
-            {blocked && (
-              <div className="tq-callout crit" role="alert" data-testid="control-blockers">
-                <strong>Physical motion is unavailable:</strong>
-                <ul className="tq-list">{blockers.map((b) => <li key={b}>{b}</li>)}</ul>
-              </div>)}
-            <form className="tq-form" onSubmit={(e) => e.preventDefault()}>
-              <label>Open-loop start duty (%) <input type="number" min="0" max={snap?.control_limits?.max_duty_pct ?? 100} value={duty} onChange={(e) => { setDuty(e.target.value); setConfirm(false); }} disabled={blocked || !canOperate(role)} /></label>
-              <label>Duty slider <input type="range" min="0" max={snap?.control_limits?.max_duty_pct ?? 100} step="1" value={duty === '' ? 0 : duty} onChange={(e) => { setDuty(e.target.value); setConfirm(false); }} disabled={blocked || !canOperate(role)} aria-label="Duty slider (nothing is sent until you press a request button)" /></label>
-              <label>Speed setting (rpm) <input type="number" min="0" value={rpm} onChange={(e) => setRpm(e.target.value)} disabled={blocked || !canOperate(role)} /></label>
-              <p className="tq-muted" data-testid="limits-note">{snap?.control_limits?.max_duty_pct == null ? 'No approved duty or speed limit exists, so requests are refused. The slider spans 0–100 % as an input domain only.' : `Approved ceiling: ${snap.control_limits.max_duty_pct} % duty${snap.control_limits.max_rpm == null ? '' : `, ${snap.control_limits.max_rpm} rpm`}.`} Direction: {snap?.control_limits?.direction || 'forward only'}. Nothing is sent while moving the slider.</p>
-              <div className="tq-row">
-                <button type="button" className="tq-btn tq-primary" disabled={blocked || busy || !canOperate(role) || duty === ''} onClick={() => (confirm ? (setConfirm(false), send({ action: 'START', duty_pct: Number(duty) })()) : setConfirm(true))}>{confirm ? 'Confirm START request' : 'Request START'}</button>
-                {confirm && <button type="button" className="tq-btn" onClick={() => setConfirm(false)}>Cancel</button>}
-                <button type="button" className="tq-btn" disabled={blocked || busy || !canOperate(role) || rpm === ''} onClick={send({ action: 'SET_SPEED', rpm: Number(rpm) })}>Request speed</button>
-              </div>
-            </form>
-            {!canOperate(role) && <p className="tq-muted">Your role ({role}) can request STOP only.</p>}
-            <h4>Protective stop request</h4>
-            <button type="button" className="tq-btn tq-danger tq-stop-prominent" disabled={busy || !connected} onClick={send({ action: 'STOP' })}><Octagon size={18} aria-hidden="true" /> Send STOP to device</button>
-            <p className="tq-muted">This is a software request, not an independent physical emergency stop. The firmware's own protections run locally and do not depend on this website, the network or any model.</p>
-            <ErrorBox error={err} />
-            {last && <p className="tq-callout">Last request #{last.id}: <Pill tone={STATE_TONE[last.state] || 'info'}>{last.state}</Pill> {(last.reasons || []).join(' · ')}</p>}
-          </Card>
+    <Card title="Safety interlocks" id="c-interlocks">
+      {!rows ? <Empty>No interlock data.</Empty> : (
+        <div className="tq-table-wrap"><table className="tq-table tq-ilk" data-testid="interlocks"><caption className="tq-sr">Physical motion interlocks, grouped</caption>
+          <thead><tr><th scope="col">Check</th><th scope="col">Status</th><th scope="col">Evidence or reason</th></tr></thead>
+          {groups.map((g) => {
+            const open = g.items.filter((r) => r.status !== 'VERIFIED');
+            return (
+              <tbody key={g.key} data-testid={`ilk-${g.key}`}>
+                <tr className="tq-ilk-group"><th scope="rowgroup" colSpan={3}>
+                  <span>{g.name}</span> <span className="tq-muted">{open.length ? `${g.items.length - open.length} of ${g.items.length} passed` : 'all passed'}</span>
+                  {open.length > 0 && g.next === 'device' && go && <> · <button type="button" className="tq-linkbtn" onClick={() => go('device')}>Check the connection on the Device page</button></>}
+                  {open.length > 0 && g.next === 'record' && <> · <button type="button" className="tq-linkbtn" onClick={toComm}>Go to the commissioning record</button></>}
+                </th></tr>
+                {g.items.map((r) => { const [tone, word] = ILK[r.status] || ['info', r.status]; return (
+                  <tr key={r.id}><td>{r.label}</td><td><Pill tone={tone}>{r.status}</Pill><span className="tq-sr"> ({word})</span></td><td className="tq-muted">{r.detail}</td></tr>); })}
+              </tbody>);
+          })}
+        </table></div>)}
+      <p className="tq-muted">VERIFIED means the backend has evidence; NOT VERIFIED means no evidence yet, which is not a pass. Hardware checks (E-stop circuit, driver, watchdog) are never VERIFIED by software: no reported failure is not a verification.</p>
+    </Card>
+  );
+}
+
+/** Is physical operation permitted, and what blocks it? Every blocker the backend reports is listed; nothing here grants permission. */
+export function ReadinessCard({ snap, go }) {
+  const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
+  const counts = (snap?.interlocks || []).reduce((m, r) => ({ ...m, [r.status]: (m[r.status] || 0) + 1 }), {});
+  return (
+    <Card title="Operating readiness" id="c-ready" right={<Pill tone={blockers.length ? 'stop' : 'warn'}>{blockers.length ? `BLOCKED · ${blockers.length}` : 'no blocker reported'}</Pill>}>
+      {blockers.length ? (
+        <div className="tq-callout crit" role="alert" data-testid="ready-blockers">
+          <strong>Physical motion is not permitted. The backend reports:</strong>
+          <ul className="tq-list">{blockers.map((b) => <li key={b}>{b}</li>)}</ul>
         </div>
-        <div className="tq-stack">
-          <Card title="Safety interlocks" id="c-interlocks">
-            {!snap?.interlocks ? <Empty>No interlock data.</Empty> : (
-              <table className="tq-table tq-table-wrap" data-testid="interlocks"><caption className="tq-sr">Physical motion interlocks</caption>
-                <thead><tr><th scope="col">Interlock</th><th scope="col">Status</th><th scope="col">Evidence</th></tr></thead>
-                <tbody>{snap.interlocks.map((r) => (<tr key={r.id}><td>{r.label}</td><td><Pill tone={r.status === 'VERIFIED' ? 'ok' : r.status === 'BLOCKED' ? 'stop' : r.status === 'NOT VERIFIED' ? 'warn' : 'info'}>{r.status}</Pill></td><td className="tq-muted">{r.detail}</td></tr>))}</tbody></table>)}
-            <p className="tq-muted">Hardware checks are never VERIFIED by software: no reported failure is not a verification.</p>
-          </Card>
-          <Card title="Command history" id="c-mhist">
-            {!commands.length ? <Empty>No commands requested in this session.</Empty> : (
-              <table className="tq-table"><caption className="tq-sr">Device command history</caption>
-                <thead><tr><th scope="col">#</th><th scope="col">Action</th><th scope="col">By</th><th scope="col">State</th><th scope="col">Detail</th></tr></thead>
-                <tbody>{commands.slice(0, 20).map((c) => (<tr key={c.id}><td className="tq-num">{c.id}</td><td>{title(c.action)}</td><td>{c.requested_by}</td>
-                  <td><Pill tone={STATE_TONE[c.state] || 'info'}>{title(c.state)}</Pill></td><td className="tq-muted">{(c.reasons || []).join(' · ') || c.ack_reason}</td></tr>))}</tbody></table>)}
-            <p className="tq-muted">SENT and ACKNOWLEDGED are not EXECUTED. Nothing is retried or replayed automatically; after a disconnect or device restart an unfinished command is shown as UNKNOWN OUTCOME and the operator must act again.</p>
-          </Card>
-        </div>
-      </div>
-      <div className="tq-mt"><CommissioningCard role={role} /></div>
-    </>
+      ) : (
+        <p className="tq-callout warn" role="note">No blocker is reported. Every command is still checked by the Safety Supervisor, the commissioning record and the firmware interlocks; this is not a hardware verification.</p>)}
+      {snap?.interlocks?.length > 0 && <p className="tq-small tq-muted" data-testid="ready-counts">Interlocks: {Object.entries(counts).map(([k, n]) => `${n} ${k.toLowerCase()}`).join(' · ')}.</p>}
+      {go && blockers.some((b) => /NOT CONNECTED|HANDSHAKE|TELEMETRY/i.test(b)) && <p className="tq-small"><button type="button" className="tq-linkbtn" onClick={() => go('device')}>Connect the device on the Device page</button></p>}
+    </Card>
   );
 }
 

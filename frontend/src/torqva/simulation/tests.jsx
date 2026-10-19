@@ -11,7 +11,7 @@ import { TestsPage } from './pages.jsx';
 import { canControl } from './scenario.jsx';
 import { usePlan, title, pct, fmtRpm } from './workbench.js';
 import { AdaptivePanel } from './adaptive.jsx';
-import { InvestigationTrace } from './trace.jsx';
+import { TraceLink } from './trace.jsx';
 
 // Fixed simulated durations of the backend tests (workbench.validate_sequence / diagnostics.run_test_on_sim).
 const FIXED_S = { T1: 60, T3: 300, T4: 50 };
@@ -151,7 +151,7 @@ export function SequenceResult({ run, onAddTest }) {
   );
 }
 
-export function SimTestsPage({ d, role, c2c4, wb, setWb, stale }) {
+export function SimTestsPage({ d, role, c2c4, wb, setWb, stale, go }) {
   const { plan, error: planErr, reload } = usePlan(d);
   const ctl = canControl(role);
   const s = d.status || {};
@@ -238,9 +238,7 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale }) {
       <Disclosure summary="Inspect tests run by the pipeline itself" meta="tests the decision gate proposed, their latest result and the C4 calibration status" testid="c4-pipeline">
         <TestsPage d={d} c2c4={c2c4} head={false} />
       </Disclosure>
-      <Disclosure summary="View investigation trace" meta="every record of this incident, from observation to outcome" testid="c4-trace">
-        <InvestigationTrace d={d} focus={['test']} />
-      </Disclosure>
+      <TraceLink go={go} setWb={setWb} stages={['test']} testid="c4-trace" />
     </>
   );
 }

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Usb, Octagon, Play, ShieldCheck, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, Lock, Unlock } from 'lucide-react';
 import { api } from '../api.js';
 import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, useNavContext, PageHead } from '../shared/components.jsx';
-import { DeviceLive, CommissioningCard, canOperate, STATE_TONE } from './device.jsx';
+import { DeviceLive, CommissioningCard, canOperate, STATE_TONE, ReadinessCard, InterlocksCard } from './device.jsx';
 import { TEST_SPECS } from '../shared/diagnostics.js';
 
 const WAITING = 'WAITING FOR VALID PHYSICAL TELEMETRY';
@@ -618,13 +618,17 @@ export function PhysicalOverview({ stream, go, role }) {
   );
 }
 
-export function PhysicalSafetyPage({ stream, role }) {
+export function PhysicalSafetyPage({ stream, role, go }) {
   const { snap, commands } = stream;
+  const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
   return (
     <>
-      <PageHead title="Safety & Commissioning" sub="The commissioning record and command history. Operating controls are on the Dashboard." />
-      <details className="tq-disclosure"><summary>Commissioning record</summary><div className="tq-disclosure-body"><CommissioningCard role={role} /></div></details>
-      <Card title="Command history" id="p-hist">
+      <PageHead title="Safety & Commissioning" sub="Whether physical operation is permitted, what blocks it, and the commissioning record. Operating controls are on the Dashboard."
+        right={<Pill tone={blockers.length ? 'stop' : 'warn'}>{blockers.length ? 'OPERATION BLOCKED' : 'NO BLOCKER REPORTED'}</Pill>} />
+      <ReadinessCard snap={snap} go={go} />
+      <div className="tq-mt"><InterlocksCard snap={snap} go={go} /></div>
+      <div className="tq-mt"><CommissioningCard role={role} expanded /></div>
+      <Card title="Command history" id="p-hist" className="tq-mt">
         {!(commands || []).length ? <Empty>No commands requested in this session.</Empty> : (
           <table className="tq-table"><caption className="tq-sr">Device command history</caption>
             <thead><tr><th scope="col">#</th><th scope="col">Action</th><th scope="col">By</th><th scope="col">State</th><th scope="col">Detail</th></tr></thead>

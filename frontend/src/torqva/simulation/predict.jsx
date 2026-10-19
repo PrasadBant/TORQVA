@@ -11,7 +11,7 @@ import { PredictionsPage } from './pages.jsx';
 import { StatusPill } from './c2c4.jsx';
 import { usePlan, title, pct, fmtRpm } from './workbench.js';
 import { CounterfactualLab } from './counterfactual.jsx';
-import { InvestigationTrace } from './trace.jsx';
+import { TraceLink } from './trace.jsx';
 
 const LABELS = ['A', 'B', 'C'];
 const SIG = { housing: ['Housing temperature', '°C', 1], rpm: ['Speed', 'rpm', 0], vib_rms: ['Vibration RMS (simulator model)', 'g', 3], current: ['Current', 'A', 2] };
@@ -116,21 +116,9 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
       <PageHead title="Predictions (C2)" sub="Compare what the predictor expects for different target speeds, then select one action for review."
         right={<><ProvBadge kind="PREDICTED" />{sel && <Pill tone="info">{`selected: ${sel.action === 'STOP' ? 'STOP' : `Action ${sel.label} · ${fmtRpm(sel.target_rpm)} rpm`}`}</Pill>}</>} />
 
-      <Card title="Prediction context" id="c-ctx" right={<ProvBadge kind="SIMULATED" />}>
-        <dl className="tq-kv">
-          <dt>Current speed (simulated)</dt><dd className="tq-num">{hasSim && s.last_window ? `${fmtRpm(s.last_window.rpm)} rpm at setpoint ${fmtRpm(s.device?.setpoint_rpm)} rpm` : '—'}</dd>
-          <dt>Housing · current · vibration</dt><dd className="tq-num">{hasSim && s.last_window ? `${fmt(s.last_window.housing, 1)} °C · ${fmt(s.last_window.current, 2)} A · ${fmt(s.last_window.vib_rms, 3)} g` : '—'}</dd>
-          <dt>Incident</dt><dd>{s.incident ? `${s.incident.id}: ${title(s.incident.state)}` : 'none open'}</dd>
-          <dt>Conditioned on</dt><dd>{post ? <>{title(post.top)} {pct(post.top_p, 0)} <Pill tone={post.label === 'confident' ? 'ok' : 'warn'}>{post.label}</Pill> <span className="tq-muted">({post.n_windows} evidence windows)</span></> : 'no hypothesis ranking yet'}</dd>
-          <dt>Model trust</dt><dd>{res ? (res.trust.trusted ? <Pill tone="ok">trusted by the predictor's own checks</Pill> : <Pill tone="warn">{`not trusted: ${res.trust.reasons.map(title).join(', ')}`}</Pill>) : '—'}</dd>
-          <dt>Validated by experiments</dt><dd>{res ? (res.validated_by_experiments ? 'yes (simulation experiments)' : 'no — not validated against physical experiments') : '—'}</dd>
-          <dt>Reduce envelope</dt><dd className="tq-num">{env ? `${fmtRpm(env[0])} – below ${fmtRpm(env[1])} rpm` : '—'}</dd>
-        </dl>
-      </Card>
-
-      {!hasSim ? <Card title="Action comparison" id="c-cmp" className="tq-mt"><Empty>No simulation is running.</Empty></Card>
-        : !post ? <Card title="Action comparison" id="c-cmp" className="tq-mt"><Empty>C2 predictions are conditional on a fault-hypothesis ranking, and there is none yet in this run. They become available once an anomaly has persisted.</Empty></Card> : (
-          <Card title="Action comparison" id="c-cmp" className="tq-mt" right={<>{pending ? <Pill tone="wait">calculating…</Pill> : isStale ? <Pill tone="warn">stale</Pill> : res ? <Pill tone="ok">{`computed at t = ${fmt(res.basis.t, 0)} s`}</Pill> : null}<ProvBadge kind="PREDICTED" /></>}>
+      {!hasSim ? <Card title="Action comparison" id="c-cmp"><Empty>No simulation is running.</Empty></Card>
+        : !post ? <Card title="Action comparison" id="c-cmp"><Empty>C2 predictions are conditional on a fault-hypothesis ranking, and there is none yet in this run. They become available once an anomaly has persisted.</Empty></Card> : (
+          <Card title="Action comparison" id="c-cmp" right={<>{pending ? <Pill tone="wait">calculating…</Pill> : isStale ? <Pill tone="warn">stale</Pill> : res ? <Pill tone="ok">{`computed at t = ${fmt(res.basis.t, 0)} s`}</Pill> : null}<ProvBadge kind="PREDICTED" /></>}>
             {isStale && <div className="tq-callout warn" role="status" data-testid="pred-stale">These predictions were computed for an earlier state ({age > res.max_age_s ? `${fmt(age, 0)} s ago` : 'the state changed'}). Recalculate before selecting.
               <button type="button" className="tq-btn" onClick={() => request(valid)}><RefreshCw size={14} aria-hidden="true" /> Recalculate</button></div>}
             <div className="tq-toolbar"><span className="tq-toolbar-label">Signal</span>
@@ -178,15 +166,25 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
           <button type="button" className="tq-btn tq-primary" onClick={() => go('interventions')}>Review on Interventions <ArrowRight size={14} aria-hidden="true" /></button>
         </div>)}
 
+      <Card title="What these predictions are based on" id="c-ctx" className="tq-mt" right={<ProvBadge kind="SIMULATED" />}>
+        <dl className="tq-kv">
+          <dt>Current speed (simulated)</dt><dd className="tq-num">{hasSim && s.last_window ? `${fmtRpm(s.last_window.rpm)} rpm at setpoint ${fmtRpm(s.device?.setpoint_rpm)} rpm` : '—'}</dd>
+          <dt>Housing · current · vibration</dt><dd className="tq-num">{hasSim && s.last_window ? `${fmt(s.last_window.housing, 1)} °C · ${fmt(s.last_window.current, 2)} A · ${fmt(s.last_window.vib_rms, 3)} g` : '—'}</dd>
+          <dt>Incident</dt><dd>{s.incident ? `${s.incident.id}: ${title(s.incident.state)}` : 'none open'}</dd>
+          <dt>Conditioned on</dt><dd>{post ? <>{title(post.top)} {pct(post.top_p, 0)} <Pill tone={post.label === 'confident' ? 'ok' : 'warn'}>{post.label}</Pill> <span className="tq-muted">({post.n_windows} evidence windows)</span></> : 'no hypothesis ranking yet'}</dd>
+          <dt>Model trust</dt><dd>{res ? (res.trust.trusted ? <Pill tone="ok">trusted by the predictor's own checks</Pill> : <Pill tone="warn">{`not trusted: ${res.trust.reasons.map(title).join(', ')}`}</Pill>) : '—'}</dd>
+          <dt>Validated by experiments</dt><dd>{res ? (res.validated_by_experiments ? 'yes (simulation experiments)' : 'no — not validated against physical experiments') : '—'}</dd>
+          <dt>Reduce envelope</dt><dd className="tq-num">{env ? `${fmtRpm(env[0])} – below ${fmtRpm(env[1])} rpm` : '—'}</dd>
+        </dl>
+      </Card>
+
       <Disclosure summary="Run a counterfactual experiment" meta="compare the candidates on copies of one simulator snapshot and re-run exactly" testid="c2-counterfactual">
         <CounterfactualLab targets={valid} role={role} stale={stale} hasRanking={!!post} hasSim={hasSim} />
       </Disclosure>
       <Disclosure summary="Inspect the pipeline's own C2 comparison" meta="what the automatic pipeline compared, and its predicted-vs-observed record" testid="c2-pipeline">
         <PredictionsPage d={d} go={go} head={false} />
       </Disclosure>
-      <Disclosure summary="View investigation trace" meta="every record of this incident, from observation to outcome" testid="c2-trace">
-        <InvestigationTrace d={d} focus={['prediction']} />
-      </Disclosure>
+      <TraceLink go={go} setWb={setWb} stages={['prediction']} testid="c2-trace" />
     </>
   );
 }

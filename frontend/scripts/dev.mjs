@@ -56,8 +56,8 @@ if (simOnly) {
   backendEnv = { ...process.env, TORQVA_TOKENS: tokens };
   console.log('TORQVA: starting backend on http://127.0.0.1:8000 and the app on http://localhost:5173 (connects to a TORQVA board if exactly one is plugged in)');
   if (process.env.TORQVA_FORCE_UNLOCK === '1') {
-    console.warn('TORQVA WARNING: TORQVA_FORCE_UNLOCK=1 is set in YOUR shell. It bypasses the commissioning record, the session check and Safety Supervisor refusals '
-      + 'for a connected motor. This script never sets it; remove it from your environment unless you mean to do that.');
+    console.warn('TORQVA: TORQVA_FORCE_UNLOCK=1 is set in your shell. The backend no longer has that bypass, so it has no effect: the commissioning '
+      + 'record, the session check and the Safety Supervisor still apply. You can remove it from your environment.');
   }
 }
 run(python, ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000'], { cwd: backendDir, env: backendEnv }, 'backend');

@@ -895,8 +895,6 @@ class DeviceBridge:
             self._supervisor, self._sup_limits = SafetySupervisor(want), want
 
     def _hardware_control_enabled(self) -> bool:
-        if os.environ.get("TORQVA_FORCE_UNLOCK", "0") == "1":
-            return True
         c = self.commissioning
         if c is None or not c.physical_control_enabled():
             return False
@@ -920,8 +918,6 @@ class DeviceBridge:
         """The reasons physical START / speed commands are unavailable RIGHT NOW (only the applicable ones)."""
         m = self.model
         snap = m.snapshot(self._clock())
-        if os.environ.get("TORQVA_FORCE_UNLOCK", "0") == "1":
-            return []
         b: List[str] = []
         if not self.policy.physical_control_enabled:
             b.append("PHYSICAL CONTROL DISABLED")
@@ -967,9 +963,6 @@ class DeviceBridge:
     @property
     def policy(self) -> PhysicalControlPolicy:
         c = self.commissioning
-        if os.environ.get("TORQVA_FORCE_UNLOCK", "0") == "1":
-            lim = (c.limits if c and c.limits else None) or {"max_duty_pct": 70.0, "max_rpm": 3000.0}
-            return PhysicalControlPolicy(physical_control_enabled=True, max_duty_pct=float(lim.get("max_duty_pct", 70.0)), max_rpm=float(lim.get("max_rpm", 3000.0)))
         if c is None:
             return self._policy
         lim = c.limits
@@ -1010,8 +1003,6 @@ class DeviceBridge:
         return self.keystore.get(dev) if (self.keystore is not None and dev) else None
 
     def session_active(self) -> bool:
-        if os.environ.get("TORQVA_FORCE_UNLOCK", "0") == "1":
-            return True
         a = self._auth
         return a.get("state") == "active" and self._clock() < a["expires"] and self.model.conn in (Conn.CONNECTED, Conn.STALE)
 
@@ -1063,8 +1054,6 @@ class DeviceBridge:
         return int((self.model.status or {}).get("cfg", 0))
 
     def limits_confirmed(self) -> bool:
-        if os.environ.get("TORQVA_FORCE_UNLOCK", "0") == "1":
-            return True
         c = self.commissioning
         return bool(c is not None and c.limits is not None and self.device_cfg_version() == c.limits["version"])
 
@@ -1248,14 +1237,9 @@ class DeviceBridge:
             self._refresh_supervisor()
             decision = self._supervisor.check(prop, self._ctx())
         if decision.verdict != DecisionVerdict.ALLOW or decision.approved is None:
-            if os.environ.get("TORQVA_FORCE_UNLOCK", "0") == "1":
-                from .supervisor import ApprovedAction, _MINT, Mode
-                approved_act = ApprovedAction(at, params, ProposalSource.HUMAN, None, user, Mode.HARDWARE, _MINT)
-            else:
-                human = self.control_blockers() if action != "STOP" else []      # the applicable plain-language blockers first, then the supervisor's own codes
-                return self._reject(rec, human + [r for r in decision.reasons if r not in human])
-        else:
-            approved_act = decision.approved
+            human = self.control_blockers() if action != "STOP" else []      # the applicable plain-language blockers first, then the supervisor's own codes
+            return self._reject(rec, human + [r for r in decision.reasons if r not in human])
+        approved_act = decision.approved
         if action != "STOP":
             blockers = self.control_blockers()
             if blockers:
@@ -1317,19 +1301,7 @@ class DeviceBridge:
                                        "never for network-exposed or USB-over-IP links." if self.session_active() else
                                        "No authenticated session: the USB link is unauthenticated and unencrypted and is treated as inside the host's physical trust boundary; motion commands are refused.")
             es_v = int((self.model.status or {}).get("es", 0)) if self.model.status else None
-            if os.environ.get("TORQVA_FORCE_UNLOCK", "0") == "1":
-                s["transport_label"] = "AUTHENTICATED USB - UNENCRYPTED"
-                s["session"] = {"state": "active", "active": True, "error": None, "key_provisioned": True}
-                s["control_blockers"] = []
-                s["physical_control_enabled"] = True
-                if not s.get("config") or not s["config"].get("limits"):
-                    s["config"] = {"limits": {"max_current_a": 3.0, "min_voltage_v": 18.0, "max_voltage_v": 24.0, "max_temp_c": 80.0, "max_rpm": 3000.0, "max_duty_pct": 70.0},
-                                   "approved_version": 1, "device_version": self.device_cfg_version() or 1, "confirmed": True, "last_push": None}
-                else:
-                    s["config"]["confirmed"] = True
-                s["estop_input"] = {"pin": "GPIO 15 (NC contact to GND, pull-up)", "state": 2, "label": "RELEASED (override)", "note": "Monitoring only: the ESP32 input alone never stops motor power; an independent hardware circuit is required."}
-            else:
-                s["estop_input"] = {"pin": "GPIO 15 (NC contact to GND, pull-up)", "state": es_v, "label": DeviceModel.ESTOP_LABELS.get(es_v) if es_v is not None else None, "note": "Monitoring only: the ESP32 input alone never stops motor power; an independent hardware circuit is required."}
+            s["estop_input"] = {"pin": "GPIO 15 (NC contact to GND, pull-up)", "state": es_v, "label": DeviceModel.ESTOP_LABELS.get(es_v) if es_v is not None else None, "note": "Monitoring only: the ESP32 input alone never stops motor power; an independent hardware circuit is required."}
             return s
 
     def command_list(self) -> List[Dict[str, Any]]:

@@ -21,7 +21,7 @@ npm run dev          # starts the backend (127.0.0.1:8000, development token) an
 npm run dev:sim      # the same, software only: no port is scanned or opened and no interlock is relaxed
 ```
 
-> Neither command sets `TORQVA_FORCE_UNLOCK` or assumes a COM port. `npm run dev` connects only when exactly one TORQVA board is plugged in (or to `TORQVA_DEVICE_PORT` if you set it), and START / speed stay refused until the firmware interlocks, the commissioning record and the Safety Supervisor allow them. If you have set `TORQVA_FORCE_UNLOCK=1` in your own shell, the script warns: it bypasses those checks.
+> Neither command sets `TORQVA_FORCE_UNLOCK` or assumes a COM port. `npm run dev` connects only when exactly one TORQVA board is plugged in (or to `TORQVA_DEVICE_PORT` if you set it), and START / speed stay refused until the firmware interlocks, the commissioning record and the Safety Supervisor allow them. The backend no longer has a `TORQVA_FORCE_UNLOCK` bypass: setting it changes nothing (the script only notes that it is ignored).
 
 Plug the board in: the backend connects by itself when exactly one USB-serial board (CH340/CH343, CP210x, FTDI, Espressif) is present. `TORQVA_AUTOCONNECT=0` turns this off and `TORQVA_DEVICE_PORT=COMx` pins one port; otherwise use the Device page.
 

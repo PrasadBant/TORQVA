@@ -45,6 +45,7 @@ await shot('30-att-empty');
 // supervised warm-up hold: reason required, status matches the server, then ended
 const startHold = page.locator('button:has-text("Start hold")');
 check('Start hold disabled without a reason', await startHold.isDisabled());
+await page.evaluate(() => { const x = document.querySelector('[data-testid=att-hold]'); if (x) x.open = true; });   // the warm-up is a disclosure on Learning
 await page.fill('form[aria-label="Start supervised warm-up"] input[type=text]', 'Supervised warm-up before attestation.');
 await startHold.click();
 await page.waitForSelector('[data-testid=hold-status]:has-text("Hold active")');
@@ -82,7 +83,7 @@ await shot('33-att-active');
 await page.click('button:has-text("Roll back active reference")');
 await page.waitForFunction(() => document.querySelector('section[aria-labelledby="c-att-refs"]')?.textContent.includes('none (shipped detector, unadapted)'));
 check('rollback reflected and matches the server', (await api('/attestation/references', OP)).json.active_version === null);
-check('attestation log lists the events', (await page.textContent('section[aria-labelledby="c-att-log"]')).includes('attested'));
+check('attestation log lists the events', (await page.textContent('[data-testid=att-log]')).includes('attested'));
 
 // ---- 2. rejection by the operator ----
 await api('/simulation/step', OP, 'POST', { seconds: 5 });

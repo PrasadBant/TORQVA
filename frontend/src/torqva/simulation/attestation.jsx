@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, canControl } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, canControl, Disclosure } from '../shared/components.jsx';
 import { api } from '../api.js';
 
 const TONE = { PENDING: 'wait', ELIGIBLE: 'info', ATTESTED: 'ok', REJECTED: 'crit', EXPIRED: 'off', REVOKED: 'warn' };
@@ -76,38 +76,22 @@ export default function Attestation({ role }) {
 
   return (
     <div className="tq-grid tq-grid-wide">
-      <Card title="What attestation means" id="c-att-notice">
-        <p className="tq-warnbox" role="note" data-testid="att-notice">{NOTICE}</p>
-        <p className="tq-muted">Telemetry and checks are <ProvBadge kind="SIMULATED" /> values; a decision recorded here is <ProvBadge kind="HUMAN_CONFIRMED" /> — a named
+      <Card title="Reference lifecycle" id="c-att-notice" className="tq-span" right={<ProvBadge kind="SIMULATED" />}>
+        <dl className="tq-readings" data-testid="att-summary">
+          <div><dt>Active reference</dt><dd>{refs.active_version ? `v${refs.active_version}` : 'none (shipped detector, unadapted)'}</dd></div>
+          <div><dt>Candidates</dt><dd className="tq-num">{list.length ? Object.entries(list.reduce((m, c) => ({ ...m, [c.state]: (m[c.state] || 0) + 1 }), {})).map(([k, n]) => `${n} ${k.toLowerCase()}`).join(' · ') : 'none'}</dd></div>
+          <div><dt>Reference versions</dt><dd className="tq-num">{refs.versions?.length || 0}</dd></div>
+          <div><dt>Supervised warm-up</dt><dd>{hold.active ? 'hold active' : 'no hold'}</dd></div>
+        </dl>
+        <p className="tq-warnbox tq-mt" role="note" data-testid="att-notice">{NOTICE}</p>
+        {!ctl && <Empty>Your role ({role}) can review candidates but cannot capture, attest, reject, revoke or activate.</Empty>}
+        <Disclosure summary="What attestation means" meta="provenance, scope and what it never changes" testid="att-explain" className="tq-mt">
+          <p className="tq-muted">Telemetry and checks are <ProvBadge kind="SIMULATED" /> values; a decision recorded here is <ProvBadge kind="HUMAN_CONFIRMED" /> — a named
           operator's judgment, recorded with the evidence hash and model versions. Attestation only affects the experimental adaptive C1 detector, which is off by default.
           It never changes the deterministic Safety Supervisor or any command path.</p>
-        {!ctl && <Empty>Your role ({role}) can review candidates but cannot capture, attest, reject, revoke or activate.</Empty>}
+        </Disclosure>
       </Card>
 
-      <Card title="Supervised warm-up" id="c-att-hold" right={<Pill tone={hold.active ? 'warn' : 'off'}>{hold.active ? 'hold active' : 'no hold'}</Pill>}>
-        <p className="tq-muted">Anomaly detection keeps running during a hold. Only anomalies explainable as a healthy gain/noise shift are deferred (and counted below);
-          any channel-selective or protected-channel deviation — every ordinary fault — ends the hold and opens an incident as usual. Mandatory-stop conditions and device
-          e-stops are never deferred. Maximum 300 s; it ends by itself.</p>
-        {hold.info?.regime_escalation && (
-          <div className="tq-warnbox" role="alert" data-testid="regime-escalation">
-            <strong>Unfamiliar regime — human review required.</strong> Anomalous scores are being deferred because they are explained by a coherent gain/noise shift.
-            This is <strong>not</strong> confirmed healthy: a coherent shift can also be a real fault (for example a sensor fault). Deferral is capped and ends at
-            once on any fault evidence.
-          </div>)}
-        {hold.info && (
-          <p role="status" data-testid="hold-status">
-            {hold.active ? 'Hold active' : 'Hold ended'} · deferred anomaly windows: <strong className="tq-num">{hold.info.deferred_windows ?? 0}</strong>
-            {hold.info.released ? <> · released: <strong>{hold.info.released}</strong></> : null}
-          </p>)}
-        <form className="tq-form" onSubmit={(e) => { e.preventDefault(); startHold(); }} aria-label="Start supervised warm-up">
-          <label className="tq-inline">Seconds<input type="number" min="1" max="300" value={holdForm.seconds} onChange={(e) => setHoldForm({ ...holdForm, seconds: e.target.value })} disabled={!ctl} /></label>
-          <label>Reason<input type="text" value={holdForm.reason} onChange={(e) => setHoldForm({ ...holdForm, reason: e.target.value })} disabled={!ctl} /></label>
-          <div className="tq-row">
-            <button type="submit" className="tq-btn" disabled={!ctl || a.busy || holdForm.reason.trim().length < MIN_REASON}>Start hold</button>
-            <button type="button" className="tq-btn tq-ghost" onClick={endHold} disabled={!ctl || !hold.active || a.busy}>End hold</button>
-          </div>
-        </form>
-      </Card>
 
       <Card title="Candidate warm-up sessions" id="c-att-list" className="tq-span" right={<ProvBadge kind="SIMULATED" />}>
         <div className="tq-row"><button className="tq-btn" onClick={capture} disabled={!ctl || a.busy}>Capture candidate from current simulation</button></div>
@@ -195,14 +179,43 @@ export default function Attestation({ role }) {
         {ctl && <div className="tq-row"><button className="tq-btn tq-danger" onClick={rollback} disabled={!refOk || !refs.active_version || a.busy}>Roll back active reference</button></div>}
       </Card>
 
-      <Card title="Attestation log" id="c-att-log" className="tq-span">
+      <Disclosure summary="Supervised warm-up" meta={hold.active ? 'hold active' : 'optional: hold score-triggered incidents briefly before capturing a candidate'} testid="att-hold"
+        open={!!(hold.active || hold.info?.regime_escalation)} className="tq-span">
+        <div id="c-att-hold">
+        <p className="tq-muted">Anomaly detection keeps running during a hold. Only anomalies explainable as a healthy gain/noise shift are deferred (and counted below);
+          any channel-selective or protected-channel deviation — every ordinary fault — ends the hold and opens an incident as usual. Mandatory-stop conditions and device
+          e-stops are never deferred. Maximum 300 s; it ends by itself.</p>
+        {hold.info?.regime_escalation && (
+          <div className="tq-warnbox" role="alert" data-testid="regime-escalation">
+            <strong>Unfamiliar regime — human review required.</strong> Anomalous scores are being deferred because they are explained by a coherent gain/noise shift.
+            This is <strong>not</strong> confirmed healthy: a coherent shift can also be a real fault (for example a sensor fault). Deferral is capped and ends at
+            once on any fault evidence.
+          </div>)}
+        {hold.info && (
+          <p role="status" data-testid="hold-status">
+            {hold.active ? 'Hold active' : 'Hold ended'} · deferred anomaly windows: <strong className="tq-num">{hold.info.deferred_windows ?? 0}</strong>
+            {hold.info.released ? <> · released: <strong>{hold.info.released}</strong></> : null}
+          </p>)}
+        <form className="tq-form" onSubmit={(e) => { e.preventDefault(); startHold(); }} aria-label="Start supervised warm-up">
+          <label className="tq-inline">Seconds<input type="number" min="1" max="300" value={holdForm.seconds} onChange={(e) => setHoldForm({ ...holdForm, seconds: e.target.value })} disabled={!ctl} /></label>
+          <label>Reason<input type="text" value={holdForm.reason} onChange={(e) => setHoldForm({ ...holdForm, reason: e.target.value })} disabled={!ctl} /></label>
+          <div className="tq-row">
+            <button type="submit" className="tq-btn" disabled={!ctl || a.busy || holdForm.reason.trim().length < MIN_REASON}>Start hold</button>
+            <button type="button" className="tq-btn tq-ghost" onClick={endHold} disabled={!ctl || !hold.active || a.busy}>End hold</button>
+          </div>
+        </form>
+        </div>
+      </Disclosure>
+      <Disclosure summary="View attestation log" meta={`${events.length} recorded event(s)`} testid="att-log" className="tq-span">
+      <div id="c-att-log">
         {!events.length ? <Empty>No attestation activity yet.</Empty> : (
           <table className="tq-table"><caption className="tq-sr">Attestation log</caption>
             <thead><tr><th scope="col">#</th><th scope="col">Event</th><th scope="col">Candidate / version</th><th scope="col">By</th><th scope="col">Reason</th></tr></thead>
             <tbody>{events.slice().reverse().slice(0, 25).map((e) => (
               <tr key={e.n}><td className="tq-num">{e.n}</td><td>{String(e.detail.event || '').replace(/_/g, ' ')}</td>
                 <td>{e.detail.candidate || '—'}{e.detail.reference_version ? ` · v${e.detail.reference_version}` : ''}</td><td>{e.actor}</td><td>{e.detail.reason || '—'}</td></tr>))}</tbody></table>)}
-      </Card>
+      </div>
+      </Disclosure>
     </div>
   );
 }

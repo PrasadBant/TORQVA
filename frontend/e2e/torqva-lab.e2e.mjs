@@ -30,12 +30,14 @@ await page.check('text=Blind session');
 await page.fill('input[aria-label="step 1 hold seconds"]', '90');
 await page.click('button:has-text("Add step")');
 check('profile step added', (await page.locator('input[aria-label^="step"]').count()) === 4);
-await page.fill('label:has-text("Mass g") input', '12');
+await page.click('[data-testid=lab-optional] > summary');                // the injection record is an optional section of the form
+await page.fill('[data-testid=lab-optional] label:has-text("Notes") input', 'e2e note');
 await page.click('button:has-text("Create session")');
 await page.waitForSelector('text=Pre-run checklist');
 const runBtn = page.locator('button:has-text("Run session")');
 check('Run disabled before checklist', await runBtn.isDisabled());
 check('fault hidden in blind session', (await page.textContent('main')).includes('hidden (blind)'));
+check('notes shown as recorded metadata', (await page.textContent('[data-testid=lab-notes]')).includes('e2e note'));
 const boxes = page.locator('ul[aria-label="Pre-run checklist"] input[type=checkbox]');
 const n = await boxes.count();
 for (let i = 0; i < n; i++) { await boxes.nth(i).click(); await page.waitForTimeout(350); }

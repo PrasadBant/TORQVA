@@ -29,6 +29,8 @@ page.on('pageerror', (e) => consoleMsgs.push('pageerror: ' + e.message));
 page.on('response', (r) => { if (r.status() >= 400) bad.push(`${r.status()} ${r.request().method()} ${r.url().replace(API, '')}`); });
 const shot = (n) => page.screenshot({ path: `${OUT}/${n}.png`, fullPage: true });
 const section = (id) => `section[aria-labelledby="${id}"]`;
+// The pipeline's own records are advanced disclosures on Predictions and Diagnostic Tests; open the named one after each navigation.
+const reveal = async (id) => { await page.waitForSelector(`[data-testid=${id}]`, { state: 'attached', timeout: 15000 }); await page.evaluate((i) => { document.querySelector(`[data-testid=${i}]`).open = true; }, id); };
 
 await page.goto('http://127.0.0.1:5173/#/torqva');
 await page.evaluate(() => sessionStorage.clear()); await page.reload();
@@ -36,6 +38,7 @@ await page.fill('input[type=password]', OP);
 await page.click('button:has-text("Sign in")');
 await page.waitForSelector('nav button:has-text("Predictions")');
 await page.click('nav button:has-text("Predictions")');
+await reveal('c2-pipeline');
 await page.waitForSelector(section('c-pred'));
 const predTxt = await page.textContent(section('c-pred'));
 check('prediction table shows a status for every action', (predTxt.match(/supported/g) || []).length >= 3, `variant=${variant}`);
@@ -43,6 +46,7 @@ check('predictions labelled PRED and unvalidated', (await page.textContent('main
 check('predicted-vs-observed card present with provenance note', (await page.textContent(section('c-predcheck'))).includes('not a recovery verdict'));
 check('no comparison yet (action not executed)', (await page.textContent(section('c-predcheck'))).includes('No comparison yet'));
 await page.click('nav button:has-text("Diagnostic Tests")');
+await reveal('c4-pipeline');
 await page.waitForSelector(section('c-tests'));
 check('diagnostic-tests card present', (await page.textContent(section('c-tests'))).includes('Diagnostic tests (C4)'));
 await page.waitForSelector('text=NOT adopted', { timeout: 10000 }).catch(() => {});
@@ -58,7 +62,7 @@ check('incident closed after the approved action', st.closed_incidents >= 1);
 const checks = (await api('/prediction-checks')).json;
 check('server stored a prediction_check record', checks.length >= 1, `comparison=${checks[0]?.comparison}`);
 await page.waitForTimeout(2500);                                                      // the UI polls
-await page.click('nav button:has-text("Predictions")'); await page.waitForSelector(section('c-predcheck'));
+await page.click('nav button:has-text("Predictions")'); await reveal('c2-pipeline'); await page.waitForSelector(section('c-predcheck'));
 const pcTxt = await page.textContent(section('c-predcheck'));
 if (checks[0]?.comparison === 'available') {
   check('UI shows predicted vs observed rows', (await page.locator(`${section('c-predcheck')} table tbody tr`).count()) === checks[0].rows.length);

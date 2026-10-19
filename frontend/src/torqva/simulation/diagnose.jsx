@@ -3,11 +3,11 @@
 // ranking, never a confirmed fault, and the scenario's injected fault is shown apart as ground truth.
 import React from 'react';
 import { FlaskConical, ArrowRight } from 'lucide-react';
-import { Card, Empty, Pill, ProvBadge, fmt, stateTone, PageHead, Disclosure } from '../shared/components.jsx';
+import { Card, Empty, Pill, ProvBadge, fmt, stateTone, PageHead, CardLink } from '../shared/components.jsx';
 import { TEST_SPECS, TEST_OUTCOMES, FEATURE_LABEL, SCORE_STATUS } from '../shared/diagnostics.js';
 import { DiagnosticsPage } from './pages.jsx';
 import { usePlan, title, pct } from './workbench.js';
-import { InvestigationTrace } from './trace.jsx';
+import { TraceLink } from './trace.jsx';
 import { SufficiencyBadge } from './adaptive.jsx';
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -81,20 +81,11 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
       </div>
       {error && error !== 'unavailable' && hasSim && <p className="tq-callout warn">The workbench plan could not be loaded: {error}</p>}
 
-      <Card title="Operating condition" id="c-cond" right={<ProvBadge kind="SIMULATED" />}>
-        {/* One compact line of the current readings (the trends live on Live Monitor); a missing value reads UNAVAILABLE, never 0. */}
-        <dl className="tq-readings" data-testid="c1-kpis">
-          {[['Speed', w?.rpm, 'rpm', 0], ['Current', w?.current, 'A', 2], ['Supply voltage', w?.voltage, 'V', 2], ['Housing', w?.housing, '°C', 1], ['Vibration RMS', w?.vib_rms, 'g', 3]].map(([l, v, u, dg]) => (
-            <div key={l}><dt>{l}</dt><dd className="tq-num">{val(v) == null ? 'UNAVAILABLE' : `${fmt(v, dg)} ${u}`}</dd><ProvBadge kind="SIMULATED" /></div>))}
-          {hasSim && <div><dt>Setpoint</dt><dd className="tq-num">{fmt(s.device?.setpoint_rpm, 0)} rpm</dd></div>}
-        </dl>
-        <dl className="tq-kv tq-mt">
-          <dt>C1 window status</dt><dd>{plan?.c1 ? <Pill tone={plan.c1.score_over_threshold === null ? 'info' : plan.c1.anomalous ? 'warn' : 'ok'}>{title(plan.c1.status)}</Pill> : '—'}</dd>
-          <dt>Score ÷ learned threshold</dt><dd className="tq-num">{plan?.c1 ? fmt(plan.c1.score_over_threshold, 2) : '—'}</dd>
-          <dt>Anomalous windows in a row</dt><dd className="tq-num">{plan?.c1 ? `${plan.c1.anomalous_run} (incident at ${plan.c1.confirm_windows})` : '—'}</dd>
-          <dt>Incident</dt><dd>{s.incident ? <Pill tone={stateTone(s.incident.state)}>{`${s.incident.id}: ${title(s.incident.state)}`}</Pill> : 'none open'}</dd>
-          <dt>Scenario ground truth</dt><dd>{!hasSim ? '—' : !sc.fault ? 'no fault scheduled' : injected ? <><Pill tone="info">{`${title(sc.fault)} injected`}</Pill> <span className="tq-muted">known only because this is a simulation; not a diagnosis</span></> : `${title(sc.fault)} scheduled at t = ${sc.inject_after_s} s`}</dd>
-        </dl>
+      {/* The finding first (ranking, assessment, next step), then what is still unknown, then the readings it rests on. */}
+      <Card title="Fault hypotheses" id="c-hyps" right={<>{post && <Pill tone={post.label === 'confident' ? 'ok' : post.label === 'ambiguous' ? 'warn' : 'info'}>{post.label}{post.ood ? ' · unlike any learned signature' : ''}</Pill>}<ProvBadge kind="DERIVED" /></>}>
+        {!plan?.hypotheses?.length || !post ? <Empty>No ranking yet. The hypothesis model ranks faults only from anomalous windows; healthy windows are not evidence for any fault.</Empty> : (
+          <ol className="tq-hyps" aria-label="Ranked fault hypotheses">{plan.hypotheses.map((h, i) => <HypothesisRow key={h.hypothesis} h={h} top={i === 0} />)}</ol>)}
+        <p className="tq-muted">A ranking is not a confirmed fault. Bearing faults are not diagnosable with this sensor set.{post ? ` Ranked from ${post.n_windows} evidence window(s).` : ''}</p>
       </Card>
 
       <div className="tq-split tq-mt">
@@ -124,12 +115,6 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
         </Card>
       </div>
 
-      <Card title="Fault hypotheses" id="c-hyps" className="tq-mt" right={<>{post && <Pill tone={post.label === 'confident' ? 'ok' : post.label === 'ambiguous' ? 'warn' : 'info'}>{post.label}{post.ood ? ' · unlike any learned signature' : ''}</Pill>}<ProvBadge kind="DERIVED" /></>}>
-        {!plan?.hypotheses?.length || !post ? <Empty>No ranking yet. The hypothesis model ranks faults only from anomalous windows; healthy windows are not evidence for any fault.</Empty> : (
-          <ol className="tq-hyps" aria-label="Ranked fault hypotheses">{plan.hypotheses.map((h, i) => <HypothesisRow key={h.hypothesis} h={h} top={i === 0} />)}</ol>)}
-        <p className="tq-muted">A ranking is not a confirmed fault. Bearing faults are not diagnosable with this sensor set.{post ? ` Ranked from ${post.n_windows} evidence window(s).` : ''}</p>
-      </Card>
-
       <Card title="Evidence sufficiency and what is still unknown" id="c-unknown" className="tq-mt" right={plan?.sufficiency ? <SufficiencyBadge s={plan.sufficiency} /> : null}>
         {!plan?.sufficiency ? <Empty>{hasSim ? 'Waiting for the workbench plan.' : 'No simulation running.'}</Empty> : (
           <>
@@ -142,10 +127,25 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
           </>)}
       </Card>
 
+      <Card title="Operating condition" id="c-cond" className="tq-mt" right={<ProvBadge kind="SIMULATED" />}>
+        {/* One compact line of the current readings (the trends live on Live Monitor); a missing value reads UNAVAILABLE, never 0. */}
+        <dl className="tq-readings" data-testid="c1-kpis">
+          {[['Speed', w?.rpm, 'rpm', 0], ['Current', w?.current, 'A', 2], ['Supply voltage', w?.voltage, 'V', 2], ['Housing', w?.housing, '°C', 1], ['Vibration RMS', w?.vib_rms, 'g', 3]].map(([l, v, u, dg]) => (
+            <div key={l}><dt>{l}</dt><dd className="tq-num">{val(v) == null ? 'UNAVAILABLE' : `${fmt(v, dg)} ${u}`}</dd><ProvBadge kind="SIMULATED" /></div>))}
+          {hasSim && <div><dt>Setpoint</dt><dd className="tq-num">{fmt(s.device?.setpoint_rpm, 0)} rpm</dd></div>}
+        </dl>
+        <dl className="tq-kv tq-mt">
+          <dt>C1 window status</dt><dd>{plan?.c1 ? <Pill tone={plan.c1.score_over_threshold === null ? 'info' : plan.c1.anomalous ? 'warn' : 'ok'}>{title(plan.c1.status)}</Pill> : '—'}</dd>
+          <dt>Score ÷ learned threshold</dt><dd className="tq-num">{plan?.c1 ? fmt(plan.c1.score_over_threshold, 2) : '—'}</dd>
+          <dt>Anomalous windows in a row</dt><dd className="tq-num">{plan?.c1 ? `${plan.c1.anomalous_run} (incident at ${plan.c1.confirm_windows})` : '—'}</dd>
+          <dt>Incident</dt><dd>{s.incident ? <Pill tone={stateTone(s.incident.state)}>{`${s.incident.id}: ${title(s.incident.state)}`}</Pill> : 'none open'}</dd>
+          <dt>Scenario ground truth</dt><dd>{!hasSim ? '—' : !sc.fault ? 'no fault scheduled' : injected ? <><Pill tone="info">{`${title(sc.fault)} injected`}</Pill> <span className="tq-muted">known only because this is a simulation; not a diagnosis</span></> : `${title(sc.fault)} scheduled at t = ${sc.inject_after_s} s`}</dd>
+        </dl>
+        <CardLink onClick={() => go('live')}>See these readings as trends on Live Monitor</CardLink>
+      </Card>
+
       <div className="tq-mt"><DiagnosticsPage d={d} head={false} /></div>
-      <Disclosure summary="View investigation trace" meta="every record of this incident, from observation to outcome" testid="c1-trace">
-        <InvestigationTrace d={d} focus={['observation', 'hypothesis']} />
-      </Disclosure>
+      <TraceLink go={go} setWb={setWb} stages={['observation', 'hypothesis']} testid="c1-trace" />
     </>
   );
 }

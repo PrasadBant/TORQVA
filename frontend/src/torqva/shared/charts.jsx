@@ -19,13 +19,15 @@ export function Sparkline({ data, dataKey, color, height }) {
 }
 
 /** Simulator telemetry over simulation time. */
-export function TrendLines({ data, lines, height, yDomain, digits = 2, unit = '' }) {
+// `marks`: optional event lines [{ t, at, n, label }]: numbered, drawn at `at` (an existing sample time, as the x axis is categorical); the caller lists what each number is.
+export function TrendLines({ data, lines, height, yDomain, digits = 2, unit = '', marks = [] }) {
   const tip = (v) => (typeof v === 'number' ? `${v.toFixed(digits)}${unit ? ` ${unit}` : ''}` : v);
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={data} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}><CartesianGrid {...GRID} /><XAxis dataKey="t" minTickGap={28} tickFormatter={(x) => `${Math.round(x)}s`} {...AXIS} /><YAxis domain={yDomain || ['auto', 'auto']} width={54} tickFormatter={(v) => (Math.abs(v) >= 100 ? Number(v).toFixed(0) : Number(v).toFixed(2))} {...AXIS} axisLine={false} />
+      <LineChart data={data} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}><CartesianGrid {...GRID} /><XAxis dataKey="t" minTickGap={28} tickFormatter={(x) => `${Math.round(x)}s`} {...AXIS} /><YAxis domain={yDomain || ['auto', 'auto']} width={54} tickFormatter={(v) => (Math.abs(v) >= 100 ? Number(v).toFixed(0) : Number(v).toFixed(Math.max(2, digits)))} {...AXIS} axisLine={false} />
         <Tooltip {...TOOLTIP} formatter={tip} labelFormatter={(x) => `t = ${Math.round(x)} s`} /><Legend {...LEGEND} />{lines.map((l) => <Line key={l.key} dataKey={l.key} name={l.name} stroke={l.color} strokeDasharray={l.dash} strokeWidth={l.dash ? 1.5 : 2} dot={false} activeDot={{ r: 3.5, strokeWidth: 0 }} isAnimationActive={false} />)}
-      </LineChart>
+      {marks.map((m, i) => <ReferenceLine key={`${m.t}-${m.label}`} x={m.at ?? m.t} stroke="var(--tq-muted)" strokeDasharray="3 3" label={{ value: String(m.n ?? i + 1), position: i % 2 ? 'insideBottomRight' : 'insideTopRight', fill: 'var(--tq-text-2)', fontSize: 11, fontWeight: 600 }} />)}
+        </LineChart>
     </ResponsiveContainer>
   );
 }

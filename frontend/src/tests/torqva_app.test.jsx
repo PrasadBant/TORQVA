@@ -114,7 +114,7 @@ describe('redesigned application shell', () => {
 
 describe('application shell behaviour (audit)', () => {
   const NAV_SIM = ['Overview', 'Live Monitor', 'AI Diagnostics', 'Diagnostic Tests', 'Predictions', 'Interventions', 'Recovery', 'Learning', 'Evaluation', 'Device', 'Motor Control', 'Lab', 'Devices & Settings'];
-  const navButton = (n) => screen.getByRole('button', { name: n === 'Device' ? /^Device\s?USB$/ : new RegExp(`^${n.replace('&', '\&')}`) });
+  const navButton = (n) => screen.getByRole('button', { name: n === 'Device' ? /^Device$/ : new RegExp(`^${n.replace('&', '\&')}`) });
   const simCalls = () => fetch.mock.calls.map(([u]) => String(u)).filter((u) => /\/api\/torqva\/(status|telemetry|simulation)/.test(u)).length;
 
   it('every page in both modes renders its own heading (no blank page, no silent fallback to another screen)', async () => {
@@ -124,14 +124,16 @@ describe('application shell behaviour (audit)', () => {
       const { unmount } = render(<TorqvaApp pollMs={100000} />);
       await screen.findByText(/tester · /);
       const seen = new Set();
-      for (const n of NAV_SIM.map((x) => (mode === 'PHYSICAL' && x === 'Motor Control' ? 'Safety & Commissioning' : x))) {
+      const list = NAV_SIM.flatMap((x) => (x !== 'Motor Control' ? [x] : mode === 'PHYSICAL' ? ['Safety & Commissioning'] : []));   // Motor Control is not listed in simulation mode
+      if (mode === 'SIMULATION') expect(screen.queryByRole('button', { name: /^Motor Control/ })).toBeNull();
+      for (const n of list) {
         fireEvent.click(navButton(n));
         await waitFor(() => expect(navButton(n)).toHaveAttribute('aria-current', 'page'));
         const h = document.querySelector('main h2')?.textContent || '';
         expect(h.trim().length, `${mode} ${n}`).toBeGreaterThan(0);
         seen.add(h);
       }
-      expect(seen.size, mode).toBeGreaterThanOrEqual(NAV_SIM.length - 1);                       // distinct pages, not one fallback screen
+      expect(seen.size, mode).toBeGreaterThanOrEqual(list.length - 1);                       // distinct pages, not one fallback screen
       unmount(); vi.unstubAllGlobals(); setToken('');
     }
   });

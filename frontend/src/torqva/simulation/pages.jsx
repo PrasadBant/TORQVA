@@ -35,8 +35,8 @@ export function Kpi({ label, value, unit, digits = 1, data, dataKey, color = 'va
   );
 }
 
-function TrendChart({ data, lines, height = 200, yDomain, label, digits = 2, unit = '' }) {
-  return <div role="img" aria-label={label} className="tq-chart"><TrendLines data={data} lines={lines} height={height} yDomain={yDomain} digits={digits} unit={unit} /></div>;
+function TrendChart({ data, lines, height = 200, yDomain, label, digits = 2, unit = '', marks }) {
+  return <div role="img" aria-label={marks?.length ? `${label}, with ${marks.length} event mark(s)` : label} className="tq-chart"><TrendLines data={data} lines={lines} height={height} yDomain={yDomain} digits={digits} unit={unit} marks={marks} /></div>;
 }
 
 /** The scenario controls (see scenario.jsx); kept under this name for the Live Monitor and older imports. */
@@ -46,10 +46,25 @@ export const SimControls = ScenarioStudio;
 
 /* ------------------------------------------------------------------ 2. Live monitoring */
 const RANGES = [['60', 'Last 60 s'], ['180', 'Last 3 min'], ['all', 'All (≤300 windows)']];
+const SIGNALS = [['rpm', 'Speed'], ['housing', 'Temperature'], ['vib', 'Vibration'], ['current', 'Current']];
+// Pipeline events worth seeing against the telemetry: the backend's own log records, plus the scenario's injection time (ground truth, simulation only).
+const MARK_KINDS = { incident_opened: 'incident opened', test_result: 'test', mandatory_stop: 'mandatory stop', recovery_assessment: 'C5 verdict', incident_closed: 'incident closed' };
+export function eventMarks(d, data) {
+  if (!data.length) return [];
+  const t0 = data[0].t; const t1 = data[data.length - 1].t;
+  const snap = (t) => data.reduce((b, x) => (Math.abs(x.t - t) < Math.abs(b.t - t) ? x : b), data[0]).t;   // the x axis is categorical: place the line on the nearest sample
+  const sc = d.status?.scenario;
+  const raw = (d.log || []).filter((l) => MARK_KINDS[l.kind] && Number.isFinite(l.t)).map((l) => ({ t: l.t, label: MARK_KINDS[l.kind] }));
+  if (sc?.fault && Number.isFinite(sc.inject_after_s)) raw.push({ t: sc.inject_after_s, label: 'fault injected (scenario)' });
+  return raw.filter((m) => m.t >= t0 && m.t <= t1).sort((x, y) => x.t - y.t).map((m, i) => ({ ...m, n: i + 1, at: snap(m.t) }));
+}
 export function LivePage({ d, role, actions, running, setRunning, busy, error, stale, deviceLive, device, isPhys: isPhysProp, stepSeconds, go }) {
   const isPhys = isPhysProp ?? isPhysOf(d);
   const provKind = isPhys ? 'MEASURED' : 'SIMULATED';
   const [range, setRange] = useState('all');
+  const [shown, setShown] = useState(() => new Set(SIGNALS.map(([k]) => k)));
+  const [withEvents, setWithEvents] = useState(false);
+  const toggle = (k) => setShown((x) => { const n = new Set(x); if (n.has(k)) { if (n.size > 1) n.delete(k); } else n.add(k); return n; });   // at least one chart stays visible
   const [source, setSource] = useState(isPhys ? 'device' : 'simulation');
   const deviceOn = !!(device && device.snap && device.snap.handshake);
   const all = samplesOf(d);
@@ -60,6 +75,7 @@ export function LivePage({ d, role, actions, running, setRunning, busy, error, s
     const cut = base[base.length - 1].t - Number(range);
     return base.filter((x) => x.t >= cut);
   }, [all, range]);
+  const marks = useMemo(() => (withEvents ? eventMarks(d, data) : []), [withEvents, d, data]);
   const last = data[data.length - 1]; const w = s.last_window;
   const missing = ['rpm', 'housing', 'vib_rms', 'current'].filter((k) => w && (w[k] === null || w[k] === undefined));
   const physical = (deviceOn && device.snap.origin === 'physical_device') || isPhys;
@@ -82,6 +98,11 @@ export function LivePage({ d, role, actions, running, setRunning, busy, error, s
         <div className="tq-seg" role="group" aria-label="Time range">
           {RANGES.map(([k, name]) => <button key={k} className="tq-btn" aria-pressed={range === k} onClick={() => setRange(k)}>{name}</button>)}
         </div>
+        <span className="tq-toolbar-label">Signals</span>
+        <div className="tq-seg" role="group" aria-label="Charts shown" data-testid="live-signals">
+          {SIGNALS.map(([k, name]) => <button key={k} type="button" className="tq-btn" aria-pressed={shown.has(k)} onClick={() => toggle(k)}>{name}</button>)}
+        </div>
+        <label className="tq-check tq-small"><input type="checkbox" checked={withEvents} onChange={(e) => setWithEvents(e.target.checked)} data-testid="live-events" /> Mark pipeline events on the charts</label>
       </div>
       <div className="tq-kpis">
         <Kpi label="Speed" icon={Gauge} value={w?.rpm} unit="rpm" digits={0} prov={provKind} />
@@ -89,32 +110,37 @@ export function LivePage({ d, role, actions, running, setRunning, busy, error, s
         <Kpi label="Vibration RMS" icon={Waves} value={w?.vib_rms} unit="g" digits={3} prov={provKind} />
         <Kpi label="Motor current" icon={Zap} value={w?.current} unit="A" digits={2} prov={provKind} />
       </div>
+      {withEvents && <p className="tq-small tq-muted" data-testid="live-marks">{marks.length ? <>Marked on the charts: {marks.map((m) => <span key={m.n} className="tq-mark-key"><strong>{m.n}</strong> {m.label} (t = {fmt(m.t, 0)} s)</span>)}</> : 'No pipeline event falls inside this time window.'}</p>}
       {missing.length > 0 && <p className="tq-callout crit" role="alert">Missing sensor values: {missing.map(title).join(', ')}. They are shown as unavailable, not as zero.</p>}
       {s.t !== undefined && last && s.t - last.t > 30 && <p className="tq-callout warn">Latest telemetry window is {fmt(s.t - last.t, 0)} s older than simulation time.</p>}
       <div className="tq-split">
         <div className="tq-stack">
           {!data.length ? <Card title="Live telemetry" id="c-live"><Empty>No telemetry yet.</Empty></Card> : (
             <div className="tq-grid tq-grid-2">
+              {shown.has('rpm') && (
               <Card title="Speed" id="c-rpm" right={<ProvBadge kind={provKind} />}>
-                <TrendChart data={data} label="Speed over time" digits={0} unit="rpm" lines={[{ key: 'rpm', name: `rpm (${isPhys ? 'HW' : 'sim'})`, color: 'var(--tq-chart-ink)' }, { key: 'setpoint', name: 'setpoint', color: 'var(--tq-chart-1)', dash: '4 3' }]} />
-              </Card>
+                <TrendChart data={data} marks={marks} label="Speed over time" digits={0} unit="rpm" lines={[{ key: 'rpm', name: `rpm (${isPhys ? 'HW' : 'sim'})`, color: 'var(--tq-chart-ink)' }, { key: 'setpoint', name: 'setpoint', color: 'var(--tq-chart-1)', dash: '4 3' }]} />
+              </Card>)}
+              {shown.has('housing') && (
               <Card title="Housing temperature" id="c-th" right={<ProvBadge kind={provKind} />}>
-                <TrendChart data={data} label="Housing temperature over time" digits={1} unit="°C" lines={[{ key: 'housing', name: 'housing °C', color: 'var(--tq-chart-2)' }]} />
-              </Card>
+                <TrendChart data={data} marks={marks} label="Housing temperature over time" digits={1} unit="°C" lines={[{ key: 'housing', name: 'housing °C', color: 'var(--tq-chart-2)' }]} />
+              </Card>)}
+              {shown.has('vib') && (
               <Card title="Vibration" id="c-vib" right={<ProvBadge kind={provKind} />}>
-                <TrendChart data={data} label="Vibration over time" digits={3} unit="g" lines={[{ key: 'vib_rms', name: 'vibration g', color: 'var(--tq-chart-3)' }]} />
-              </Card>
+                <TrendChart data={data} marks={marks} label="Vibration over time" digits={3} unit="g" lines={[{ key: 'vib_rms', name: 'vibration g', color: 'var(--tq-chart-3)' }]} />
+              </Card>)}
+              {shown.has('current') && (
               <Card title="Motor current" id="c-cur" right={<ProvBadge kind={provKind} />}>
-                <TrendChart data={data} label="Current over time" digits={2} unit="A" lines={[{ key: 'current', name: 'current A', color: 'var(--tq-chart-4)' }]} />
-              </Card>
+                <TrendChart data={data} marks={marks} label="Current over time" digits={2} unit="A" lines={[{ key: 'current', name: 'current A', color: 'var(--tq-chart-4)' }]} />
+              </Card>)}
             </div>)}
-          <Card title="Latest telemetry" id="c-tele" right={<ProvBadge kind={provKind} />}>
+          <Disclosure summary="Latest telemetry samples" meta={data.length ? `the last ${Math.min(8, data.length)} one-second windows as numbers, with the C1 score` : "no samples yet"} testid="live-samples">
             {!data.length ? <Empty>No samples.</Empty> : (
               <table className="tq-table"><caption className="tq-sr">Latest telemetry windows</caption>
                 <thead><tr><th scope="col">t (s)</th><th scope="col">Speed (rpm)</th><th scope="col">Housing (°C)</th><th scope="col">Vibration (g)</th><th scope="col">Current (A)</th><th scope="col">Score ÷ threshold</th></tr></thead>
                 <tbody>{data.slice(-8).reverse().map((x) => (<tr key={x.t}><td className="tq-num">{fmt(x.t, 0)}</td><td className="tq-num">{fmt(x.rpm, 0)}</td><td className="tq-num">{fmt(x.housing, 1)}</td>
                   <td className="tq-num">{fmt(x.vib_rms, 3)}</td><td className="tq-num">{fmt(x.current, 2)}</td><td className="tq-num">{x.score == null ? '—' : fmt(x.score, 2)}</td></tr>))}</tbody></table>)}
-          </Card>
+          </Disclosure>
         </div>
         <div className="tq-stack tq-sticky-side">
           <SimControls d={d} role={role} actions={actions} running={running} setRunning={setRunning} busy={busy} error={error} stale={stale} stepSeconds={stepSeconds} compact go={go} />
@@ -368,7 +394,7 @@ export function InterventionsPage({ d, role, actions, error, isPhys: isPhysProp,
 }
 
 /* ------------------------------------------------------------------ 7. Recovery verification (C5) */
-export function RecoveryPage({ d, isPhys: isPhysProp }) {
+export function RecoveryPage({ d, isPhys: isPhysProp, go }) {
   const isPhys = isPhysProp ?? isPhysOf(d);
   const provKind = isPhys ? 'MEASURED' : 'SIMULATED';
   const outs = (d.outcomes || []).slice().reverse(); const s = d.status || {};
@@ -376,8 +402,20 @@ export function RecoveryPage({ d, isPhys: isPhysProp }) {
   return (
     <>
       <PageHead title="Recovery Verification (C5)" sub="Recovery is declared only from fresh, valid samples observed after the device acknowledged an action." right={<ProvBadge kind={provKind} />} />
-      <p className="tq-callout warn" role="note">A prediction of improvement is not a verified recovery.{isPhys ? '' : ' Records below are simulator observations, not hardware evidence.'}</p>
-      {!isPhys && <div className="tq-mb"><IncidentStory d={d} /></div>}
+      {(() => {                   // the current recovery state, from the incident state and the latest C5 outcome only
+        const last = outs[0]; const inc = s.incident;
+        const [tone, head, next, to] = verifying ? ['wait', 'Verification in progress', 'C5 is collecting fresh samples after the device acknowledgement; the simulation must advance.', null]
+          : inc && !last ? ['info', `Incident ${inc.id} is open: ${title(inc.state)}`, 'No action has been verified yet for this incident.', ['interventions', 'Open Interventions']]
+            : !last ? ['off', 'No recovery to verify', 'Recovery is assessed only after an acknowledged action.', null]
+              : last.outcome === 'RECOVERED' ? ['ok', `${last.incident}: recovery verified`, `From ${last.n_fresh} fresh window(s) after the acknowledged ${title(last.action)}. Keep monitoring.`, null]
+                : last.outcome === 'UNRESOLVED' ? ['crit', `${last.incident}: the condition persists`, 'The action did not resolve it. Re-run the diagnosis.', ['workflow', 'Run the Diagnostic Workflow']]
+                  : last.outcome === 'HUMAN_INSPECTION_REQUIRED' ? ['warn', `${last.incident}: human inspection required`, 'C5 cannot decide; a person must inspect the motor.', null]
+                    : ['warn', `${last.incident}: outcome ${title(last.outcome)}`, 'Recovery is NOT verified.', ['workflow', 'Run the Diagnostic Workflow']];
+        return (
+          <div className={`tq-narrate tone-${tone}`} data-testid="rec-status"><strong>{head}</strong><span>{next}</span>
+            {to && go && <button type="button" className="tq-linkbtn" onClick={() => go(to[0])}>{to[1]}</button>}</div>);
+      })()}
+      <p className="tq-muted tq-small" role="note">A prediction of improvement is not a verified recovery, and an acknowledgement is not recovery.{isPhys ? '' : ' Records below are simulator observations, not hardware evidence.'}</p>
       <div className="tq-grid">
         {verifying && <Card title="Verifying recovery" id="c-ver"><Pill tone="wait">collecting fresh samples</Pill><p className="tq-muted">Verification is still in progress.</p></Card>}
         <Card title="Outcomes" id="c-out" className="tq-span" right={<ProvBadge kind={provKind} />}>
@@ -391,6 +429,8 @@ export function RecoveryPage({ d, isPhys: isPhysProp }) {
             </article>))}
         </Card>
       </div>
+      {/* The verdict and its criteria come first; the full incident narrative follows as supporting detail. */}
+      {!isPhys && <div className="tq-mt"><IncidentStory d={d} /></div>}
     </>
   );
 }
@@ -402,25 +442,25 @@ export function LearningPage({ d, children, isPhys: isPhysProp }) {
   const cases = d.cases || [];
   return (
     <>
-      <PageHead title="Learning and Model Management (C6)" sub="Learning dataset and the operator-attested healthy reference used by adaptive C1." right={<ProvBadge kind={provKind} />} />
-      <Card title="Learning dataset" id="c-learn" right={<ProvBadge kind={provKind} />}>
+      <PageHead title="Learning (C6)" sub="The operator-attested healthy reference used by adaptive C1, and the cases eligible for learning." right={<ProvBadge kind={provKind} />} />
+      {children}
+      <Card title="Learning dataset" id="c-learn" className="tq-mt" right={<ProvBadge kind={provKind} />}>
         {!cases.length ? <Empty>No eligible cases recorded in this run. Blocked, rejected or aborted actions never count.</Empty> : (
           <ul className="tq-list">{cases.map((c) => (<li key={c.label + c.outcome + c.session}><strong>{c.label}</strong> · {c.outcome} · label source {c.label_source} · executed {String(c.executed)} <ProvBadge kind={provKind} /></li>))}</ul>)}
-        <p className="tq-muted">No model training, promotion or rollback of C2/C4 models is exposed: those are not implemented as operator actions. The attestation workflow below is the only model-management feature that exists.</p>
+        <p className="tq-muted">No model training, promotion or rollback of C2/C4 models is exposed: those are not implemented as operator actions. The reference lifecycle above is the only model-management feature that exists.</p>
       </Card>
-      <div className="tq-mt">{children}</div>
     </>
   );
 }
 
 /* ------------------------------------------------------------------ 10. Devices and settings */
-export function DevicesPage({ d, user, role, rows, auditError, apiBase, device, isPhys: isPhysProp }) {
+export function DevicesPage({ d, user, role, rows, auditError, apiBase, device, isPhys: isPhysProp, go }) {
   const isPhys = isPhysProp ?? isPhysOf(d);
   const conn = device?.snap?.connection; const port = device?.snap?.port;
   const s = d.status || {}; const hasSim = s.t !== undefined && s.t !== null; const sc = s.scenario;
   return (
     <>
-      <PageHead title="Devices and Settings" sub="Connected devices, operating mode and application settings." right={<Pill tone={isPhys ? "ok" : "info"}>{isPhys ? "PHYSICAL HARDWARE mode" : "SIMULATION mode"}</Pill>} />
+      <PageHead title="Devices and Settings" sub="The device inventory, the session and application configuration, and the audit trail." right={<Pill tone={isPhys ? "ok" : "info"}>{isPhys ? "PHYSICAL HARDWARE mode" : "SIMULATION mode"}</Pill>} />
       <div className="tq-split">
         <div className="tq-stack">
           <Card title="Devices" id="c-devices">
@@ -429,15 +469,7 @@ export function DevicesPage({ d, user, role, rows, auditError, apiBase, device, 
                 <tr><td>Physical ESP32 motor controller</td><td>physical device</td><td>{conn === 'CONNECTED' ? <Pill tone="ok">{port ? `connected (${port})` : 'connected'}</Pill> : <Pill tone="off">not connected</Pill>}</td></tr>
                 <tr><td>Simulated motor 01</td><td><ProvBadge kind="SIMULATED" /> software simulator</td><td>{hasSim ? <Pill tone="ok">simulator running</Pill> : <Pill tone="off">idle</Pill>}</td></tr>
               </tbody></table>
-          </Card>
-          <Card title={isPhys ? "Physical device details" : "Simulated device details"} id="c-devd" right={<ProvBadge kind={isPhys ? "MEASURED" : "SIMULATED"} />}>
-            {!isPhys && !hasSim ? <Empty>No simulation has been started.</Empty> : (
-              <dl className="tq-kv"><dt>Setpoint</dt><dd className="tq-num">{fmt(s.device?.setpoint_rpm, 0)} rpm</dd><dt>Emergency stop</dt><dd>{s.device?.estop ? `engaged (${s.device.estop_reason})` : 'clear'}</dd>
-                <dt>{isPhys ? 'Origin' : 'Injected fault'}</dt><dd>{isPhys ? 'physical device' : sc?.fault ? `${title(sc.fault)} (severity ${sc.severity})` : 'none'}</dd>
-                {!isPhys && <><dt>Seed</dt><dd className="tq-num">{sc?.seed}</dd></>}
-                <dt>Human approval required</dt><dd>{sc?.human_approval_required ? 'yes' : 'no'}</dd></dl>)}
-            <h4>Sensor availability</h4>
-            <ul className="tq-list">{['rpm', 'current', 'housing', 'vib_rms'].map((k) => (<li key={k}>{title(k)} {s.last_window?.[k] == null ? <Pill tone="off">unavailable</Pill> : <Pill tone="ok">{isPhys ? 'reporting (live HW)' : 'reporting (simulated)'}</Pill>}</li>))}</ul>
+            {go && <p className="tq-small"><button type="button" className="tq-linkbtn" onClick={() => go('device')}>Physical device: connection and diagnostics</button> · <button type="button" className="tq-linkbtn" onClick={() => go('overview')}>Simulated motor: Scenario Studio</button></p>}
           </Card>
         </div>
         <div className="tq-stack">

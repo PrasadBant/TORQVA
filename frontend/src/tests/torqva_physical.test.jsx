@@ -175,10 +175,54 @@ describe('physical-device-first application', () => {
     expect(await screen.findByTestId('last-command')).toHaveTextContent('REJECTED');
   });
 
+  // The checks the removed simulation-mode Motor Control page carried, now on the one place physical motion is requested: Physical Overview.
+  const withPosts = (snap, reply, role = 'admin') => {
+    const posted = []; server(snap);
+    const base = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url, o = {}) => {
+      if (String(url).endsWith('/me')) return ok({ user: 'tester', role });
+      if (String(url).endsWith('/device/commands') && o.method === 'POST') { posted.push(JSON.parse(o.body)); return ok(reply); }
+      return base(url, o);
+    }));
+    setToken('t'); render(<TorqvaApp pollMs={100000} wsFactory={(u) => new FakeWs(u)} />);
+    return posted;
+  };
+
+  it('a rejected START shows the exact reasons the backend gave', async () => {
+    withPosts({ ...CONNECTED, control_blockers: [], control_limits: { max_duty_pct: 30 } }, { id: 9, action: 'START', state: 'REJECTED', reasons: ['hardware_control_not_enabled', 'limits_not_confirmed'], requested_by: 'tester' });
+    fireEvent.change(await screen.findByLabelText('Duty percent'), { target: { value: '10' } });
+    fireEvent.click(screen.getByTestId('btn-start')); fireEvent.click(screen.getByTestId('btn-start'));
+    const line = await screen.findByTestId('last-command');
+    expect(line).toHaveTextContent('REJECTED'); expect(line).toHaveTextContent('hardware_control_not_enabled · limits_not_confirmed');
+  });
+
+  it('a speed request needs a value (an empty field cannot be sent), sends exactly that SET_SPEED once, and nothing is sent while typing', async () => {
+    const posted = withPosts({ ...CONNECTED, control_blockers: [] }, { id: 10, action: 'SET_SPEED', state: 'SENT', reasons: [], requested_by: 'tester' });
+    const btn = await screen.findByTestId('btn-speed');
+    const field = screen.getByLabelText('Speed setpoint rpm');
+    fireEvent.change(field, { target: { value: '' } });                                                   // the field starts with a suggested value; an empty one cannot be sent
+    expect(btn).toBeDisabled();
+    fireEvent.change(field, { target: { value: '900' } });
+    expect(posted).toEqual([]);
+    fireEvent.click(btn);
+    await waitFor(() => expect(posted).toEqual([{ action: 'SET_SPEED', rpm: 900 }]));
+  });
+
+  for (const role of ['operator', 'viewer']) {
+    it(`a ${role} cannot start or change speed, is told why, and keeps STOP`, async () => {
+      withPosts({ ...CONNECTED, control_blockers: [] }, {}, role);
+      expect(await screen.findByTestId('btn-stop')).toBeEnabled();
+      expect(screen.getByTestId('btn-start')).toBeDisabled(); expect(screen.getByTestId('btn-speed')).toBeDisabled();
+      expect(screen.getByText(`Your role (${role}) can request STOP only.`)).toBeInTheDocument();
+    });
+  }
+
   it('the Safety & Commissioning page holds the commissioning record and history, not the controls', async () => {
     await open(CONNECTED, 'Safety');
-    expect(await screen.findByText('Commissioning record')).toBeInTheDocument();
+    expect(await screen.findByText('Commissioning (human record)')).toBeInTheDocument();
     expect(screen.getByText('Command history')).toBeInTheDocument();
+    expect(screen.getByText('Operating readiness')).toBeInTheDocument();        // readiness and the real blockers come first
+    expect(screen.getByText('Safety interlocks')).toBeInTheDocument();
     expect(screen.queryByTestId('btn-start')).toBeNull();
   });
 

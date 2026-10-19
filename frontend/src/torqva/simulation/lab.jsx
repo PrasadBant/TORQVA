@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, PosteriorBars, fmt, canControl } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, PosteriorBars, fmt, canControl, Disclosure } from '../shared/components.jsx';
 import { api } from '../api.js';
 
 const FAULTS = ['imbalance', 'looseness', 'overload', 'cooling_failure', 'supply_voltage', 'sensor_fault'];
@@ -28,7 +28,7 @@ export default function Lab({ role, isPhys = false }) {
   const ex = useAsync();
   const [form, setForm] = useState({
     purpose: 'fault_run', regime: 'baseline', fault: 'imbalance', severity: 0.6, inject_at_s: 30, seed: 1, blind: false,
-    notes: '', mass_g: '', radius_mm: '', profile: [{ rpm: 1500, hold_s: 90 }],
+    notes: '', profile: [{ rpm: 1500, hold_s: 90 }],
   });
   const [xf, setXf] = useState({ fault: 'imbalance', severity: 0.6, speed_rpm: 1800, regime: 'baseline', repeats: 3 });
   const ctl = canControl(role);
@@ -43,13 +43,10 @@ export default function Lab({ role, isPhys = false }) {
   const selected = sessions.find((s) => s.id === sel);
 
   const create = () => a.run(async () => {
-    const settings = {};
-    if (form.mass_g !== '') settings.mass_g = Number(form.mass_g);
-    if (form.radius_mm !== '') settings.radius_mm = Number(form.radius_mm);
     const s = await api.labCreate({
       purpose: form.purpose, notes: form.notes, blind: form.blind, regime: form.regime, seed: Number(form.seed),
       profile: form.profile.map((p) => ({ rpm: Number(p.rpm), hold_s: Number(p.hold_s) })),
-      fault: form.fault === 'none' ? null : form.fault, severity: Number(form.severity), inject_at_s: Number(form.inject_at_s), settings,
+      fault: form.fault === 'none' ? null : form.fault, severity: Number(form.severity), inject_at_s: Number(form.inject_at_s),
     });
     await load(); setSel(s.id); setRepro(null);
   });
@@ -96,15 +93,13 @@ export default function Lab({ role, isPhys = false }) {
               </div>))}
             <button type="button" className="tq-btn" onClick={() => setForm({ ...form, profile: [...form.profile, { rpm: 1200, hold_s: 60 }] })} disabled={!ctl}>Add step</button>
           </fieldset>
-          <div className="tq-row">
-            <label className="tq-inline">Mass g<input type="number" value={form.mass_g} onChange={(e) => setForm({ ...form, mass_g: e.target.value })} disabled={!ctl} /></label>
-            <label className="tq-inline">Radius mm<input type="number" value={form.radius_mm} onChange={(e) => setForm({ ...form, radius_mm: e.target.value })} disabled={!ctl} /></label>
-            <label className="tq-inline">Seed<input type="number" value={form.seed} onChange={(e) => setForm({ ...form, seed: e.target.value })} disabled={!ctl} /></label>
-          </div>
-          <label>Notes<input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} disabled={!ctl} /></label>
+          <label className="tq-inline">Seed (reproducibility)<input type="number" value={form.seed} onChange={(e) => setForm({ ...form, seed: e.target.value })} disabled={!ctl} /></label>
           <label className="tq-check"><input type="checkbox" checked={form.blind} onChange={(e) => setForm({ ...form, blind: e.target.checked })} disabled={!ctl} />
             Blind session (hide the injected fault until the model output is frozen and you reveal it)</label>
-          <button type="submit" className="tq-btn" disabled={!ctl || a.busy}>Create session</button>
+          <Disclosure summary="Optional: recorded metadata (not a simulation control)" meta="notes stored with the session and shown in its record; the simulator never reads them" testid="lab-optional">
+            <label>Notes<input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} disabled={!ctl} /></label>
+          </Disclosure>
+          <button type="submit" className="tq-btn tq-primary" disabled={!ctl || a.busy}>Create session</button>
         </form>
         <ErrorBox error={a.error} />
       </Card>
@@ -126,6 +121,7 @@ export default function Lab({ role, isPhys = false }) {
             {selected.blind && <> · <Pill tone="info">blind{selected.revealed ? ' (revealed)' : ''}</Pill></>}</p>
           {!HIDDEN(selected.fault_settings) && Object.keys(selected.fault_settings || {}).length > 0 && (
             <p className="tq-muted">Injection record: {JSON.stringify(selected.fault_settings)}</p>)}
+          {selected.notes && <p className="tq-muted" data-testid="lab-notes">Notes (recorded metadata): {selected.notes}</p>}
           <h4>Pre-run checklist <span className="tq-muted">(a logged procedure, not a safety mechanism)</span></h4>
           <ul className="tq-list" aria-label="Pre-run checklist">
             {checklist?.items.map((it) => (

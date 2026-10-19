@@ -82,6 +82,23 @@ describe('Scenario Studio', () => {
     submit();
     expect(a.start).toHaveBeenCalledWith({ fault: 'imbalance', severity: 0.5, seed: 1, clears_below_rpm: 1500, require_human_approval: false, setpoint_rpm: 1500, inject_after_s: 20 });
   });
+  it('a preset only fills the form (nothing starts) and the run it starts uses exactly the preset values', () => {
+    const a = actions();
+    render(<ScenarioStudio d={base()} role="operator" actions={a} running={false} setRunning={noop} busy={false} />);
+    fireEvent.click(screen.getByTestId('preset-persistent'));
+    expect(a.start).not.toHaveBeenCalled();
+    expect(screen.getByTestId('preset-persistent')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Injected fault')).toHaveValue('overload');
+    submit();
+    expect(a.start).toHaveBeenCalledWith({ fault: 'overload', severity: 0.6, seed: 1, clears_below_rpm: null, require_human_approval: false, setpoint_rpm: 1800, inject_after_s: 40 });
+    fireEvent.click(screen.getByTestId('preset-review'));
+    submit();
+    expect(a.start.mock.calls[1][0]).toMatchObject({ fault: 'imbalance', require_human_approval: true, clears_below_rpm: 1500 });
+  });
+  it('a viewer cannot use the presets', () => {
+    render(<ScenarioStudio d={base()} role="viewer" actions={actions()} running={false} setRunning={noop} busy={false} />);
+    expect(screen.getByTestId('preset-healthy')).toBeDisabled();
+  });
   it('a healthy run sends no fault and no injection time; an invalid setpoint blocks the start', () => {
     const a = actions();
     render(<ScenarioStudio d={base()} role="operator" actions={a} running={false} setRunning={noop} busy={false} />);

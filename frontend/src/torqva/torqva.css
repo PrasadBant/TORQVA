@@ -17,7 +17,7 @@
   --tq-text: #161B26;
   --tq-text-2: #384152;
   --tq-muted: #5D6676;
-  --tq-faint: #8B93A1;
+  --tq-faint: #677080;
 
   --tq-accent: #2563EB;       /* links, lines, focus */
   --tq-accent-solid: #2563EB; /* primary buttons (white text) */
@@ -36,16 +36,17 @@
   --tq-chart-1: #2563EB; --tq-chart-2: #E07A1F; --tq-chart-3: #0E9384; --tq-chart-4: #7A5AF8; --tq-chart-ink: #344054;
   --tq-grid: #EEF0F3;
 
-  --tq-nav-bg: #FBFBFC;
-  --tq-nav-border: #E9EBEF;
-  --tq-nav-text: #475467;
-  --tq-nav-strong: #101828;
-  --tq-nav-heading: #98A2B3;
-  --tq-nav-hover: rgba(16, 24, 40, .045);
-  --tq-nav-active: #FFFFFF;
-  --tq-nav-active-shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 0 0 1px rgba(16, 24, 40, .05);
-  --tq-nav-indicator: #2563EB;
-  --tq-nav-tag: #F2F4F7;
+  /* Navigation: a dark navy rail beside the light workspace (control-room convention); the same in both themes' structure. */
+  --tq-nav-bg: #0F1B2D;
+  --tq-nav-border: #1B2A40;
+  --tq-nav-text: #B4C0D3;
+  --tq-nav-strong: #FFFFFF;
+  --tq-nav-heading: #7A8AA3;
+  --tq-nav-hover: rgba(255, 255, 255, .06);
+  --tq-nav-active: rgba(96, 140, 255, .16);
+  --tq-nav-active-shadow: inset 0 0 0 1px rgba(125, 163, 255, .22);
+  --tq-nav-indicator: #7DA3FF;
+  --tq-nav-tag: rgba(255, 255, 255, .08);
 
   --tq-r-s: 6px; --tq-r: 10px; --tq-r-l: 14px;
   --tq-shadow-1: 0 1px 2px rgba(16, 24, 40, .04), 0 1px 1px rgba(16, 24, 40, .02);
@@ -61,13 +62,13 @@
 :root[data-theme="dark"], .tq-theme-dark {
   --tq-bg: #0D0F13; --tq-s1: #14171C; --tq-s2: #191C22; --tq-s3: #22262D;
   --tq-border: #262A31; --tq-border-soft: #1E2127; --tq-border-strong: #383D46;
-  --tq-text: #ECEEF1; --tq-text-2: #C5CAD3; --tq-muted: #979EAA; --tq-faint: #6D7380;
+  --tq-text: #ECEEF1; --tq-text-2: #C5CAD3; --tq-muted: #979EAA; --tq-faint: #7F8592;
   --tq-accent: #7DA3FF; --tq-accent-solid: #3B6EF5; --tq-accent-hover: #5582F7; --tq-accent-soft: #172238;
   --tq-ok: #3CCB91; --tq-warn: #F2B44F; --tq-crit: #FF6B6B; --tq-stop: #FF6B6B; --tq-sim: #A78BFA; --tq-learning: #5CB5F2; --tq-teal: #3CC9B8; --tq-off: #8A919D;
   --tq-chart-1: #7DA3FF; --tq-chart-2: #F5A35B; --tq-chart-3: #3CC9B8; --tq-chart-4: #A78BFA; --tq-chart-ink: #D5D9E0;
   --tq-grid: #21252C;
   --tq-nav-bg: #101216; --tq-nav-border: #1E2127;
-  --tq-nav-text: #A3A9B4; --tq-nav-strong: #F2F4F7; --tq-nav-heading: #646A75;
+  --tq-nav-text: #A3A9B4; --tq-nav-strong: #F2F4F7; --tq-nav-heading: #787F8C;
   --tq-nav-hover: rgba(255, 255, 255, .05); --tq-nav-active: rgba(255, 255, 255, .07); --tq-nav-active-shadow: inset 0 0 0 1px rgba(255, 255, 255, .05);
   --tq-nav-indicator: #7DA3FF; --tq-nav-tag: rgba(255, 255, 255, .06);
   --tq-shadow-1: 0 1px 2px rgba(0, 0, 0, .3);
@@ -1227,3 +1228,51 @@
 .tq-readings dd { margin: 0; font-weight: 600; color: var(--tq-text); }
 .tq-scn-new { margin-top: 14px; }
 .tq-scn-new .tq-scn-form { padding-top: 4px; }
+.tq-grid > .tq-disclosure { margin-top: 0; }           /* a grid already spaces its items */
+.tq-stack > .tq-disclosure, .tq-stack > .tq-disclosure + .tq-card { margin-top: 0; }   /* a stack already spaces its items */
+
+/* Investigation progress (simulation analyst pages): the pipeline's own stage states in the order an analyst works. */
+.tq-journey { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 16px; padding: 8px 10px; background: var(--tq-s1); border: 1px solid var(--tq-border); border-radius: var(--tq-r); }
+.tq-journey-label { font-size: 12px; font-weight: 600; color: var(--tq-muted); white-space: nowrap; }
+.tq-journey ol { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0; padding: 0; flex: 1 1 auto; }
+.tq-journey li { flex: 1 1 140px; min-width: 0; }
+.tq-journey button { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; width: 100%; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--tq-text); font: inherit; text-align: left; cursor: pointer; }
+.tq-journey button:hover { background: var(--tq-s2); }
+.tq-journey button:focus-visible { outline: 2px solid var(--tq-accent); outline-offset: 1px; }
+.tq-journey .is-here button { border-color: var(--tq-accent); background: var(--tq-accent-soft); }
+.tq-journey-dot { grid-row: span 2; width: 10px; height: 10px; border-radius: 50%; background: var(--tq-off); }
+.tq-journey .is-ok .tq-journey-dot { background: var(--tq-ok); }
+.tq-journey .is-active .tq-journey-dot { background: var(--tq-accent); }
+.tq-journey .is-wait .tq-journey-dot { background: var(--tq-warn); }
+.tq-journey .is-stop .tq-journey-dot, .tq-journey .is-fail .tq-journey-dot { background: var(--tq-crit); }
+.tq-journey .is-idle .tq-journey-dot, .tq-journey .is-na .tq-journey-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--tq-border-strong); }
+.tq-journey-name { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tq-journey-name small { font: 600 10px/1 var(--tq-mono); color: var(--tq-muted); margin-right: 5px; }
+.tq-journey-state { font-size: 11.5px; color: var(--tq-muted); }
+.tq-journey-note { flex: 1 0 100%; margin: 0; padding: 6px 2px 0; border-top: 1px solid var(--tq-border-soft); font-size: 12.5px; color: var(--tq-text-2); }
+.tq-journey .is-stop .tq-journey-state, .tq-journey .is-fail .tq-journey-state { color: var(--tq-crit); font-weight: 600; }
+
+/* Safety interlocks as a grouped checklist: one header row per group with its pass count and next step. */
+.tq-ilk .tq-ilk-group th { background: var(--tq-s2); text-align: left; font-size: 12.5px; font-weight: 600; color: var(--tq-text); text-transform: none; letter-spacing: 0; }
+.tq-ilk .tq-ilk-group th .tq-muted { font-weight: 500; }
+.tq-ilk tbody + tbody .tq-ilk-group th { border-top: 1px solid var(--tq-border); }
+@media (max-width: 640px) {
+  /* Narrow screens: each check stacks (name, status, evidence) instead of scrolling a three-column table sideways. */
+  .tq-ilk thead { display: none; }
+  .tq-ilk, .tq-ilk tbody, .tq-ilk tr, .tq-ilk th, .tq-ilk td { display: block; width: auto; }
+  .tq-ilk tr { padding: 8px 0; border-bottom: 1px solid var(--tq-border-soft); }
+  .tq-ilk td { border: 0; padding: 2px 12px; }
+  .tq-ilk .tq-ilk-group th { padding: 8px 12px; white-space: normal; }
+  .tq-ilk td { white-space: normal; }
+}
+
+/* Scenario Studio presets: fill the form only. */
+.tq-scn-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin: 0 0 14px; padding: 0; border: 0; min-width: 0; }
+.tq-scn-presets legend { padding: 0; margin-bottom: 8px; font-size: 12.5px; font-weight: 600; }
+.tq-scn-preset { display: grid; gap: 2px; justify-items: start; justify-content: stretch; align-content: start; text-align: left; height: auto; padding: 8px 10px; white-space: normal; }
+.tq-scn-preset span { font-size: 11.5px; font-weight: 400; }
+.tq-scn-preset[aria-pressed="true"] { border-color: var(--tq-accent); background: var(--tq-accent-soft); }
+.tq-scn-field { display: grid; align-content: start; min-width: 0; }
+.tq-scn-field > small { display: block; margin-top: 4px; font-size: 11.5px; font-weight: 400; line-height: 1.35; }
+.tq-mark-key { margin-left: 10px; white-space: nowrap; }
+.tq-mark-key strong { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-right: 3px; border-radius: 9px; background: var(--tq-s2); border: 1px solid var(--tq-border); color: var(--tq-text-2); font-size: 11px; }

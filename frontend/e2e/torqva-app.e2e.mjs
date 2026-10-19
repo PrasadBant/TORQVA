@@ -55,7 +55,7 @@ check('environment is labelled software simulator', (await page.textContent('hea
 await shot('overview-1440');
 
 const pages = [['Live Monitor', 'Latest telemetry'], ['AI Diagnostics', 'Fault hypotheses'], ['Predictions', 'Candidate interventions|Predictions'], ['Diagnostic Tests', 'Available tests'],
-  ['Interventions', 'Decision gate'], ['Recovery', 'Outcomes'], ['Learning', 'Learning dataset'], ['Evaluation', 'Evaluation run'], ['Lab', 'Lab|session|Session'], ['Devices & Settings', 'Devices'], ['Device', 'No device handshake'], ['Motor Control', 'Physical motion is unavailable']];
+  ['Interventions', 'Decision gate'], ['Recovery', 'Outcomes'], ['Learning', 'Learning dataset'], ['Evaluation', 'Evaluation run'], ['Lab', 'Lab|session|Session'], ['Devices & Settings', 'Devices'], ['Device', 'No device handshake']];
 for (const [nav, expect] of pages) {
   await page.click(`nav button:has-text("${nav}")`); await page.waitForTimeout(700);
   const txt = await page.textContent('main');
@@ -66,9 +66,9 @@ for (const [nav, expect] of pages) {
 await page.click('nav button:has-text("Device")'); await page.waitForTimeout(600);
 const devTxt = await page.textContent('main');
 check('Device page: SIMULATION, no physical telemetry, no handshake', devTxt.includes('SIMULATION') && devTxt.includes('No device handshake') && !devTxt.includes('PHYSICAL DEVICE'));
-await page.click('nav button:has-text("Motor Control")'); await page.waitForTimeout(600);
-const mcTxt = await page.textContent('main');
-check('Motor Control: physical controls disabled with the reason shown', mcTxt.includes('DEVICE NOT CONNECTED') && mcTxt.includes('PHYSICAL CONTROL DISABLED') && await page.isDisabled('button:has-text("Request START")') && await page.isDisabled('button:has-text("Send STOP to device")'));
+check('simulation mode lists no Motor Control and offers no physical START/STOP', await page.locator('nav button:has-text("Motor Control")').count() === 0 && await page.locator('button:has-text("Request START"), button:has-text("Send STOP to device")').count() === 0);
+await page.click('[data-testid=dev-to-scenario]'); await page.waitForTimeout(600);
+check('Device page links the simulator controls to Scenario Studio', await page.locator('#c-scn').count() === 1);
 await page.click('nav button:has-text("Devices & Settings")'); await page.waitForTimeout(400);
 const dev = await page.textContent('main');
 check('physical device shown as not connected, simulated device distinguished', /not connected/.test(dev) && /software simulator/.test(dev));
@@ -116,9 +116,7 @@ for (const w of [1440, 1024, 768, 390]) {
 }
 check('running a simulation never dispatches a physical device command', deviceCommandPosts.length === 0, String(deviceCommandPosts.length));
 await page.reload(); await page.waitForSelector('nav button:has-text("Overview")', { timeout: 20000 });
-await navClick('Motor Control'); await page.waitForTimeout(800);
-const afterReload = await page.textContent('main');
-check('after a reload the physical controls are still disabled and no command history carried over', afterReload.includes('DEVICE NOT CONNECTED') && await page.isDisabled('button:has-text("Request START")') && afterReload.includes('No commands requested in this session'));
+check('after a reload simulation mode still lists no Motor Control', await page.locator('nav button:has-text("Motor Control")').count() === 0);
 check('after a reload no physical command was sent', deviceCommandPosts.length === 0);
 check('no unexpected HTTP errors', bad.filter((b) => !b.includes('ERR_FAILED')).length === 0, bad.slice(0, 3).join(' | '));
 const ce = consoleMsgs.filter((m) => !/Failed to load resource|net::ERR|ERR_FAILED/.test(m));

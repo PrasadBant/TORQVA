@@ -12,6 +12,13 @@ export { canControl };
 // StartSimulation limits and defaults (backend api.py).
 const LIMITS = { setpoint: [1, 3000], inject: [0, 3600] };
 const DEFAULTS = { fault: 'imbalance', severity: 0.5, transient: true, approval: false, seed: 1, setpoint: 1800, inject: 40 };
+// Starting points for the form. A preset only fills in the fields below; nothing starts until Start new simulation is pressed.
+const PRESETS = [
+  ['healthy', 'Healthy baseline', 'no fault, to see normal behaviour', { ...DEFAULTS, fault: 'none' }],
+  ['recoverable', 'Recoverable imbalance', 'the default: clears when speed is reduced', DEFAULTS],
+  ['review', 'Analyst review', 'the pipeline holds its action for your approval', { ...DEFAULTS, approval: true }],
+  ['persistent', 'Persistent overload', 'does not clear with a speed reduction', { ...DEFAULTS, fault: 'overload', severity: 0.6, transient: false }],
+];
 
 const intIn = (v, [lo, hi]) => v !== '' && Number.isInteger(Number(v)) && Number(v) >= lo && Number(v) <= hi;
 const numIn = (v, [lo, hi]) => v !== '' && Number.isFinite(Number(v)) && Number(v) >= lo && Number(v) <= hi;
@@ -88,6 +95,11 @@ export function ScenarioStudio({ d, role, actions, running, setRunning, busy, er
       <summary><span className="tq-disclosure-title">Configure a new scenario</span><span className="tq-disclosure-meta">{hasSim ? 'replaces the current run' : 'no simulation is running yet'}</span></summary>
       <form className="tq-form tq-scn-form tq-disclosure-body" onSubmit={(e) => { e.preventDefault(); if (!bad.length) { submitted.current = true; start(); } }} aria-label="Configure a new scenario">
         {!ctl && <Empty>Your role ({role}) can view but not start simulations.</Empty>}
+        <fieldset className="tq-scn-presets" data-testid="scn-presets" disabled={!ctl}><legend>Start from a preset <span className="tq-muted">(fills the form; nothing starts yet)</span></legend>
+          {PRESETS.map(([k, name, hint, v]) => (
+            <button key={k} type="button" className="tq-btn tq-scn-preset" data-testid={`preset-${k}`} aria-pressed={JSON.stringify(form) === JSON.stringify(v)}
+              onClick={() => { touched.current = true; setForm(v); }}><strong>{name}</strong><span className="tq-muted">{hint}</span></button>))}
+        </fieldset>
         <div className="tq-scn-grid">
           <label>Injected fault
             <select value={form.fault} onChange={set('fault')} disabled={!ctl}>
@@ -95,18 +107,18 @@ export function ScenarioStudio({ d, role, actions, running, setRunning, busy, er
               {FAULTS.map((f) => <option key={f} value={f}>{title(f)}</option>)}
             </select>
           </label>
-          <label>Severity ({Number(form.severity).toFixed(2)})
-            <input type="range" min="0.05" max="1" step="0.05" value={form.severity} onChange={set('severity')} disabled={!ctl || healthy} />
-          </label>
+          <div className="tq-scn-field"><label>Severity ({Number(form.severity).toFixed(2)})
+            <input type="range" min="0.05" max="1" step="0.05" value={form.severity} onChange={set('severity')} disabled={!ctl || healthy} aria-describedby="scn-hint-sev" />
+          </label><small className="tq-muted" id="scn-hint-sev">0.05 slight – 1.00 strongest the fault model produces</small></div>
           <label>Setpoint (rpm)
             <input type="number" min="1" max={LIMITS.setpoint[1]} step="any" value={form.setpoint} onChange={set('setpoint')} disabled={!ctl} />
           </label>
-          <label>Inject fault at (s)
-            <input type="number" min="0" max={LIMITS.inject[1]} step="1" value={form.inject} onChange={set('inject')} disabled={!ctl || healthy} />
-          </label>
-          <label>Seed
-            <input type="number" step="1" value={form.seed} onChange={set('seed')} disabled={!ctl} />
-          </label>
+          <div className="tq-scn-field"><label>Inject fault at (s)
+            <input type="number" min="0" max={LIMITS.inject[1]} step="1" value={form.inject} onChange={set('inject')} disabled={!ctl || healthy} aria-describedby="scn-hint-inj" />
+          </label><small className="tq-muted" id="scn-hint-inj">simulation time before the fault starts, so C1 sees healthy windows first</small></div>
+          <div className="tq-scn-field"><label>Seed
+            <input type="number" step="1" value={form.seed} onChange={set('seed')} disabled={!ctl} aria-describedby="scn-hint-seed" />
+          </label><small className="tq-muted" id="scn-hint-seed">the same seed and settings reproduce the same run</small></div>
         </div>
         <label className="tq-check"><input type="checkbox" checked={form.transient} onChange={set('transient')} disabled={!ctl || healthy} />
           Condition clears when speed is reduced (simulated transient)</label>

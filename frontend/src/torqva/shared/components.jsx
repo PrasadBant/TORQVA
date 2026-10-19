@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useId } from 'react';
+import React, { createContext, useContext, useEffect, useId, useRef } from 'react';
 import { AlertTriangle, CheckCircle2, ShieldAlert, Info, XOctagon, Clock, XCircle, FlaskConical, Inbox, Loader2, AlertCircle, ArrowRight } from 'lucide-react';
 
 /** Where the current page sits in the navigation (icon and group), provided by the application shell. */
@@ -105,8 +105,12 @@ export function Card({ title, right, children, id, className = '' }) {
 /** Progressive disclosure for advanced detail (evidence, model internals, traces, audit records). Native <details>: keyboard and
  *  screen-reader operable, and its content stays in the page. Never use it for warnings, blockers, STOP or an authorization step. */
 export function Disclosure({ summary, meta, children, testid, open = false, className = '' }) {
+  // `open` OPENS the section when its content becomes relevant (a hold starts, a receipt is written); it never closes it: once open,
+  // only the user collapses it, so a state change cannot fold away what someone is reading.
+  const ref = useRef(null);
+  useEffect(() => { if (open && ref.current) ref.current.open = true; }, [open]);
   return (
-    <details className={`tq-disclosure ${className}`.trim()} data-testid={testid} open={open || undefined}>
+    <details ref={ref} className={`tq-disclosure ${className}`.trim()} data-testid={testid}>
       <summary><span className="tq-disclosure-title">{summary}</span>{meta && <span className="tq-disclosure-meta">{meta}</span>}</summary>
       <div className="tq-disclosure-body">{children}</div>
     </details>

@@ -3,7 +3,6 @@
 import React from 'react';
 import { FlaskConical, Layers, Gauge, Thermometer, Waves, Zap, Plug, Box, Siren } from 'lucide-react';
 import { Card, Empty, Pill, ProvBadge, fmt, stateTone, PageHead, CardLink, SummaryCell } from '../shared/components.jsx';
-import { TrendLines } from '../shared/lazyCharts.jsx';
 import { Kpi } from './pages.jsx';
 import { ScenarioStudio } from './scenario.jsx';
 import { lifecycle, scenarioText, pipelineStages, hasSimOf, title, STAGE_TONE, STAGE_WORD } from './pipeline.js';
@@ -68,13 +67,6 @@ export function PipelineView({ d, go }) {
   );
 }
 
-const TREND = [
-  ['rpm', 'Speed', 'rpm', 0, [{ key: 'rpm', name: 'speed (sim)', color: 'var(--tq-chart-ink)' }, { key: 'setpoint', name: 'setpoint', color: 'var(--tq-chart-1)', dash: '4 3' }]],
-  ['housing', 'Housing temperature', '°C', 1, [{ key: 'housing', name: 'housing °C', color: 'var(--tq-chart-2)' }]],
-  ['vib', 'Vibration RMS', 'g', 3, [{ key: 'vib_rms', name: 'vibration g', color: 'var(--tq-chart-3)' }]],
-  ['cur', 'Motor current', 'A', 2, [{ key: 'current', name: 'current A', color: 'var(--tq-chart-4)' }]],
-];
-
 export function SimOverview({ d, role, go, actions, running, setRunning, busy, error, stale, stepSeconds }) {
   const s = d.status || {}; const w = s.last_window; const t = d.telemetry?.samples || [];
   const hasSim = hasSimOf(s);
@@ -136,20 +128,8 @@ export function SimOverview({ d, role, go, actions, running, setRunning, busy, e
       </div>
 
       {t.length > 1 && (
-        <div className="tq-mt">
-          <details className="tq-disclosure" data-testid="sim-trends">
-            <summary>Telemetry Trend History</summary>
-            <div className="tq-disclosure-body">
-              <div className="tq-grid tq-grid-2">
-                {TREND.map(([k, name, unit, digits, lines]) => (
-                  <Card key={k} title={name} id={`c-tr-${k}`} right={<ProvBadge kind="SIMULATED" />}>
-                    <div role="img" aria-label={`${name} over simulation time`} className="tq-chart"><TrendLines data={t} lines={lines} height={180} digits={digits} unit={unit} /></div>
-                  </Card>))}
-              </div>
-              <p className="tq-chart-note">Last {t.length} simulated seconds.</p>
-            </div>
-          </details>
-        </div>)}
+        <p className="tq-small tq-mt" data-testid="sim-trends"><span className="tq-muted">Speed, temperature, vibration and current trends are on Live Monitor.</span>{' '}
+          <button type="button" className="tq-linkbtn" onClick={() => go('live')}>Open Live Monitor</button></p>)}
     </>
   );
 }

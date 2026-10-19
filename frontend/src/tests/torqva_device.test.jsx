@@ -48,11 +48,12 @@ function server({ snap = DISCONNECTED, role = 'operator', commandResponse, comma
 }
 
 async function open(page, opts = {}) {
+  if (opts.mode) window.localStorage.setItem('torqva.mode', opts.mode);
   const calls = server(opts);
   setToken('t');
   render(<TorqvaApp pollMs={100000} wsFactory={wsFactory} />);
   await screen.findByText(/tester · /);
-  fireEvent.click(screen.getByRole('button', { name: page === 'Device' ? /^Device\s?USB$/ : new RegExp(`^${page}`) }));
+  fireEvent.click(screen.getByRole('button', { name: page === 'Device' ? /^Device$/ : new RegExp(`^${page}`) }));
   return calls;
 }
 
@@ -64,12 +65,10 @@ describe('device pages', () => {
     expect(await screen.findByText(/No device handshake/)).toBeInTheDocument();
     expect(screen.getAllByText('SIMULATION').length).toBeGreaterThan(0);
     expect(screen.queryByText('PHYSICAL DEVICE')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /^Motor Control/ }));
-    const box = await screen.findByTestId('control-blockers');
-    expect(within(box).getByText('DEVICE NOT CONNECTED')).toBeInTheDocument();
-    expect(within(box).getByText('PHYSICAL CONTROL DISABLED')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Request START/ })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Send STOP to device/ })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /^Motor Control/ })).toBeNull();                 // physical motion controls are not listed in simulation mode
+    expect(screen.queryByRole('button', { name: /Request START/ })).toBeNull();
+    fireEvent.click(screen.getByTestId('dev-to-scenario'));
+    expect(await screen.findByText('Scenario Studio')).toBeInTheDocument();
   });
 
   it('after a verified handshake the device is labelled PHYSICAL, invalid sensors read UNAVAILABLE and vibration is unavailable', async () => {
@@ -121,47 +120,8 @@ describe('device pages', () => {
     expect(screen.getAllByText('SIMULATION').length).toBeGreaterThan(0);
   });
 
-  it('motion stays blocked with the applicable reasons; STOP posts a request and its lifecycle state is shown (SENT is not EXECUTED)', async () => {
-    const sent = [];
-    await open('Motor Control', { snap: SNAP, onCommand: (b) => sent.push(b), commands: [{ id: 9, action: 'STOP', requested_by: 'tester', state: 'SENT', reasons: [] }] });
-    const box = await screen.findByTestId('control-blockers');
-    expect(within(box).getByText('SAFETY LIMITS NOT APPROVED')).toBeInTheDocument();
-    expect(within(box).getByText('SECURE DEVICE TRANSPORT NOT CONFIGURED')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Request START/ })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Request speed/ })).toBeDisabled();
-    expect(screen.getByText(/not an independent physical emergency stop/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Send STOP to device/ }));
-    await waitFor(() => expect(sent).toEqual([{ action: 'STOP' }]));
-    expect(await screen.findByText(/Last request #11/)).toBeInTheDocument();
-    const table = screen.getByRole('table', { name: 'Device command history' });
-    expect(within(table).getByText('SENT')).toBeInTheDocument();
-    expect(screen.queryByText('EXECUTED')).toBeNull();
-  });
-
-  it('a rejected command shows the reasons it was refused', async () => {
-    await open('Motor Control', { role: 'admin', snap: { ...SNAP, control_blockers: [] }, commandResponse: { id: 12, action: 'START', state: 'REJECTED', reasons: ['hardware_control_not_enabled'], requested_by: 'tester' }, commands: [] });
-    await screen.findByText('Motor state');
-    fireEvent.change(screen.getByLabelText(/Open-loop start duty/), { target: { value: '20' } });
-    fireEvent.click(screen.getByRole('button', { name: /Request START/ }));
-    expect(screen.queryByText(/hardware_control_not_enabled/)).toBeNull();                       // the first click only asks for confirmation: nothing is sent
-    fireEvent.click(screen.getByRole('button', { name: /Confirm START request/ }));
-    expect(await screen.findByText(/hardware_control_not_enabled/)).toBeInTheDocument();
-  });
-
-  it('a speed request needs an entered value, sends exactly that SET_SPEED once, and nothing is sent while typing', async () => {
-    const sent = [];
-    await open('Motor Control', { role: 'admin', snap: { ...SNAP, control_blockers: [] }, onCommand: (b) => sent.push(b), commandResponse: { id: 13, action: 'SET_SPEED', state: 'SENT', reasons: [], requested_by: 'tester' }, commands: [] });
-    await screen.findByText('Motor state');
-    expect(screen.getByRole('button', { name: /Request speed/ })).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/Speed setting \(rpm\)/), { target: { value: '900' } });
-    expect(sent).toEqual([]);
-    fireEvent.click(screen.getByRole('button', { name: /Request speed/ }));
-    await waitFor(() => expect(sent).toEqual([{ action: 'SET_SPEED', rpm: 900 }]));
-    expect(screen.getByTestId('limits-note')).toHaveTextContent(/No approved duty or speed limit exists/);
-  });
-
   it('limits are approved only with every value typed by the admin; nothing is filled in or sent as 0', async () => {
-    const calls = await open('Motor Control', { role: 'admin', commands: [] });
+    const calls = await open('Safety & Commissioning', { mode: 'PHYSICAL', role: 'admin', commands: [] });
     await screen.findByTestId('commissioning');
     const approve = screen.getByRole('button', { name: 'Approve limits' });
     expect(approve).toBeDisabled();
@@ -177,15 +137,28 @@ describe('device pages', () => {
   });
 
   it('lists every interlock and never marks hardware checks verified', async () => {
-    await open('Motor Control', { snap: { ...SNAP, interlocks: [{ id: 'estop', label: 'Emergency-stop circuit verified', status: 'NOT VERIFIED', detail: 'no E-stop input' }, { id: 'session', label: 'Secure session established', status: 'BLOCKED', detail: 'USB' }] }, commands: [] });
+    await open('Safety & Commissioning', { mode: 'PHYSICAL', snap: { ...SNAP, interlocks: [{ id: 'estop', label: 'Emergency-stop circuit verified', status: 'NOT VERIFIED', detail: 'no E-stop input' }, { id: 'session', label: 'Secure session established', status: 'BLOCKED', detail: 'USB' }] }, commands: [] });
     const t = await screen.findByTestId('interlocks');
     expect(t).toHaveTextContent('NOT VERIFIED');
     expect(t).toHaveTextContent('BLOCKED');
     expect(t).not.toHaveTextContent(/^VERIFIED$/);
   });
 
+  it('groups the interlocks into a checklist with pass counts and a next step, and never hides a check it does not know', async () => {
+    const interlocks = [{ id: 'handshake', label: 'Handshake valid', status: 'VERIFIED', detail: 'protocol 1' }, { id: 'telemetry', label: 'Telemetry fresh', status: 'BLOCKED', detail: 'stale' },
+      { id: 'estop', label: 'Emergency-stop circuit verified', status: 'NOT VERIFIED', detail: 'no E-stop input' }, { id: 'new_check', label: 'A future check', status: 'BLOCKED', detail: 'x' }];
+    await open('Safety & Commissioning', { mode: 'PHYSICAL', snap: { ...SNAP, interlocks }, commands: [] });
+    const conn = await screen.findByTestId('ilk-connect');
+    expect(conn).toHaveTextContent('Device connection'); expect(conn).toHaveTextContent('1 of 2 passed');
+    expect(within(conn).getByRole('button', { name: /Device page/ })).toBeInTheDocument();
+    expect(screen.getByTestId('ilk-estop')).toHaveTextContent('0 of 1 passed');
+    expect(within(screen.getByTestId('ilk-estop')).getByRole('button', { name: /commissioning record/ })).toBeInTheDocument();
+    expect(screen.getByTestId('ilk-other')).toHaveTextContent('A future check');
+    expect(screen.queryByTestId('ilk-auth')).toBeNull();                                                     // a group with no reported check is not drawn
+  });
+
   it('shows the commissioning record, offers edits to admins only, and never claims the record enables motion', async () => {
-    await open('Motor Control', { role: 'admin', commands: [] });
+    await open('Safety & Commissioning', { mode: 'PHYSICAL', role: 'admin', commands: [] });
     const t = await screen.findByTestId('commissioning');
     expect(t).toHaveTextContent('NOT VERIFIED'); expect(t).toHaveTextContent('bench check (adam)');
     expect(screen.getByText(/No limits are approved/)).toBeInTheDocument();
@@ -199,26 +172,18 @@ describe('device pages', () => {
     server({ role: 'admin' });
     const f = globalThis.fetch;
     vi.stubGlobal('fetch', vi.fn(async (url, o) => (String(url).endsWith('/device/commissioning') ? ok(withLimits) : f(url, o))));
+    window.localStorage.setItem('torqva.mode', 'PHYSICAL');
     setToken('t'); render(<TorqvaApp pollMs={100000} wsFactory={wsFactory} />);
-    fireEvent.click(await screen.findByRole('button', { name: /^Device\s?USB$/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /^Motor Control/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Safety & Commissioning/ }));
     expect(await screen.findByTestId('limits-approved')).toHaveTextContent('Version 2, approved by adam');
     expect(screen.getByTestId('limits-history')).toHaveTextContent('Max current (A): 3 → 2.5');
     expect(screen.getByText(/Type APPROVE THESE LIMITS to confirm/)).toBeInTheDocument();
   });
 
   it('a non-admin sees the record but no edit controls', async () => {
-    await open('Motor Control', { role: 'operator', commands: [] });
+    await open('Safety & Commissioning', { mode: 'PHYSICAL', role: 'operator', commands: [] });
     await screen.findByTestId('commissioning');
     expect(screen.queryByRole('button', { name: 'Attest' })).toBeNull();
-  });
-
-  it('a viewer can request STOP only and the safety fault is explained', async () => {
-    await open('Motor Control', { role: 'viewer', snap: { ...SNAP, safety_state: 'EMERGENCY_STOP', trip_reason: 'OVER_CURRENT_INSTANT', control_blockers: ['SAFETY FAULT LATCHED: OVER_CURRENT_INSTANT'] } });
-    expect(await screen.findByText(/LATCHED: OVER CURRENT INSTANT/)).toBeInTheDocument();
-    expect(screen.getByText(/can request STOP only/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Send STOP to device/ })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /Request START/ })).toBeDisabled();
   });
 
   it('only admins see the connection form and it posts the chosen port', async () => {
@@ -282,11 +247,4 @@ describe('device pages', () => {
     expect(await screen.findByText(/Protocol error ×30/i)).toBeInTheDocument();
   });
 
-  it('an operator cannot start or change speed: the controls are disabled and say why, while STOP remains available', async () => {
-    await open('Motor Control', { role: 'operator', snap: { ...SNAP, control_blockers: [] }, commands: [] });
-    await screen.findByText('Motor state');
-    expect(screen.getByRole('button', { name: /Request START/ })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Send STOP to device/ })).not.toBeDisabled();
-    expect(screen.getByText(/can request STOP only/)).toBeInTheDocument();
-  });
 });

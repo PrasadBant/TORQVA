@@ -85,6 +85,8 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
     try { setChk(await api.wbCheck(body)); setErr(null); } catch (e) { setChk(null); setErr(e); }
   }, [sel?.candidate_id, pendKey, s.incident?.state, Math.floor((s.t ?? 0) / 10)]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { check(); setConfirm(false); }, [check]);
+  // A trace focus requested from another analyst page applies to this visit only.
+  useEffect(() => () => setWb?.((x) => (x?.traceFocus ? { ...x, traceFocus: null } : x)), []);   // eslint-disable-line react-hooks/exhaustive-deps
   const request = async () => {
     setBusy(true); setErr(null);
     try { const r = await api.wbRequest(body); setWb((x) => ({ ...x, selection: null, lastRequest: r })); setChk(null); setConfirm(false); }
@@ -168,8 +170,8 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
       <Disclosure summary="Pipeline records: gate, Safety Supervisor and commands" meta="what the backend decided and what the device acknowledged" testid="c3-records">
         <InterventionsPage d={d} role={role} actions={actions} error={error} head={false} />
       </Disclosure>
-      <Disclosure summary="View investigation trace" meta="every record of this incident, from observation to outcome" testid="c3-trace">
-        <InvestigationTrace d={d} focus={['decision', 'outcome']} />
+      <Disclosure summary="Investigation trace" meta="every record of this incident, from observation to outcome (its single home)" testid="c3-trace" open={!!wb?.traceFocus?.length}>
+        <InvestigationTrace d={d} focus={wb?.traceFocus?.length ? wb.traceFocus : ['decision', 'outcome']} />
       </Disclosure>
     </>
   );

@@ -137,6 +137,24 @@ def test_only_an_admin_may_request_start_or_speed_and_every_role_may_request_sto
     assert not any(x["state"] in ("EXECUTED", "ACKNOWLEDGED", "SENT") for x in service.bridge.command_list())
 
 
+def test_the_retired_force_unlock_flag_relaxes_nothing(ctx, monkeypatch):
+    """TORQVA_FORCE_UNLOCK used to bypass commissioning, the session check and Safety Supervisor refusals (it even minted approvals). The
+    path is removed: setting the flag must leave every blocker, refusal and honest status exactly as without it."""
+    service, _, c = ctx
+    monkeypatch.setenv("TORQVA_FORCE_UNLOCK", "1")
+    b = service.bridge
+    assert b.control_blockers() and not b.session_active() and not b.limits_confirmed()
+    snap = c.get(P + "/device/status", headers=H("a-tok")).json()
+    assert snap["control_blockers"] and snap["session"]["active"] is False
+    assert "override" not in str(snap["estop_input"]["label"]).lower()
+    n = len(b.command_list())
+    r = c.post(P + "/device/commands", json={"action": "START", "duty_pct": 20}, headers=H("a-tok")).json()
+    assert r["state"] == "REJECTED" and r["reasons"], r
+    assert len(b.command_list()) == n + 1 and not any(x["state"] in ("EXECUTED", "ACKNOWLEDGED", "SENT") for x in b.command_list())
+    src = Path(__file__).resolve().parents[1] / "torqva"
+    assert not [f.name for f in src.glob("*.py") if "FORCE_UNLOCK" in f.read_text(encoding="utf-8")]
+
+
 def test_device_command_payloads_are_validated_and_bad_requests_are_recorded_as_rejected_never_sent(ctx):
     service, _, c = ctx
     post = lambda body: c.post(P + "/device/commands", json=body, headers=H("a-tok"))

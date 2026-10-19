@@ -22,6 +22,17 @@ function Value({ v }) {
   return <code className="tq-trace-json">{JSON.stringify(v)}</code>;
 }
 
+/** The full trace has one home, Interventions (with the receipts and pipeline records); the other analyst pages link to it, focused on their stages. */
+export function TraceLink({ go, setWb, stages = [], testid }) {
+  const open = () => { setWb?.((x) => ({ ...x, traceFocus: stages })); go?.('interventions'); };
+  return (
+    <p className="tq-small tq-mt" data-testid={testid}>
+      <span className="tq-muted">The investigation trace (every record of this incident, from observation to outcome) is kept with the audit records on Interventions.</span>{' '}
+      <button type="button" className="tq-linkbtn" onClick={open} disabled={!go}>Open the trace at {stages.map((x) => META[x]?.[0] || x).join(' and ')}</button>
+    </p>
+  );
+}
+
 export function InvestigationTrace({ d, focus = [] }) {
   const [tr, setTr] = useState(null);
   const [err, setErr] = useState(null);

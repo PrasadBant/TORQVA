@@ -84,8 +84,14 @@ await page.click('[data-testid=run-adaptive]');
 await page.waitForSelector('[data-testid=adaptive-result]', { timeout: 60000 });
 const postAd = await api('/status');
 check('the adaptive investigation ends with a stated status and reason, and the live run did not move', /SUFFICIENT EVIDENCE|MORE EVIDENCE REQUIRED|INVALID INPUT|TEST NOT SUPPORTED|INCONCLUSIVE/.test(await page.textContent('[data-testid=adaptive-result]')) && preAd.t === postAd.t);
+// the trace has one home (Interventions); C4 links to it, focused on the diagnostic-test stage
+await page.click('[data-testid=c4-trace] button');
+await page.waitForSelector('[data-testid=c3-trace][open]', { timeout: 15000 }).catch(() => {});
+check('the C4 trace link opens the trace on Interventions', await page.evaluate(() => !!document.querySelector('[data-testid=c3-trace]')?.open)
+  && (await page.getAttribute('nav button:has-text("Interventions")', 'aria-current')) === 'page');
 await page.waitForFunction(() => document.querySelector('[data-testid=trace-test]')?.dataset.reached === 'yes', null, { timeout: 10000 }).catch(() => {});
-check('the trace on C4 records the diagnostic runs', (await page.getAttribute('[data-testid=trace-test]', 'data-reached')) === 'yes');
+check('the trace records the diagnostic runs', (await page.getAttribute('[data-testid=trace-test]', 'data-reached')) === 'yes');
+check('the trace opens at the diagnostic-test stage', (await page.getAttribute('[data-testid=trace-test]', 'aria-pressed')) === 'true');
 
 // C2: a custom target triggers a fresh prediction for that target
 await nav('Predictions');
