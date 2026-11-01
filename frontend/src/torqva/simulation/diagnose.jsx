@@ -1,14 +1,16 @@
-// AI Diagnostics (C1), simulation mode: the analyst's investigation workspace. Current condition → C1 assessment → ranked hypotheses with the
-// model's own evidence → recommended next test. Everything shown comes from the simulator's records or the workbench plan; a hypothesis is a
-// ranking, never a confirmed fault, and the scenario's injected fault is shown apart as ground truth.
-import React from 'react';
-import { FlaskConical, ArrowRight } from 'lucide-react';
-import { Card, Empty, Pill, ProvBadge, fmt, stateTone, PageHead, CardLink } from '../shared/components.jsx';
+// AI Diagnostics (C1), simulation mode: the analyst's investigation workspace. Overview (current status, top hypotheses, evidence summary,
+// recommended next step) → Hypotheses → Evidence → Explainability. Everything shown comes from the simulator's records or the workbench plan;
+// a hypothesis is a ranking (an AI interpretation), never a confirmed fault, and the scenario's injected fault is shown apart as ground truth.
+import React, { useState } from 'react';
+import { FlaskConical, ArrowRight, Activity, Gauge, Microscope, ListChecks, Compass, Workflow } from 'lucide-react';
+import {
+  Card, Empty, Pill, ProvBadge, fmt, stateTone, PageHead, CardLink, AlertPanel, StatTile, StatGrid, Tabs, TabPanel, LinkButton, SourceTag, CheckList,
+} from '../shared/components.jsx';
 import { TEST_SPECS, TEST_OUTCOMES, FEATURE_LABEL, SCORE_STATUS } from '../shared/diagnostics.js';
-import { DiagnosticsPage } from './pages.jsx';
+import { C1ScoreCard, C1GateCard, C1TimelineCard } from './analysis.jsx';
 import { usePlan, title, pct } from './workbench.js';
 import { TraceLink } from './trace.jsx';
-import { SufficiencyBadge } from './adaptive.jsx';
+import { SufficiencyBadge, SUFF } from './adaptive.jsx';
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 const z = (v) => (finite(v) ? `${v > 0 ? '+' : ''}${v.toFixed(1)}σ` : '—');
@@ -38,32 +40,41 @@ function explain(plan) {
   return parts.join(' ');
 }
 
-function HypothesisRow({ h, top }) {
+function Bar({ p }) {
+  return <span className="tq-bar-track"><span className="tq-bar-fill" style={{ width: `${Math.max(0, Math.min(1, p ?? 0)) * 100}%` }} /></span>;
+}
+
+/** One ranked hypothesis. `compact` = the Overview row; otherwise the full row with the model's own per-feature evidence. */
+function HypothesisRow({ h, top, compact, rank }) {
   return (
     <li className={`tq-hyp ${top ? 'is-top' : ''}`} data-testid={`hyp-${h.hypothesis}`}>
       <div className="tq-hyp-head">
-        <strong>{title(h.hypothesis)}</strong>
-        <span className="tq-bar-track"><span className="tq-bar-fill" style={{ width: `${Math.max(0, Math.min(1, h.probability ?? 0)) * 100}%` }} /></span>
-        <span className="tq-num">{pct(h.probability, 1)}</span>
+        <strong><span className="tq-an-rank tq-num">{rank}</span>{title(h.hypothesis)}</strong>
+        <Bar p={h.probability} />
+        <span className="tq-num">{h.probability == null ? '—' : pct(h.probability, 1)}</span>
       </div>
-      <details className="tq-hyp-more">
-        <summary>Evidence{h.compared_with ? ` compared with ${title(h.compared_with)}` : ''}</summary>
-        <div className="tq-hyp-grid">
-          <div><span className="tq-section-title">Favours it</span>
-            {h.supporting?.length ? <ul className="tq-list">{h.supporting.map((x) => <li key={x.feature}>{FEATURE_LABEL[x.feature] || x.feature}: observed {z(x.observed_z)}, signature {z(x.signature_z)}</li>)}</ul> : <p className="tq-muted">none</p>}</div>
-          <div><span className="tq-section-title">Counts against it</span>
-            {h.contradicting?.length ? <ul className="tq-list">{h.contradicting.map((x) => <li key={x.feature}>{FEATURE_LABEL[x.feature] || x.feature}: observed {z(x.observed_z)}, signature {z(x.signature_z)}</li>)}</ul> : <p className="tq-muted">none</p>}</div>
-          <div><span className="tq-section-title">Best separating test</span>
-            {h.best_separating_test ? <p>{h.best_separating_test.test} against {title(h.best_separating_test.versus)} <span className="tq-muted">(signature separation {fmt(h.best_separating_test.separation, 1)} σ)</span></p> : <p className="tq-muted">none learned</p>}</div>
-        </div>
-        <p className="tq-chart-note">From the hypothesis model's own per-feature log-likelihood over the evidence windows. Signatures are learned in simulation.</p>
-      </details>
+      {!compact && (
+        <details className="tq-hyp-more" open={top}>
+          <summary>Evidence{h.compared_with ? ` compared with ${title(h.compared_with)}` : ''}</summary>
+          <div className="tq-hyp-grid">
+            <div><span className="tq-section-title">Supports it</span>
+              {h.supporting?.length ? <ul className="tq-list">{h.supporting.map((x) => <li key={x.feature}>{FEATURE_LABEL[x.feature] || x.feature}: observed {z(x.observed_z)}, signature {z(x.signature_z)}</li>)}</ul> : <p className="tq-muted">none</p>}</div>
+            <div><span className="tq-section-title">Contradicts it</span>
+              {h.contradicting?.length ? <ul className="tq-list">{h.contradicting.map((x) => <li key={x.feature}>{FEATURE_LABEL[x.feature] || x.feature}: observed {z(x.observed_z)}, signature {z(x.signature_z)}</li>)}</ul> : <p className="tq-muted">none</p>}</div>
+            <div><span className="tq-section-title">Best separating test</span>
+              {h.best_separating_test ? <p>{h.best_separating_test.test} against {title(h.best_separating_test.versus)} <span className="tq-muted">(signature separation {fmt(h.best_separating_test.separation, 1)} σ)</span></p> : <p className="tq-muted">none learned</p>}</div>
+          </div>
+          <p className="tq-chart-note">From the hypothesis model's own per-feature log-likelihood over the evidence windows. Signatures are learned in simulation.</p>
+        </details>)}
     </li>
   );
 }
 
+const postTone = (post) => (post?.label === 'confident' ? 'ok' : post?.label === 'ambiguous' ? 'warn' : 'info');
+
 export function SimDiagnosticsPage({ d, go, stale, setWb }) {
   const { plan, error } = usePlan(d);
+  const [tab, setTab] = useState('overview');
   const s = d.status || {}; const w = s.last_window; const sc = s.scenario || {};
   const hasSim = s.t !== undefined && s.t !== null;
   const [tone, head, detail] = conditionOf(d, plan, stale);
@@ -72,80 +83,151 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
   const rec = plan?.recommended_test;
   const spec = rec && TEST_SPECS[rec.test];
   const post = plan?.posterior;
+  const c1 = plan?.c1;
+  const suff = plan?.sufficiency;
+  const ranked = post && plan?.hypotheses?.length ? plan.hypotheses : [];
+  const score = c1?.score_over_threshold;
+  const status = !c1 ? ['off', hasSim ? 'Waiting' : 'No data', hasSim ? 'no scored window yet' : 'no simulation running']
+    : score === null ? ['info', 'Not scored', SCORE_STATUS[c1.status] || title(c1.status)]
+      : c1.anomalous || score > 1 ? ['warn', 'Above threshold', `abnormal for this speed: ${c1.anomalous_run} window(s) in a row`] : ['ok', 'Within learned band', 'normal for this speed range'];
+  const configure = () => { setWb?.((x) => ({ ...x, prefill: rec?.worth_running ? rec.test : 'profile' })); go('tests'); };
+
+  const recommendation = (
+    <Card title="Recommendation" id="c-next-test" icon={Compass} sub="The next investigation step, chosen by expected information gain" right={<ProvBadge kind="DERIVED" />}>
+      {!post ? <Empty>No hypothesis ranking yet, so no test can be chosen. Hypotheses appear after an anomaly has persisted for {plan?.min_evidence_windows ?? 8} windows. Until then, keep monitoring.</Empty>
+        : !rec ? <Empty>No test is currently allowed for this run (see the Safety Supervisor reasons on Diagnostic Tests).</Empty>
+          : !rec.worth_running ? (
+            <p data-testid="next-none">No test is expected to remove at least {fmt(rec.gate_min_info_gain_nats, 2)} nats of uncertainty: the best, {rec.test}, would remove {fmt(rec.expected_info_gain_nats, 2)} nats. {post.label === 'confident' ? 'The ranking is already confident.' : 'Observing longer is the gate\'s alternative.'}</p>
+          ) : (
+            <div data-testid="next-test">
+              <p><strong>{spec?.name || rec.test}</strong> is expected to remove <strong className="tq-num">{fmt(rec.expected_info_gain_nats, 2)}</strong> nats of uncertainty (the gate needs ≥ {fmt(rec.gate_min_info_gain_nats, 2)}).</p>
+              <p className="tq-muted">{spec?.target}</p>
+              <p className="tq-small"><span className="tq-muted">Signals examined: </span>{spec?.signals.join(' · ')}</p>
+              <ul className="tq-list tq-small">{(TEST_OUTCOMES[rec.test] || []).map((x) => <li key={x}>{x}</li>)}</ul>
+            </div>)}
+      {plan?.gate && <p className="tq-small"><span className="tq-muted">Latest gate verdict: </span><Pill tone={plan.gate.verdict === 'ACT' ? 'ok' : plan.gate.verdict === 'SAFE_STOP' ? 'stop' : 'warn'}>{title(plan.gate.verdict)}</Pill> <span className="tq-muted">{plan.gate.reason}</span></p>}
+      <div className="tq-row tq-mt tq-an-actions">
+        <button type="button" className="tq-btn tq-primary" onClick={configure} disabled={!hasSim}>
+          <FlaskConical size={14} aria-hidden="true" /> Configure in Diagnostic Tests <ArrowRight size={14} aria-hidden="true" />
+        </button>
+        <LinkButton onClick={() => go('workflow')}>Open the guided Diagnostic Workflow</LinkButton>
+      </div>
+      <p className="tq-muted tq-small">Nothing starts from this page. Tests are configured and started on Diagnostic Tests or in the Diagnostic Workflow.</p>
+    </Card>);
+
   return (
     <>
-      <PageHead title="AI Diagnostics (C1)" sub="What the motor is doing now, what C1 makes of it, which faults could explain it and which test would tell them apart."
+      <PageHead title="AI Diagnostics (C1)" sub="Is the motor behaving normally, which faults could explain it, what evidence supports that, and what to check next."
         right={<><ProvBadge kind="SIMULATED" /><Pill tone={tone}>{head}</Pill></>} />
-      <div className={`tq-narrate tone-${tone}`} data-testid="c1-condition">
-        <strong>{head}</strong>{detail && <span>{detail}</span>}
+      <div className="tq-an-page">
+        <AlertPanel tone={tone} title={head} testid="c1-condition">{detail || null}</AlertPanel>
+        {error && error !== 'unavailable' && hasSim && <p className="tq-callout warn">The workbench plan could not be loaded: {error}</p>}
+
+        <StatGrid label="C1 summary">
+          <StatTile icon={Gauge} tone={status[0]} label="Current status" value={status[1]} sub={status[2]} testid="c1-tile-status" />
+          <StatTile icon={Activity} tone={!c1 || score === null ? 'off' : score > 1 ? 'warn' : 'ok'} label="Anomaly score" value={c1 && score !== null ? fmt(score, 2) : '—'} unit={c1 && score !== null ? '× threshold' : undefined}
+            sub={c1 ? `threshold = 1 · incident after ${c1.confirm_windows} windows in a row` : 'distance from the learned healthy baseline'} />
+          <StatTile icon={Microscope} tone={post ? postTone(post) : 'off'} label="Top hypothesis (AI interpretation)" value={post ? title(post.top) : 'None yet'} unit={post ? pct(post.top_p, 0) : undefined}
+            sub={post ? `${post.label}${post.ood ? ', unlike any learned signature' : ''} · not a confirmed fault` : 'ranked only after an anomaly persists'} />
+          <StatTile icon={ListChecks} tone={suff ? (SUFF[suff.status]?.[0] || 'off') : 'off'} label="Evidence" value={suff ? title(SUFF[suff.status]?.[1] || suff.status).toLowerCase().replace(/^\w/, (x) => x.toUpperCase()) : '—'}
+            sub={post ? `${post.n_windows} evidence window(s)` : hasSim ? `${plan?.evidence_windows ?? 0} anomalous window(s) so far` : 'no simulation running'} />
+        </StatGrid>
+
+        <Tabs label="AI Diagnostics views" idBase="c1-tab" value={tab} onChange={setTab}
+          tabs={[{ key: 'overview', label: 'Overview' }, { key: 'hypotheses', label: 'Hypotheses', count: ranked.length || undefined }, { key: 'evidence', label: 'Evidence' }, { key: 'explain', label: 'Explainability' }]} />
+
+        {tab === 'overview' && (
+          <TabPanel tab="overview" idBase="c1-tab">
+            <div className="tq-an-grid tq-an-grid-3">
+              <Card title="Current status" id="c-assess" icon={Gauge} right={<SourceTag kind="SIMULATED" />}>
+                {!c1 ? <Empty>{hasSim ? 'Waiting for the first scored window.' : 'No simulation running.'}</Empty> : <p data-testid="c1-explain">{explain(plan)}</p>}
+                {/* One compact list of the current readings (trends live on Live Monitor); a missing value reads UNAVAILABLE, never 0. */}
+                <dl className="tq-readings" data-testid="c1-kpis">
+                  {[['Speed', w?.rpm, 'rpm', 0], ['Current', w?.current, 'A', 2], ['Supply voltage', w?.voltage, 'V', 2], ['Housing', w?.housing, '°C', 1], ['Vibration RMS', w?.vib_rms, 'g', 3]].map(([l, v, u, dg]) => (
+                    <div key={l}><dt>{l}</dt><dd className="tq-num">{val(v) == null ? 'UNAVAILABLE' : `${fmt(v, dg)} ${u}`}</dd><ProvBadge kind="SIMULATED" /></div>))}
+                  {hasSim && <div><dt>Setpoint</dt><dd className="tq-num">{fmt(s.device?.setpoint_rpm, 0)} rpm</dd></div>}
+                </dl>
+                <p className="tq-muted tq-small">Data quality: {!w ? 'no window yet' : w.valid === false ? 'the latest window is invalid' : 'the latest window is valid'}. The score is a distance from the learned healthy baseline, not a probability of a fault.</p>
+              </Card>
+              <Card title="Top hypotheses" id="c-hyps" icon={Microscope} sub="AI interpretation, not proof"
+                right={<span className="tq-an-right">{post && <Pill tone={postTone(post)}>{post.label}{post.ood ? ' · unlike any learned signature' : ''}</Pill>}<ProvBadge kind="DERIVED" /></span>}
+                foot={ranked.length > 0 ? <LinkButton onClick={() => setTab('hypotheses')}>All hypotheses and their evidence</LinkButton> : null}>
+                {!ranked.length ? <Empty>No ranking yet. The hypothesis model ranks faults only from anomalous windows; healthy windows are not evidence for any fault.</Empty> : (
+                  <ol className="tq-hyps" aria-label="Top fault hypotheses">{ranked.slice(0, 4).map((h, i) => <HypothesisRow key={h.hypothesis} h={h} top={i === 0} rank={i + 1} compact />)}</ol>)}
+                <p className="tq-muted tq-small">Probabilities as the backend reports them. A ranking is not a confirmed fault.{post ? ` Ranked from ${post.n_windows} evidence window(s).` : ''}</p>
+              </Card>
+              <Card title="Evidence summary" id="c-ev-sum" icon={ListChecks} right={suff ? <SufficiencyBadge s={suff} /> : null}>
+                <h4 className="tq-an-h">Measured deviations <SourceTag kind="DERIVED" /></h4>
+                {plan?.top_features?.length ? (
+                  <ul className="tq-an-feats">{plan.top_features.slice(0, 4).map((f) => <li key={f.feature}><span>{FEATURE_LABEL[f.feature] || f.feature}</span><strong className="tq-num">{z(f.mean_z)}</strong></li>)}</ul>
+                ) : <p className="tq-muted tq-small">{hasSim ? 'No anomalous evidence windows yet: nothing deviates enough to analyse.' : 'No simulation running.'}</p>}
+                {ranked[0] && (ranked[0].supporting?.length > 0 || ranked[0].contradicting?.length > 0) && (
+                  <CheckList dense label={`Evidence for and against ${title(ranked[0].hypothesis)}`} items={[
+                    ...ranked[0].supporting.slice(0, 2).map((x) => ({ key: `s${x.feature}`, label: FEATURE_LABEL[x.feature] || x.feature, state: 'ok', status: 'supports', detail: `observed ${z(x.observed_z)}, signature ${z(x.signature_z)}` })),
+                    ...ranked[0].contradicting.slice(0, 2).map((x) => ({ key: `c${x.feature}`, label: FEATURE_LABEL[x.feature] || x.feature, state: 'warn', status: 'contradicts', detail: `observed ${z(x.observed_z)}, signature ${z(x.signature_z)}` }))]} />)}
+                {suff && <p className="tq-small" data-testid="c1-sufficiency"><span className="tq-muted">Sufficiency: </span>{suff.reason}.</p>}
+              </Card>
+            </div>
+            <div className="tq-mt">{recommendation}</div>
+          </TabPanel>)}
+
+        {tab === 'hypotheses' && (
+          <TabPanel tab="hypotheses" idBase="c1-tab">
+            <Card title="Fault hypotheses" id="c-hyps-all" icon={Microscope} sub="AI interpretation, ranked by the hypothesis model; each with the evidence for and against it"
+              right={<span className="tq-an-right">{post && <Pill tone={postTone(post)}>{post.label}{post.ood ? ' · unlike any learned signature' : ''}</Pill>}<ProvBadge kind="DERIVED" /></span>}>
+              {!ranked.length ? <Empty>No ranking yet. The hypothesis model ranks faults only from anomalous windows; healthy windows are not evidence for any fault.</Empty> : (
+                <ol className="tq-hyps" aria-label="Ranked fault hypotheses">{ranked.map((h, i) => <HypothesisRow key={h.hypothesis} h={h} top={i === 0} rank={i + 1} />)}</ol>)}
+              <p className="tq-muted">A ranking is not a confirmed fault. Bearing faults are not diagnosable with this sensor set.{post ? ` Ranked from ${post.n_windows} evidence window(s); margin ${fmt(post.margin, 2)} between the top two.` : ''}</p>
+            </Card>
+          </TabPanel>)}
+
+        {tab === 'evidence' && (
+          <TabPanel tab="evidence" idBase="c1-tab">
+            <C1ScoreCard d={d} />
+            <div className="tq-an-grid tq-mt">
+              <Card title="Operating condition" id="c-cond" right={<ProvBadge kind="SIMULATED" />}>
+                <dl className="tq-kv">
+                  <dt>C1 window status</dt><dd>{c1 ? <Pill tone={c1.score_over_threshold === null ? 'info' : c1.anomalous ? 'warn' : 'ok'}>{title(c1.status)}</Pill> : '—'}</dd>
+                  <dt>Score ÷ learned threshold</dt><dd className="tq-num">{c1 ? fmt(c1.score_over_threshold, 2) : '—'}</dd>
+                  <dt>Anomalous windows in a row</dt><dd className="tq-num">{c1 ? `${c1.anomalous_run} (incident at ${c1.confirm_windows})` : '—'}</dd>
+                  <dt>Incident</dt><dd>{s.incident ? <Pill tone={stateTone(s.incident.state)}>{`${s.incident.id}: ${title(s.incident.state)}`}</Pill> : 'none open'}</dd>
+                  <dt>Scenario ground truth</dt><dd>{!hasSim ? '—' : !sc.fault ? 'no fault scheduled' : injected ? <><Pill tone="info">{`${title(sc.fault)} injected`}</Pill> <span className="tq-muted">known only because this is a simulation; not a diagnosis</span></> : `${title(sc.fault)} scheduled at t = ${sc.inject_after_s} s`}</dd>
+                </dl>
+                <CardLink onClick={() => go('live')}>See the readings as trends on Live Monitor</CardLink>
+              </Card>
+              <Card title="Evidence sufficiency and what is still unknown" id="c-unknown" right={suff ? <SufficiencyBadge s={suff} /> : null}>
+                {!suff ? <Empty>{hasSim ? 'Waiting for the workbench plan.' : 'No simulation running.'}</Empty> : (
+                  <>
+                    <p>{suff.reason}.</p>
+                    <ul className="tq-list tq-small">
+                      {!suff.c1_baseline_for_current_speed && <li>No healthy C1 baseline is learned for the current speed ({title(suff.c1_window_status) || 'no window'}): this speed cannot be judged against a baseline.</li>}
+                      {suff.tests.filter((t) => !t.eligible).map((t) => <li key={t.test}>{t.test} cannot run now: {t.prerequisites.filter((p) => !p.ok).map((p) => p.detail || p.check).join('; ')}.</li>)}
+                      <li>Bearing faults are not diagnosable with this sensor set; torque is not measured.</li>
+                    </ul>
+                  </>)}
+              </Card>
+            </div>
+          </TabPanel>)}
+
+        {tab === 'explain' && (
+          <TabPanel tab="explain" idBase="c1-tab">
+            <Card title="How C1 reaches this reading" id="c-how" icon={Workflow}>
+              <ol className="tq-list tq-small">
+                <li>Each 1 s simulated window is turned into features (vibration orders, current per rpm, thermal residual …) and compared with the healthy baseline learned for its speed range. The score ÷ threshold is that distance; 1 is the learned threshold.</li>
+                <li>{c1 ? `An incident opens after ${c1.confirm_windows} consecutive windows above the threshold.` : 'An incident opens after several consecutive windows above the threshold.'} Windows taken while speed changes, or at an unlearned speed, are not scored.</li>
+                <li>Only the anomalous windows are passed to the hypothesis model, which ranks fault classes by their learned signatures (z-scores per feature). The ranking is labelled confident, ambiguous or unfamiliar by the backend.</li>
+                <li>The decision gate uses the ranking, the prediction trust and the evidence count to choose: act, test, wait for data or escalate. Its inputs are listed below.</li>
+              </ol>
+              {plan?.top_features?.length > 0 && (
+                <div className="tq-table-wrap"><table className="tq-table tq-small"><caption>Features furthest from the healthy baseline (mean over the evidence windows)</caption>
+                  <thead><tr><th scope="col">Feature</th><th scope="col">Mean z</th></tr></thead>
+                  <tbody>{plan.top_features.map((f) => <tr key={f.feature}><th scope="row">{FEATURE_LABEL[f.feature] || f.feature}</th><td className="tq-num">{z(f.mean_z)}</td></tr>)}</tbody></table></div>)}
+            </Card>
+            <div className="tq-split tq-mt"><C1GateCard d={d} /><C1TimelineCard d={d} /></div>
+          </TabPanel>)}
+
+        <TraceLink go={go} setWb={setWb} stages={['observation', 'hypothesis']} testid="c1-trace" />
       </div>
-      {error && error !== 'unavailable' && hasSim && <p className="tq-callout warn">The workbench plan could not be loaded: {error}</p>}
-
-      {/* The finding first (ranking, assessment, next step), then what is still unknown, then the readings it rests on. */}
-      <Card title="Fault hypotheses" id="c-hyps" right={<>{post && <Pill tone={post.label === 'confident' ? 'ok' : post.label === 'ambiguous' ? 'warn' : 'info'}>{post.label}{post.ood ? ' · unlike any learned signature' : ''}</Pill>}<ProvBadge kind="DERIVED" /></>}>
-        {!plan?.hypotheses?.length || !post ? <Empty>No ranking yet. The hypothesis model ranks faults only from anomalous windows; healthy windows are not evidence for any fault.</Empty> : (
-          <ol className="tq-hyps" aria-label="Ranked fault hypotheses">{plan.hypotheses.map((h, i) => <HypothesisRow key={h.hypothesis} h={h} top={i === 0} />)}</ol>)}
-        <p className="tq-muted">A ranking is not a confirmed fault. Bearing faults are not diagnosable with this sensor set.{post ? ` Ranked from ${post.n_windows} evidence window(s).` : ''}</p>
-      </Card>
-
-      <div className="tq-split tq-mt">
-        <Card title="C1 assessment" id="c-assess" right={<ProvBadge kind="DERIVED" />}>
-          {!plan?.c1 ? <Empty>{hasSim ? 'Waiting for the first scored window.' : 'No simulation running.'}</Empty> : <p data-testid="c1-explain">{explain(plan)}</p>}
-          <p className="tq-muted">The score is a distance from the learned healthy baseline, not a probability of a fault.</p>
-        </Card>
-        <Card title="Recommended next step" id="c-next-test" right={<ProvBadge kind="DERIVED" />}>
-          {!post ? <Empty>No hypothesis ranking yet, so no test can be chosen. Hypotheses appear after an anomaly has persisted for {plan?.min_evidence_windows ?? 8} windows.</Empty>
-            : !rec ? <Empty>No test is currently allowed for this run (see the Safety Supervisor reasons on Diagnostic Tests).</Empty>
-              : !rec.worth_running ? (
-                <p data-testid="next-none">No test is expected to remove at least {fmt(rec.gate_min_info_gain_nats, 2)} nats of uncertainty: the best, {rec.test}, would remove {fmt(rec.expected_info_gain_nats, 2)} nats. {post.label === 'confident' ? 'The ranking is already confident.' : 'Observing longer is the gate\'s alternative.'}</p>
-              ) : (
-                <div data-testid="next-test">
-                  <p><strong>{spec?.name || rec.test}</strong> is expected to remove <strong className="tq-num">{fmt(rec.expected_info_gain_nats, 2)}</strong> nats of uncertainty (the gate needs ≥ {fmt(rec.gate_min_info_gain_nats, 2)}).</p>
-                  <p className="tq-muted">{spec?.target}</p>
-                  <p className="tq-small"><span className="tq-muted">Signals examined: </span>{spec?.signals.join(' · ')}</p>
-                  <ul className="tq-list tq-small">{(TEST_OUTCOMES[rec.test] || []).map((x) => <li key={x}>{x}</li>)}</ul>
-                </div>)}
-          {plan?.gate && <p className="tq-small"><span className="tq-muted">Latest gate verdict: </span><Pill tone={plan.gate.verdict === 'ACT' ? 'ok' : plan.gate.verdict === 'SAFE_STOP' ? 'stop' : 'warn'}>{title(plan.gate.verdict)}</Pill> <span className="tq-muted">{plan.gate.reason}</span></p>}
-          <div className="tq-row tq-mt">
-            <button type="button" className="tq-btn tq-primary" onClick={() => { setWb?.((x) => ({ ...x, prefill: rec?.worth_running ? rec.test : 'profile' })); go('tests'); }} disabled={!hasSim}>
-              <FlaskConical size={14} aria-hidden="true" /> Configure in Diagnostic Tests <ArrowRight size={14} aria-hidden="true" />
-            </button>
-          </div>
-          <p className="tq-muted tq-small">Nothing runs from this page. Tests are configured and started on Diagnostic Tests.</p>
-        </Card>
-      </div>
-
-      <Card title="Evidence sufficiency and what is still unknown" id="c-unknown" className="tq-mt" right={plan?.sufficiency ? <SufficiencyBadge s={plan.sufficiency} /> : null}>
-        {!plan?.sufficiency ? <Empty>{hasSim ? 'Waiting for the workbench plan.' : 'No simulation running.'}</Empty> : (
-          <>
-            <p data-testid="c1-sufficiency">{plan.sufficiency.reason}.</p>
-            <ul className="tq-list tq-small">
-              {!plan.sufficiency.c1_baseline_for_current_speed && <li>No healthy C1 baseline is learned for the current speed ({title(plan.sufficiency.c1_window_status) || 'no window'}): this speed cannot be judged against a baseline.</li>}
-              {plan.sufficiency.tests.filter((t) => !t.eligible).map((t) => <li key={t.test}>{t.test} cannot run now: {t.prerequisites.filter((p) => !p.ok).map((p) => p.detail || p.check).join('; ')}.</li>)}
-              <li>Bearing faults are not diagnosable with this sensor set; torque is not measured.</li>
-            </ul>
-          </>)}
-      </Card>
-
-      <Card title="Operating condition" id="c-cond" className="tq-mt" right={<ProvBadge kind="SIMULATED" />}>
-        {/* One compact line of the current readings (the trends live on Live Monitor); a missing value reads UNAVAILABLE, never 0. */}
-        <dl className="tq-readings" data-testid="c1-kpis">
-          {[['Speed', w?.rpm, 'rpm', 0], ['Current', w?.current, 'A', 2], ['Supply voltage', w?.voltage, 'V', 2], ['Housing', w?.housing, '°C', 1], ['Vibration RMS', w?.vib_rms, 'g', 3]].map(([l, v, u, dg]) => (
-            <div key={l}><dt>{l}</dt><dd className="tq-num">{val(v) == null ? 'UNAVAILABLE' : `${fmt(v, dg)} ${u}`}</dd><ProvBadge kind="SIMULATED" /></div>))}
-          {hasSim && <div><dt>Setpoint</dt><dd className="tq-num">{fmt(s.device?.setpoint_rpm, 0)} rpm</dd></div>}
-        </dl>
-        <dl className="tq-kv tq-mt">
-          <dt>C1 window status</dt><dd>{plan?.c1 ? <Pill tone={plan.c1.score_over_threshold === null ? 'info' : plan.c1.anomalous ? 'warn' : 'ok'}>{title(plan.c1.status)}</Pill> : '—'}</dd>
-          <dt>Score ÷ learned threshold</dt><dd className="tq-num">{plan?.c1 ? fmt(plan.c1.score_over_threshold, 2) : '—'}</dd>
-          <dt>Anomalous windows in a row</dt><dd className="tq-num">{plan?.c1 ? `${plan.c1.anomalous_run} (incident at ${plan.c1.confirm_windows})` : '—'}</dd>
-          <dt>Incident</dt><dd>{s.incident ? <Pill tone={stateTone(s.incident.state)}>{`${s.incident.id}: ${title(s.incident.state)}`}</Pill> : 'none open'}</dd>
-          <dt>Scenario ground truth</dt><dd>{!hasSim ? '—' : !sc.fault ? 'no fault scheduled' : injected ? <><Pill tone="info">{`${title(sc.fault)} injected`}</Pill> <span className="tq-muted">known only because this is a simulation; not a diagnosis</span></> : `${title(sc.fault)} scheduled at t = ${sc.inject_after_s} s`}</dd>
-        </dl>
-        <CardLink onClick={() => go('live')}>See these readings as trends on Live Monitor</CardLink>
-      </Card>
-
-      <div className="tq-mt"><DiagnosticsPage d={d} head={false} /></div>
-      <TraceLink go={go} setWb={setWb} stages={['observation', 'hypothesis']} testid="c1-trace" />
     </>
   );
 }

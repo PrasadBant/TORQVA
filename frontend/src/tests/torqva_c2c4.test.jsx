@@ -93,7 +93,7 @@ describe('Predictions and Evaluation views', () => {
     setToken('t'); render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
     fireEvent.click(screen.getByRole('button', { name: /^Predictions/ }));
-    expect(await screen.findByText('unsupported — not used for decisions')).toBeInTheDocument();
+    expect(await screen.findByText('unsupported — not used for decisions', {}, { timeout: 4000 })).toBeInTheDocument();   // the Predictions page is a lazy chunk
     expect(screen.getByText(/measurement noise 5.0x calibration level/)).toBeInTheDocument();
     expect(screen.getByText('Predicted vs observed (simulated)')).toBeInTheDocument();
   });

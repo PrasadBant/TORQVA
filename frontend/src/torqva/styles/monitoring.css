@@ -1,0 +1,85 @@
+/* Overview (both modes), Live Monitor, Device, Safety & Commissioning, Devices & Settings styles.
+   Owner: Monitoring & Hardware (Agent 2). Loaded after torqva.css and styles/system.css, so rules here refine the shared base. Use the design tokens (var(--tq-*)) only. */
+
+/* ------------------------------------------------------------------ Headline status (StatGrid wrapper) */
+.tq-mon-status { margin-bottom: 16px; }
+.tq-mon-status .tq-stats { margin-bottom: 0; }
+.tq-mon-status .tq-stat-sub { line-height: 1.4; }
+.tq-mon-statpill { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; min-width: 0; }
+.tq-mon-statpill .tq-pill { max-width: 100%; white-space: normal; text-align: left; }
+.tq-mon-status .tq-status-limits { margin: 10px 2px 0; }
+.tq-mon-gaps { margin: 12px 0 0; }
+.tq-mon-gaps ul { margin: 6px 0 0; padding-left: 18px; }
+
+/* ------------------------------------------------------------------ Page grids */
+.tq-mon-ovgrid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.tq-mon-ovgrid + .tq-mon-ovgrid, .tq-speed + .tq-mon-ovgrid, .tq-pipe-card + .tq-mon-ovgrid { margin-top: 16px; }
+.tq-mon-ovgrid--even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tq-mon-ovgrid > .tq-card, .tq-mon-ovgrid > .tq-stack { min-width: 0; }
+@media (max-width: 1100px) { .tq-mon-ovgrid, .tq-mon-ovgrid--even { grid-template-columns: minmax(0, 1fr); } }
+
+.tq-mon-subhead { margin: 14px 0 6px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--tq-muted); }
+.tq-card .tq-mon-subhead:first-child { margin-top: 0; }
+.tq-mon-studiolink { margin: -4px 2px 0; }
+
+/* ------------------------------------------------------------------ Live telemetry tiles (overview) */
+.tq-mon-tiles { grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 10px; margin-bottom: 0; }
+.tq-mon-tiles .tq-kpi { padding: 12px 12px 10px; }
+.tq-mon-tiles .tq-kpi .tq-kpi-value { font-size: 22px; margin-top: 6px; }
+.tq-mon-tiles .tq-kpi.tq-unavailable .tq-kpi-value, .tq-mon-tiles .tq-kpi .tq-na { font-size: 12px; padding: 8px 0 4px; }
+.tq-mon-tele .tq-mon-sigicon { --tone: var(--tq-mon-sig, var(--tq-accent)); }
+.tq-mon-tele.tq-unavailable .tq-mon-sigicon { --tone: var(--tq-off); }
+.tq-mon-tiles .tq-kpi-spark { margin: 4px -4px 0; padding-top: 4px; }
+
+/* ------------------------------------------------------------------ Motor Control */
+.tq-mon-motion .tq-motion-stop-bar { margin-top: 12px; }
+.tq-mon-motion .tq-stop-note { text-align: center; }
+.tq-mon-avail { margin-top: 14px; }
+.tq-mon-avail [data-testid="why-disabled"] { font-weight: 600; color: var(--tq-text); }
+.tq-mon-avail .tq-blocked-action { align-self: center; }
+@media (max-width: 560px) { .tq-mon-avail { grid-template-columns: auto minmax(0, 1fr); } .tq-mon-avail .tq-blocked-action { grid-column: 2; } }
+
+/* ------------------------------------------------------------------ Safety & Commissioning */
+.tq-mon-steps { margin-bottom: 0; }
+.tq-mon-steps .tq-steps { padding: 4px 0 2px; }
+.tq-mon-catalog { list-style: none; margin: 0 0 12px; padding: 0; display: grid; }
+.tq-mon-catalog li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--tq-border-soft); font-size: 13px; min-width: 0; }
+.tq-mon-catalog li > span { min-width: 0; overflow-wrap: anywhere; }
+.tq-mon-catalog li:last-child { border-bottom: 0; }
+.tq-card .tq-blocked { margin: 12px 0; }
+
+/* ------------------------------------------------------------------ Device page */
+.tq-mon-devgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; align-items: start; }
+.tq-mon-connhead { --tone: var(--tq-off); display: flex; align-items: center; gap: 12px; padding: 12px; margin-bottom: 10px; border-radius: var(--tq-r);
+  background: color-mix(in srgb, var(--tone) 7%, var(--tq-s1)); border: 1px solid color-mix(in srgb, var(--tone) 25%, var(--tq-border)); }
+.tq-mon-connhead.tq-ok { --tone: var(--tq-ok); } .tq-mon-connhead.tq-warn { --tone: var(--tq-warn); } .tq-mon-connhead.tq-crit { --tone: var(--tq-crit); }
+.tq-mon-connicon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; flex: none; color: var(--tone); background: color-mix(in srgb, var(--tone) 14%, var(--tq-s1)); }
+.tq-mon-connhead > div { display: grid; gap: 1px; min-width: 0; }
+.tq-mon-connhead strong { font-size: 16px; color: var(--tone); overflow-wrap: anywhere; }
+.tq-mon-connhead.tq-off strong { color: var(--tq-text); }
+.tq-mon-connhead span { font-size: 12.5px; color: var(--tq-muted); overflow-wrap: anywhere; }
+.tq-mon-devgrid .tq-kv dt { max-width: 22ch; }
+
+.tq-mon-sensors { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr)); gap: 10px; }
+.tq-mon-sensor { --tone: var(--tq-off); display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: center; padding: 12px; min-width: 0;
+  border: 1px solid var(--tq-border); border-radius: var(--tq-r); background: var(--tq-s1); }
+.tq-mon-sensor.tq-ok { --tone: var(--tq-ok); } .tq-mon-sensor.tq-warn { --tone: var(--tq-warn); }
+.tq-mon-sensor-icon { grid-row: span 2; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; color: var(--tone); background: color-mix(in srgb, var(--tone) 12%, var(--tq-s1)); }
+.tq-mon-sensor-name { font-size: 13px; font-weight: 600; color: var(--tq-text); overflow-wrap: anywhere; }
+.tq-mon-sensor .tq-pill { justify-self: start; }
+.tq-mon-sensor-words { grid-column: 1 / -1; font-size: 12px; color: var(--tq-muted); }
+
+/* ------------------------------------------------------------------ Live Monitor (both modes) */
+.tq-mon-livegrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); gap: 16px; align-items: start; }
+.tq-mon-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 14px; }
+.tq-mon-charts .tq-chartpanel h3 { display: inline-flex; align-items: center; gap: 6px; }
+.tq-mon-charts .tq-chart { margin: 0; }
+.tq-mon-nochart { margin: 0; min-height: 80px; display: grid; place-items: center; text-align: center; padding: 10px; font-size: 12.5px; color: var(--tq-muted);
+  border: 1px dashed var(--tq-border); border-radius: var(--tq-r); }
+.tq-mon-live .tq-toolbar { margin-bottom: 0; }
+.tq-mon-live > .tq-callout { margin: 0; }
+.tq-mon-live .tq-alertpanel { margin: 0; }
+@media (max-width: 1100px) { .tq-mon-livegrid { grid-template-columns: minmax(0, 1fr); } .tq-mon-livegrid .tq-sticky-side { position: static; } }
+
+.tq-mon-status .tq-stat.tq-off .tq-stat-value { color: var(--tq-text-2); }
+.tq-mon-status .tq-stat-value { font-size: 17px; }

@@ -2,7 +2,7 @@
 // it was decided on, the gate and Safety Supervisor results, the approval state and a lifecycle read from later records
 // (GET /simulation/workbench/receipts…). The digest detects a changed snapshot; it is not a signature. Export downloads the receipt as JSON.
 import React, { useEffect, useRef, useState } from 'react';
-import { Download, FileCheck2 } from 'lucide-react';
+import { Download, FileCheck2, ReceiptText } from 'lucide-react';
 import { api } from '../api.js';
 import { Card, Empty, Pill, ProvBadge, fmt } from '../shared/components.jsx';
 import { title, fmtRpm, pct } from './workbench.js';
@@ -70,7 +70,7 @@ export function ReceiptsPanel({ d, focusId }) {
   }, [sel, n]);
   const rows = list?.receipts || [];
   return (
-    <Card title="Decision receipts" id="c-receipts" right={<ProvBadge kind="SIMULATED" />}>
+    <Card title="Decision receipts" id="c-receipts" icon={ReceiptText} sub="Every request, accepted or refused, with the evidence it was decided on" right={<ProvBadge kind="SIMULATED" />}>
       {!hasSim ? <Empty>No simulation is running.</Empty> : err ? <p className="tq-muted">Receipts could not be loaded: {err}</p> : !list ? <Empty loading>Loading receipts…</Empty> : (
         <>
           {list.pending && (
@@ -80,9 +80,9 @@ export function ReceiptsPanel({ d, focusId }) {
               <p className="tq-small">{list.pending.note}</p>
             </div>)}
           {!rows.length ? <Empty>No action has been requested or dispatched in this run yet.</Empty> : (
-            <ul className="tq-list" data-testid="receipt-list">
+            <ul className="tq-as-receipts" data-testid="receipt-list">
               {rows.map((r) => (
-                <li key={r.id}>
+                <li key={r.id} className={sel === r.id ? 'is-on' : undefined}>
                   <button type="button" className="tq-link" aria-pressed={sel === r.id} onClick={() => setSel(r.id)}><FileCheck2 size={14} aria-hidden="true" />{r.id}</button>{' '}
                   <Pill tone={r.decision === 'REFUSED' ? 'crit' : 'ok'}>{r.decision}</Pill>{' '}
                   {title(r.action)}{r.target_rpm ? ` to ${fmtRpm(r.target_rpm)} rpm` : ''} <span className="tq-muted">· {r.kind === 'analyst' ? 'analyst request' : 'pipeline action (derived)'}{r.investigation ? ` · ${r.investigation}` : ''}</span>

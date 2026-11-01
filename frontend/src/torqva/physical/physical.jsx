@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Usb, Octagon, Play, ShieldCheck, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, Lock, Unlock } from 'lucide-react';
+import { Usb, Octagon, Play, ShieldCheck, ShieldAlert, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, Lock, HeartPulse, SlidersHorizontal, History, ClipboardCheck, Info } from 'lucide-react';
 import { api } from '../api.js';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, useNavContext, PageHead } from '../shared/components.jsx';
-import { DeviceLive, CommissioningCard, canOperate, STATE_TONE, ReadinessCard, InterlocksCard } from './device.jsx';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, useNavContext, PageHead, StatTile, StatGrid, AlertPanel, BlockedReason, LinkButton, CheckList, StepTracker, DataTable, SourceTag } from '../shared/components.jsx';
+import { DeviceLive, CommissioningCard, canOperate, STATE_TONE, ReadinessCard, InterlocksCard, interlockGroups, groupStatus, toComm, toIlk, useDeviceHistories, readingOf, ago, clock } from './device.jsx';
+import { Sparkline } from '../shared/lazyCharts.jsx';
 import { TEST_SPECS } from '../shared/diagnostics.js';
 
 const WAITING = 'WAITING FOR VALID PHYSICAL TELEMETRY';
-const ago = (unix) => (unix ? `${fmt(Math.max(0, Date.now() / 1000 - unix), 1)} s ago` : 'never');
 const isLive = (snap) => !!(snap?.handshake && snap?.origin === 'physical_device');
 
 // ── Speed classification ─────────────────────────────────────────────────────
@@ -184,11 +184,15 @@ function sensorSummary(sens) {
   return { total: e.length, valid: e.length - bad.length, bad };
 }
 
-/** Concise single status area for active faults, connection health, and physical blockers. */
-export function StatusStrip({ snap }) {
+const ZONE_TONE = { IDLE: 'info', NORMAL: 'ok', WARNING: 'warn', CRITICAL: 'crit', UNKNOWN: 'warn' };
+const isRunningOf = (snap, rpm) => isLive(snap) && (snap.drive !== 'IDLE' || Number(rpm) > 50);
+
+/** Headline status of the physical device as four tiles: device link, motion blockers, measured speed, sensors and faults.
+ *  Every value is what the backend reports; motion readiness is never inferred from the connection. */
+export function StatusStrip({ snap, go }) {
   const live = isLive(snap);
   const ss = sensorSummary(snap?.sensor_status);
-  const blockers = snap?.control_blockers || [];
+  const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
   const fault = !live
     ? ['off', 'fault state unknown']
     : snap.safety_state === 'OK'
@@ -197,60 +201,50 @@ export function StatusStrip({ snap }) {
     ? ['stop', `LATCHED: ${title(snap.trip_reason)}`]
     : ['warn', snap.safety_state || 'unknown'];
 
-  const connTone = live ? (snap.telemetry_fresh ? 'ok' : 'warn') : snap?.connection === 'ERROR' ? 'crit' : 'off';
-  const sensTone = !live ? 'off' : ss.bad.length ? 'warn' : 'ok';
-  const MotionIcon = blockers.length ? Lock : Unlock;
+  const connTone = live ? (snap.telemetry_fresh ? 'ok' : 'warn') : snap?.connection === 'ERROR' ? 'crit' : snap?.handshake ? 'warn' : 'off';
+  const connWord = live ? (snap.telemetry_fresh ? 'Connected' : 'Telemetry stale') : snap?.handshake ? 'Firmware simulation' : snap?.connection === 'CONNECTING' ? 'Connecting' : snap?.connection === 'ERROR' ? 'Connection error' : 'Disconnected';
+  const rpmV = snap?.values?.rpm;
+  const rpm = live ? readingOf(rpmV) : null;            // an invalid reading is unknown, never 0
+  const zone = classifyRpm(rpm, isRunningOf(snap, rpm));
+  const rpmTone = !live ? 'off' : rpm === null ? 'warn' : rpmV?.stale ? 'warn' : ZONE_TONE[zone];
+  const rpmSub = !live ? 'no live telemetry' : rpm === null ? (zone === 'UNKNOWN' ? 'SPEED UNAVAILABLE: the drive is active but the Hall reading is invalid or missing' : 'Hall reading invalid or missing')
+    : rpmV?.stale ? 'STALE: last reading, not live' : `${ZONE_META[zone].label} · measured (Hall sensor)`;
+  const healthTone = !live ? 'off' : fault[0] !== 'ok' ? fault[0] : ss.bad.length ? 'warn' : 'ok';
   return (
-    <div className="tq-status-strip tq-status-v2" data-testid="status-strip">
-      <div className="tq-summary" aria-label="Device status">
-        <div className="tq-summary-cell">
-          <span className={`tq-kpi-icon tq-${connTone}`} aria-hidden="true"><Usb size={15} /></span>
-          <span className="tq-summary-label">Connection</span>
-          <div className="tq-row tq-wrap-pills">
-            <Pill tone={connTone}>{snap?.state_label || (live ? 'Connected' : 'DEVICE DISCONNECTED')}</Pill>
-            {snap?.handshake && <Pill tone="ok">{`handshake ok · ${snap.device_id || '—'} · fw ${snap.firmware || '—'}`}</Pill>}
-          </div>
-          {snap?.last_rx_unix ? <span className="tq-summary-meta tq-num">last telemetry {ago(snap.last_rx_unix)}</span> : null}
-        </div>
-        <div className="tq-summary-cell">
-          <span className={`tq-kpi-icon tq-${sensTone}`} aria-hidden="true"><Activity size={15} /></span>
-          <span className="tq-summary-label">Sensors</span>
-          <div className="tq-row tq-wrap-pills"><Pill tone={sensTone}>{!live ? 'sensors unknown' : `sensors ${ss.valid}/${ss.total} valid`}</Pill></div>
-        </div>
-        <div className="tq-summary-cell">
-          <span className={`tq-kpi-icon tq-${fault[0]}`} aria-hidden="true"><ShieldCheck size={15} /></span>
-          <span className="tq-summary-label">Safety</span>
-          <div className="tq-row tq-wrap-pills">
-            <Pill tone={fault[0]}>{fault[1]}</Pill>
-            {live && snap.estop_input && (
-              <Pill tone={snap.estop_input.state === 2 ? 'ok' : snap.estop_input.state === 1 ? 'stop' : 'warn'}>
-                {`E-stop input: ${String(snap.estop_input.label || 'unknown').split(' (')[0].toLowerCase()}`}
-              </Pill>
-            )}
-          </div>
-        </div>
-        <div className="tq-summary-cell">
-          <span className={`tq-kpi-icon tq-${blockers.length ? 'stop' : 'info'}`} aria-hidden="true"><MotionIcon size={15} /></span>
-          <span className="tq-summary-label">Motion</span>
-          <div className="tq-row tq-wrap-pills">
-            <Pill tone={blockers.length ? 'stop' : 'info'}>{blockers.length ? `motion locked: ${blockers[0]}` : 'motion permitted'}</Pill>
-            {live && snap.transport_label && <Pill tone={snap.session?.active ? 'info' : 'warn'}>{snap.transport_label}</Pill>}
-            {live && snap.config && (
-              <Pill tone={snap.config.confirmed ? 'ok' : 'warn'}>
-                {snap.config.confirmed ? `limits v${snap.config.device_version} confirmed by the device` : snap.config.approved_version ? `limits v${snap.config.approved_version} awaiting the device` : 'no limits approved'}
-              </Pill>
-            )}
-          </div>
-        </div>
-      </div>
+    <section className="tq-mon-status" data-testid="status-strip" aria-label="Device status">
+      <StatGrid label="Device status">
+        <StatTile icon={Usb} tone={connTone} label="Device status" value={connWord} testid="stat-device"
+          sub={snap?.handshake ? `handshake ok · ${snap.device_id || '—'} · fw ${snap.firmware || '—'}` : snap?.port ? `port ${snap.port} · no handshake` : 'no device handshake'}
+          action={go ? <LinkButton onClick={() => go('device')}>Open Device page</LinkButton> : null}>
+          {snap?.last_rx_unix ? <span className="tq-stat-sub tq-num">last telemetry {ago(snap.last_rx_unix)}</span> : null}
+          {live && snap.transport_label && <span className="tq-mon-statpill"><Pill tone={snap.session?.active ? 'info' : 'warn'}>{snap.transport_label}</Pill></span>}
+        </StatTile>
+        <StatTile icon={blockers.length ? ShieldAlert : ShieldCheck} tone={blockers.length ? 'crit' : 'info'} label="Safety status" testid="stat-safety"
+          value={blockers.length ? 'Not ready' : 'No blocker reported'}
+          sub={blockers.length ? `${blockers.length} blocking issue${blockers.length > 1 ? 's' : ''} · motion locked: ${blockers[0]}` : 'Every command is still checked by the Safety Supervisor and the firmware.'}
+          action={go ? <LinkButton onClick={() => go('control')}>{blockers.length ? 'View blockers' : 'View checklist'}</LinkButton> : null}>
+          {live && snap.config && (
+            <span className="tq-mon-statpill"><Pill tone={snap.config.confirmed ? 'ok' : 'warn'}>
+              {snap.config.confirmed ? `limits v${snap.config.device_version} confirmed by the device` : snap.config.approved_version ? `limits v${snap.config.approved_version} awaiting the device` : 'no limits approved'}
+            </Pill></span>)}
+        </StatTile>
+        <StatTile icon={Gauge} tone={rpmTone} label="Current speed" value={rpm === null ? 'UNAVAILABLE' : fmt(rpm, 0)} unit={rpm === null ? undefined : 'rpm'} sub={rpmSub} testid="stat-rpm" />
+        <StatTile icon={HeartPulse} tone={healthTone} label="System health" testid="stat-health"
+          value={!live ? 'Unknown' : `${ss.valid}/${ss.total} sensors valid`} sub={!live ? 'sensors unknown · fault state unknown' : fault[1]}>
+          {live && snap.estop_input && (
+            <span className="tq-mon-statpill"><Pill tone={snap.estop_input.state === 2 ? 'ok' : snap.estop_input.state === 1 ? 'stop' : 'warn'}>
+              {`E-stop input: ${String(snap.estop_input.label || 'unknown').split(' (')[0].toLowerCase()}`}
+            </Pill></span>)}
+        </StatTile>
+      </StatGrid>
 
       {live && snap.config?.confirmed && snap.config.limits && (
-        <p className="tq-status-limits" data-testid="accepted-limits">
+        <p className="tq-status-limits tq-small tq-muted" data-testid="accepted-limits">
           Accepted limits: {snap.config.limits.max_current_a} A · {snap.config.limits.max_temp_c} °C · {snap.config.limits.max_rpm} rpm · {snap.config.limits.max_duty_pct} % duty
         </p>
       )}
       {live && ss.bad.length > 0 && (
-        <div className="tq-callout warn" role="alert" data-testid="sensor-gaps">
+        <div className="tq-callout warn tq-mon-gaps" role="alert" data-testid="sensor-gaps">
           <strong>⚠ {ss.bad.length} sensor{ss.bad.length > 1 ? 's' : ''} not working</strong>
           <ul>
             {ss.bad.map(([k, s]) => (
@@ -265,7 +259,7 @@ export function StatusStrip({ snap }) {
           </ul>
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -277,11 +271,13 @@ const TILES = [
   ['power', 'Motor Power', 'W', 1],
   ['acceleration', 'Total acceleration (incl. gravity)', 'g', 3],
 ];
-
+const TILE_SIGNALS = TILES.map((t) => t[0]);
 const TILE_ICON = { rpm: Gauge, current: Zap, housing: Thermometer, ambient: Thermometer, voltage: Plug, power: Zap, acceleration: Move3d };
+const TILE_COLOR = { rpm: 'var(--tq-sig-rpm)', current: 'var(--tq-sig-current)', housing: 'var(--tq-sig-temp)', ambient: 'var(--tq-sig-temp)', voltage: 'var(--tq-sig-voltage)', power: 'var(--tq-sig-power)', acceleration: 'var(--tq-sig-vib)' };
 
-function Tile({ label, unit, d, v, sensorKey }) {
+function Tile({ label, unit, d, v, sensorKey, points }) {
   const I = TILE_ICON[sensorKey] || Activity;
+  const color = TILE_COLOR[sensorKey] || 'var(--tq-chart-1)';
   const has = v && v.valid && v.value != null;
   // Specific fault label when reading is not available
   const faultLabel = !v
@@ -293,17 +289,19 @@ function Tile({ label, unit, d, v, sensorKey }) {
     : v.stale
     ? 'STALE'
     : 'UNAVAILABLE';
+  const data = (points || []).map(([t, y]) => ({ t, v: y }));
 
   return (
-    <div className={`tq-kpi ${has ? '' : 'tq-unavailable'}`} data-testid={`tile-${label}`}>
+    <div className={`tq-kpi tq-mon-tele ${has ? '' : 'tq-unavailable'}`} data-testid={`tile-${label}`} style={{ '--tq-mon-sig': color }}>
       <div className="tq-kpi-label">
-        <span className="tq-kpi-head"><span className="tq-kpi-icon" aria-hidden="true"><I size={15} /></span><span>{label}</span></span>
+        <span className="tq-kpi-head"><span className="tq-kpi-icon tq-mon-sigicon" aria-hidden="true"><I size={15} /></span><span>{label}</span></span>
         {has && <ProvBadge kind={sensorKey === 'power' ? 'DERIVED' : 'MEASURED'} />}{/* power is computed by the firmware from V x I; a missing reading has no provenance */}
       </div>
       <div className={`tq-kpi-value tq-num ${has ? '' : 'tq-na'}`}>
         {has ? `${fmt(v.value, d)} ` : faultLabel}
         {has && <span className="tq-kpi-unit">{unit}</span>}
       </div>
+      {has && data.length > 1 && <div className="tq-kpi-spark" aria-hidden="true"><Sparkline data={data} dataKey="v" color={color} height={34} /></div>}
       <div className="tq-kpi-freshness">
         {!has ? (
           <span
@@ -322,12 +320,14 @@ function Tile({ label, unit, d, v, sensorKey }) {
   );
 }
 
-/** Unified Motor Control Section: State First, Operational Controls Second, Condition/Blocker Third. */
-export function MotionPanel({ stream, role }) {
+/** Motor Control: the ONLY physical control surface. State first, STOP second, availability and the operating controls after.
+ *  Every request goes to /device/commands (Safety Supervisor -> firmware); nothing here grants permission. */
+export function MotionPanel({ stream, role, go }) {
   const { snap, commands } = stream;
   const [duty, setDuty] = useState('0');
   const [rpm, setRpm] = useState('1200');
   const [busy, setBusy] = useState(false);
+  const [stopBusy, setStopBusy] = useState(false);   // STOP has its own in-flight state: a pending START or speed request never holds STOP back
   const [confirm, setConfirm] = useState(false);
   const [err, setErr] = useState(null);
   const [last, setLast] = useState(null);
@@ -352,13 +352,27 @@ export function MotionPanel({ stream, role }) {
     }
   };
 
+  const sendStop = async () => {
+    setStopBusy(true);
+    setErr(null);
+    try {
+      setLast(await api.deviceCommand({ action: 'STOP' }));
+    } catch (e) {
+      setErr(e);
+    } finally {
+      setStopBusy(false);
+      stream.refresh();
+    }
+  };
+
   const rec = (last && (commands || []).find((c) => c.id === last.id)) || last;
   const vals = snap?.values || {};
   const motor = !live || !snap.telemetry_fresh ? 'UNKNOWN' : snap.drive === 'IDLE' ? 'STOPPED' : snap.drive ? 'RUNNING' : 'UNKNOWN';
   const dutyBad = duty === '' || !(Number(duty) > 0 && Number(duty) <= maxDuty);
 
   return (
-    <Card title="Motor Control & Operating Panel" id="p-motion" right={<Pill tone={motor === 'RUNNING' ? 'ok' : motor === 'STOPPED' ? 'info' : 'off'}>{motor}</Pill>}>
+    <Card title="Motor Control" id="p-motion" icon={SlidersHorizontal} className="tq-mon-motion" sub="Requests go through the Safety Supervisor and the firmware; the device decides."
+      right={<Pill tone={motor === 'RUNNING' ? 'ok' : motor === 'STOPPED' ? 'info' : 'off'}>{motor}</Pill>}>
       {/* 1. MOTOR STATE FIRST */}
       <div className="tq-motor-state-box" data-testid="motor-state">
         <div className="tq-motor-state-header">
@@ -383,13 +397,13 @@ export function MotionPanel({ stream, role }) {
         </div>
       </div>
 
-      {/* Prominent Emergency STOP button */}
+      {/* 2. STOP: enabled whenever the device is connected, for every signed-in role */}
       <div className="tq-motion-stop-bar">
         <button
           type="button"
           className="tq-btn tq-danger tq-stop-prominent"
-          disabled={!connected || busy}
-          onClick={send({ action: 'STOP' })}
+          disabled={!connected || stopBusy}
+          onClick={sendStop}
           data-testid="btn-stop"
           aria-label="Emergency Stop"
         >
@@ -397,139 +411,90 @@ export function MotionPanel({ stream, role }) {
           <span>STOP MOTOR</span>
         </button>
       </div>
-      {!connected && <p className="tq-stop-note">STOP cannot be delivered: device is disconnected.</p>}
+      {connected ? <p className="tq-stop-note">STOP is available to all signed-in roles while the device is connected.</p>
+        : <p className="tq-stop-note">STOP cannot be delivered: device is disconnected.</p>}
 
-      {/* 2. OPERATIONAL CONTROLS SECOND */}
+      {/* 3. AVAILABILITY: the backend's own blockers, verbatim */}
+      {blocked ? (
+        <div className="tq-blocked tq-mon-avail" role="status" data-testid="availability">
+          <span className="tq-blocked-icon" aria-hidden="true"><Lock size={15} /></span>
+          <div className="tq-blocked-body">
+            <strong>START / speed unavailable</strong>
+            <span data-testid="why-disabled">{blockers[0]}</span>
+            {blockers.length > 1 && (
+              <details>
+                <summary>{blockers.length - 1} additional condition{blockers.length > 2 ? 's' : ''}</summary>
+                <ul className="tq-list" data-testid="phys-blockers">
+                  {blockers.map((b) => <li key={b}>{b}</li>)}
+                </ul>
+              </details>
+            )}
+            {blockers.length === 1 && <ul className="tq-sr" data-testid="phys-blockers"><li>{blockers[0]}</li></ul>}
+          </div>
+          {go && <div className="tq-blocked-action"><LinkButton onClick={() => go('control')}>View blockers</LinkButton></div>}
+        </div>
+      ) : (
+        <div className="tq-avail open" role="status" data-testid="availability">
+          <Pill tone="ok">START / speed available</Pill>
+          <span className="tq-muted">Verified against Safety Supervisor limits and firmware sequence checks.</span>
+        </div>
+      )}
+
+      {/* 4. OPERATING CONTROLS */}
       <div className="tq-motion-controls-grid">
-        {/* Closed-loop Speed Setpoint */}
         <div className="tq-control-card">
           <div className="tq-control-card-header">
-            <strong>Speed Control (Closed Loop)</strong>
+            <strong>Target speed (closed loop)</strong>
             <span className="tq-muted">0 – {maxRpm} rpm</span>
           </div>
           <div className="tq-control-card-inputs">
             <label>
-              <span className="tq-muted">Target Speed (rpm)</span>
+              <span className="tq-muted">Target RPM</span>
               <div className="tq-input-pair">
-                <input
-                  type="number"
-                  min="0"
-                  max={maxRpm}
-                  step="10"
-                  value={rpm}
-                  disabled={blocked || !operator}
-                  onChange={(e) => setRpm(e.target.value)}
-                  aria-label="Speed setpoint rpm"
-                  placeholder="e.g. 1200"
-                />
-                <input
-                  type="range"
-                  min="0"
-                  max={maxRpm}
-                  step="25"
-                  value={rpm === '' ? 0 : rpm}
-                  disabled={blocked || !operator}
-                  onChange={(e) => setRpm(e.target.value)}
-                  aria-label="Speed slider"
-                />
+                <input type="number" min="0" max={maxRpm} step="10" value={rpm} disabled={blocked || !operator}
+                  onChange={(e) => setRpm(e.target.value)} aria-label="Speed setpoint rpm" placeholder="e.g. 1200" />
+                <input type="range" min="0" max={maxRpm} step="25" value={rpm === '' ? 0 : rpm} disabled={blocked || !operator}
+                  onChange={(e) => setRpm(e.target.value)} aria-label="Speed slider" />
               </div>
             </label>
-            <button
-              type="button"
-              className="tq-btn tq-primary"
-              data-testid="btn-speed"
-              disabled={blocked || busy || !operator || rpm === '' || Number(rpm) <= 0}
-              onClick={send({ action: 'SET_SPEED', rpm: Number(rpm) })}
-            >
+            <button type="button" className="tq-btn tq-primary" data-testid="btn-speed"
+              disabled={blocked || busy || stopBusy || !operator || rpm === '' || Number(rpm) <= 0}
+              onClick={send({ action: 'SET_SPEED', rpm: Number(rpm) })}>
               <Play size={14} aria-hidden="true" />
-              Apply Speed {rpm ? `(${rpm} rpm)` : ''}
+              Set speed {rpm ? `(${rpm} rpm)` : ''}
             </button>
           </div>
         </div>
 
-        {/* Open-loop Duty Control */}
         <div className="tq-control-card">
           <div className="tq-control-card-header">
-            <strong>Duty Cycle (Open Loop)</strong>
+            <strong>Duty cycle (open loop)</strong>
             <span className="tq-muted">0 – {maxDuty}%</span>
           </div>
           <div className="tq-control-card-inputs">
             <label>
               <span className="tq-muted">Duty Percentage (%)</span>
               <div className="tq-input-pair">
-                <input
-                  type="number"
-                  min="0"
-                  max={maxDuty}
-                  step="1"
-                  value={duty}
-                  disabled={blocked || !operator}
-                  onChange={(e) => { setDuty(e.target.value); setConfirm(false); }}
-                  aria-label="Duty percent"
-                />
-                <input
-                  type="range"
-                  min="0"
-                  max={maxDuty}
-                  step="1"
-                  value={duty === '' ? 0 : duty}
-                  disabled={blocked || !operator}
-                  onChange={(e) => { setDuty(e.target.value); setConfirm(false); }}
-                  aria-label="Duty slider (nothing is sent until you press START)"
-                />
+                <input type="number" min="0" max={maxDuty} step="1" value={duty} disabled={blocked || !operator}
+                  onChange={(e) => { setDuty(e.target.value); setConfirm(false); }} aria-label="Duty percent" />
+                <input type="range" min="0" max={maxDuty} step="1" value={duty === '' ? 0 : duty} disabled={blocked || !operator}
+                  onChange={(e) => { setDuty(e.target.value); setConfirm(false); }} aria-label="Duty slider (nothing is sent until you press START)" />
               </div>
             </label>
             <div className="tq-row">
-              <button
-                type="button"
-                className="tq-btn tq-primary"
-                data-testid="btn-start"
-                disabled={blocked || busy || !operator || dutyBad}
-                onClick={() => (confirm ? (setConfirm(false), send({ action: 'START', duty_pct: Number(duty) })()) : setConfirm(true))}
-              >
+              <button type="button" className="tq-btn tq-primary" data-testid="btn-start"
+                disabled={blocked || busy || stopBusy || !operator || dutyBad}
+                onClick={() => (confirm ? (setConfirm(false), send({ action: 'START', duty_pct: Number(duty) })()) : setConfirm(true))}>
                 <Play size={14} aria-hidden="true" />
                 {confirm ? 'Confirm START' : `START (${duty || 0}%)`}
               </button>
-              {confirm && (
-                <button type="button" className="tq-btn" onClick={() => setConfirm(false)}>
-                  Cancel
-                </button>
-              )}
+              {confirm && <button type="button" className="tq-btn" onClick={() => setConfirm(false)}>Cancel</button>}
             </div>
           </div>
         </div>
       </div>
 
-      {/* 3. AVAILABILITY, CONDITION AND SAFETY BLOCKERS */}
-      <div className={`tq-avail ${blocked ? 'locked' : 'open'}`} role="status" data-testid="availability">
-        <div className="tq-row">
-          <Pill tone={blocked ? 'warn' : 'ok'}>
-            {blocked ? 'START / speed unavailable' : 'START / speed available'}
-          </Pill>
-          {blocked ? (
-            <strong data-testid="why-disabled">
-              {blockers[0]}
-            </strong>
-          ) : (
-            <span className="tq-muted">
-              Verified against Safety Supervisor limits and firmware sequence checks.
-            </span>
-          )}
-        </div>
-        {blocked && blockers.length > 1 && (
-          <details>
-            <summary className="tq-muted">{blockers.length - 1} additional condition(s)</summary>
-            <ul className="tq-list" data-testid="phys-blockers">
-              {blockers.map((b) => <li key={b}>{b}</li>)}
-            </ul>
-          </details>
-        )}
-        {blocked && blockers.length === 1 && (
-          <ul className="tq-sr" data-testid="phys-blockers"><li>{blockers[0]}</li></ul>
-        )}
-      </div>
-
-      {!operator && <p className="tq-muted">Your role ({role}) can request STOP only.</p>}
+      {!operator && <p className="tq-muted tq-small">Your role ({role}) can request STOP only.</p>}
       <ErrorBox error={err} />
       {rec && (
         <div className="tq-callout" data-testid="last-command">
@@ -541,112 +506,200 @@ export function MotionPanel({ stream, role }) {
   );
 }
 
+const EVENT_BAD = /error|disconnected|fault|timed|unknown|rejected/;
+/** Device commands and pushed device events of this session, newest first (command_* events are the same facts as the command records). */
+function recentEvents(commands, events) {
+  return [
+    ...(commands || []).map((c) => ({ k: `c${c.id}`, t: c.created_unix, tone: STATE_TONE[c.state] || 'info', level: title(c.state),
+      text: `${title(c.action)} (#${c.id}) by ${c.requested_by || '—'}${(c.reasons || []).length ? `: ${c.reasons.join(' · ')}` : c.ack_reason ? `: ${c.ack_reason}` : ''}` })),
+    ...(events || []).filter((e) => !String(e.name).startsWith('command_')).map((e) => ({ k: e.k, t: e.ts, tone: EVENT_BAD.test(e.name) ? 'crit' : 'info', level: EVENT_BAD.test(e.name) ? 'problem' : 'info',
+      text: `${title(e.name)}${e.total > 1 ? ` ×${e.total}` : ''}` })),
+  ].sort((a, b) => (b.t || 0) - (a.t || 0));
+}
+
+/** Interlock groups as checklist rows (same data as the Safety interlocks table). */
+const groupItems = (snap, action) => interlockGroups(snap?.interlocks).map((g) => {
+  const st = groupStatus(g.items);
+  return { key: g.key, label: g.name, state: st.state, status: st.status, detail: st.of, action: action ? action(g) : undefined, testid: `chk-${g.key}` };
+});
+
 export function PhysicalOverview({ stream, go, role }) {
-  const { snap } = stream;
+  const { snap, commands, events } = stream;
   const [alarmMuted, setAlarmMuted] = useState(false);
-  if (!snap) return <><PageHead title="Motor" /><Empty loading>Loading device state…</Empty></>;
   const live = isLive(snap);
+  const { series } = useDeviceHistories(TILE_SIGNALS, 120, live, 3000);
+  if (!snap) return <><PageHead title="Physical Overview" /><Empty loading>Loading device state…</Empty></>;
   const vals = snap.values || {};
-  const rpm = live && vals.rpm?.valid && Number.isFinite(vals.rpm.value) ? vals.rpm.value : null;   // an invalid reading is unknown, never 0
-  const isRunning = live && (snap.drive !== 'IDLE' || Number(rpm) > 50);
+  const rpm = live ? readingOf(vals.rpm) : null;   // an invalid reading is unknown, never 0
+  const isRunning = isRunningOf(snap, rpm);
+  const ev = recentEvents(commands, events);
+  const checks = groupItems(snap);
+  const blockers = snap.control_blockers || ['DEVICE NOT CONNECTED'];
 
   return (
     <>
-      <PageHead title="Motor Control Dashboard" sub="Real-time physical device monitoring &amp; supervision on ESP32-S3 hardware." />
-      <StatusStrip snap={snap} />
-
-      {/* Speed status — shows zone and sounds alarm when motor is running */}
-      {live && (
-        <SpeedStatus
-          rpm={rpm}
-          isRunning={isRunning}
-          muted={alarmMuted}
-          onToggleMute={() => setAlarmMuted((m) => !m)}
-        />
-      )}
+      <PageHead title="Physical Overview" sub="Monitor the device, control the motor and watch live telemetry from the ESP32-S3 rig." />
 
       {!live && (
-        <div className={`tq-callout tq-alert ${snap.connection === 'ERROR' ? 'crit' : 'warn'}`} role="alert" data-testid="phys-disconnected">
-          <span className="tq-alert-icon" aria-hidden="true"><Unplug size={18} /></span>
-          <strong>{snap.connection === 'DISCONNECTED' ? 'DEVICE DISCONNECTED' : (snap.state_label || snap.connection)}</strong>
+        <AlertPanel tone={snap.connection === 'ERROR' ? 'crit' : 'warn'} icon={Unplug} testid="phys-disconnected"
+          title={snap.connection === 'DISCONNECTED' ? 'DEVICE DISCONNECTED' : (snap.state_label || snap.connection)}
+          action={<button type="button" className="tq-btn tq-primary" onClick={() => go('device')}><Usb size={14} aria-hidden="true" />Connect a device</button>}>
           <p>
             Physical readings are unavailable. {snap.error?.message || ''} {snap.connection === 'DISCONNECTED' ? (snap.autoconnect?.note || '') : ''}
             {snap.autoconnect?.last_error ? ` Last automatic attempt failed: ${snap.autoconnect.last_error}` : ''}
           </p>
-          <button className="tq-btn tq-primary" onClick={() => go('device')}>
-            <Usb size={14} aria-hidden="true" />Connect a device
-          </button>
-        </div>
+        </AlertPanel>
       )}
 
-      <div className="tq-split">
-        <MotionPanel stream={stream} role={role} />
-        <Card title="Live Sensor Telemetry" id="p-meas">
-          <div className="tq-kpis" data-testid="phys-kpis">
+      <StatusStrip snap={snap} go={go} />
+
+      {/* Speed status — shows zone and sounds alarm when motor is running */}
+      {live && <SpeedStatus rpm={rpm} isRunning={isRunning} muted={alarmMuted} onToggleMute={() => setAlarmMuted((m) => !m)} />}
+
+      <div className="tq-mon-ovgrid">
+        <MotionPanel stream={stream} role={role} go={go} />
+        <Card title="Live telemetry" id="p-meas" icon={Activity} sub={live ? 'Latest device readings with the last 2 minutes; gaps are invalid readings' : 'No physical readings while the device is disconnected'}
+          right={<><SourceTag kind={!live ? 'UNKNOWN' : snap.telemetry_fresh ? 'PHYSICAL' : 'STALE'} /></>}
+          foot={<><LinkButton onClick={() => go('live')}>Open live charts</LinkButton><LinkButton onClick={() => go('twin')}>See the sensors on the Digital Twin</LinkButton></>}>
+          <div className="tq-kpis tq-mon-tiles" data-testid="phys-kpis">
             {TILES.map(([k, l, u, d]) => (
-              <Tile key={k} sensorKey={k} label={l} unit={u} d={d} v={live ? vals[k] : null} />
+              <Tile key={k} sensorKey={k} label={l} unit={u} d={d} v={live ? vals[k] : null} points={series[k]} />
             ))}
+            {/* Ambient sensor — not charted, but always visible with its status when the device reports it */}
+            {live && vals.ambient && <Tile sensorKey="ambient" label="Ambient temperature" unit="°C" d={1} v={vals.ambient} />}
           </div>
-          {/* Ambient sensor — not in TILES but should always be visible with its status */}
-          {live && vals.ambient && (
-            <div className="tq-kpi-extra">
-              <Tile
-                sensorKey="ambient"
-                label="Ambient temperature"
-                unit="°C"
-                d={1}
-                v={vals.ambient}
-              />
-            </div>
-          )}
         </Card>
       </div>
 
-      {live && (
-        <div className="tq-mt">
-          <details data-testid="live-trends" className="tq-disclosure">
-            <summary>
-              Telemetry Trend History
-            </summary>
-            <div className="tq-disclosure-body">
-              <DeviceLive stream={stream} />
-            </div>
-          </details>
-        </div>
-      )}
+      <div className="tq-mon-ovgrid tq-mon-ovgrid--even">
+        <Card title="Recent events" id="p-events" icon={History} sub="Commands and device events in this session" foot={<LinkButton onClick={() => go('control')}>View all</LinkButton>}>
+          <DataTable caption="Recent device commands and events" testid="phys-events" rows={ev} rowKey={(r) => r.k} maxRows={6} empty="No commands or device events in this session."
+            columns={[{ key: 't', label: 'Time', render: (r) => <span className="tq-num">{clock(r.t)}</span> }, { key: 'level', label: 'Status', render: (r) => <Pill tone={r.tone}>{r.level}</Pill> }, { key: 'text', label: 'Event' }]} />
+        </Card>
+        <Card title="Safety & Commissioning" id="p-safety" icon={ClipboardCheck}
+          sub={blockers.length ? `${blockers.length} blocker${blockers.length > 1 ? 's' : ''} reported by the device path` : 'No blocker reported by the device path'}
+          foot={<LinkButton onClick={() => go('control')}>Open Safety & Commissioning</LinkButton>}>
+          {checks.length ? <CheckList dense label="Interlock groups" testid="phys-checks" items={checks} /> : <Empty>No interlock data.</Empty>}
+        </Card>
+      </div>
     </>
   );
+}
+
+// Why each interlock group matters and what to do next. Explanatory text only: which group is shown comes from the backend's report.
+const WHY = {
+  connect: ['TORQVA trusts readings and accepts commands only after a valid handshake with fresh telemetry. Until then nothing on the device can be checked.', 'Connect the device on the Device page and wait for fresh telemetry.', 'device'],
+  firmware: ['The firmware reports latched faults, and the watchdog and driver circuitry decide what the motor does if software stops. Software cannot verify them.', 'Inspect the hardware and attest it, with written evidence, in the commissioning record.', 'record'],
+  estop: ['An independent emergency stop must cut motor power even if the software or the ESP32 fails; the ESP32 input alone never removes power.', 'Install and test the E-stop circuit, then attest it in the commissioning record.', 'record'],
+  auth: ['Motor commands must arrive over an authenticated session and be permitted by the deterministic Safety Supervisor.', 'Resolve the reason the backend gives for this check.', null],
+  limits: ['Approved current, voltage, temperature, speed and duty limits bound every request, and the device must confirm them before motion.', 'Approve the limits in the commissioning record; the device then has to confirm them.', 'record'],
+  commission: ['A person must attest the board, wiring and ratings with written evidence before physical control can be enabled.', 'Complete the commissioning record (admin role).', 'record'],
+  other: ['The backend lists this check among the motion interlocks.', 'Resolve the reason the backend gives for this check.', null],
+};
+const toId = (id) => () => { try { document.getElementById(id)?.scrollIntoView({ block: 'start' }); } catch { /* not supported */ } };
+
+/** Commissioning steps from real records only: the device link, the interlock groups and the backend's blocker list. */
+function commissioningSteps(snap, groups, blockers) {
+  const live = isLive(snap);
+  const c = snap?.connection;
+  const items = (keys) => groups.filter((g) => keys.includes(g.key)).flatMap((g) => g.items);
+  const conn = live && snap.telemetry_fresh ? ['done', 'connected · telemetry fresh'] : c === 'ERROR' ? ['failed', 'connection error'] : live ? ['waiting', 'telemetry stale']
+    : snap?.handshake ? ['waiting', 'firmware simulation mode'] : c === 'CONNECTING' ? ['waiting', 'waiting for handshake'] : ['active', 'not connected'];
+  const stage = (its, prevDone) => {
+    if (!its.length) return ['pending', 'no check reported'];
+    const st = groupStatus(its);
+    if (st.state === 'ok') return ['done', st.of];
+    if (st.state === 'fail') return ['blocked', `${st.status} · ${st.of}`];
+    return [prevDone ? 'active' : 'pending', st.of];
+  };
+  const safety = stage(items(['firmware', 'estop', 'auth', 'limits']), conn[0] === 'done');
+  const comm = stage(items(['commission']), safety[0] === 'done');
+  return [
+    { key: 'conn', label: 'Device connection', state: conn[0], sub: conn[1] },
+    { key: 'safety', label: 'Safety checks', state: safety[0], sub: safety[1] },
+    { key: 'comm', label: 'Commissioning', state: comm[0], sub: comm[1] },
+    { key: 'ready', label: 'Ready for operation', state: blockers.length ? 'pending' : 'done', sub: blockers.length ? `${blockers.length} blocker${blockers.length > 1 ? 's' : ''} reported` : 'no blocker reported' },
+  ];
 }
 
 export function PhysicalSafetyPage({ stream, role, go }) {
   const { snap, commands } = stream;
   const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
+  const groups = interlockGroups(snap?.interlocks);
+  const steps = commissioningSteps(snap, groups, blockers);
+  const checks = groupItems(snap, (g) => <button type="button" className="tq-linkbtn" onClick={() => toIlk(g.key)}>Details</button>);
+  // The first unresolved check, in commissioning order (the blocking one first within its group).
+  const firstGroup = groups.find((g) => groupStatus(g.items).state !== 'ok');
+  const first = firstGroup && (firstGroup.items.find((r) => r.status === 'BLOCKED') || firstGroup.items.find((r) => r.status !== 'VERIFIED'));
+  const why = firstGroup ? WHY[firstGroup.key] || WHY.other : null;
+  const nextAction = (kind) => (kind === 'device' ? <LinkButton onClick={() => go('device')}>Open the Device page</LinkButton>
+    : kind === 'record' ? <LinkButton onClick={toComm}>Go to the commissioning record</LinkButton> : null);
   return (
     <>
-      <PageHead title="Safety & Commissioning" sub="Whether physical operation is permitted, what blocks it, and the commissioning record. Operating controls are on the Dashboard."
+      <PageHead title="Safety & Commissioning" sub="Check every safety requirement before motor operation is permitted. The operating controls are on the Overview."
         right={<Pill tone={blockers.length ? 'stop' : 'warn'}>{blockers.length ? 'OPERATION BLOCKED' : 'NO BLOCKER REPORTED'}</Pill>} />
-      <ReadinessCard snap={snap} go={go} />
+      {blockers.length ? (
+        <AlertPanel tone="stop" testid="safety-alert" title={`System not ready — ${blockers.length} blocking issue${blockers.length > 1 ? 's' : ''} must be resolved`}
+          action={<button type="button" className="tq-btn" onClick={toId('c-ready')}>View all blockers</button>}>
+          <p>The backend reports: <strong>{blockers[0]}</strong>{blockers.length > 1 ? ` and ${blockers.length - 1} more` : ''}. Physical motion stays blocked until it reports none.</p>
+        </AlertPanel>
+      ) : (
+        <AlertPanel tone="info" testid="safety-alert" title="No blocker reported by the device path">
+          <p>Every command is still checked by the Safety Supervisor, the commissioning record and the firmware interlocks; this is not a hardware verification.</p>
+        </AlertPanel>
+      )}
+
+      <Card title="Commissioning progress" id="c-steps" className="tq-mon-steps" sub="From the device link, the backend's interlock report and its blocker list">
+        <StepTracker label="Commissioning progress" steps={steps} testid="safety-steps" />
+      </Card>
+
+      <div className="tq-mon-ovgrid tq-mt">
+        <Card title="Safety checks" id="c-checks" icon={ShieldCheck} sub="Interlock groups; open Details for each check and the backend's evidence">
+          {checks.length ? <CheckList label="Safety checks" testid="safety-checks" items={checks} /> : <Empty>No interlock data.</Empty>}
+        </Card>
+        <Card title="What to do next" id="c-next" icon={Info} testid="safety-next">
+          {first ? (<>
+            <h4 className="tq-mon-subhead">Why this matters</h4>
+            <p className="tq-small">{why[0]}</p>
+            <h4 className="tq-mon-subhead">Next step</h4>
+            <p className="tq-small">{why[1]}</p>
+            <p className="tq-small tq-muted">First unresolved check: <strong>{first.label}</strong> — {first.status}{first.detail ? ` (${first.detail})` : ''}.</p>
+            {nextAction(why[2])}
+          </>) : blockers.length ? (<>
+            <h4 className="tq-mon-subhead">Next step</h4>
+            <p className="tq-small">The backend reports: <strong>{blockers[0]}</strong>.</p>
+            {nextAction(blockers.some((b) => /NOT CONNECTED|HANDSHAKE|TELEMETRY/i.test(b)) ? 'device' : 'record')}
+          </>) : <p className="tq-small">No unresolved check is reported. Every command is still checked by the Safety Supervisor and the firmware.</p>}
+        </Card>
+      </div>
+
+      <div className="tq-mt"><ReadinessCard snap={snap} go={go} /></div>
       <div className="tq-mt"><InterlocksCard snap={snap} go={go} /></div>
       <div className="tq-mt"><CommissioningCard role={role} expanded /></div>
-      <Card title="Command history" id="p-hist" className="tq-mt">
-        {!(commands || []).length ? <Empty>No commands requested in this session.</Empty> : (
-          <table className="tq-table"><caption className="tq-sr">Device command history</caption>
-            <thead><tr><th scope="col">#</th><th scope="col">Action</th><th scope="col">By</th><th scope="col">State</th><th scope="col">Detail</th></tr></thead>
-            <tbody>{commands.slice(0, 20).map((c) => (<tr key={c.id}><td className="tq-num">{c.id}</td><td>{title(c.action)}</td><td>{c.requested_by}</td><td><Pill tone={STATE_TONE[c.state] || 'info'}>{title(c.state)}</Pill></td><td className="tq-muted">{(c.reasons || []).join(' · ') || c.ack_reason}</td></tr>))}</tbody></table>)}
+      <Card title="Command history" id="p-hist" icon={History} className="tq-mt" sub="Every motor command requested in this session, with the state the backend recorded">
+        <DataTable caption="Device command history" testid="cmd-history" rows={(commands || []).slice(0, 20)} rowKey={(c) => c.id} empty="No commands requested in this session."
+          columns={[{ key: 'id', label: '#', align: 'num' }, { key: 't', label: 'Time', render: (c) => <span className="tq-num">{clock(c.created_unix)}</span> },
+            { key: 'action', label: 'Action', render: (c) => title(c.action) }, { key: 'by', label: 'By', render: (c) => c.requested_by },
+            { key: 'state', label: 'State', render: (c) => <Pill tone={STATE_TONE[c.state] || 'info'}>{title(c.state)}</Pill> },
+            { key: 'detail', label: 'Detail', render: (c) => <span className="tq-muted">{(c.reasons || []).join(' · ') || c.ack_reason}</span> }]} />
       </Card>
     </>
   );
 }
 
-export function PhysicalLive({ stream }) {
+export function PhysicalLive({ stream, go }) {
   const { snap } = stream;
   const live = isLive(snap);
   return (
     <>
-      <PageHead title="Live Monitor" sub="Charts of real device measurements; gaps are shown, nothing is interpolated or simulated."
+      <PageHead title="Live Monitor" sub="Real-time device measurements; gaps are shown, nothing is interpolated or simulated."
         right={<Pill tone={live ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'off'}>{live ? (snap.telemetry_fresh ? 'LIVE' : 'STALE') : 'DEVICE DISCONNECTED'}</Pill>} />
-      {!live ? <div className="tq-callout tq-alert warn" role="alert" data-testid="phys-live-empty"><span className="tq-alert-icon" aria-hidden="true"><Unplug size={18} /></span><strong>DEVICE DISCONNECTED</strong><p>Physical readings are unavailable, so there is nothing to chart.</p></div>
-        : <DeviceLive stream={stream} />}
+      {!live ? (
+        <AlertPanel tone="warn" icon={Unplug} title="DEVICE DISCONNECTED" testid="phys-live-empty"
+          action={go ? <button type="button" className="tq-btn tq-primary" onClick={() => go('device')}><Usb size={14} aria-hidden="true" />Connect a device</button> : null}>
+          <p>Physical readings are unavailable, so there is nothing to chart.</p>
+        </AlertPanel>
+      ) : <DeviceLive stream={stream} />}
     </>
   );
 }
@@ -668,21 +721,23 @@ const NEEDS = {
   C2: 'Predictions need valid physical inputs for the analysis models (the firmware does not yet compute vibration RMS or shaft-order harmonics) and a physical fault ranking.',
   C3: 'An intervention on the physical device is decided by the deterministic Safety Supervisor and executed only through the supervised command path; a prediction can never authorise motion.',
 };
-function PhysicalLocked({ snap, layer }) {
+export function PhysicalLocked({ snap, layer }) {
   const blockers = snap?.control_blockers?.length ? snap.control_blockers : ['DEVICE NOT CONNECTED'];
   return (
     <Card title={layer === 'C4' ? 'Diagnostic tests on the physical device' : layer === 'C2' ? 'Action comparison on the physical device' : 'Action execution on the physical device'} id={`p-${layer}-lock`} className="tq-mt"
-      right={<Pill tone="stop">execution locked</Pill>}>
-      <p>{NEEDS[layer]}</p>
-      {layer === 'C4' && (
-        <ul className="tq-list" data-testid="phys-test-catalog">{Object.values(TEST_SPECS).map((t) => <li key={t.code}><strong>{t.name}</strong> <span className="tq-muted">— {t.target}</span> <Pill tone="off">not runnable here</Pill></li>)}</ul>)}
-      <div className="tq-callout warn" data-testid={`phys-${layer}-blockers`}><strong>Current blockers reported by the device path</strong>
-        <ul className="tq-list">{blockers.map((b) => <li key={b}>{b}</li>)}</ul></div>
-      <p className="tq-muted">To investigate the same question now, use Simulation mode: it runs the full workflow on the software simulator, labelled SIM, and never moves this motor.</p>
+      icon={Lock} right={<Pill tone="stop">execution locked</Pill>}>
+      <p className="tq-small">{NEEDS[layer]}</p>
+      <BlockedReason title="Current blockers reported by the device path" reasons={blockers} testid={`phys-${layer}-blockers`} />
+      {layer === 'C4' && (<>
+        <h4 className="tq-mon-subhead">Test catalogue</h4>
+        <ul className="tq-mon-catalog" data-testid="phys-test-catalog">{Object.values(TEST_SPECS).map((t) => <li key={t.code}><span><strong>{t.name}</strong> <span className="tq-muted">— {t.target}</span></span> <Pill tone="off">not runnable here</Pill></li>)}</ul>
+      </>)}
+      <p className="tq-small tq-muted">To investigate the same question now, use Simulation mode: it runs the full workflow on the software simulator, labelled SIM, and never moves this motor.</p>
     </Card>
   );
 }
 
+const LAYER_TONE = { warn: 'warn', ok: 'ok', info: 'info', off: 'off' };
 export function PhysicalAiPage({ stream, layer, go }) {
   const { snap } = stream;
   const layerInfo = LAYER_TEXT[layer] || [layer, ''];
@@ -706,46 +761,22 @@ export function PhysicalAiPage({ stream, layer, go }) {
   const reasonMsg = l?.reason
     || (connected ? 'Device is connected. Waiting for valid telemetry frames to activate this layer.'
         : 'Connect a physical device on the Device page to activate this layer.');
+  const action = !connected
+    ? <button type="button" className="tq-btn tq-primary" onClick={() => go('device')}><Usb size={14} aria-hidden="true" />Connect a device</button>
+    : layer === 'C3' ? <button type="button" className="tq-btn" onClick={() => go('overview')}>Open the motor controls</button> : null;
 
   return (
     <>
-      <PageHead
-        title={t}
-        sub={sub}
-        right={<Pill tone={live ? 'ok' : 'off'}>physical data basis: {l?.basis || 'none'}</Pill>}
-      />
-      <Card title="Layer Status" id={`p-${layer}`}>
-        <div className="tq-layer">
-          <span className="tq-layer-icon" aria-hidden="true"><LayerIcon size={20} /></span>
-          <div className={`tq-callout ${statusTone}`} data-testid={`layer-${layer}`}>
-            <strong>{statusMsg}</strong>
-            <p>{reasonMsg}</p>
-          </div>
-          {a?.missing_inputs?.length > 0 && (
-            <p className="tq-muted">
-              Inputs the physical device cannot supply: {a.missing_inputs.join(', ')}.
-            </p>
-          )}
-          {!connected && (
-            <div>
-              <button className="tq-btn tq-primary" onClick={() => go('device')}>
-                <Usb size={14} aria-hidden="true" />Connect a device
-              </button>
-            </div>
-          )}
-          {layer === 'C3' && connected && (
-            <div>
-              <button className="tq-btn" onClick={() => go('overview')}>
-                Open the motor controls
-              </button>
-            </div>
-          )}
-        </div>
-      </Card>
+      <PageHead title={t} sub={sub} right={<Pill tone={live ? 'ok' : 'off'}>physical data basis: {l?.basis || 'none'}</Pill>} />
+      <AlertPanel tone={LAYER_TONE[statusTone]} icon={statusTone === 'ok' ? undefined : LayerIcon} title={statusMsg} testid={`layer-${layer}`} action={action}>
+        <p>{reasonMsg}</p>
+        {a?.missing_inputs?.length > 0 && <p>Inputs the physical device cannot supply: {a.missing_inputs.join(', ')}.</p>}
+      </AlertPanel>
       {['C2', 'C3', 'C4'].includes(layer) && <PhysicalLocked snap={snap} layer={layer} />}
       {live && (
-        <Card title="Live physical telemetry streaming" id={`p-${layer}-live`} className="tq-mt">
-          <DeviceLive stream={stream} />
+        <Card title="Live physical telemetry" id={`p-${layer}-live`} className="tq-mt" icon={Activity}
+          foot={<LinkButton onClick={() => go('live')}>Open live charts</LinkButton>}>
+          <p className="tq-small tq-muted">The device is sending telemetry{snap.telemetry_fresh ? '' : ' (STALE: not live)'}. Charts, latest values and samples are on the Live Monitor.</p>
         </Card>
       )}
     </>

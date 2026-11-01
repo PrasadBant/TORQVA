@@ -73,6 +73,16 @@ describe('simulation twin mapping', () => {
     expect(m.motion.spinning).toBe(false);
   });
 
+  it('C1 hypotheses are listed only on the part where the simulator models the fault, never as alerts, and not while stale', () => {
+    const d = { ...D, status: { ...STATUS, incident: { id: 'INC-1', state: 'INVESTIGATING' } },
+      log: [{ t: 70, kind: 'hypotheses', incident: 'INC-1', ranked: [['imbalance', 0.8], ['healthy', 0.15], ['overload', 0.001]], label: 'confident' }] };
+    const m = simTwin(d);
+    expect(m.hypotheses).toEqual([expect.objectContaining({ part: 'shaft', fault: 'imbalance', p: 0.8, incident: 'INC-1' })]);
+    expect(m.alerts.every((a) => a.kind !== 'hypothesis')).toBe(true);
+    expect(simTwin(d, { stale: true }).hypotheses).toEqual([]);
+    expect(physTwin(CONNECTED).hypotheses).toEqual([]);
+  });
+
   it('a simulated e-stop is the operating state', () => {
     expect(simTwin({ ...D, status: { ...STATUS, device: { estop: true, estop_reason: 'VIB_HIGH', setpoint_rpm: 0 } } }).state).toMatchObject({ tone: 'stop', label: 'E-STOP (SIMULATED)' });
   });

@@ -1,5 +1,8 @@
+// Lab (simulation mode): reproducible recording sessions on the software simulator (create -> checklist -> run -> reveal -> reproduce) and
+// matched-condition intervention experiments. Every action is an existing /lab route; the page shows only what those records say.
 import React, { useCallback, useEffect, useState } from 'react';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, PosteriorBars, fmt, canControl, Disclosure } from '../shared/components.jsx';
+import { Beaker, ClipboardList, FlaskConical, ListChecks, Repeat } from 'lucide-react';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, PosteriorBars, fmt, canControl, Disclosure, StepTracker, StatGrid, StatTile, DataTable } from '../shared/components.jsx';
 import { api } from '../api.js';
 
 const FAULTS = ['imbalance', 'looseness', 'overload', 'cooling_failure', 'supply_voltage', 'sensor_fault'];
@@ -61,124 +64,160 @@ export default function Lab({ role, isPhys = false }) {
   const reproduce = () => a.run(async () => setRepro(await api.labReproduce(selected.id)));
   const runExperiment = () => ex.run(async () => { await api.labExperiment({ ...xf, severity: Number(xf.severity), speed_rpm: Number(xf.speed_rpm), repeats: Number(xf.repeats) }); await load(); });
 
+  // Progress of the selected session, read from its record (and the reproduce reply this page received); nothing is marked done otherwise.
+  const done = selected?.status === 'completed';
+  const steps = selected ? [
+    { key: 'created', label: 'Session recorded', state: 'done', sub: selected.id },
+    { key: 'checklist', label: 'Checklist', state: selected.checklist.complete ? 'done' : 'active', sub: selected.checklist.complete ? 'all items confirmed' : 'confirm each item' },
+    { key: 'run', label: 'Run', state: done ? 'done' : selected.checklist.complete ? 'waiting' : 'pending', sub: done ? 'completed' : selected.checklist.complete ? 'ready to run' : 'needs the checklist' },
+    selected.blind
+      ? { key: 'reveal', label: 'Reveal fault', state: selected.revealed ? 'done' : done ? 'waiting' : 'pending', sub: selected.revealed ? 'revealed' : done ? 'ready to reveal' : 'after the run' }
+      : { key: 'reveal', label: 'Reveal fault', state: 'skipped', sub: 'not a blind session' },
+    { key: 'repro', label: 'Reproduce', state: repro ? (repro.identical ? 'done' : 'failed') : done ? 'waiting' : 'pending', sub: repro ? (repro.identical ? 'identical' : 'NOT identical') : done ? 'optional check' : 'after the run' },
+  ] : [];
+  const completed = sessions.filter((x) => x.status === 'completed').length;
+  const toReveal = sessions.filter((x) => x.blind && !x.revealed && x.status === 'completed').length;
+
   return (
-    <div className="tq-grid">
+    <div className="tq-lab" data-testid="lab-page">
       {isPhys && (
         <p className="tq-callout warn" role="note" data-testid="lab-sim-note">
           <strong>SIMULATION ONLY</strong> — Lab synthetic experiments operate on matched software simulation models.
         </p>
       )}
-      <Card title="New recording session" id="c-lab-new" right={<ProvBadge kind="SIMULATED" />}>
-        {!ctl && <Empty>Your role ({role}) can view the Lab but not create sessions.</Empty>}
-        <form className="tq-form" onSubmit={(e) => { e.preventDefault(); create(); }} aria-label="New session">
-          <label>Purpose
-            <select value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value })} disabled={!ctl}>
-              {PURPOSES.map((p) => <option key={p}>{p}</option>)}</select></label>
-          <label>Simulation regime
-            <select value={form.regime} onChange={(e) => setForm({ ...form, regime: e.target.value })} disabled={!ctl}>
-              {regimes.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}</select></label>
-          {regime && <p className="tq-muted" data-testid="regime-desc">{regime.description}</p>}
-          <label>Injected fault (ground truth)
-            <select value={form.fault} onChange={(e) => setForm({ ...form, fault: e.target.value })} disabled={!ctl}>
-              <option value="none">none (healthy run)</option>{FAULTS.map((f) => <option key={f} value={f}>{f.replace('_', ' ')}</option>)}</select></label>
-          <label>Severity ({form.severity})
-            <input type="range" min="0.05" max="1" step="0.05" value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value })} disabled={!ctl} /></label>
-          <label>Injected at (s)<input type="number" min="0" value={form.inject_at_s} onChange={(e) => setForm({ ...form, inject_at_s: e.target.value })} disabled={!ctl} /></label>
-          <fieldset className="tq-fieldset"><legend>Speed profile</legend>
-            {form.profile.map((p, i) => (
-              <div className="tq-row" key={i}>
-                <label className="tq-inline">rpm<input type="number" aria-label={`step ${i + 1} rpm`} value={p.rpm} onChange={(e) => patchProfile(i, 'rpm', e.target.value)} disabled={!ctl} /></label>
-                <label className="tq-inline">hold s<input type="number" aria-label={`step ${i + 1} hold seconds`} value={p.hold_s} onChange={(e) => patchProfile(i, 'hold_s', e.target.value)} disabled={!ctl} /></label>
-                <button type="button" className="tq-btn tq-ghost" onClick={() => setForm({ ...form, profile: form.profile.filter((_, j) => j !== i) })} disabled={!ctl || form.profile.length < 2}>Remove</button>
-              </div>))}
-            <button type="button" className="tq-btn" onClick={() => setForm({ ...form, profile: [...form.profile, { rpm: 1200, hold_s: 60 }] })} disabled={!ctl}>Add step</button>
-          </fieldset>
-          <label className="tq-inline">Seed (reproducibility)<input type="number" value={form.seed} onChange={(e) => setForm({ ...form, seed: e.target.value })} disabled={!ctl} /></label>
-          <label className="tq-check"><input type="checkbox" checked={form.blind} onChange={(e) => setForm({ ...form, blind: e.target.checked })} disabled={!ctl} />
-            Blind session (hide the injected fault until the model output is frozen and you reveal it)</label>
-          <Disclosure summary="Optional: recorded metadata (not a simulation control)" meta="notes stored with the session and shown in its record; the simulator never reads them" testid="lab-optional">
-            <label>Notes<input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} disabled={!ctl} /></label>
-          </Disclosure>
-          <button type="submit" className="tq-btn tq-primary" disabled={!ctl || a.busy}>Create session</button>
-        </form>
-        <ErrorBox error={a.error} />
-      </Card>
+      <p className="tq-scn-simnote" role="note"><FlaskConical size={15} aria-hidden="true" /><span><strong>SIMULATED.</strong> Sessions and experiments run on the backend&apos;s software simulator. Nothing here reaches hardware.</span></p>
+      <StatGrid label="Lab summary">
+        <StatTile icon={ClipboardList} tone="info" label="Recording sessions" value={sessions.length} sub={`${completed} completed`} testid="lab-stat-sessions" />
+        <StatTile icon={Beaker} tone={toReveal ? 'warn' : 'info'} label="Blind sessions to reveal" value={toReveal} sub="completed, injected fault still hidden" />
+        <StatTile icon={Repeat} tone="info" label="Matched experiments" value={experiments.length} sub="same seed, every action compared" />
+      </StatGrid>
+      <div className="tq-lab-top">
+        <Card title="New recording session" id="c-lab-new" icon={ListChecks} right={<ProvBadge kind="SIMULATED" />} sub="A reproducible simulated run: regime, injected fault, speed profile and seed.">
+          {!ctl && <Empty>Your role ({role}) can view the Lab but not create sessions.</Empty>}
+          <form className="tq-form tq-lab-form" onSubmit={(e) => { e.preventDefault(); create(); }} aria-label="New session">
+            <div className="tq-lab-grid">
+              <label>Purpose
+                <select value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value })} disabled={!ctl}>
+                  {PURPOSES.map((p) => <option key={p} value={p}>{p.replace('_', ' ')}</option>)}</select></label>
+              <label>Simulation regime
+                <select value={form.regime} onChange={(e) => setForm({ ...form, regime: e.target.value })} disabled={!ctl}>
+                  {regimes.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}</select></label>
+            </div>
+            {regime && <p className="tq-muted tq-lab-hint" data-testid="regime-desc">{regime.description}</p>}
+            <div className="tq-lab-grid">
+              <label>Injected fault (ground truth)
+                <select value={form.fault} onChange={(e) => setForm({ ...form, fault: e.target.value })} disabled={!ctl}>
+                  <option value="none">none (healthy run)</option>{FAULTS.map((f) => <option key={f} value={f}>{f.replace('_', ' ')}</option>)}</select></label>
+              <label>Severity ({Number(form.severity).toFixed(2)})
+                <input type="range" min="0.05" max="1" step="0.05" value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value })} disabled={!ctl || form.fault === 'none'} /></label>
+              <label>Injected at (s)<input type="number" min="0" value={form.inject_at_s} onChange={(e) => setForm({ ...form, inject_at_s: e.target.value })} disabled={!ctl || form.fault === 'none'} /></label>
+              <label>Seed (reproducibility)<input type="number" value={form.seed} onChange={(e) => setForm({ ...form, seed: e.target.value })} disabled={!ctl} /></label>
+            </div>
+            <fieldset className="tq-fieldset"><legend>Speed profile</legend>
+              {form.profile.map((p, i) => (
+                <div className="tq-row tq-lab-step" key={i}>
+                  <span className="tq-scn-num" aria-hidden="true">{i + 1}</span>
+                  <label className="tq-inline">rpm<input type="number" aria-label={`step ${i + 1} rpm`} value={p.rpm} onChange={(e) => patchProfile(i, 'rpm', e.target.value)} disabled={!ctl} /></label>
+                  <label className="tq-inline">hold s<input type="number" aria-label={`step ${i + 1} hold seconds`} value={p.hold_s} onChange={(e) => patchProfile(i, 'hold_s', e.target.value)} disabled={!ctl} /></label>
+                  <button type="button" className="tq-btn tq-ghost" onClick={() => setForm({ ...form, profile: form.profile.filter((_, j) => j !== i) })} disabled={!ctl || form.profile.length < 2}>Remove</button>
+                </div>))}
+              <div><button type="button" className="tq-btn tq-btn-sm" onClick={() => setForm({ ...form, profile: [...form.profile, { rpm: 1200, hold_s: 60 }] })} disabled={!ctl}>Add step</button></div>
+            </fieldset>
+            <label className="tq-check"><input type="checkbox" checked={form.blind} onChange={(e) => setForm({ ...form, blind: e.target.checked })} disabled={!ctl} />
+              Blind session (hide the injected fault until the model output is frozen and you reveal it)</label>
+            <Disclosure summary="Optional: recorded metadata (not a simulation control)" meta="notes stored with the session and shown in its record; the simulator never reads them" testid="lab-optional">
+              <label>Notes<input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} disabled={!ctl} /></label>
+            </Disclosure>
+            <div><button type="submit" className="tq-btn tq-primary" disabled={!ctl || a.busy}>Create session</button></div>
+          </form>
+          <ErrorBox error={a.error} />
+        </Card>
 
-      <Card title="Sessions" id="c-lab-list">
-        {!sessions.length ? <Empty>No sessions yet. Create one to record a reproducible simulated run.</Empty> : (
-          <table className="tq-table"><thead><tr><th scope="col">ID</th><th scope="col">Purpose</th><th scope="col">Regime</th><th scope="col">Fault</th><th scope="col">Status</th></tr></thead>
-            <tbody>{sessions.map((s) => (
-              <tr key={s.id} className={s.id === sel ? 'tq-selected' : ''}>
-                <td><button className="tq-link" onClick={() => { setSel(s.id); setRepro(null); }} aria-label={`Open session ${s.id}`}>{s.id}</button></td>
-                <td>{s.purpose}</td><td>{s.config.regime}</td>
-                <td>{HIDDEN(s.config.fault) ? <Pill tone="info">hidden (blind)</Pill> : (s.config.fault ? s.config.fault.fault.replace('_', ' ') : 'none')}</td>
-                <td>{s.status}</td></tr>))}</tbody></table>)}
-      </Card>
+        <Card title="Sessions" id="c-lab-list" icon={ClipboardList} sub="Open a session to confirm its checklist, run it, reveal and reproduce it.">
+          <DataTable rows={sessions} rowKey={(x) => x.id} caption="Recording sessions" empty="No sessions yet. Create one to record a reproducible simulated run."
+            rowClass={(x) => (x.id === sel ? 'tq-selected' : '')} testid="lab-sessions"
+            columns={[
+              { key: 'id', label: 'ID', render: (x) => <button type="button" className="tq-link" onClick={() => { setSel(x.id); setRepro(null); }} aria-label={`Open session ${x.id}`}>{x.id}</button> },
+              { key: 'purpose', label: 'Purpose', render: (x) => String(x.purpose || '').replace('_', ' ') },
+              { key: 'regime', label: 'Regime', render: (x) => x.config.regime },
+              { key: 'fault', label: 'Fault', render: (x) => (HIDDEN(x.config.fault) ? <Pill tone="info">hidden (blind)</Pill> : (x.config.fault ? x.config.fault.fault.replace('_', ' ') : 'none')) },
+              { key: 'status', label: 'Status', render: (x) => <Pill tone={x.status === 'completed' ? 'ok' : 'wait'}>{x.status}</Pill> },
+            ]} />
+        </Card>
+      </div>
 
       {selected && (
-        <Card title={`Session ${selected.id}`} id="c-lab-detail" right={<ProvBadge kind="SIMULATED" />}>
-          <p className="tq-muted">Operator {selected.operator} · seed {selected.config.seed} · config hash <span className="tq-num">{selected.config_hash}</span>
-            {selected.blind && <> · <Pill tone="info">blind{selected.revealed ? ' (revealed)' : ''}</Pill></>}</p>
+        <Card title={`Session ${selected.id}`} id="c-lab-detail" icon={Beaker} right={<ProvBadge kind="SIMULATED" />}
+          sub={<>Operator {selected.operator} · seed {selected.config.seed} · config hash <span className="tq-num">{selected.config_hash}</span>{selected.blind && <> · <Pill tone="info">blind{selected.revealed ? ' (revealed)' : ''}</Pill></>}</>}>
+          <StepTracker steps={steps} label={`Session ${selected.id} progress`} testid="lab-steps" />
           {!HIDDEN(selected.fault_settings) && Object.keys(selected.fault_settings || {}).length > 0 && (
-            <p className="tq-muted">Injection record: {JSON.stringify(selected.fault_settings)}</p>)}
+            <p className="tq-muted tq-small">Injection record: <code>{JSON.stringify(selected.fault_settings)}</code></p>)}
           {selected.notes && <p className="tq-muted" data-testid="lab-notes">Notes (recorded metadata): {selected.notes}</p>}
-          <h4>Pre-run checklist <span className="tq-muted">(a logged procedure, not a safety mechanism)</span></h4>
-          <ul className="tq-list" aria-label="Pre-run checklist">
-            {checklist?.items.map((it) => (
-              <li key={it.key}><label className="tq-check">
-                <input type="checkbox" checked={optimistic[it.key] ?? !!selected.checklist.items[it.key]} disabled={!ctl || selected.status === 'completed'}
-                  onChange={(e) => confirmItem(it.key, e.target.checked)} />{it.text}</label></li>))}
-          </ul>
-          <div className="tq-row">
-            <button className="tq-btn" onClick={run} disabled={!ctl || !selected.checklist.complete || selected.status === 'completed' || a.busy}>Run session</button>
-            <button className="tq-btn" onClick={reproduce} disabled={!ctl || selected.status !== 'completed' || a.busy}>Reproduce</button>
-            <button className="tq-btn" onClick={reveal} disabled={!ctl || !selected.blind || selected.revealed || selected.status !== 'completed' || a.busy}>Reveal injected fault</button>
+          <div className="tq-lab-detail">
+            <section aria-labelledby="lab-check-h">
+              <h4 id="lab-check-h">Pre-run checklist <span className="tq-muted">(a logged procedure, not a safety mechanism)</span></h4>
+              <ul className="tq-lab-checks" aria-label="Pre-run checklist">
+                {checklist?.items.map((it) => {
+                  const on = optimistic[it.key] ?? !!selected.checklist.items[it.key];
+                  return (
+                    <li key={it.key} className={on ? 'is-on' : ''}><label className="tq-check">
+                      <input type="checkbox" checked={on} disabled={!ctl || done} onChange={(e) => confirmItem(it.key, e.target.checked)} />{it.text}</label></li>);
+                })}
+              </ul>
+              <div className="tq-row tq-lab-actions">
+                <button type="button" className="tq-btn tq-primary" onClick={run} disabled={!ctl || !selected.checklist.complete || done || a.busy}>Run session</button>
+                <button type="button" className="tq-btn" onClick={reveal} disabled={!ctl || !selected.blind || selected.revealed || !done || a.busy}>Reveal injected fault</button>
+                <button type="button" className="tq-btn" onClick={reproduce} disabled={!ctl || !done || a.busy}>Reproduce</button>
+              </div>
+              {!selected.checklist.complete && <p className="tq-muted tq-small">Confirm every item to enable the run.</p>}
+              {repro && <p role="status" className="tq-lab-repro"><Pill tone={repro.identical ? 'ok' : 'crit'}>{repro.identical ? 'reproduced identically' : 'NOT identical'}</Pill>
+                <span className="tq-num"> {repro.original_hash} / {repro.rerun_hash}</span></p>}
+            </section>
+            <section aria-labelledby="lab-res-h">
+              <h4 id="lab-res-h">Result</h4>
+              {!selected.result ? <Empty>No result yet. It appears when the session has run.</Empty> : (
+                <>
+                  <p className="tq-small">Windows <span className="tq-num">{selected.result.n_windows}</span> · hash <span className="tq-num">{selected.result.window_hash}</span> ·
+                    first flag after injection: <strong>{selected.result.first_flag_after_injection_s == null ? 'none' : `${selected.result.first_flag_after_injection_s} s`}</strong></p>
+                  <div className="tq-table-wrap"><table className="tq-table"><caption className="tq-sr">Per-step summary</caption>
+                    <thead><tr><th scope="col">rpm</th><th scope="col">hold s</th><th scope="col">flagged</th><th scope="col">score ÷ thr</th></tr></thead>
+                    <tbody>{selected.result.steps.map((x, i) => (<tr key={i}><td className="tq-num">{x.rpm}</td><td className="tq-num">{x.hold_s}</td>
+                      <td className="tq-num">{x.flagged_fraction == null ? '—' : `${fmt(x.flagged_fraction * 100, 0)}%`}</td>
+                      <td className="tq-num">{fmt(x.mean_score_over_threshold, 2)}</td></tr>))}</tbody></table></div>
+                  <h4>Model output (frozen before any reveal)</h4>
+                  {selected.result.model_output_frozen.abstained
+                    ? <p><Pill tone="info">abstained</Pill> {selected.result.model_output_frozen.reason}</p>
+                    : <PosteriorBars ranked={selected.result.model_output_frozen.ranked} label={selected.result.model_output_frozen.label} />}
+                  {selected.result.truth_match && (
+                    <p role="status">Truth: <strong>{selected.result.truth_match.truth || 'none'}</strong> · model: <strong>{selected.result.truth_match.model || 'abstained'}</strong>{' '}
+                      <Pill tone={selected.result.truth_match.correct ? 'ok' : selected.result.truth_match.abstained ? 'info' : 'crit'}>
+                        {selected.result.truth_match.correct ? 'match' : selected.result.truth_match.abstained ? 'abstained' : 'mismatch'}</Pill></p>)}
+                </>)}
+            </section>
           </div>
-          {!selected.checklist.complete && <p className="tq-muted">Confirm every item to enable the run.</p>}
-          {repro && <p role="status"><Pill tone={repro.identical ? 'ok' : 'crit'}>{repro.identical ? 'reproduced identically' : 'NOT identical'}</Pill>
-            <span className="tq-num"> {repro.original_hash} / {repro.rerun_hash}</span></p>}
-          {selected.result && (
-            <>
-              <h4>Result</h4>
-              <p>Windows <span className="tq-num">{selected.result.n_windows}</span> · hash <span className="tq-num">{selected.result.window_hash}</span> ·
-                first flag after injection: <strong>{selected.result.first_flag_after_injection_s == null ? 'none' : `${selected.result.first_flag_after_injection_s} s`}</strong></p>
-              <table className="tq-table"><caption className="tq-sr">Per-step summary</caption>
-                <thead><tr><th scope="col">rpm</th><th scope="col">hold s</th><th scope="col">flagged</th><th scope="col">score ÷ thr</th></tr></thead>
-                <tbody>{selected.result.steps.map((s, i) => (<tr key={i}><td className="tq-num">{s.rpm}</td><td className="tq-num">{s.hold_s}</td>
-                  <td className="tq-num">{s.flagged_fraction == null ? '—' : `${fmt(s.flagged_fraction * 100, 0)}%`}</td>
-                  <td className="tq-num">{fmt(s.mean_score_over_threshold, 2)}</td></tr>))}</tbody></table>
-              <h4>Model output (frozen before any reveal)</h4>
-              {selected.result.model_output_frozen.abstained
-                ? <p><Pill tone="info">abstained</Pill> {selected.result.model_output_frozen.reason}</p>
-                : <PosteriorBars ranked={selected.result.model_output_frozen.ranked} label={selected.result.model_output_frozen.label} />}
-              {selected.result.truth_match && (
-                <p role="status">Truth: <strong>{selected.result.truth_match.truth || 'none'}</strong> · model: <strong>{selected.result.truth_match.model || 'abstained'}</strong>{' '}
-                  <Pill tone={selected.result.truth_match.correct ? 'ok' : selected.result.truth_match.abstained ? 'info' : 'crit'}>
-                    {selected.result.truth_match.correct ? 'match' : selected.result.truth_match.abstained ? 'abstained' : 'mismatch'}</Pill></p>)}
-            </>)}
         </Card>)}
 
-      <Card title="Intervention experiments (matched conditions)" id="c-lab-exp" right={<ProvBadge kind="SIMULATED" />}>
-        <p className="tq-muted">Every action runs from identical starting conditions (same seed), so measured outcomes exist for chosen and non-chosen actions.
-          This is a simulation experiment: it does <strong>not</strong> validate the C2 predictions on hardware.</p>
+      <Card title="Intervention experiments (matched conditions)" id="c-lab-exp" icon={Repeat} right={<ProvBadge kind="SIMULATED" />}
+        sub="Every action runs from identical starting conditions (same seed), so measured outcomes exist for chosen and non-chosen actions.">
+        <p className="tq-muted tq-small">This is a simulation experiment: it does <strong>not</strong> validate the C2 predictions on hardware.</p>
         <form className="tq-form" onSubmit={(e) => { e.preventDefault(); runExperiment(); }} aria-label="New experiment">
-          <div className="tq-row">
+          <div className="tq-row tq-lab-exp-row">
             <label className="tq-inline">Fault<select value={xf.fault} onChange={(e) => setXf({ ...xf, fault: e.target.value })} disabled={!ctl}>{FAULTS.map((f) => <option key={f}>{f}</option>)}</select></label>
             <label className="tq-inline">Regime<select value={xf.regime} onChange={(e) => setXf({ ...xf, regime: e.target.value })} disabled={!ctl}>{regimes.map((r) => <option key={r.name}>{r.name}</option>)}</select></label>
             <label className="tq-inline">Repeats<input type="number" min="1" max="10" value={xf.repeats} onChange={(e) => setXf({ ...xf, repeats: e.target.value })} disabled={!ctl} /></label>
+            <button type="submit" className="tq-btn" disabled={!ctl || ex.busy}>{ex.busy ? 'Running…' : 'Run experiment'}</button>
           </div>
-          <button type="submit" className="tq-btn" disabled={!ctl || ex.busy}>{ex.busy ? 'Running…' : 'Run experiment'}</button>
         </form>
         <ErrorBox error={ex.error} />
         {!experiments.length ? <Empty>No experiments yet.</Empty> : experiments.slice().reverse().slice(0, 3).map((x) => (
-          <article key={x.id} className="tq-outcome">
+          <article key={x.id} className="tq-outcome tq-lab-exp">
             <h4>{x.id} · {x.fault} @ {x.severity} · {x.regime} <ProvBadge kind="SIMULATED" /></h4>
-            <p>Starting conditions matched: <Pill tone={x.matched_starting_conditions ? 'ok' : 'crit'}>{x.matched_starting_conditions ? 'yes' : 'NO'}</Pill> ·
+            <p className="tq-small">Starting conditions matched: <Pill tone={x.matched_starting_conditions ? 'ok' : 'crit'}>{x.matched_starting_conditions ? 'yes' : 'NO'}</Pill> ·
               ranking matched measured best: <strong>{x.ranking_agreement}</strong> ({x.ranking_ties} tied on limits) · risk Brier <span className="tq-num">{fmt(x.risk_brier_score, 3)}</span></p>
-            <table className="tq-table"><thead><tr><th scope="col">Action / signal</th><th scope="col">MAE (model)</th><th scope="col">MAE (persistence)</th><th scope="col">90% interval coverage</th></tr></thead>
+            <div className="tq-table-wrap"><table className="tq-table"><thead><tr><th scope="col">Action / signal</th><th scope="col">MAE (model)</th><th scope="col">MAE (persistence)</th><th scope="col">90% interval coverage</th></tr></thead>
               <tbody>{Object.entries(x.per_action_signal).filter(([k]) => /\/(housing|vib_rms)$/.test(k)).map(([k, v]) => (
                 <tr key={k}><td>{k.replace('_', ' ')}</td><td className="tq-num">{fmt(v.mae, 3)}</td><td className="tq-num">{fmt(v.persistence_mae, 3)}</td>
-                  <td className="tq-num">{fmt(v.interval_coverage * 100, 0)}%</td></tr>))}</tbody></table>
+                  <td className="tq-num">{fmt(v.interval_coverage * 100, 0)}%</td></tr>))}</tbody></table></div>
           </article>))}
       </Card>
     </div>

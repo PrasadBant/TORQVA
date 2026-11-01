@@ -54,13 +54,13 @@ export function ResponseChart({ data, height, yDomain }) {
 }
 
 /** Device history over wall-clock time. Gaps (null) stay gaps. */
-export function HistoryChart({ data, name, height }) {
+export function HistoryChart({ data, name, height, color = 'var(--tq-chart-1)' }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data} margin={{ top: 6, right: 10, bottom: 0, left: 0 }}><CartesianGrid {...GRID} />
         <XAxis dataKey="t" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(x) => new Date(x * 1000).toLocaleTimeString()} minTickGap={40} {...AXIS} />
         <YAxis width={54} domain={['auto', 'auto']} {...AXIS} axisLine={false} /><Tooltip labelFormatter={(x) => new Date(x * 1000).toLocaleTimeString()} {...TOOLTIP} />
-        <Line dataKey="v" name={name} stroke="var(--tq-chart-1)" strokeWidth={2} dot={false} activeDot={{ r: 3.5, strokeWidth: 0 }} isAnimationActive={false} connectNulls={false} />
+        <Line dataKey="v" name={name} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 3.5, strokeWidth: 0 }} isAnimationActive={false} connectNulls={false} />
       </LineChart></ResponsiveContainer>
   );
 }

@@ -40,8 +40,8 @@ export function PredictionChecks({ checks = [] }) {
   );
 }
 
-/** Why a test was recommended, what it returned, or why it was aborted. A test never forces a diagnosis. */
-export function DiagnosticTests({ log = [] }) {
+/** The pipeline's own test records from the log, in order: recommended, result (top ≥ 70 %), inconclusive or aborted. */
+export function testLogRows(log = []) {
   const rows = [];
   for (const l of log) {
     if (l.kind === 'gate' && l.test) rows.push({ k: `g${l.t}`, t: l.t, kind: 'recommended', test: l.test, text: l.reason });
@@ -50,7 +50,14 @@ export function DiagnosticTests({ log = [] }) {
       rows.push({ k: `r${l.t}`, t: l.t, kind: p >= 0.7 ? 'result' : 'inconclusive', test: l.test, text: `top hypothesis ${String(top).replace('_', ' ')} at ${fmt((p || 0) * 100, 0)} %` });
     } else if (l.kind === 'test_aborted') rows.push({ k: `a${l.t}`, t: l.t, kind: 'aborted', test: '', text: `${l.status}${l.reason ? ` — ${l.reason}` : ''}` });
   }
-  const tone = { recommended: 'wait', result: 'ok', inconclusive: 'warn', aborted: 'crit' };
+  return rows;
+}
+export const TEST_LOG_TONE = { recommended: 'wait', result: 'ok', inconclusive: 'warn', aborted: 'crit' };
+
+/** Why a test was recommended, what it returned, or why it was aborted. A test never forces a diagnosis. */
+export function DiagnosticTests({ log = [] }) {
+  const rows = testLogRows(log);
+  const tone = TEST_LOG_TONE;
   return (
     <Card title="Diagnostic tests (C4)" id="c-tests">
       <p className="tq-muted">A test only runs after the Safety Supervisor allows it (and, in hardware mode, a person approves). An aborted test produces no diagnosis; an

@@ -1,67 +1,62 @@
 import React, { Suspense, lazy, useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { Activity, Box, Gauge, ListChecks, Microscope, Workflow, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap, Usb, SlidersHorizontal, Sun, Moon, ClipboardCheck, Menu, KeyRound, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Activity, Box, Gauge, ListChecks, Microscope, Workflow, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap, Usb, SlidersHorizontal, Sun, Moon, ClipboardCheck, Menu, KeyRound, PanelLeftClose, PanelLeftOpen, Cpu } from 'lucide-react';
 import { api, setToken, getToken, ApiError } from './api.js';
-import { SimulationBanner, Pill, Logo, NavContext, PageHead, Empty } from './shared/components.jsx';
+import { SimulationBanner, Pill, Logo, NavContext, PageHead, Empty, AlertPanel } from './shared/components.jsx';
 import { prefetchCharts } from './shared/lazyCharts.jsx';
 import { Evaluation } from './simulation/evaluation.jsx';
 import { SimOverview } from './simulation/overview.jsx';
-import { LivePage, RecoveryPage, LearningPage, DevicesPage, isPhysOf } from './simulation/pages.jsx';
+import { LivePage, DevicesPage, isPhysOf } from './simulation/pages.jsx';
+import { RecoveryPage, LearningPage } from './simulation/assurance.jsx';
 import { JourneyBar } from './simulation/journey.jsx';
 import { useDeviceStream, DevicePage, DeviceCard, DeviceLive } from './physical/device.jsx';
 import Lab from './simulation/lab.jsx';
 import Attestation from './simulation/attestation.jsx';
 import { ModeSwitch, PhysicalBanner, PhysicalOverview, PhysicalLive, PhysicalAiPage, PhysicalSafetyPage } from './physical/physical.jsx';
+import { ScenarioPage } from './simulation/scenario.jsx';
+import { AlertsMenu, deviceAlerts, simAlerts } from './shared/alerts.jsx';
 import './torqva.css';
+import './styles/system.css';
+import './styles/monitoring.css';
+import './styles/analysis.css';
+import './styles/assurance.css';
+import './styles/twin-sim.css';
 
+// The analyst's path through the product, top to bottom: watch the motor, diagnose, decide and verify, then the engineering tools.
 const NAV_GROUPS = [
   {
-    heading: 'Dashboard',
+    heading: 'Monitor',
     items: [
       ['overview', 'Overview', Gauge, ''],
       ['live', 'Live Monitor', Activity, ''],
       ['twin', 'Digital Twin', Box, ''],
+      ['control', 'Safety & Commissioning', ClipboardCheck, ''],
+      ['device', 'Device', Usb, ''],
+      ['devices', 'Devices & Settings', Settings, ''],
     ],
   },
   {
-    heading: 'Diagnostics',
+    heading: 'Diagnose',
     items: [
       ['workflow', 'Diagnostic Workflow', Workflow, 'C4→C3'],
       ['diagnostics', 'AI Diagnostics', Microscope, 'C1'],
+      ['predictions', 'Predictions', LineChart, 'C2'],
+      ['interventions', 'Interventions', ListChecks, 'C3'],
       ['tests', 'Diagnostic Tests', TestTube2, 'C4'],
     ],
   },
   {
-    heading: 'Predictions',
-    items: [
-      ['predictions', 'Predictions', LineChart, 'C2'],
-      ['interventions', 'Interventions', ListChecks, 'C3'],
-    ],
-  },
-  {
-    heading: 'Operations',
+    heading: 'Verify & Learn',
     items: [
       ['recovery', 'Recovery', ShieldCheck, 'C5'],
-    ],
-  },
-  {
-    heading: 'Intelligence',
-    items: [
       ['learning', 'Learning', GraduationCap, 'C6'],
       ['evaluation', 'Evaluation', FlaskConical, ''],
-    ],
-  },
-  {
-    heading: 'Device & Safety',
-    items: [
-      ['device', 'Device', Usb, ''],
-      ['control', 'Motor Control', SlidersHorizontal, ''],
-      ['devices', 'Devices & Settings', Settings, ''],
     ],
   },
   {
     heading: 'Engineering',
     items: [
       ['lab', 'Lab', Beaker, ''],
+      ['scenario', 'Scenario Studio', SlidersHorizontal, ''],
     ],
   },
 ];
@@ -80,7 +75,7 @@ const WorkflowPage = lazy(() => import('./workflow/workflow.jsx').then((m) => ({
 const pageFallback = <Empty loading>Loading…</Empty>;
 
 const NAV = NAV_GROUPS.flatMap((g) => g.items);
-// Motor Control drives the physical USB device, so it is listed only in physical mode; the simulator is run from Scenario Studio (Overview).
+// Safety & Commissioning is the record of the physical USB device's interlocks, so it is listed only in physical mode; the simulator is run from Scenario Studio.
 const PHYSICAL_ONLY = new Set(['control']);
 // Plain-language meaning of each layer tag, read out with the tag and shown on hover.
 const TAG_HELP = { C1: 'anomaly detection and diagnosis', C2: 'outcome prediction', C3: 'decision gate and intervention', C4: 'diagnostic tests', C5: 'recovery verification', C6: 'gated learning', 'C4→C3': 'test, diagnose, predict and decide in one pass' };
@@ -306,9 +301,10 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     if (view === 'devices' && user.role === 'admin') api.audit().then((rows) => setAudit({ rows, error: null })).catch((e) => setAudit({ rows: [], error: e }));
   }, [view, user]);
 
+  // Resolves true only when the backend accepted the request (so a caller can confirm a NEW run started), false when it refused.
   const act = (fn) => async (...a) => {
     setBusy(true);
-    try { await fn(...a); setError(null); } catch (e) { setError(e); } finally { setBusy(false); refresh(); }
+    try { await fn(...a); setError(null); return true; } catch (e) { setError(e); return false; } finally { setBusy(false); refresh(); }
   };
   const actions = {
     start: act(async (body) => { await api.start(body); setRunning(false); setWb({ selection: null, run: null, prefill: null, lastRequest: null }); }),
@@ -321,17 +317,25 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const mode = physicalMode ? 'PHYSICAL' : (d.status?.mode || 'SIMULATION');
   const dev = d.status?.device;
   const ctx = { d, role: user.role, user, actions, running, setRunning, busy, error, stale, go, wb, setWb, ctl: canStart(user.role), device, physicalMode, isPhys, deviceCard: <DeviceCard stream={device} go={go} />, deviceLive: <DeviceLive stream={device} /> };
+  // Evaluation is the same page in both modes (it only ever shows simulator evidence); physical mode adds a note saying so.
+  const evaluationPage = (note) => (<><PageHead title="Evaluation and Research" sub="Simulation evaluation artifacts, baselines versus candidates, provenance and known limitations." />{note}
+    <Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} /></>);
   const simPages = {
     overview: <SimOverview {...ctx} stepSeconds={stepSeconds} />, live: <LivePage {...ctx} stepSeconds={stepSeconds} />, twin: <Suspense fallback={twinFallback}><SimTwinPage d={d} running={running} stale={stale} go={go} /></Suspense>, diagnostics: <Suspense fallback={pageFallback}><SimDiagnosticsPage {...ctx} /></Suspense>,
     predictions: <Suspense fallback={pageFallback}><SimPredictionsPage {...ctx} /></Suspense>, tests: <Suspense fallback={pageFallback}><SimTestsPage {...ctx} c2c4={c2c4.data} /></Suspense>,
     interventions: <Suspense fallback={pageFallback}><SimInterventionsPage {...ctx} /></Suspense>,
     workflow: <Suspense fallback={pageFallback}><WorkflowPage mode="SIMULATION" d={d} role={user.role} stale={stale} go={go} /></Suspense>,
     recovery: <RecoveryPage {...ctx} />, learning: <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>,
-    evaluation: (<><PageHead title="Evaluation and Research" sub="Simulation evaluation artifacts, baselines versus candidates, provenance and known limitations." />
-      <Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} /></>),
+    evaluation: evaluationPage(null),
     device: <DevicePage stream={device} role={user.role} go={go} simMode />,
     lab: (<><PageHead title="Lab" sub="Reproducible recording sessions, fault-injection records and matched experiments on the software simulator." /><Lab role={user.role} isPhys={physicalMode} /></>), devices: <DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />,
+    scenario: <ScenarioPage {...ctx} stepSeconds={stepSeconds} />,
   };
+  // Simulation-only tools in physical mode: say so, and offer the explicit mode switch (changing mode never commands a motor).
+  const simOnly = (t, testid) => (<><PageHead title={t} sub="This tool runs the software simulator only." />
+    <AlertPanel tone="warn" icon={FlaskConical} title="SIMULATION ONLY" testid={testid}
+      action={<button type="button" className="tq-btn" onClick={() => changeMode('SIMULATION')}><FlaskConical size={14} aria-hidden="true" />Switch to Simulation mode</button>}>
+      {t} uses simulated data and is not available in physical mode. Nothing here can command the physical motor.</AlertPanel></>);
   const phys = (layer, fallback) => {
     const l = device.snap?.analysis?.layers?.[layer];
     // Show waiting page when:
@@ -345,7 +349,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   };
   const physPages = {
     overview: <PhysicalOverview stream={device} go={go} role={user.role} />,
-    live: <PhysicalLive stream={device} />,
+    live: <PhysicalLive stream={device} go={go} />,
     twin: <Suspense fallback={twinFallback}><PhysTwinPage stream={device} go={go} /></Suspense>,
     // C1–C4 in physical mode always show the device's own analysis status: the simulation workspaces never render device data,
     // and simulator records never appear under a physical heading, whatever a layer reports.
@@ -356,26 +360,40 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     workflow: <Suspense fallback={pageFallback}><WorkflowPage mode="PHYSICAL" role={user.role} stale={false} go={go} /></Suspense>,
     recovery: phys('C5', <RecoveryPage {...ctx} />),
     learning: phys('C6', <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>),
-    evaluation: (<><div className="tq-callout info" role="note" data-testid="eval-sim-note"><strong>SIMULATION EVIDENCE</strong> These are results from the software simulator. They say nothing about this physical device.</div>{simPages.evaluation}</>),
+    evaluation: evaluationPage(<AlertPanel tone="info" icon={FlaskConical} title="SIMULATION EVIDENCE" testid="eval-sim-note">These are results from the software simulator. They say nothing about this physical device and are not hardware validation.</AlertPanel>),
     device: <DevicePage stream={device} role={user.role} go={go} />,
     control: <PhysicalSafetyPage stream={device} role={user.role} go={go} />,
-    lab: (<><PageHead title="Lab" sub="The lab runs the software simulator." /><div className="tq-callout warn" data-testid="lab-sim-note"><strong>SIMULATION ONLY</strong> The lab uses simulated data. Choose Simulation mode (demo) with the mode switch to use it; it is not available in physical mode.</div></>),
-    devices: simPages.devices,
+    lab: simOnly('Lab', 'lab-sim-note'),
+    // Same page, but the mode comes from the shell: in Physical mode it must never read as simulation, whatever the last simulator record said.
+    devices: <DevicesPage {...ctx} isPhys rows={audit.rows} auditError={audit.error} />,
+    scenario: simOnly('Scenario Studio', 'scenario-sim-note'),
   };
   const pages = physicalMode ? physPages : simPages;
   const navItem = (k) => {
-    const [, label0, Icon0, tag] = NAV.find((n) => n[0] === k);
-    const swapped = physicalMode && k === 'control';            // in physical mode the controls live on the dashboard; this page is the safety record
-    return { label: swapped ? 'Safety & Commissioning' : label0, Icon: swapped ? ClipboardCheck : Icon0, tag };
+    const [, label, Icon, tag] = NAV.find((n) => n[0] === k);
+    return { label, Icon, tag };
   };
   const current = navItem(view);
   const drawerHidden = compact && !navOpen;
-  const connText = physicalMode ? (device.snap?.connection === 'CONNECTED' ? (device.snap.port ? `${device.snap.port} Online` : 'Device Online') : 'Hardware Disconnected') : 'Environment: software simulator (no hardware)';
+  // Top-bar context. Physical: what the device path reports (connection, handshake, freshness), never inferred from a green dot.
+  const snap = device.snap;
+  const physLive = !!(snap?.handshake && snap?.origin === 'physical_device');
+  const devConnected = snap?.connection === 'CONNECTED' || snap?.connection === 'STALE';
+  const modeCtx = physicalMode
+    ? { tone: !devConnected ? 'off' : physLive ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'warn', title: 'Physical Mode',
+      text: devConnected ? `Connected${snap.port ? ` to ${snap.port}` : ''}${snap.transport_label ? ` (${snap.transport_label})` : ''}` : 'Hardware disconnected' }
+    : { tone: 'sim', title: 'Simulation Mode', text: 'Environment: software simulator (no hardware)' };
+  const devCtx = physicalMode
+    ? { tone: !devConnected ? 'off' : physLive ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'warn',
+      title: !devConnected ? 'Device disconnected' : !snap.handshake ? 'Device connecting' : !physLive ? 'Firmware simulation mode' : snap.telemetry_fresh ? 'Device connected' : 'Telemetry stale',
+      text: devConnected ? [snap.device_id, snap.firmware && `Firmware ${snap.firmware}`].filter(Boolean).join(' · ') || snap.state_label || '' : 'No physical readings' }
+    : null;
+  const alerts = physicalMode ? deviceAlerts(device) : simAlerts(d, stale);
   return (
     <div className={`tq-shell ${theme === 'light' ? 'tq-theme-light' : 'tq-theme-dark'} ${navOpen ? 'tq-nav-open' : ''} ${collapsed && !compact ? 'tq-nav-collapsed' : ''}`.replace(/\s+/g, ' ').trim()}>
       <div className="tq-body">
         <nav className="tq-sidebar" id="tq-nav" aria-label="TORQVA sections" ref={navRef} inert={drawerHidden ? '' : undefined}>
-          <div className="tq-brand"><Logo /><span className="tq-brand-name"><strong>TORQVA</strong><small>Motor intelligence</small></span></div>
+          <div className="tq-brand"><Logo /><span className="tq-brand-name"><strong>TORQVA</strong><small>AI Motor Diagnostics</small></span></div>
           {NAV_GROUPS.map((grp, gi) => (
             <div className="tq-navgroup" key={grp.heading}>
               <p className="tq-navgroup-label" id={`tq-ng-${gi}`}>{grp.heading}</p>
@@ -403,16 +421,21 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
               <button type="button" className="tq-iconbtn tq-menu-btn" data-testid="nav-toggle" aria-label="Open navigation" aria-expanded={navOpen} aria-controls="tq-nav" onClick={() => setNavOpen(true)}>
                 <Menu size={18} aria-hidden="true" /></button>
               <span className="tq-top-logo"><Logo size={26} /></span>
-              <div className="tq-crumb" aria-hidden="true"><small>{groupOf(view)}</small><span>{current.label}</span></div>
-              <span className="tq-env" title={physicalMode ? 'Physical Hardware Mode' : 'Software Simulator Mode'}>
-                <span className={`tq-env-dot ${physicalMode ? (device.snap?.telemetry_fresh ? 'live' : 'warn') : 'sim'}`} aria-hidden="true" />
-                <span className="tq-env-text">{connText}</span>
-                {!physicalMode && <Pill tone={dev?.estop ? 'stop' : 'ok'}>{dev?.estop ? 'SIMULATED E-STOP' : 'Simulated device OK'}</Pill>}
-              </span>
+              <div className="tq-ctx tq-ctx-mode" data-testid="top-mode" title={physicalMode ? 'Physical Hardware Mode' : 'Software Simulator Mode'}>
+                <span className={`tq-ctx-icon tq-${physicalMode ? (modeCtx.tone === 'ok' ? 'info' : modeCtx.tone) : 'sim'}`} aria-hidden="true">{physicalMode ? <Usb size={17} /> : <FlaskConical size={17} />}</span>
+                <span className="tq-ctx-text"><strong>{modeCtx.title}</strong><span className="tq-env-text">{modeCtx.text}</span></span>
+              </div>
+              <div className="tq-ctx tq-ctx-device" data-testid="top-device">
+                {physicalMode
+                  ? <><span className={`tq-ctx-dot tq-${devCtx.tone}`} aria-hidden="true" /><span className="tq-ctx-text"><strong>{devCtx.title}</strong>{devCtx.text && <span>{devCtx.text}</span>}</span></>
+                  : <><Cpu size={16} aria-hidden="true" className="tq-muted" /><Pill tone={dev?.estop ? 'stop' : 'ok'}>{dev?.estop ? 'SIMULATED E-STOP' : 'Simulated device OK'}</Pill></>}
+              </div>
               <span className="tq-grow" />
               <ModeSwitch mode={appMode} onChange={changeMode} />
+              <AlertsMenu alerts={alerts} go={go} />
               <button type="button" className="tq-iconbtn" onClick={toggleTheme} aria-label="Toggle theme" title={theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Cockpit Theme'}>
                 {theme === 'dark' ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}</button>
+              <button type="button" className="tq-iconbtn" onClick={() => go('devices')} aria-label="Devices and settings" title="Devices & Settings"><Settings size={16} aria-hidden="true" /></button>
               <span className="tq-user" title={`${user.user} · ${user.role}`}><span className="tq-avatar" aria-hidden="true">{String(user.user || '?').slice(0, 1)}</span><span className="tq-user-name tq-user-badge">{user.user} · {user.role}</span></span>
               <button type="button" className="tq-iconbtn" onClick={() => { setToken(''); setUser(null); setRunning(false); }} aria-label="Sign out" title="Sign out"><LogOut size={16} aria-hidden="true" /></button>
             </header>

@@ -2,7 +2,7 @@
 // (POST /simulation/workbench/counterfactual) and compare what each branch's simulator produced, next to the C2 prediction made at the start.
 // Observed branch trajectories and predictions are labelled separately; metrics are the backend's, each with its stated definition.
 import React, { useState } from 'react';
-import { FlaskConical, RefreshCw } from 'lucide-react';
+import { FlaskConical, RefreshCw, GitFork } from 'lucide-react';
 import { api } from '../api.js';
 import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt } from '../shared/components.jsx';
 import { TrendLines } from '../shared/lazyCharts.jsx';
@@ -40,9 +40,9 @@ export function CounterfactualLab({ targets, role, stale, hasRanking, hasSim }) 
   const data = res ? mergeBranches(res.branches, sig) : [];
   const done = res ? res.branches.filter((b) => b.status === 'completed') : [];
   return (
-    <Card title="Counterfactual experiment lab" id="c-cf" className="tq-mt" right={<ProvBadge kind="SIMULATED" />}>
+    <Card title="Counterfactual experiment lab" id="c-cf" className="tq-mt" icon={GitFork} sub="Compare candidates on copies of one snapshot of the simulated motor" right={<ProvBadge kind="SIMULATED" />}>
       <p className="tq-muted">Runs each candidate on its own copy of one snapshot of the simulated motor (same state, injected fault and random stream) for the same horizon, so the outcomes can be compared fairly. The live run is not changed and no device is involved.</p>
-      <div className="tq-row tq-wrap-pills">
+      <div className="tq-row tq-wrap-pills tq-as-cf-controls">
         <span className="tq-muted tq-small">Candidates:</span>
         {targets.map((t, i) => <Pill key={t} tone="info">{`Action ${'ABC'[i]}: reduce to ${fmtRpm(t)} rpm`}</Pill>)}
         <label className="tq-check"><input type="checkbox" checked={inc.cont} onChange={(e) => setInc({ ...inc, cont: e.target.checked })} /> Continue</label>

@@ -1,12 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Usb, Unplug, Cpu, HeartPulse, Gauge, Zap, Thermometer, Plug, Move3d, Activity, Waves, SlidersHorizontal, Radio } from 'lucide-react';
 import { api, getToken, ApiError } from '../api.js';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, PageHead, CardLink, Disclosure } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, Pill, fmt, title, PageHead, CardLink, Disclosure, AlertPanel, LinkButton, MetricList, ChartPanel, DataTable, SourceTag } from '../shared/components.jsx';
 import { HistoryChart } from '../shared/lazyCharts.jsx';
 
 const defaultWs = (import.meta.env && import.meta.env.MODE === 'test') ? null : (url) => new WebSocket(url);
 export const canOperate = (role) => role === 'admin';        // starting the motor and changing speed are admin-only; STOP is open to every signed-in role
-const SIGNALS = [['rpm', 'Speed', 'rpm', 0], ['acceleration', 'Total acceleration (incl. gravity)', 'g', 3], ['current', 'Current', 'A', 2], ['housing', 'Housing temperature', '°C', 1], ['duty', 'Drive duty (command)', '%', 1]];
-const RANGES = [[60, 'Last 60 s'], [180, 'Last 3 min'], [360, 'Last 6 min']];
 const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
 
 /** Live device state: REST snapshot + read-only WebSocket with reconnection. Telemetry is only ever "live" while the server says it is fresh AND frames keep arriving.
@@ -93,13 +92,22 @@ export function originOf(snap) {
   return { label: 'DEVICE (FIRMWARE SIMULATION MODE)', tone: 'warn', physical: false };
 }
 
-const ago = (unix) => (unix ? `${fmt(Math.max(0, Date.now() / 1000 - unix), 1)} s ago` : 'never');
+export const ago = (unix) => (unix ? `${fmt(Math.max(0, Date.now() / 1000 - unix), 1)} s ago` : 'never');
+/** Wall-clock time of a unix timestamp (seconds), or '—'. */
+export const clock = (unix) => (Number.isFinite(unix) && unix > 0 ? new Date(unix * 1000).toLocaleTimeString() : '—');
 
 function ConnPill({ snap }) {
   const c = snap?.connection || 'DISCONNECTED';
   const tone = c === 'CONNECTED' ? 'ok' : c === 'STALE' || c === 'CONNECTING' ? 'warn' : c === 'ERROR' ? 'crit' : 'off';
   return <Pill tone={tone}>{c}</Pill>;
 }
+
+/** Sensor names and status words used by the device pages (the backend's sensor_status keys and values). */
+export const SENSOR_NAME = { rpm: 'Speed (Hall sensor)', current: 'Current', voltage: 'DC bus voltage', power: 'Motor power', housing: 'Motor temperature', ambient: 'Ambient temperature',
+  acceleration: 'Accelerometer', vibration_rms: 'Vibration RMS', duty: 'Drive duty', setpoint: 'Setpoint' };
+const SENSOR_ICON = { rpm: Gauge, current: Zap, voltage: Plug, power: Zap, housing: Thermometer, ambient: Thermometer, acceleration: Move3d, vibration_rms: Waves };
+const SENSOR_WORDS = { valid: 'Reading valid', unavailable: 'Not reported by this firmware, or no frame yet', invalid: 'Sensor fault: the reading is rejected', stale: 'No recent update', missing: 'No reading' };
+const sensorTone = (v) => (v === 'valid' ? 'ok' : v === 'unavailable' ? 'off' : 'warn');
 
 /* ------------------------------------------------------------------ Device connection */
 export function DevicePage({ stream, role, go, simMode = false }) {
@@ -109,137 +117,243 @@ export function DevicePage({ stream, role, go, simMode = false }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const admin = role === 'admin';
-  const o = originOf(snap);
+  // In Physical mode a missing handshake is a disconnected device, not simulation (the app mode is chosen explicitly in the shell).
+  const o = !snap?.handshake && !simMode ? { label: 'NO DEVICE HANDSHAKE', tone: 'off', physical: false } : originOf(snap);
   useEffect(() => { if (admin) api.devicePorts().then((r) => setPorts(Array.isArray(r?.ports) ? r.ports : [])).catch(() => setPorts([])); }, [admin]);
   const act = (fn) => async () => { setBusy(true); setErr(null); try { await fn(); } catch (e) { setErr(e); } finally { setBusy(false); stream.refresh(); } };
   const connected = snap && snap.connection && snap.connection !== 'DISCONNECTED' && snap.connection !== 'ERROR';
+  const bl = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
+  const c = snap?.counters || {};
+  const headTone = snap?.connection === 'ERROR' ? 'crit' : !connected ? 'off' : o.physical ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'warn';
+  const headWord = snap?.connection === 'ERROR' ? 'Connection error' : !connected ? 'Disconnected' : snap?.connection === 'CONNECTING' ? 'Connecting' : !snap.handshake ? 'No handshake' : !o.physical ? 'Connected (firmware simulation)' : snap.telemetry_fresh ? 'Connected' : 'Connected · telemetry stale';
+  const sensors = Object.entries(snap?.sensor_status || {});
   return (
     <>
-      <PageHead title="Device Connection" sub="USB serial link to the ESP32-S3, owned by the backend. The browser never touches the port."
+      <PageHead title="Device" sub="Connection status and device information. The backend owns the USB serial link to the ESP32-S3; the browser never touches the port."
         right={<><Pill tone={o.tone}>{o.label}</Pill><ConnPill snap={snap} /></>} />
-      {(() => { const bl = snap?.control_blockers || ['DEVICE NOT CONNECTED']; return (
-        <p className={`tq-callout ${bl.length ? 'warn' : ''}`} role="status" data-testid="dev-readiness">
-          <strong>{bl.length ? `Physical motion blocked (${bl.length})` : 'No motion blocker reported'}</strong>{bl.length ? ` — ${bl[0]}${bl.length > 1 ? ` and ${bl.length - 1} more` : ''}.` : '.'}{' '}
-          {go && !simMode && <button type="button" className="tq-linkbtn" onClick={() => go('control')}>Review readiness and commissioning</button>}
-          {go && simMode && <>Physical Motor Control is available in Physical mode. To run the simulated motor, use <button type="button" className="tq-linkbtn" data-testid="dev-to-scenario" onClick={() => go('overview')}>Scenario Studio on Overview</button>.</>}
-        </p>); })()}
-      <div className="tq-split">
-        <div className="tq-stack">
-          <Card title="Connection" id="c-devconn">
-            <dl className="tq-kv">
-              <dt>State</dt><dd data-testid="state-label"><strong>{snap?.state_label || 'DISCONNECTED'}</strong></dd>
-              <dt>Mode</dt><dd>{o.label}</dd>
-              <dt>Port</dt><dd>{snap?.port || '—'}</dd>
-              <dt>USB state</dt><dd><ConnPill snap={snap} /></dd>
-              <dt>Live updates (WebSocket only; says nothing about USB)</dt><dd>{ws === 'open' ? <Pill tone="ok">connected</Pill> : <Pill tone="warn">{ws === 'idle' ? 'off' : ws}</Pill>}</dd>
-              <dt>Last message</dt><dd className="tq-num">{ago(snap?.last_rx_unix)}</dd>
-              <dt>Device id</dt><dd>{snap?.device_id || '—'} {snap?.identity && snap.identity !== 'unknown' && <span className="tq-chip">{snap.identity}</span>}</dd>
-              <dt>Firmware / protocol</dt><dd>{snap?.firmware || '—'} · wire protocol {snap?.wire_protocol ?? '—'}</dd>
-              <dt>Firmware mode</dt><dd>{snap?.firmware_mode || '—'}</dd>
-            </dl>
-            {!snap?.handshake && <p className="tq-callout">No device handshake. The application is in <strong>SIMULATION</strong>; physical-device telemetry is unavailable and physical motor controls are disabled.</p>}
-            {snap?.connection === 'CONNECTING' && !snap?.error && <p className="tq-callout" data-testid="device-connecting">Port opened, waiting for the device handshake (a valid TORQVA status frame). Until then nothing is shown as a physical device.</p>}
-            {snap?.error && (
-              <div className="tq-callout crit" role="alert" data-testid="device-error">
-                <strong>{snap.error.message}</strong> <span className="tq-chip">{snap.error.code}</span>
-                <p className="tq-muted">Technical detail: {snap.error.detail}</p>
-                {Array.isArray(snap.error.recovery) && snap.error.recovery.length > 0 && <ol>{snap.error.recovery.map((r) => <li key={r}>{r}</li>)}</ol>}
-                {Array.isArray(snap.rejected_samples) && snap.rejected_samples.length > 0 && (
-                  <><p className="tq-muted">Last lines received that are not valid TORQVA frames (diagnostic, admin only):</p>
-                    <pre className="tq-num" data-testid="rejected-samples">{snap.rejected_samples.join('\n')}</pre></>)}
-              </div>)}
-            <ErrorBox error={error} />
-            <p className="tq-muted">Trust boundary: {snap?.usb_trust_boundary || 'USB serial is unauthenticated; it is treated as inside the host computer\'s physical trust boundary.'}</p>
-          </Card>
-          <Card title="Sensors" id="c-devsens">
-            {!snap?.sensor_status ? <Empty>No device data.</Empty> : (
-              <table className="tq-table"><caption className="tq-sr">Sensor availability</caption><thead><tr><th scope="col">Sensor</th><th scope="col">Status</th></tr></thead>
-                <tbody>{Object.entries(snap.sensor_status).map(([k, v]) => (<tr key={k}><td>{title(k)}</td><td><Pill tone={v === 'valid' ? 'ok' : v === 'unavailable' ? 'off' : 'warn'}>{v}</Pill></td></tr>))}</tbody></table>)}
-            <p className="tq-muted">unavailable = this firmware does not report it or no frame has arrived; invalid/stale readings are never shown as numbers.</p>
-          </Card>
-          <Disclosure summary="Connection diagnostics" meta={snap?.counters ? `frame counters · ${Object.values(snap.counters).reduce((x, y) => x + (Number(y) || 0), 0)} events counted` : 'no data'} testid="dev-counters">
+      <AlertPanel tone={simMode ? 'info' : bl.length ? 'warn' : 'info'} testid="dev-readiness" icon={simMode ? Cpu : undefined}
+        title={bl.length ? `Physical motion blocked (${bl.length})` : 'No motion blocker reported'}
+        action={go && !simMode ? <LinkButton onClick={() => go('control')}>Review readiness and commissioning</LinkButton> : null}>
+        {bl.length ? <p>{bl[0]}{bl.length > 1 ? ` and ${bl.length - 1} more.` : '.'}</p> : <p>Every command is still checked by the Safety Supervisor and the firmware; this is not a hardware verification.</p>}
+        {go && simMode && <p>Physical Motor Control is available in Physical mode. To run the simulated motor, use <button type="button" className="tq-linkbtn" data-testid="dev-to-scenario" onClick={() => go('scenario')}>Scenario Studio</button>.</p>}
+      </AlertPanel>
+
+      <div className="tq-mon-devgrid">
+        <Card title="Device connection" id="c-devconn" icon={Usb} testid="dev-conn">
+          <div className={`tq-mon-connhead tq-${headTone}`}>
+            <span className="tq-mon-connicon" aria-hidden="true">{connected ? <Usb size={20} /> : <Unplug size={20} />}</span>
+            <div>
+              <strong>{headWord}</strong>
+              <span>{snap?.port ? `Port ${snap.port}` : 'No port open'}{snap?.firmware ? ` · firmware ${snap.firmware}` : ''}</span>
+            </div>
+          </div>
+          <dl className="tq-kv">
+            <dt>State</dt><dd data-testid="state-label"><strong>{snap?.state_label || 'DISCONNECTED'}</strong></dd>
+            <dt>USB state</dt><dd><ConnPill snap={snap} /></dd>
+            <dt>Live updates (WebSocket only; says nothing about USB)</dt><dd>{ws === 'open' ? <Pill tone="ok">connected</Pill> : <Pill tone="warn">{ws === 'idle' ? 'off' : ws}</Pill>}</dd>
+          </dl>
+          {!snap?.handshake && <p className="tq-callout">No device handshake. {simMode ? <>The application is in <strong>SIMULATION</strong>; physical</> : 'Physical'}-device telemetry is unavailable and physical motor controls are disabled.</p>}
+          {snap?.connection === 'CONNECTING' && !snap?.error && <p className="tq-callout" data-testid="device-connecting">Port opened, waiting for the device handshake (a valid TORQVA status frame). Until then nothing is shown as a physical device.</p>}
+          {snap?.error && (
+            <div className="tq-callout crit" role="alert" data-testid="device-error">
+              <strong>{snap.error.message}</strong> <span className="tq-chip">{snap.error.code}</span>
+              <p className="tq-muted">Technical detail: {snap.error.detail}</p>
+              {Array.isArray(snap.error.recovery) && snap.error.recovery.length > 0 && <ol>{snap.error.recovery.map((r) => <li key={r}>{r}</li>)}</ol>}
+              {Array.isArray(snap.rejected_samples) && snap.rejected_samples.length > 0 && (
+                <><p className="tq-muted">Last lines received that are not valid TORQVA frames (diagnostic, admin only):</p>
+                  <pre className="tq-num" data-testid="rejected-samples">{snap.rejected_samples.join('\n')}</pre></>)}
+            </div>)}
+          <ErrorBox error={error} />
+          <h4 className="tq-mon-subhead">Serial port</h4>
+          {!admin ? <Empty>Connecting a device requires the admin role.</Empty> : (
+            <form className="tq-form" onSubmit={(e) => { e.preventDefault(); act(() => api.deviceConnect({ port: form.port, baud: Number(form.baud), expected_device_id: form.expected || null }))(); }}>
+              <label>Port
+                <select value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} disabled={connected}>
+                  <option value="">select a port…</option>
+                  {ports.map((p) => <option key={p.device} value={p.device}>{p.device} — {p.description}</option>)}
+                </select>
+              </label>
+              <label>Baud rate (USB-CDC ignores it)
+                <input type="number" value={form.baud} onChange={(e) => setForm({ ...form, baud: e.target.value })} disabled={connected} />
+              </label>
+              <label>Expected device id (optional; a mismatch is refused)
+                <input type="text" value={form.expected} onChange={(e) => setForm({ ...form, expected: e.target.value })} disabled={connected} />
+              </label>
+              <div className="tq-row">
+                <button type="submit" className="tq-btn tq-primary" disabled={busy || connected || !form.port}>Connect</button>
+                <button type="button" className="tq-btn" disabled={busy || !connected} onClick={act(() => api.deviceDisconnect())}>Disconnect</button>
+              </div>
+            </form>)}
+          <ErrorBox error={err} />
+          <p className="tq-small tq-muted">If the device disappears the backend closes the port and shows DISCONNECTED; reconnect by selecting the port again. Nothing is replayed after a reconnect.</p>
+        </Card>
+
+        <Card title="Device information" id="c-devinfo" icon={Cpu} sub="Reported by the device in its handshake">
+          <MetricList label="Device information" testid="dev-info" items={[
+            { key: 'id', label: 'Device id', value: snap?.device_id || null },
+            { key: 'identity', label: 'Identity check', value: snap?.identity && snap.identity !== 'unknown' ? snap.identity : null },
+            { key: 'mode', label: 'Mode', value: o.label },
+            { key: 'fw', label: 'Firmware', value: snap?.firmware || null },
+            { key: 'fwmode', label: 'Firmware mode', value: snap?.firmware_mode || null },
+            { key: 'proto', label: 'Wire protocol', value: snap?.wire_protocol ?? null },
+            { key: 'port', label: 'Serial port', value: snap?.port || null },
+            { key: 'transport', label: 'Transport', value: snap?.transport_label || null },
+          ]} />
+        </Card>
+
+        <Card title="Connection health" id="c-devhealth" icon={HeartPulse} sub="Frame counters kept by the backend">
+          <MetricList label="Connection health" testid="dev-health" items={[
+            { key: 'last', label: 'Last message', value: snap?.last_rx_unix ? ago(snap.last_rx_unix) : null, missingText: 'never' },
+            { key: 'age', label: 'Telemetry age', value: Number.isFinite(snap?.telemetry_age_s) ? fmt(snap.telemetry_age_s, 1) : null, unit: 's' },
+            { key: 'frames', label: 'Frames received', value: c.frames ?? null },
+            { key: 'malformed', label: 'Malformed frames', value: c.malformed ?? null },
+            { key: 'gaps', label: 'Sequence gaps', value: c.gaps ?? null },
+            { key: 'missing', label: 'Missed frames', value: c.missing ?? null },
+            { key: 'restarts', label: 'Device restarts', value: c.restarts ?? null },
+            { key: 'err', label: 'Last error', value: snap?.last_error || null, missingText: 'none' },
+          ]} />
+          <Disclosure summary="All frame counters" meta={snap?.counters ? `${Object.values(snap.counters).reduce((x, y) => x + (Number(y) || 0), 0)} events counted` : 'no data'} testid="dev-counters">
             {!snap?.counters ? <Empty>No data.</Empty> : (
               <dl className="tq-kv">{Object.entries(snap.counters).map(([k, v]) => (<React.Fragment key={k}><dt>{title(k)}</dt><dd className="tq-num">{v}</dd></React.Fragment>))}</dl>)}
           </Disclosure>
-        </div>
-        <div className="tq-stack">
-          <Card title="Serial port" id="c-devport">
-            {!admin ? <Empty>Connecting a device requires the admin role.</Empty> : (
-              <form className="tq-form" onSubmit={(e) => { e.preventDefault(); act(() => api.deviceConnect({ port: form.port, baud: Number(form.baud), expected_device_id: form.expected || null }))(); }}>
-                <label>Port
-                  <select value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} disabled={connected}>
-                    <option value="">select a port…</option>
-                    {ports.map((p) => <option key={p.device} value={p.device}>{p.device} — {p.description}</option>)}
-                  </select>
-                </label>
-                <label>Baud rate (USB-CDC ignores it)
-                  <input type="number" value={form.baud} onChange={(e) => setForm({ ...form, baud: e.target.value })} disabled={connected} />
-                </label>
-                <label>Expected device id (optional; a mismatch is refused)
-                  <input type="text" value={form.expected} onChange={(e) => setForm({ ...form, expected: e.target.value })} disabled={connected} />
-                </label>
-                <div className="tq-row">
-                  <button type="submit" className="tq-btn tq-primary" disabled={busy || connected || !form.port}>Connect</button>
-                  <button type="button" className="tq-btn" disabled={busy || !connected} onClick={act(() => api.deviceDisconnect())}>Disconnect</button>
-                </div>
-              </form>)}
-            <ErrorBox error={err} />
-            <p className="tq-muted">If the device disappears the backend closes the port and shows DISCONNECTED; reconnect by selecting the port again. Nothing is replayed after a reconnect.</p>
-          </Card>
-          <Card title="Recent device events" id="c-devev">
-            {!events.length ? <Empty>No events yet.</Empty> : (
-              <ul className="tq-feed">{events.slice(0, 12).map((e) => (<li key={e.k}><Pill tone={/error|disconnected|fault|timed|unknown|rejected/.test(e.name) ? 'crit' : 'info'}>{title(e.name)}{e.total > 1 ? ` ×${e.total}` : ''}</Pill><span className="tq-muted">{JSON.stringify(e.data).slice(0, 90)}</span></li>))}</ul>)}
-          </Card>
-        </div>
+        </Card>
       </div>
+
+      <Card title="Sensor status" id="c-devsens" icon={Activity} className="tq-mt" sub="What the backend reports for each sensor; invalid or stale readings are never shown as numbers">
+        {!sensors.length ? <Empty>No device data.</Empty> : (
+          <ul className="tq-mon-sensors" aria-label="Sensor availability" data-testid="dev-sensors">
+            {sensors.map(([k, v]) => { const I = SENSOR_ICON[k] || Activity; return (
+              <li key={k} className={`tq-mon-sensor tq-${sensorTone(v)}`}>
+                <span className="tq-mon-sensor-icon" aria-hidden="true"><I size={16} /></span>
+                <span className="tq-mon-sensor-name">{SENSOR_NAME[k] || title(k)}</span>
+                <Pill tone={sensorTone(v)}>{v}</Pill>
+                <span className="tq-mon-sensor-words">{SENSOR_WORDS[v] || title(v)}</span>
+              </li>); })}
+          </ul>)}
+      </Card>
+
+      <Card title="Recent device events" id="c-devev" icon={Radio} className="tq-mt" sub="Events the backend pushed over the live connection during this session">
+        {!events.length ? <Empty>No events yet.</Empty> : (
+          <ul className="tq-feed">{events.slice(0, 12).map((e) => (<li key={e.k}><Pill tone={/error|disconnected|fault|timed|unknown|rejected/.test(e.name) ? 'crit' : 'info'}>{title(e.name)}{e.total > 1 ? ` ×${e.total}` : ''}</Pill><span className="tq-muted">{clock(e.ts)} · {JSON.stringify(e.data).slice(0, 90)}</span></li>))}</ul>)}
+      </Card>
+      <p className="tq-small tq-muted tq-mt">Trust boundary: {snap?.usb_trust_boundary || 'USB serial is unauthenticated; it is treated as inside the host computer\'s physical trust boundary.'}</p>
     </>
   );
 }
 
-/* ------------------------------------------------------------------ Live device charts (used by Live Monitor and the Device page) */
+/* ------------------------------------------------------------------ Device history (Live Monitor, Overview mini charts) */
+/** Polls /device/history for several signals while `enabled`. Each series is [[unix, value|null]]; null is an invalid reading (a gap), never zero.
+ *  Nothing is fetched without a device handshake, and the series are cleared when it is lost. */
+export function useDeviceHistories(signals, seconds, enabled, everyMs = 2500) {
+  const [series, setSeries] = useState({});
+  const [err, setErr] = useState(null);
+  const key = signals.join(',');
+  useEffect(() => {
+    if (!enabled) { setSeries({}); return undefined; }
+    let on = true;
+    const load = () => Promise.all(key.split(',').map((s) => api.deviceHistory(s, seconds).then((r) => [s, Array.isArray(r?.points) ? r.points : []], (e) => [s, null, e])))
+      .then((rs) => {
+        if (!on) return;
+        const bad = rs.find((r) => r[2]);
+        setErr(bad ? bad[2] : null);
+        setSeries((prev) => Object.fromEntries(rs.map(([s, p]) => [s, p || prev[s] || []])));
+      });
+    load();
+    const id = setInterval(load, everyMs);
+    return () => { on = false; clearInterval(id); };
+  }, [key, seconds, enabled, everyMs]);
+  return { series, err };
+}
+
+// Signals the device history supports, with display metadata: [key, title, unit, digits, provenance when physical, sensor colour, note].
+export const LIVE_SIGNALS = [
+  ['rpm', 'Speed (Hall sensor)', 'rpm', 0, 'MEASURED', 'var(--tq-sig-rpm)', 'measured shaft speed'],
+  ['current', 'Current', 'A', 2, 'MEASURED', 'var(--tq-sig-current)', 'motor current'],
+  ['housing', 'Housing temperature', '°C', 1, 'MEASURED', 'var(--tq-sig-temp)', 'motor housing'],
+  ['voltage', 'DC bus voltage', 'V', 1, 'MEASURED', 'var(--tq-sig-voltage)', 'supply'],
+  ['power', 'Motor power', 'W', 1, 'DERIVED', 'var(--tq-sig-power)', 'computed by the firmware from V × I'],
+  ['acceleration', 'Total acceleration', 'g', 3, 'MEASURED', 'var(--tq-sig-vib)', 'includes gravity; raw per-axis values; NOT vibration RMS'],
+  ['duty', 'Drive duty (command)', '%', 1, 'COMMAND', 'var(--tq-chart-ink)', 'commanded, not measured'],
+];
+const SIG_ICON = { rpm: Gauge, current: Zap, housing: Thermometer, voltage: Plug, power: Zap, acceleration: Move3d, duty: SlidersHorizontal };
+const RANGES = [[60, '60 s'], [180, '3 min'], [360, '6 min']];
+const rangeName = (s) => (s < 120 ? `${s} s` : `${s / 60} min`);
+const SAMPLE_KEYS = ['rpm', 'current', 'voltage', 'power', 'housing', 'duty'];        // one backend history record per frame: these share timestamps
+
+/** A reading that may be shown as a number: present, valid and finite. Anything else is UNAVAILABLE, never zero. */
+export const readingOf = (v) => (v && v.valid && v.value !== null && v.value !== undefined && Number.isFinite(Number(v.value)) ? Number(v.value) : null);
+
+/* ------------------------------------------------------------------ Live device charts (Live Monitor in both modes) */
 export function DeviceLive({ stream }) {
   const { snap } = stream;
-  const [signal, setSignal] = useState('rpm');
   const [seconds, setSeconds] = useState(60);
-  const [points, setPoints] = useState([]);
-  const [err, setErr] = useState(null);
   const o = originOf(snap);
-  const load = useCallback(() => api.deviceHistory(signal, seconds).then((r) => { setPoints(Array.isArray(r?.points) ? r.points : []); setErr(null); }).catch(setErr), [signal, seconds]);
-  useEffect(() => { load(); const id = setInterval(load, 2000); return () => clearInterval(id); }, [load]);
-  const data = useMemo(() => points.map(([t, v]) => ({ t, v })), [points]);
-  const meta = SIGNALS.find((s) => s[0] === signal);
+  const { series, err } = useDeviceHistories(LIVE_SIGNALS.map((s) => s[0]), seconds, !!snap?.handshake);
   const stale = snap && !snap.telemetry_fresh;
+  const vals = snap?.values || {};
+  const provOf = (p) => (o.physical ? p : 'SIMULATED');
+  const rows = useMemo(() => {
+    const m = new Map();
+    for (const k of SAMPLE_KEYS) for (const [t, v] of series[k] || []) { const r = m.get(t) || { t }; r[k] = v; m.set(t, r); }
+    return [...m.values()].sort((a, b) => b.t - a.t).slice(0, 10);
+  }, [series]);
+  const n = (v, d) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : fmt(v, d));
   return (
-    <div className="tq-stack">
+    <div className="tq-stack tq-mon-live">
+      <div className="tq-toolbar">
+        <span className="tq-toolbar-label">Time range</span>
+        <div className="tq-seg" role="group" aria-label="Time range">
+          {RANGES.map(([s, name]) => <button key={s} type="button" className="tq-btn" aria-pressed={seconds === s} onClick={() => setSeconds(s)}>{name}</button>)}
+        </div>
+        <span className="tq-grow" />
+        <SourceTag kind={stale && snap?.handshake ? 'STALE' : o.physical ? 'PHYSICAL' : snap?.handshake ? 'SIMULATED' : 'UNKNOWN'} />
+      </div>
       <p className={`tq-callout ${o.physical ? '' : 'warn'}`} role="note">
         {o.physical ? 'Values below are measurements reported by the connected ESP32-S3.' : snap?.handshake ? 'The connected firmware reports SIMULATION mode: these are not physical measurements.' : 'No device is connected. There is no physical-device telemetry; nothing here is simulated or invented.'}
-        {stale && snap?.handshake && <strong> Telemetry is STALE: last frame {fmt(snap.telemetry_age_s, 1)} s ago. Showing the last readings, not live data.</strong>}
+        {' '}Gaps mean invalid readings or a disconnect; they are never drawn as zero.
       </p>
-      <div className="tq-kpis">
-        {SIGNALS.map(([k, name, unit, d]) => {
-          const v = snap?.values?.[k];
-          const missing = !v || v.value === null || v.value === undefined;
-          return (
-            <div key={k} className={`tq-kpi ${missing || v?.stale ? 'tq-unavailable' : ''}`}>
-              <div className="tq-kpi-label"><span>{name}</span>{v && !missing ? <ProvBadge kind={o.physical ? 'MEASURED' : 'SIMULATED'} /> : null}</div>
-              <div className="tq-kpi-value tq-num">{missing ? 'UNAVAILABLE' : fmt(v.value, d)}{!missing && <span className="tq-kpi-unit">{unit}</span>}</div>
-              {v && !missing && v.stale && <div className="tq-kpi-note">stale</div>}
-              {v && missing && <div className="tq-kpi-note">invalid sensor reading</div>}
-            </div>);
-        })}
-        {(() => { const a = snap?.values?.acceleration; const ok = a && a.valid && a.value != null; return (
-          <div className={`tq-kpi ${!ok || a.stale ? 'tq-unavailable' : ''}`}><div className="tq-kpi-label"><span>Total acceleration</span>{ok ? <ProvBadge kind={o.physical ? 'MEASURED' : 'SIMULATED'} /> : null}</div>
-            <div className="tq-kpi-value tq-num">{ok ? fmt(a.value, 3) : 'UNAVAILABLE'}{ok && <span className="tq-kpi-unit">g</span>}</div>
-            <div className="tq-kpi-note">{ok ? 'includes gravity; raw per-axis values; NOT vibration RMS' : (a && a.origin !== 'unavailable' ? 'invalid sensor reading' : 'no accelerometer data')}</div></div>); })()}
-        <div className="tq-kpi tq-unavailable"><div className="tq-kpi-label"><span>Vibration RMS</span></div><div className="tq-kpi-value tq-num">UNAVAILABLE</div>
-          <div className="tq-kpi-note">the firmware does not compute it</div></div>
+      {stale && snap?.handshake && (
+        <AlertPanel tone="warn" title={`Telemetry is STALE: last frame ${fmt(snap.telemetry_age_s, 1)} s ago. Showing the last readings, not live data.`} testid="dev-stale" />)}
+      <ErrorBox error={err} />
+      <div className="tq-mon-livegrid">
+        <div className="tq-mon-charts">
+          {LIVE_SIGNALS.map(([k, name, unit, d, prov, color, note]) => {
+            const v = vals[k]; const x = readingOf(v); const pts = series[k] || [];
+            const data = pts.map(([t, y]) => ({ t, v: y }));
+            const I = SIG_ICON[k] || Activity;
+            return (
+              <ChartPanel key={k} id={`dev-ch-${k}`} testid={`dev-chart-${k}`} title={<><I size={15} aria-hidden="true" style={{ color }} /> {name}</>}
+                value={x === null ? null : fmt(x, d)} unit={unit} prov={x === null ? undefined : provOf(prov)}
+                right={x !== null && v.stale ? <SourceTag kind="STALE" /> : null}
+                foot={`${note} · last ${rangeName(seconds)}${pts.length ? ` · ${pts.length} points` : ''}${x === null && v && !v.valid && v.origin !== 'unavailable' ? ' · invalid sensor reading' : ''}`}>
+                {data.length ? (
+                  <div role="img" aria-label={`${name} history, last ${rangeName(seconds)}`} className="tq-chart"><HistoryChart data={data} name={`${name} (${unit})`} height={150} color={color} /></div>
+                ) : <p className="tq-mon-nochart">No device history in this window. History exists only while a device is sending telemetry.</p>}
+              </ChartPanel>);
+          })}
+          <ChartPanel id="dev-ch-vib" testid="dev-chart-vib" title={<><Waves size={15} aria-hidden="true" style={{ color: 'var(--tq-sig-vib)' }} /> Vibration RMS</>} value={null}
+            foot="see total acceleration for the raw accelerometer">
+            <p className="tq-mon-nochart">the firmware does not compute it</p>
+          </ChartPanel>
+        </div>
+        <div className="tq-stack">
+          <Card title="Telemetry details" id="c-devdetails" sub={snap?.last_rx_unix ? `last frame ${clock(snap.last_rx_unix)}` : 'no frame received'}>
+            <MetricList label="Telemetry details" testid="dev-metrics" items={[
+              ...LIVE_SIGNALS.map(([k, name, unit, d, prov, color]) => { const x = readingOf(vals[k]); return { key: k, label: name, icon: SIG_ICON[k], color, value: x === null ? null : fmt(x, d), unit, prov: x === null ? undefined : provOf(prov), missingText: 'UNAVAILABLE' }; }),
+              ...(vals.ambient ? [{ key: 'ambient', label: 'Ambient temperature', icon: Thermometer, value: readingOf(vals.ambient) === null ? null : fmt(readingOf(vals.ambient), 1), unit: '°C', prov: readingOf(vals.ambient) === null ? undefined : provOf('MEASURED'), missingText: 'UNAVAILABLE' }] : []),
+              { key: 'drive', label: 'Drive mode', value: snap?.handshake ? (snap.drive || null) : null },
+              { key: 'src', label: 'Data source', value: o.label },
+              { key: 'upd', label: 'Last updated', value: snap?.last_rx_unix ? ago(snap.last_rx_unix) : null, missingText: 'never' },
+            ]} />
+          </Card>
+        </div>
       </div>
-      <Card title="History" id="c-devhist" right={<><label className="tq-inline">Signal <select value={signal} onChange={(e) => setSignal(e.target.value)}>{SIGNALS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></label>
-        <label className="tq-inline">Range <select value={seconds} onChange={(e) => setSeconds(Number(e.target.value))}>{RANGES.map(([s, n]) => <option key={s} value={s}>{n}</option>)}</select></label></>}>
-        <ErrorBox error={err} />
-        {!data.length ? <Empty>No device history for this range. History exists only while a device is sending telemetry.</Empty> : (
-          <div role="img" aria-label={`${meta[1]} history`} className="tq-chart"><HistoryChart data={data} name={`${meta[1]} (${meta[2]})`} height={240} /></div>)}
-        <p className="tq-chart-note">Gaps mean invalid readings or a disconnect; they are never drawn as zero.</p>
+      <Card title="Latest telemetry samples" id="c-devsamples" sub="Newest first, from the backend's device history. — means an invalid or missing reading, never zero.">
+        <DataTable testid="dev-samples" caption="Latest device telemetry samples" rowKey={(r) => r.t} rows={rows} empty="No samples in this window."
+          columns={[{ key: 't', label: 'Time', render: (r) => clock(r.t) }, { key: 'rpm', label: 'Speed (rpm)', align: 'num', render: (r) => n(r.rpm, 0) },
+            { key: 'current', label: 'Current (A)', align: 'num', render: (r) => n(r.current, 2) }, { key: 'voltage', label: 'Voltage (V)', align: 'num', render: (r) => n(r.voltage, 1) },
+            { key: 'power', label: 'Power (W)', align: 'num', render: (r) => n(r.power, 1) }, { key: 'housing', label: 'Temp (°C)', align: 'num', render: (r) => n(r.housing, 1) },
+            { key: 'duty', label: 'Duty (%)', align: 'num', render: (r) => n(r.duty, 1) }]} />
       </Card>
     </div>
   );
@@ -331,23 +445,43 @@ const INTERLOCK_GROUPS = [
 ];
 // What each status means for the analyst (the backend's own words are in the Evidence column).
 const ILK = { VERIFIED: ['ok', 'passed'], BLOCKED: ['stop', 'blocking'], 'NOT VERIFIED': ['warn', 'not verified'], UNAVAILABLE: ['off', 'unavailable'] };
-const toComm = () => { try { document.getElementById('c-comm')?.scrollIntoView({ block: 'start' }); } catch { /* not supported */ } };
+/** Scroll to the commissioning record (on the Safety & Commissioning page). */
+export const toComm = () => { try { document.getElementById('c-comm')?.scrollIntoView({ block: 'start' }); } catch { /* not supported */ } };
+/** Scroll to one interlock group in the Safety interlocks table. */
+export const toIlk = (key) => { try { document.getElementById(`ilk-g-${key}`)?.scrollIntoView({ block: 'center' }); } catch { /* not supported */ } };
+
+/** The backend's interlocks (snap.interlocks) in commissioning groups: [{ key, name, next, items }]. Empty groups are dropped; unknown ids go to "Other checks". */
+export function interlockGroups(rows) {
+  if (!Array.isArray(rows)) return [];
+  const known = new Set(INTERLOCK_GROUPS.flatMap((g) => g[2]));
+  return [...INTERLOCK_GROUPS, ['other', 'Other checks', rows.filter((r) => !known.has(r.id)).map((r) => r.id), null]]
+    .map(([key, name, ids, next]) => ({ key, name, next, items: ids.map((i) => rows.find((r) => r.id === i)).filter(Boolean) })).filter((g) => g.items.length);
+}
+/** A group's status in words, from its checks only: every check VERIFIED = all passed; any BLOCKED = blocking; otherwise not verified / unavailable.
+ *  `state` is a CheckList state (ok | fail | warn | unknown). No reported failure is never a pass. */
+export function groupStatus(items) {
+  const n = items.length; const passed = items.filter((r) => r.status === 'VERIFIED').length;
+  const blocked = items.filter((r) => r.status === 'BLOCKED').length; const nv = items.filter((r) => r.status === 'NOT VERIFIED').length;
+  const of = `${passed} of ${n} passed`;
+  if (n && passed === n) return { state: 'ok', status: 'All passed', of, passed, n };
+  if (blocked) return { state: 'fail', status: `${blocked} blocking`, of, passed, n };
+  if (nv) return { state: 'warn', status: 'Not verified', of, passed, n };
+  return { state: 'unknown', status: 'Unavailable', of, passed, n };
+}
 
 /** The backend's interlock report for physical motion as a grouped checklist (read-only). Hardware checks are never VERIFIED by software. */
 export function InterlocksCard({ snap, go }) {
   const rows = snap?.interlocks;
-  const known = new Set(INTERLOCK_GROUPS.flatMap((g) => g[2]));
-  const groups = rows ? [...INTERLOCK_GROUPS, ['other', 'Other checks', rows.filter((r) => !known.has(r.id)).map((r) => r.id), null]]
-    .map(([key, name, ids, next]) => ({ key, name, next, items: ids.map((i) => rows.find((r) => r.id === i)).filter(Boolean) })).filter((g) => g.items.length) : [];
+  const groups = interlockGroups(rows);
   return (
-    <Card title="Safety interlocks" id="c-interlocks">
+    <Card title="Safety interlocks" id="c-interlocks" sub="Every check the backend reports, grouped; the evidence column is the backend's own wording">
       {!rows ? <Empty>No interlock data.</Empty> : (
         <div className="tq-table-wrap"><table className="tq-table tq-ilk" data-testid="interlocks"><caption className="tq-sr">Physical motion interlocks, grouped</caption>
           <thead><tr><th scope="col">Check</th><th scope="col">Status</th><th scope="col">Evidence or reason</th></tr></thead>
           {groups.map((g) => {
             const open = g.items.filter((r) => r.status !== 'VERIFIED');
             return (
-              <tbody key={g.key} data-testid={`ilk-${g.key}`}>
+              <tbody key={g.key} data-testid={`ilk-${g.key}`} id={`ilk-g-${g.key}`}>
                 <tr className="tq-ilk-group"><th scope="rowgroup" colSpan={3}>
                   <span>{g.name}</span> <span className="tq-muted">{open.length ? `${g.items.length - open.length} of ${g.items.length} passed` : 'all passed'}</span>
                   {open.length > 0 && g.next === 'device' && go && <> · <button type="button" className="tq-linkbtn" onClick={() => go('device')}>Check the connection on the Device page</button></>}
@@ -358,7 +492,7 @@ export function InterlocksCard({ snap, go }) {
               </tbody>);
           })}
         </table></div>)}
-      <p className="tq-muted">VERIFIED means the backend has evidence; NOT VERIFIED means no evidence yet, which is not a pass. Hardware checks (E-stop circuit, driver, watchdog) are never VERIFIED by software: no reported failure is not a verification.</p>
+      <p className="tq-small tq-muted">VERIFIED means the backend has evidence; NOT VERIFIED means no evidence yet, which is not a pass. Hardware checks (E-stop circuit, driver, watchdog) are never VERIFIED by software: no reported failure is not a verification.</p>
     </Card>
   );
 }

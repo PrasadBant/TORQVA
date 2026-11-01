@@ -1,6 +1,7 @@
 // Incident story: one simulated incident from injection to resolution, built only from this run's records (/log, /outcomes, /status).
 // Scenario ground truth, TORQVA's diagnosis, the C2 prediction and the observed outcome are shown side by side and never merged.
 import React, { useState } from 'react';
+import { BookOpen } from 'lucide-react';
 import { Card, Empty, Pill, ProvBadge, fmt, Disclosure } from '../shared/components.jsx';
 import { incidentIds, title, outcomeTone } from './pipeline.js';
 import { EventTimeline } from './events.jsx';
@@ -13,7 +14,7 @@ export function IncidentStory({ d }) {
   const id = pick && ids.includes(pick) ? pick : ids[ids.length - 1];
   const s = d.status || {}; const sc = s.scenario || {};
   if (!id) return (
-    <Card title="Incident story" id="c-story" right={<ProvBadge kind="SIMULATED" />}>
+    <Card title="Incident story" id="c-story" icon={BookOpen} right={<ProvBadge kind="SIMULATED" />}>
       <Empty>No incident in this run's log yet. When C1 opens one, its path from injection to resolution appears here.</Empty>
     </Card>);
   const L = (d.log || []).filter((l) => l.incident === id);
@@ -27,7 +28,7 @@ export function IncidentStory({ d }) {
   const match = !top ? 'no diagnosis yet' : !truth ? `diagnosed ${title(top)}; the scenario injected no fault` : top === truth ? 'top hypothesis matches the injected fault' : `top hypothesis differs from the injected fault`;
   const open = s.incident?.id === id;
   return (
-    <Card title="Incident story" id="c-story" right={<><Pill tone={open ? 'wait' : closed ? 'off' : 'info'}>{open ? `open: ${title(s.incident.state)}` : closed ? `closed: ${title(closed.final)}` : 'record incomplete'}</Pill><ProvBadge kind="SIMULATED" /></>}>
+    <Card title="Incident story" id="c-story" icon={BookOpen} sub="Ground truth, diagnosis, prediction and observed outcome, kept apart" right={<><Pill tone={open ? 'wait' : closed ? 'off' : 'info'}>{open ? `open: ${title(s.incident.state)}` : closed ? `closed: ${title(closed.final)}` : 'record incomplete'}</Pill><ProvBadge kind="SIMULATED" /></>}>
       {ids.length > 1 && (
         <label className="tq-inline">Incident <select value={id} onChange={(e) => setPick(e.target.value)}>{ids.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>)}
       <div className="tq-story-cols" data-testid="story-cols">
@@ -52,7 +53,7 @@ export function IncidentStory({ d }) {
         <section className="tq-story-col is-obs" aria-label="Observed outcome">
           <span className="tq-section-title">Observed (C5) <ProvBadge kind="SIMULATED" /></span>
           <strong>{out ? <Pill tone={outcomeTone(out.outcome)}>{title(out.outcome)}</Pill> : 'not verified'}</strong>
-          <span className="tq-muted">{out ? `action ${out.action || '—'} · acknowledged ${out.command_executed ? 'yes' : 'no'} · ${out.n_fresh ?? 0} fresh sample(s)` : open ? 'verification has not finished' : 'no verdict recorded'}</span>
+          <span className="tq-muted">{out ? `action ${out.action || '—'} · acknowledged ${out.command_executed ? 'yes' : 'no'} · ${out.n_fresh ?? '—'} fresh sample(s)` : open ? 'verification has not finished' : 'no verdict recorded'}</span>
           {out?.observed?.rpm !== undefined && <span className="tq-muted tq-small tq-num">after the action: {fmt(out.observed.rpm, 0)} rpm, {fmt(out.observed.housing, 1)} °C, {fmt((out.observed.frac_in_band ?? NaN) * 100, 0)}% in band</span>}
         </section>
       </div>

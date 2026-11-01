@@ -386,14 +386,17 @@ export class TwinEngine {
     let dTheta = to.sph.theta - from.sph.theta;                    // shortest way round
     dTheta = Math.atan2(Math.sin(dTheta), Math.cos(dTheta));
     to.sph.theta = from.sph.theta + dTheta;
-    this.tween = { from, to, t0: performance.now(), dur: instant || this.reduced ? 0 : 520 };
-    if (this.tween.dur === 0) this.stepTween(performance.now());
+    // t0 is taken from the first frame's own timestamp (see stepTween), so the tween and the frame loop read one clock: mixing performance.now()
+    // here with the requestAnimationFrame timestamp there could start a tween "in the future" and stall it when the two clocks disagree.
+    this.tween = { from, to, t0: null, dur: instant || this.reduced ? 0 : 520 };
+    if (this.tween.dur === 0) this.stepTween(0);
     this.invalidate();
   }
 
   stepTween(now) {
     const tw = this.tween; if (!tw) return false;
-    const p = tw.dur ? Math.min(1, (now - tw.t0) / tw.dur) : 1, k = ease(p);
+    if (tw.t0 === null) tw.t0 = now;                               // the tween starts on the frame that first draws it
+    const p = tw.dur ? Math.min(1, Math.max(0, (now - tw.t0) / tw.dur)) : 1, k = ease(p);
     const { from, to } = tw, ctl = this.controls, cam = this.camera;
     ctl.target.lerpVectors(from.target, to.target, k);
     const s = new Spherical(from.sph.radius + (to.sph.radius - from.sph.radius) * k, from.sph.phi + (to.sph.phi - from.sph.phi) * k, from.sph.theta + (to.sph.theta - from.sph.theta) * k);

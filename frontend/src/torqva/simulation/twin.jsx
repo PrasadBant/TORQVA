@@ -1,6 +1,6 @@
 // Digital Twin, simulation mode: maps the simulator API (/status and /telemetry, already polled by TorqvaApp) onto the shared twin workspace.
 // Nothing is generated here: every value is the simulator's own, tagged SIMULATED. The only number computed in the browser is power = V x I of the same
-// simulated window, tagged DERIVED and used for display only. The page sends no command; scenarios are started on the existing Live Monitor / Lab pages.
+// simulated window, tagged DERIVED and used for display only. The page sends no command; scenarios are started in Scenario Studio.
 import React from 'react';
 import { DigitalTwin } from '../shared/twin.jsx';
 import { TrendLines } from '../shared/lazyCharts.jsx';
@@ -12,6 +12,11 @@ const SIM_TRIP_PART = { TEMP_STOP: 'temp', OVER_CURRENT_INSTANT: 'ina', VOLTAGE:
 // Where the simulator applies each injectable fault (sim.py): the component the scenario's ground truth refers to.
 const FAULT_PART = { imbalance: ['shaft', 'mass imbalance on the rotating disc'], looseness: ['base', 'loose mounting'], overload: ['shaft', 'extra load on the output'],
   cooling_failure: ['motor', 'reduced cooling of the motor'], supply_voltage: ['psu', 'a supply-voltage fault'], sensor_fault: ['accel', 'noise on the vibration channels'] };
+// "View details" for each component: the page that shows its data. Sensors and the driver -> the simulated telemetry; the controller is the simulator
+// itself -> Scenario Studio; mechanical and power parts carry the scenario's fault and TORQVA's diagnosis -> AI Diagnostics.
+const LINKS = { hall: ['live', 'Live Monitor'], temp: ['live', 'Live Monitor'], ina: ['live', 'Live Monitor'], accel: ['live', 'Live Monitor'], driver: ['live', 'Live Monitor'],
+  controller: ['scenario', 'Scenario Studio'], motor: ['diagnostics', 'AI Diagnostics'], shaft: ['diagnostics', 'AI Diagnostics'], base: ['diagnostics', 'AI Diagnostics'],
+  psu: ['diagnostics', 'AI Diagnostics'], harness: ['live', 'Live Monitor'] };
 
 /** Pure mapping, exported for tests. `running` = the browser is auto-advancing simulation time; `stale` = the backend stopped answering. */
 export function simTwin(d, { running = false, stale = false } = {}) {
@@ -60,7 +65,7 @@ export function simTwin(d, { running = false, stale = false } = {}) {
 
   const inc = st.incident;
   const state = stale ? { tone: 'crit', label: 'BACKEND UNREACHABLE', detail: hasRun ? `Simulator state unknown. The values shown are the last ones received (${when}), not current.` : 'Simulator state unknown.' }
-    : !hasRun ? { tone: 'off', label: 'NO SIMULATION RUNNING', detail: 'Start a scenario from the Simulation Overview or Live Monitor page.' }
+    : !hasRun ? { tone: 'off', label: 'NO SIMULATION RUNNING', detail: 'Start a scenario in Scenario Studio.' }
     : st.device?.estop ? { tone: 'stop', label: 'E-STOP (SIMULATED)', detail: st.device.estop_reason || 'The simulated device latched a stop.' }
     : inc ? { tone: stateTone(inc.state), label: `INCIDENT ${inc.id}: ${title(inc.state)}`, detail: 'An open incident in the simulated pipeline.' }
     : !finite(rpm) ? { tone: 'off', label: 'SPEED UNAVAILABLE', detail: why }
@@ -68,6 +73,12 @@ export function simTwin(d, { running = false, stale = false } = {}) {
     : { tone: 'ok', label: 'RUNNING', detail: `${fmt(rpm, 0)} rpm at setpoint ${fmt(sp, 0)} rpm` };
 
   const sc = st.scenario || {};
+  // TORQVA's latest hypothesis ranking for the open incident (pipeline log). It is listed in the Component Info panel of the part where the simulator
+  // models each fault (FAULT_PART, from sim.py), and is never drawn on the model: a ranking is not a located finding and is not ground truth.
+  const hy = hasRun && inc ? [...(d?.log || [])].reverse().find((l) => l.kind === 'hypotheses' && l.incident === inc.id) : null;
+  const hypotheses = !stale && hy?.ranked ? hy.ranked.filter(([f, p]) => FAULT_PART[f] && finite(p) && p >= 0.005)   // below 1 % the full ranking stays on AI Diagnostics
+   
+    .map(([f, p]) => ({ part: FAULT_PART[f][0], fault: f, p, label: hy.label, where: FAULT_PART[f][1], incident: inc.id })) : [];
   const findings = [];
   if (hasRun) {
     if (last) findings.push({ tone: last.score_status === 'OK' ? (last.score != null && last.score > 1 ? 'warn' : 'ok') : 'info', label: `C1 anomaly score: ${last.score == null ? title(last.score_status) : `${fmt(last.score, 2)} × threshold`}`,
@@ -76,7 +87,6 @@ export function simTwin(d, { running = false, stale = false } = {}) {
       : { tone: 'ok', label: 'No open incident', detail: `${st.closed_incidents || 0} closed in this run` });
     if (st.pending_approval) findings.push({ tone: 'wait', label: `Awaiting approval: ${title(st.pending_approval.action)}`, detail: st.pending_approval.rationale, go: ['interventions', 'Interventions'] });
     // TORQVA's own diagnosis, kept apart from the scenario's ground truth: a system-level ranking, so it marks no part on the model.
-    const hy = inc ? [...(d?.log || [])].reverse().find((l) => l.kind === 'hypotheses' && l.incident === inc.id) : null;
     if (hy?.ranked?.length) findings.push({ tone: hy.label === 'confident' ? 'warn' : 'info', label: `TORQVA diagnosis: ${title(hy.ranked[0][0])} ${fmt(hy.ranked[0][1] * 100, 0)}% (${hy.label})`,
       detail: 'Ranked by the hypothesis stage from the simulated evidence. It is the AI output, not the scenario ground truth.', go: ['diagnostics', 'AI Diagnostics'] });
     findings.push({ tone: 'info', label: `C2: ${st.models?.c2_label || 'unknown'}`, go: ['predictions', 'Predictions'] });
@@ -102,7 +112,7 @@ export function simTwin(d, { running = false, stale = false } = {}) {
   }
 
   return {
-    source: 'SIMULATION', loading: false, state,
+    source: 'SIMULATION', loading: false, state, sourceTag: stale ? 'STALE' : hasRun ? 'SIMULATED' : 'UNKNOWN', hypotheses, links: LINKS,
     clock: !hasRun ? { tone: 'off', label: 'not started' } : running ? { tone: 'ok', label: 'advancing' } : { tone: 'wait', label: 'paused' },
     connection: stale ? { tone: 'crit', label: 'backend unreachable' } : { tone: 'ok', label: 'backend connected' },
     freshness: stale ? (hasRun && w ? 'stale' : 'none') : hasRun && w ? 'live' : 'none',
@@ -113,8 +123,8 @@ export function simTwin(d, { running = false, stale = false } = {}) {
 }
 
 function noData(label, detail) {
-  return { loading: false, state: { tone: 'crit', label: label.toUpperCase(), detail }, clock: null, connection: { tone: 'crit', label: 'backend unreachable' }, freshness: 'none', updated: 'never',
-    motion: { spinning: false, rpm: null, note: 'The shaft is still because there is no data.' }, parts: [], findings: [], facts: [], kpis: [], alerts: [] };
+  return { loading: false, sourceTag: 'UNKNOWN', state: { tone: 'crit', label: label.toUpperCase(), detail }, clock: null, connection: { tone: 'crit', label: 'backend unreachable' }, freshness: 'none', updated: 'never',
+    motion: { spinning: false, rpm: null, note: 'The shaft is still because there is no data.' }, parts: [], findings: [], facts: [], kpis: [], alerts: [], hypotheses: [], links: {} };
 }
 
 const SERIES = { rpm: [['rpm', 'Speed (rpm)', 'var(--tq-chart-1)'], ['setpoint', 'Setpoint (rpm)', 'var(--tq-chart-ink)', '4 3']],
@@ -139,5 +149,5 @@ export function SimTwinPage({ d, running, stale, go }) {
   const model = simTwin(d, { running, stale });
   const samples = d?.telemetry?.samples || [];
   return <DigitalTwin model={model} go={go} renderTrend={(part, reading) => <SimTrend samples={samples} reading={reading} />}
-    aside={<p className="tq-muted tq-tw-aside">Scenarios, fault injection and stepping stay in the Scenario Studio on the <button type="button" className="tq-linkbtn" onClick={() => go('overview')}>Simulation Overview</button>, <button type="button" className="tq-linkbtn" onClick={() => go('live')}>Live Monitor</button> and <button type="button" className="tq-linkbtn" onClick={() => go('lab')}>Lab</button> pages.</p>} />;
+    aside={<p className="tq-muted tq-tw-aside">This page only reads. Scenarios, fault injection and stepping are in <button type="button" className="tq-linkbtn" onClick={() => go('scenario')}>Scenario Studio</button>; recorded sessions and experiments are in the <button type="button" className="tq-linkbtn" onClick={() => go('lab')}>Lab</button>.</p>} />;
 }

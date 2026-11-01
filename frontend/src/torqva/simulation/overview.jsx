@@ -1,8 +1,8 @@
 // Simulation Overview, laid out like the physical dashboard (page head → status strip → control panel + telemetry → detail), with the
 // C1–C6 pipeline as its centrepiece. Every value is the simulator's own record; ground truth, AI output, prediction and observation are kept apart.
 import React from 'react';
-import { FlaskConical, Layers, Gauge, Thermometer, Waves, Zap, Plug, Box, Siren } from 'lucide-react';
-import { Card, Empty, Pill, ProvBadge, fmt, stateTone, PageHead, CardLink, SummaryCell } from '../shared/components.jsx';
+import { FlaskConical, Layers, Gauge, Thermometer, Waves, Zap, Plug, Siren, Activity, History } from 'lucide-react';
+import { Card, Empty, Pill, ProvBadge, fmt, stateTone, PageHead, StatTile, StatGrid, AlertPanel, LinkButton, MetricList, SourceTag } from '../shared/components.jsx';
 import { Kpi } from './pages.jsx';
 import { ScenarioStudio } from './scenario.jsx';
 import { lifecycle, scenarioText, pipelineStages, hasSimOf, title, STAGE_TONE, STAGE_WORD } from './pipeline.js';
@@ -18,29 +18,25 @@ export function SimStatusStrip({ d, running, stale }) {
   const tel = stale ? ['crit', 'stale: backend unreachable'] : !hasSim || !w ? ['off', 'no telemetry'] : w.valid === false ? ['warn', 'latest window invalid'] : ['ok', 'live (simulated)'];
   const injected = sc.fault && finite(s.t) && finite(sc.inject_after_s) ? s.t >= sc.inject_after_s : null;
   const inc = s.incident;
+  const T = (tone) => (tone === 'wait' ? 'warn' : tone === 'sim' ? 'info' : tone);     // StatTile tones
   return (
-    <div className="tq-status-strip tq-status-v2" data-testid="sim-status-strip">
-      <div className="tq-summary" aria-label="Simulation status">
-        <SummaryCell icon={FlaskConical} tone={life.tone} label="Simulation" testid="sim-cell-life" meta={hasSim ? `simulation t = ${fmt(s.t, 0)} s` : null}>
-          <Pill tone={life.tone}>{life.label}</Pill>
-        </SummaryCell>
-        <SummaryCell icon={Layers} tone={hasSim ? (sc.fault ? 'sim' : 'ok') : 'off'} label="Scenario" testid="sim-cell-scenario"
-          meta={hasSim && sc.fault ? (injected ? `injected from t = ${sc.inject_after_s} s` : `scheduled at t = ${sc.inject_after_s} s`) : hasSim ? `seed ${sc.seed ?? '—'}` : null}>
-          <Pill tone={hasSim ? 'info' : 'off'}>{hasSim ? scenarioText(sc) : 'none'}</Pill>
-          {hasSim && sc.human_approval_required && <Pill tone="wait">approval required</Pill>}
-        </SummaryCell>
-        <SummaryCell icon={Gauge} tone={!hasSim ? 'off' : s.device?.estop ? 'stop' : 'ok'} label="Simulated motor" testid="sim-cell-motor"
-          meta={hasSim ? `setpoint ${fmt(s.device?.setpoint_rpm, 0)} rpm` : null}>
-          <Pill tone={tel[0]}>{tel[1]}</Pill>
-          {hasSim && <Pill tone={s.device?.estop ? 'stop' : 'ok'}>{s.device?.estop ? `simulated E-stop: ${title(s.device.estop_reason) || 'latched'}` : 'simulated E-stop clear'}</Pill>}
-        </SummaryCell>
-        <SummaryCell icon={Siren} tone={s.pending_approval ? 'wait' : inc ? stateTone(inc.state) : hasSim ? 'ok' : 'off'} label="Incident" testid="sim-cell-incident"
-          meta={hasSim ? `${s.closed_incidents ?? 0} closed in this run` : null}>
-          <Pill tone={inc ? stateTone(inc.state) : hasSim ? 'ok' : 'off'}>{inc ? `${inc.id}: ${title(inc.state)}` : hasSim ? 'no open incident' : 'none'}</Pill>
-          {s.pending_approval && <Pill tone="wait">{`awaiting approval: ${title(s.pending_approval.action)}`}</Pill>}
-        </SummaryCell>
-      </div>
-    </div>
+    <section className="tq-mon-status" data-testid="sim-status-strip" aria-label="Simulation status">
+      <StatGrid label="Simulation status">
+        <StatTile icon={FlaskConical} tone={T(life.tone)} label="Simulation" value={life.label} testid="sim-cell-life" sub={hasSim ? `simulation t = ${fmt(s.t, 0)} s` : life.detail} />
+        <StatTile icon={Layers} tone={hasSim ? 'info' : 'off'} label="Scenario" value={hasSim ? scenarioText(sc) : 'none'} testid="sim-cell-scenario"
+          sub={hasSim && sc.fault ? (injected ? `injected from t = ${sc.inject_after_s} s` : `scheduled at t = ${sc.inject_after_s} s`) : hasSim ? `seed ${sc.seed ?? '—'}` : 'start one in Scenario Studio'}>
+          {hasSim && sc.human_approval_required && <span className="tq-mon-statpill"><Pill tone="wait">approval required</Pill></span>}
+        </StatTile>
+        <StatTile icon={Gauge} tone={!hasSim ? 'off' : s.device?.estop ? 'stop' : T(tel[0])} label="Simulated motor" value={tel[1]} testid="sim-cell-motor"
+          sub={hasSim ? `setpoint ${fmt(s.device?.setpoint_rpm, 0)} rpm` : null}>
+          {hasSim && <span className="tq-mon-statpill"><Pill tone={s.device?.estop ? 'stop' : 'ok'}>{s.device?.estop ? `simulated E-stop: ${title(s.device.estop_reason) || 'latched'}` : 'simulated E-stop clear'}</Pill></span>}
+        </StatTile>
+        <StatTile icon={Siren} tone={s.pending_approval ? 'warn' : inc ? T(stateTone(inc.state)) : hasSim ? 'ok' : 'off'} label="Incident" testid="sim-cell-incident"
+          value={inc ? `${inc.id}: ${title(inc.state)}` : hasSim ? 'No open incident' : 'none'} sub={hasSim ? `${s.closed_incidents ?? 0} closed in this run` : null}>
+          {s.pending_approval && <span className="tq-mon-statpill"><Pill tone="wait">{`awaiting approval: ${title(s.pending_approval.action)}`}</Pill></span>}
+        </StatTile>
+      </StatGrid>
+    </section>
   );
 }
 
@@ -82,54 +78,52 @@ export function SimOverview({ d, role, go, actions, running, setRunning, busy, e
   const pend = s.pending_approval;
   return (
     <>
-      <PageHead title="Simulation Overview" sub="Virtual motor, controlled fault scenarios and the C1–C6 pipeline on the backend's software simulator. Not hardware evidence."
-        right={<><ProvBadge kind="SIMULATED" /><Pill tone={hasSim ? 'info' : 'off'}>{hasSim ? scenarioText(s.scenario) : 'no scenario'}</Pill><Pill tone={life.tone}>{life.label}</Pill></>} />
+      <PageHead title="Simulation Overview" sub="Virtual motor, controlled fault scenarios and the C1–C6 pipeline on the software simulator. Not hardware evidence."
+        right={<><ProvBadge kind="SIMULATED" /><Pill tone={life.tone}>{life.label}</Pill></>} />
       <SimStatusStrip d={d} running={running} stale={stale} />
-      {invalid && <p className="tq-callout crit" role="alert">The latest simulated window is flagged invalid, so its values are shown as unavailable.</p>}
+      {invalid && <AlertPanel tone="crit" title="The latest simulated window is flagged invalid"><p>Its values are shown as unavailable, never as numbers.</p></AlertPanel>}
+      {pend && (
+        <AlertPanel tone="warn" testid="sim-pending" title={`Awaiting human approval: ${title(pend.action)}`}
+          action={<button type="button" className="tq-btn tq-primary" onClick={() => go('interventions')}>Review in Interventions</button>}>
+          <p>{pend.rationale}</p>
+        </AlertPanel>)}
 
-      <div className="tq-split tq-sim-main">
-        <ScenarioStudio d={d} role={role} actions={actions} running={running} setRunning={setRunning} busy={busy} error={error} stale={stale} stepSeconds={stepSeconds} />
-        <Card title="Simulated Telemetry" id="c-simtel" right={<ProvBadge kind="SIMULATED" />}>
-          <div className="tq-kpis" aria-label="Latest simulated telemetry" data-testid="sim-kpis">
-            <Kpi label="Speed" icon={Gauge} value={val(w?.rpm)} unit="rpm" digits={0} data={tail} dataKey="rpm" prov="SIMULATED" fresh={fresh} />
-            <Kpi label="Current" icon={Zap} value={val(I)} unit="A" digits={2} data={tail} dataKey="current" prov="SIMULATED" color="var(--tq-chart-4)" fresh={fresh} />
-            <Kpi label="Housing temperature" icon={Thermometer} value={val(w?.housing)} unit="°C" data={tail} dataKey="housing" prov="SIMULATED" color="var(--tq-chart-2)" fresh={fresh} />
-            <Kpi label="Supply voltage" icon={Plug} value={val(V)} unit="V" digits={2} data={tail} dataKey="voltage" prov="SIMULATED" color="var(--tq-chart-3)" fresh={fresh} />
+      <div className="tq-mon-ovgrid tq-sim-main">
+        <div className="tq-stack">
+          <ScenarioStudio d={d} role={role} actions={actions} running={running} setRunning={setRunning} busy={busy} error={error} stale={stale} stepSeconds={stepSeconds} />
+          <p className="tq-small tq-mon-studiolink"><LinkButton onClick={() => go('scenario')} testid="sim-to-studio">Open the full Scenario Studio</LinkButton></p>
+        </div>
+        <Card title="Simulated telemetry" id="c-simtel" icon={Activity} right={<SourceTag kind={stale ? 'STALE' : 'SIMULATED'} />} sub="Latest one-second window, with the last minute of the run"
+          foot={<><LinkButton onClick={() => go('live')}>Open live charts</LinkButton><LinkButton onClick={() => go('twin')}>Inspect the motor in 3D</LinkButton></>}>
+          <div className="tq-kpis tq-mon-tiles" aria-label="Latest simulated telemetry" data-testid="sim-kpis">
+            <Kpi label="Speed" icon={Gauge} value={val(w?.rpm)} unit="rpm" digits={0} data={tail} dataKey="rpm" prov="SIMULATED" color="var(--tq-sig-rpm)" fresh={fresh} />
+            <Kpi label="Current" icon={Zap} value={val(I)} unit="A" digits={2} data={tail} dataKey="current" prov="SIMULATED" color="var(--tq-sig-current)" fresh={fresh} />
+            <Kpi label="Housing temperature" icon={Thermometer} value={val(w?.housing)} unit="°C" data={tail} dataKey="housing" prov="SIMULATED" color="var(--tq-sig-temp)" fresh={fresh} />
+            <Kpi label="Supply voltage" icon={Plug} value={val(V)} unit="V" digits={2} data={tail} dataKey="voltage" prov="SIMULATED" color="var(--tq-sig-voltage)" fresh={fresh} />
             <Kpi label="Power (V × I)" icon={Zap} value={val(power)} unit="W" digits={1} prov="DERIVED" fresh={fresh} />
-            <Kpi label="Vibration RMS" icon={Waves} value={val(w?.vib_rms)} unit="g" digits={3} data={tail} dataKey="vib_rms" prov="SIMULATED" color="var(--tq-chart-3)" fresh={fresh} />
+            <Kpi label="Vibration RMS" icon={Waves} value={val(w?.vib_rms)} unit="g" digits={3} data={tail} dataKey="vib_rms" prov="SIMULATED" color="var(--tq-sig-vib)" fresh={fresh} />
           </div>
           <p className="tq-chart-note">The simulator's vibration model reports RMS directly; the physical board reports raw acceleration. Power is voltage × current of the same window, computed for display.</p>
-          <CardLink onClick={() => go('twin')}><Box size={14} aria-hidden="true" /> Inspect the motor in 3D</CardLink>
         </Card>
       </div>
 
       <PipelineView d={d} go={go} />
 
-      <div className="tq-split">
-        <Card title={inc ? `Active incident ${inc.id}` : 'Active incident'} id="c-inc" right={inc ? <Pill tone={stateTone(inc.state)}>{title(inc.state)}</Pill> : null}>
+      <div className="tq-mon-ovgrid tq-mon-ovgrid--even">
+        <Card title={inc ? `Active incident ${inc.id}` : 'Active incident'} id="c-inc" icon={Siren} right={inc ? <Pill tone={stateTone(inc.state)}>{title(inc.state)}</Pill> : null}
+          foot={<LinkButton onClick={() => go('recovery')}>Open the incident story</LinkButton>}>
           {!hasSim ? <Empty>No simulation is running.</Empty> : !inc ? <Empty>No open incident. {s.closed_incidents ? `${s.closed_incidents} closed in this run; see Recovery for their story.` : 'C1 opens one when an anomaly persists.'}</Empty> : (
-            <dl className="tq-kv">
-              <dt>Diagnostic tests run</dt><dd className="tq-num">{inc.tests_run ?? 0}</dd>
-              <dt>Extra data requests</dt><dd className="tq-num">{inc.data_requests ?? 0}</dd>
-              {gate && <><dt>Latest gate verdict</dt><dd><Pill tone={gate.verdict === 'ACT' ? 'ok' : gate.verdict === 'SAFE_STOP' ? 'stop' : 'warn'}>{title(gate.verdict)}</Pill> <span className="tq-muted">{gate.reason}</span></dd></>}
-            </dl>)}
-          {pend && (
-            <div className="tq-callout wait" role="status" data-testid="sim-pending">
-              <strong>Awaiting human approval: {title(pend.action)}</strong>
-              <p>{pend.rationale}</p>
-              <button type="button" className="tq-btn tq-primary" onClick={() => go('interventions')}>Review in Interventions</button>
-            </div>)}
-          <p className="tq-muted">A recommendation is never an executed action; only a simulated-device acknowledgement counts, and only C5 declares recovery.</p>
-          <CardLink onClick={() => go('recovery')}>Open the incident story</CardLink>
+            <MetricList label="Incident" items={[
+              { key: 'tests', label: 'Diagnostic tests run', value: inc.tests_run },
+              { key: 'req', label: 'Extra data requests', value: inc.data_requests },
+            ]} />)}
+          {gate && inc && <p className="tq-small">Latest gate verdict: <Pill tone={gate.verdict === 'ACT' ? 'ok' : gate.verdict === 'SAFE_STOP' ? 'stop' : 'warn'}>{title(gate.verdict)}</Pill> <span className="tq-muted">{gate.reason}</span></p>}
+          <p className="tq-small tq-muted">A recommendation is never an executed action; only a simulated-device acknowledgement counts, and only C5 declares recovery.</p>
         </Card>
-        <Card title="Recent events" id="c-events" right={<ProvBadge kind="SIMULATED" />}>
+        <Card title="Recent events" id="c-events" icon={History} right={<ProvBadge kind="SIMULATED" />}>
           <EventTimeline log={d.log} limit={8} />
         </Card>
       </div>
-
-      {t.length > 1 && (
-        <p className="tq-small tq-mt" data-testid="sim-trends"><span className="tq-muted">Speed, temperature, vibration and current trends are on Live Monitor.</span>{' '}
-          <button type="button" className="tq-linkbtn" onClick={() => go('live')}>Open Live Monitor</button></p>)}
     </>
   );
 }

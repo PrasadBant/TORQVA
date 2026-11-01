@@ -21,6 +21,11 @@ const TRIP_PART = {
   OUTPUT_INIT_FAULT: ['driver', 'the motor-driver output stage'],
 };
 
+// "View details" for each component: the page that shows its data. Readings -> the device's Live Monitor; the controller and the motor driver (its
+// output stage and drive state) -> the Device page; parts observed through the sensors -> Live Monitor.
+const LINKS = { hall: ['live', 'Live Monitor'], temp: ['live', 'Live Monitor'], ina: ['live', 'Live Monitor'], accel: ['live', 'Live Monitor'], driver: ['device', 'Device'],
+  controller: ['device', 'Device'], motor: ['live', 'Live Monitor'], shaft: ['live', 'Live Monitor'], base: ['live', 'Live Monitor'], psu: ['live', 'Live Monitor'], harness: ['device', 'Device'] };
+
 /** Pure mapping, exported for tests. */
 export function physTwin(snap, { unreachable = false } = {}) {
   if (!snap && !unreachable) return { source: 'PHYSICAL', loading: true };
@@ -117,6 +122,9 @@ export function physTwin(snap, { unreachable = false } = {}) {
   }
   return {
     source: 'PHYSICAL', loading: false, state, clock: null,
+    // what the shown values are: none without a handshake (UNKNOWN), last-received (STALE), the board's own simulation (SIMULATED) or measured (PHYSICAL)
+    sourceTag: !handshake ? 'UNKNOWN' : !fresh ? 'STALE' : physical ? 'PHYSICAL' : 'SIMULATED',
+    hypotheses: [], links: LINKS,
     connection: unreachable ? { tone: 'crit', label: 'backend unreachable' } : !handshake ? { tone: 'off', label: 'hardware not connected' } : fresh ? { tone: 'ok', label: 'telemetry live' } : { tone: 'warn', label: 'telemetry stale' },
     freshness: !handshake ? 'none' : fresh ? 'live' : 'stale',
     updated: handshake ? ago(snap.last_rx_unix) : 'never', motion, parts, findings, facts, alerts,

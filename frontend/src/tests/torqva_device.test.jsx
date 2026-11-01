@@ -68,7 +68,7 @@ describe('device pages', () => {
     expect(screen.queryByRole('button', { name: /^Motor Control/ })).toBeNull();                 // physical motion controls are not listed in simulation mode
     expect(screen.queryByRole('button', { name: /Request START/ })).toBeNull();
     fireEvent.click(screen.getByTestId('dev-to-scenario'));
-    expect(await screen.findByText('Scenario Studio')).toBeInTheDocument();
+    expect((await screen.findAllByRole('heading', { name: 'Scenario Studio' })).length).toBeGreaterThan(0);   // the nav also lists "Scenario Studio": look for the page heading
   });
 
   it('after a verified handshake the device is labelled PHYSICAL, invalid sensors read UNAVAILABLE and vibration is unavailable', async () => {
@@ -79,7 +79,7 @@ describe('device pages', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Live Monitor/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Physical device' }));
     expect(await screen.findByText(/measurements reported by the connected ESP32-S3/)).toBeInTheDocument();
-    expect(screen.getByText('1200')).toBeInTheDocument();
+    expect(within(screen.getByTestId('dev-chart-rpm')).getByText('1200')).toBeInTheDocument();   // latest value on the speed chart (also listed in Telemetry details and the samples table)
     expect(screen.getAllByText('UNAVAILABLE').length).toBeGreaterThanOrEqual(3);          // voltage, power, vibration
     expect(screen.getByText(/does not compute it/)).toBeInTheDocument();
   });
@@ -108,7 +108,7 @@ describe('device pages', () => {
     act(() => FakeSocket.last.emit({ type: 'event', name: 'telemetry', ts: 1, data: { ...SNAP, values: { ...VALUES, rpm: val(1777) } } }));
     fireEvent.click(screen.getByRole('button', { name: /^Live Monitor/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Physical device' }));
-    expect(await screen.findByText('1777')).toBeInTheDocument();
+    expect(within(await screen.findByTestId('dev-chart-rpm')).getByText('1777')).toBeInTheDocument();
   });
 
   it('a disconnect event returns the page to SIMULATION instead of keeping fabricated live values', async () => {
@@ -231,7 +231,7 @@ describe('device pages', () => {
     await open('Device', { snap });
     expect(await screen.findByTestId('state-label')).toHaveTextContent('PHYSICAL DEVICE CONNECTED');
     expect(screen.getByText('COM7')).toBeInTheDocument();
-    const table = screen.getByRole('table', { name: 'Sensor availability' });
+    const table = screen.getByRole('list', { name: 'Sensor availability' });
     expect(within(table).getAllByText('unavailable').length).toBe(2);                    // ambient and vibration RMS
     expect(within(table).getAllByText('invalid').length).toBe(2);                         // voltage and power
     fireEvent.click(screen.getByRole('button', { name: /^Live Monitor/ }));

@@ -2,7 +2,7 @@
 // incident, built by the backend from the run's own log and stored records (GET /simulation/workbench/trace). Every event names the record it
 // came from; a stage with no record is shown as not reached, never filled in. Refreshed when the run's log grows, not on a timer.
 import React, { useEffect, useRef, useState } from 'react';
-import { Eye, GitBranch, FlaskConical, LineChart, ShieldCheck, Flag } from 'lucide-react';
+import { Eye, GitBranch, FlaskConical, LineChart, ShieldCheck, Flag, Route } from 'lucide-react';
 import { api } from '../api.js';
 import { Card, Empty, Pill, ProvBadge, fmt } from '../shared/components.jsx';
 import { title } from './workbench.js';
@@ -50,7 +50,7 @@ export function InvestigationTrace({ d, focus = [] }) {
   }, [n, inc, hasSim]);
   const st = tr?.stages?.find((s) => s.stage === stage);
   return (
-    <Card title="Investigation trace" id="c-trace" right={<>{tr?.incident && <Pill tone={tr.open ? 'wait' : 'off'}>{tr.open ? `${tr.incident} open` : tr.incident}</Pill>}<ProvBadge kind="SIMULATED" /></>}>
+    <Card title="Investigation trace" id="c-trace" icon={Route} sub="Every record of one incident, from observation to outcome; select a stage, then an event" right={<>{tr?.incident && <Pill tone={tr.open ? 'wait' : 'off'}>{tr.open ? `${tr.incident} open` : tr.incident}</Pill>}<ProvBadge kind="SIMULATED" /></>}>
       {!hasSim ? <Empty>No simulation is running.</Empty> : err ? <p className="tq-muted">The trace could not be loaded: {err}</p> : !tr ? <Empty loading>Loading the trace…</Empty> : !tr.incident ? <Empty>{tr.note}</Empty> : (
         <>
           {tr.incidents.length > 1 && <label className="tq-inline">Incident <select value={tr.incident} onChange={(e) => { setInc(e.target.value); setOpen(null); }}>{tr.incidents.map((x) => <option key={x}>{x}</option>)}</select></label>}

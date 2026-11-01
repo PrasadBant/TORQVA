@@ -1,12 +1,11 @@
 // Adaptive diagnostic testing with evidence sufficiency (C4, simulation). The status and every prerequisite come from the backend
 // (plan.sufficiency, POST /simulation/workbench/adaptive); this module only displays them. Measured expected information gain is shown as a
 // number in nats; the explanations next to it are the backend's stated reasons, not a second scoring.
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Compass, Check, X } from 'lucide-react';
 import { api } from '../api.js';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, canControl } from '../shared/components.jsx';
 import { TrendLines } from '../shared/lazyCharts.jsx';
-import { canControl } from './scenario.jsx';
 import { title, pct } from './workbench.js';
 
 export const SUFF = {
@@ -29,14 +28,16 @@ export function AdaptivePanel({ plan, role, stale, d, onDone }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [run, setRun] = useState(null);
+  const inFlight = useRef(false);
   const ctl = canControl(role);
   const hasSim = d.status?.t !== undefined && d.status?.t !== null;
   const go = async () => {
-    setBusy(true); setErr(null);
-    try { const r = await api.wbAdaptive(budget); setRun(r); onDone?.(); } catch (e) { setErr(e); } finally { setBusy(false); }
+    if (inFlight.current) return;                             // one investigation at a time: a second press while running sends nothing
+    inFlight.current = true; setBusy(true); setErr(null);
+    try { const r = await api.wbAdaptive(budget); setRun(r); onDone?.(); } catch (e) { setErr(e); } finally { inFlight.current = false; setBusy(false); }
   };
   return (
-    <Card title="Adaptive investigation" id="c-adaptive" right={<>{s && <SufficiencyBadge s={s} />}<ProvBadge kind="SIMULATED" /></>}>
+    <Card title="Adaptive investigation" id="c-adaptive" icon={Compass} sub="Recommended route: TORQVA picks and runs the most informative eligible test on a simulator copy, then decides again" right={<>{s && <SufficiencyBadge s={s} />}<ProvBadge kind="SIMULATED" /></>}>
       {!s ? <Empty>{hasSim ? 'Waiting for the workbench plan.' : 'No simulation is running.'}</Empty> : (
         <>
           <p data-testid="suff-reason"><strong>Evidence now:</strong> {s.reason}.</p>

@@ -1,138 +1,399 @@
 // Scenario Studio: configure, start and advance a run of the backend's software simulator. Every control maps to an existing route
-// (POST /simulation/start with the StartSimulation fields, /simulation/step, /commands/stop); nothing here reaches hardware, and the
-// simulated motor's STOP is labelled as such.
+// (POST /simulation/start with the StartSimulation fields, /simulation/step, /commands/stop) through the shell's `actions`; nothing here reaches
+// hardware, and the simulated motor's STOP is labelled as such.
+// Two presentations share the same form, run controls and status: `ScenarioStudio` (a card embedded on the Overview and, `compact`, on Live
+// Monitor) and `ScenarioPage` (the guided page: select, configure, parameters, review, run, inspect).
 import React, { useEffect, useRef, useState } from 'react';
-import { Play, Pause, StopCircle, RotateCcw, StepForward, Clock } from 'lucide-react';
-import { Card, Empty, ErrorBox, ProvBadge, fmt, canControl } from '../shared/components.jsx';
+import { Play, Pause, StopCircle, RotateCcw, StepForward, Clock, FlaskConical, Activity, Workflow, Box, ListChecks, Gauge } from 'lucide-react';
+import { Card, Empty, ErrorBox, ProvBadge, fmt, canControl, PageHead, StepTracker, SourceTag, ChartPanel, Tabs, TabPanel, LinkButton, Pill, Disclosure } from '../shared/components.jsx';
+import { TrendLines } from '../shared/lazyCharts.jsx';
 import { lifecycle, scenarioText, hasSimOf, title } from './pipeline.js';
 
 // The faults the backend accepts (schemas.Hypothesis; POST /simulation/start rejects anything else).
 export const FAULTS = ['imbalance', 'looseness', 'overload', 'cooling_failure', 'supply_voltage', 'sensor_fault'];
 export { canControl };
-// StartSimulation limits and defaults (backend api.py).
-const LIMITS = { setpoint: [1, 3000], inject: [0, 3600] };
+// What the simulator changes for each fault (backend sim.py, Simulator.step), in plain words.
+const FAULT_INFO = {
+  imbalance: 'Mass imbalance on the rotating disc: the 1× vibration component rises, and grows with the square of the speed.',
+  looseness: 'Loose mounting: vibration harmonics (2×, 3×) and broadband vibration appear.',
+  overload: 'Extra load on the output: more current and drive duty, a faster coast-down and a little broadband vibration.',
+  cooling_failure: 'Reduced cooling of the motor: the housing temperature climbs above its normal level.',
+  supply_voltage: 'A supply-voltage fault: the bus voltage drops and the drive duty rises to hold the speed.',
+  sensor_fault: 'A faulty vibration sensor: the vibration channel stops tracking the shaft speed.',
+};
+// StartSimulation limits and defaults (backend api.py: setpoint 0 < rpm <= 3000, inject_after_s 0..3600, seed 0..2^32 - 1).
+const LIMITS = { setpoint: [1, 3000], inject: [0, 3600], seed: [0, 4294967295] };
+const CLEARS_BELOW = 1500;
 const DEFAULTS = { fault: 'imbalance', severity: 0.5, transient: true, approval: false, seed: 1, setpoint: 1800, inject: 40 };
 // Starting points for the form. A preset only fills in the fields below; nothing starts until Start new simulation is pressed.
 const PRESETS = [
-  ['healthy', 'Healthy baseline', 'no fault, to see normal behaviour', { ...DEFAULTS, fault: 'none' }],
-  ['recoverable', 'Recoverable imbalance', 'the default: clears when speed is reduced', DEFAULTS],
-  ['review', 'Analyst review', 'the pipeline holds its action for your approval', { ...DEFAULTS, approval: true }],
-  ['persistent', 'Persistent overload', 'does not clear with a speed reduction', { ...DEFAULTS, fault: 'overload', severity: 0.6, transient: false }],
+  ['healthy', 'Healthy baseline', 'no fault, to see normal behaviour', { ...DEFAULTS, fault: 'none' },
+    'A healthy motor at the setpoint with no injected fault. It shows the normal behaviour the anomaly detector (C1) compares against; any incident it opens is a false alarm.'],
+  ['recoverable', 'Recoverable imbalance', 'the default: clears when speed is reduced', DEFAULTS,
+    `Imbalance injected after a healthy start. The simulator clears it once the setpoint drops below ${CLEARS_BELOW} rpm, so a speed reduction can recover it.`],
+  ['review', 'Analyst review', 'the pipeline holds its action for your approval', { ...DEFAULTS, approval: true },
+    'The same recoverable imbalance, but the pipeline holds its proposed action until an analyst approves or rejects it on the Interventions page.'],
+  ['persistent', 'Persistent overload', 'does not clear with a speed reduction', { ...DEFAULTS, fault: 'overload', severity: 0.6, transient: false },
+    'An overload that a speed reduction does not clear: recovery cannot be verified by slowing down, so the pipeline must escalate or stop.'],
 ];
 
 const intIn = (v, [lo, hi]) => v !== '' && Number.isInteger(Number(v)) && Number(v) >= lo && Number(v) <= hi;
 const numIn = (v, [lo, hi]) => v !== '' && Number.isFinite(Number(v)) && Number(v) >= lo && Number(v) <= hi;
+const presetOf = (form) => PRESETS.find((p) => JSON.stringify(p[3]) === JSON.stringify(form)) || null;
 
-export function ScenarioStudio({ d, role, actions, running, setRunning, busy, error, stale, stepSeconds = 5, compact = false, go }) {
+/** The new-scenario form: values, validation and the StartSimulation body. Validation mirrors the backend limits; the backend still decides. */
+function useScenarioForm() {
   const [form, setForm] = useState(DEFAULTS);
   const touched = useRef(false);            // the user has edited the new-scenario form
   const submitted = useRef(false);          // the user pressed Start new simulation
-  const set = (k) => (e) => { touched.current = true; setForm({ ...form, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }); };
+  const set = (k) => (e) => { touched.current = true; setForm((f) => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })); };
+  const apply = (v) => { touched.current = true; setForm(v); };
+  const healthy = form.fault === 'none';
+  const errors = {
+    setpoint: !numIn(form.setpoint, LIMITS.setpoint) ? `Enter a speed from ${LIMITS.setpoint[0]} to ${LIMITS.setpoint[1]} rpm.` : null,
+    inject: !healthy && !intIn(form.inject, LIMITS.inject) ? `Enter a whole number of seconds from 0 to ${LIMITS.inject[1]}.` : null,
+    seed: !intIn(form.seed, LIMITS.seed) ? 'Enter a whole number from 0 to 4294967295.' : null,
+  };
+  const bad = [
+    errors.setpoint && `setpoint must be 1–${LIMITS.setpoint[1]} rpm`,
+    errors.inject && `injection time must be a whole number of seconds, 0–${LIMITS.inject[1]}`,
+    errors.seed && 'seed must be a whole number from 0 to 4294967295',
+  ].filter(Boolean);
+  const body = () => ({
+    fault: healthy ? null : form.fault, severity: Number(form.severity), seed: Number(form.seed),
+    clears_below_rpm: !healthy && form.transient ? CLEARS_BELOW : null, require_human_approval: form.approval,
+    setpoint_rpm: Number(form.setpoint), ...(healthy ? {} : { inject_after_s: Number(form.inject) }),
+  });
+  const summary = healthy
+    ? `Healthy run at ${form.setpoint || '—'} rpm, seed ${form.seed === '' ? '—' : form.seed}.`
+    : `${title(form.fault)} at severity ${Number(form.severity).toFixed(2)}, injected at t = ${form.inject === '' ? '—' : form.inject} s, ${form.transient ? `clears below ${CLEARS_BELOW} rpm` : 'persists'}; ${form.setpoint || '—'} rpm, seed ${form.seed === '' ? '—' : form.seed}.`;
+  return { form, set, apply, healthy, errors, bad, body, summary, touched, submitted, preset: presetOf(form) };
+}
+
+/** Step 1: the presets. */
+function PresetPicker({ f, ctl, cards = false }) {
+  return (
+    <fieldset className={`tq-scn-presets${cards ? ' is-cards' : ''}`} data-testid="scn-presets" disabled={!ctl}>
+      <legend>Start from a preset <span className="tq-muted">(fills the form; nothing starts yet)</span></legend>
+      {PRESETS.map(([k, name, hint, v]) => (
+        <button key={k} type="button" className="tq-btn tq-scn-preset" data-testid={`preset-${k}`} aria-pressed={f.preset?.[0] === k}
+          onClick={() => f.apply(v)}><strong>{name}</strong><span className="tq-muted">{hint}</span></button>))}
+    </fieldset>
+  );
+}
+
+/** Step 2: which fault (if any) the simulator injects, and how strongly. */
+function FaultFields({ f, ctl }) {
+  const { form, set, healthy } = f;
+  return (
+    <div className="tq-scn-grid">
+      <div className="tq-scn-field"><label>Injected fault
+        <select value={form.fault} onChange={set('fault')} disabled={!ctl} aria-describedby="scn-hint-fault">
+          <option value="none">none (healthy run)</option>
+          {FAULTS.map((x) => <option key={x} value={x}>{title(x)}</option>)}
+        </select>
+      </label><small className="tq-muted" id="scn-hint-fault">{healthy ? 'No fault: the simulator runs a healthy motor.' : FAULT_INFO[form.fault]}</small></div>
+      <div className="tq-scn-field"><label>Severity ({Number(form.severity).toFixed(2)})
+        <input type="range" min="0.05" max="1" step="0.05" value={form.severity} onChange={set('severity')} disabled={!ctl || healthy} aria-describedby="scn-hint-sev" />
+      </label><small className="tq-muted" id="scn-hint-sev">{healthy ? 'Not used for a healthy run.' : '0.05 slight – 1.00 strongest the fault model produces'}</small></div>
+    </div>
+  );
+}
+
+const FieldError = ({ id, msg }) => (msg ? <small className="tq-scn-err" id={id}>{msg}</small> : null);
+
+/** Step 3: run parameters. Only fields the backend uses; each says what it does. */
+function ParamFields({ f, ctl }) {
+  const { form, set, healthy, errors } = f;
+  return (
+    <>
+      <div className="tq-scn-grid">
+        <div className="tq-scn-field"><label>Setpoint (rpm)
+          <input type="number" min="1" max={LIMITS.setpoint[1]} step="any" value={form.setpoint} onChange={set('setpoint')} disabled={!ctl}
+            aria-invalid={!!errors.setpoint} aria-describedby={errors.setpoint ? 'scn-err-sp scn-hint-sp' : 'scn-hint-sp'} />
+        </label><FieldError id="scn-err-sp" msg={errors.setpoint} /><small className="tq-muted" id="scn-hint-sp">target speed the simulated controller holds (1–3000)</small></div>
+        <div className="tq-scn-field"><label>Inject fault at (s)
+          <input type="number" min="0" max={LIMITS.inject[1]} step="1" value={form.inject} onChange={set('inject')} disabled={!ctl || healthy}
+            aria-invalid={!!errors.inject} aria-describedby={errors.inject ? 'scn-err-inj scn-hint-inj' : 'scn-hint-inj'} />
+        </label><FieldError id="scn-err-inj" msg={errors.inject} /><small className="tq-muted" id="scn-hint-inj">{healthy ? 'Not used for a healthy run.' : 'simulation time before the fault starts, so C1 sees healthy windows first'}</small></div>
+        <div className="tq-scn-field"><label>Seed
+          <input type="number" min="0" step="1" value={form.seed} onChange={set('seed')} disabled={!ctl}
+            aria-invalid={!!errors.seed} aria-describedby={errors.seed ? 'scn-err-seed scn-hint-seed' : 'scn-hint-seed'} />
+        </label><FieldError id="scn-err-seed" msg={errors.seed} /><small className="tq-muted" id="scn-hint-seed">the same seed and settings reproduce the same run</small></div>
+      </div>
+      <label className="tq-check"><input type="checkbox" checked={form.transient} onChange={set('transient')} disabled={!ctl || healthy} />
+        <span>Condition clears when speed is reduced (simulated transient)<small className="tq-muted tq-scn-checkhint">The simulator removes the fault once the setpoint drops below {CLEARS_BELOW} rpm.</small></span></label>
+      <label className="tq-check"><input type="checkbox" checked={form.approval} onChange={set('approval')} disabled={!ctl} />
+        <span>Require human approval (as in hardware mode)<small className="tq-muted tq-scn-checkhint">The pipeline holds its proposed action until an analyst approves or rejects it.</small></span></label>
+    </>
+  );
+}
+
+/** The current simulation as the backend reports it. */
+function SimState({ d, life, compact }) {
+  const s = d.status || {};
+  const hasSim = hasSimOf(s);
+  const sc = s.scenario || {};
+  const injected = sc.fault && Number.isFinite(s.t) && Number.isFinite(sc.inject_after_s) ? s.t >= sc.inject_after_s : null;
+  return (
+    <div className="tq-motor-state-box" data-testid="sim-state">
+      <div className="tq-motor-state-header">
+        <span className="tq-motor-state-label">Current simulation</span>
+        <strong className={`tq-motor-state-value ${life.key === 'running' ? 'running' : life.key === 'paused' || life.key === 'ready' ? 'stopped' : ''}`}>{life.label}</strong>
+      </div>
+      {!hasSim ? <Empty>No simulation has been started. {compact ? 'Start one in Scenario Studio.' : 'Configure a scenario and start it.'}</Empty> : (
+        <div className="tq-motor-state-grid">
+          <div className="tq-motor-state-item"><span className="tq-muted">Simulation time</span><strong className="tq-num">{fmt(s.t, 0)} s</strong></div>
+          <div className="tq-motor-state-item"><span className="tq-muted">Scenario</span><strong>{scenarioText(sc)}</strong></div>
+          <div className="tq-motor-state-item"><span className="tq-muted">Fault injection</span>
+            <span>{!sc.fault ? 'none scheduled' : injected ? `injected from t = ${sc.inject_after_s} s` : `scheduled at t = ${sc.inject_after_s} s`}</span></div>
+          <div className="tq-motor-state-item"><span className="tq-muted">Setpoint (simulated)</span><strong className="tq-num">{fmt(s.device?.setpoint_rpm, 0)} rpm</strong></div>
+          <div className="tq-motor-state-item"><span className="tq-muted">Seed</span><span className="tq-num">{sc.seed ?? '—'}</span></div>
+          <div className="tq-motor-state-item"><span className="tq-muted">Human approval</span><span>{sc.human_approval_required ? 'required' : 'automatic in simulation'}</span></div>
+        </div>)}
+    </div>
+  );
+}
+
+/** Advance or pause simulation time, step it, and the simulated motor's STOP (available to every role, like every STOP). */
+function RunControls({ d, role, actions, running, setRunning, busy, stale, stepSeconds, life }) {
+  const hasSim = hasSimOf(d.status || {});
+  const ctl = canControl(role);
+  return (
+    <>
+      <div className="tq-row tq-scn-run" role="group" aria-label="Simulation time">
+        <button type="button" className="tq-btn" onClick={() => setRunning(!running)} disabled={!ctl || !hasSim || stale}>
+          {running ? <><Pause size={14} aria-hidden="true" /> Pause</> : <><Play size={14} aria-hidden="true" /> Run</>}
+        </button>
+        <button type="button" className="tq-btn" onClick={actions.step} disabled={!ctl || !hasSim || running || busy || stale || !actions.step} title={running ? 'Pause first: time is already advancing' : undefined}>
+          <StepForward size={14} aria-hidden="true" /> Step {stepSeconds} s
+        </button>
+        <button type="button" className="tq-btn tq-danger" onClick={actions.stop} disabled={!hasSim || busy} aria-label="Stop motor (coast) in the simulator"><StopCircle size={14} aria-hidden="true" /> STOP SIMULATED MOTOR</button>
+      </div>
+      <p className="tq-muted tq-small">{life.detail} STOP coasts the simulated motor through the same Safety Supervisor path as every other command; it does not stop a real motor.{!ctl ? ` Your role (${role}) can press STOP only.` : ''}</p>
+    </>
+  );
+}
+
+/** Fold the new-scenario disclosure once a NEW scenario actually starts (the user's own start, or the development auto-start of an untouched
+ *  form); never while the user is editing. Returns { launched, start }: launched is true only after the backend accepted this form's start. */
+function useLaunch(f, d, onLaunch) {
+  const s = d.status || {};
+  const scenarioKey = hasSimOf(s) ? JSON.stringify(s.scenario || {}) : '';
+  const [launched, setLaunched] = useState(false);
+  useEffect(() => {
+    if (scenarioKey && !f.submitted.current && !f.touched.current) onLaunch?.();
+  }, [scenarioKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (f.touched.current) setLaunched(false); }, [f.form]); // eslint-disable-line react-hooks/exhaustive-deps
+  // `pending` is the shell action's promise: it resolves true only when the backend accepted POST /simulation/start, and every accepted start
+  // creates a new simulator session even with identical settings. A refused start leaves the form open with the backend's error.
+  const start = async (pending) => {
+    f.submitted.current = true;
+    setLaunched(false);
+    const ok = await pending;
+    f.submitted.current = false;
+    if (ok === true) { setLaunched(true); f.touched.current = false; onLaunch?.(); }
+  };
+  return { launched, start };
+}
+
+export function ScenarioStudio({ d, role, actions, running, setRunning, busy, error, stale, stepSeconds = 5, compact = false, go }) {
+  const f = useScenarioForm();
   const s = d.status || {};
   const hasSim = hasSimOf(s);
   const ctl = canControl(role);
   const life = lifecycle(d, running, stale);
-  const healthy = form.fault === 'none';
-  const bad = [
-    !numIn(form.setpoint, LIMITS.setpoint) && `setpoint must be 1–${LIMITS.setpoint[1]} rpm`,
-    !healthy && !intIn(form.inject, LIMITS.inject) && `injection time must be a whole number of seconds, 0–${LIMITS.inject[1]}`,
-    !Number.isInteger(Number(form.seed)) || form.seed === '' ? 'seed must be a whole number' : null,
-  ].filter(Boolean);
-  const start = () => actions.start({
-    fault: healthy ? null : form.fault, severity: Number(form.severity), seed: Number(form.seed),
-    clears_below_rpm: !healthy && form.transient ? 1500 : null, require_human_approval: form.approval,
-    setpoint_rpm: Number(form.setpoint), ...(healthy ? {} : { inject_after_s: Number(form.inject) }),
-  });
-  const summary = healthy
-    ? `Healthy run at ${form.setpoint || '—'} rpm, seed ${form.seed || '—'}.`
-    : `${title(form.fault)} at severity ${Number(form.severity).toFixed(2)}, injected at t = ${form.inject || '—'} s, ${form.transient ? 'clears below 1500 rpm' : 'persists'}; ${form.setpoint || '—'} rpm, seed ${form.seed || '—'}.`;
-  const sc = s.scenario || {};
-  const injected = sc.fault && Number.isFinite(s.t) && Number.isFinite(sc.inject_after_s) ? s.t >= sc.inject_after_s : null;
-
-  // Open at first render when no run exists. When a NEW scenario actually starts (the user's own start, or the development auto-start of an
-  // untouched form) it folds away; it never closes while the user is editing, and a failed start leaves it open with the error below.
+  // Open at first render when no run exists; folds when a new scenario starts (see useLaunch); a failed start leaves it open with the error below.
   const [newOpen] = useState(() => !hasSim);
   const newRef = useRef(null);
-  const scenarioKey = hasSim ? JSON.stringify(sc) : '';
-  useEffect(() => {
-    if (!scenarioKey || !newRef.current) return;
-    if (submitted.current || !touched.current) { newRef.current.open = false; submitted.current = false; touched.current = false; }
-  }, [scenarioKey]);
+  const launch = useLaunch(f, d, () => { if (newRef.current) newRef.current.open = false; });
+  const submit = (e) => { e.preventDefault(); if (!f.bad.length) launch.start(actions.start(f.body())); };
   return (
     <Card title="Scenario Studio" id="c-scn" right={<ProvBadge kind="SIMULATED" />}>
-      <div className="tq-motor-state-box" data-testid="sim-state">
-        <div className="tq-motor-state-header">
-          <span className="tq-motor-state-label">Current simulation</span>
-          <strong className={`tq-motor-state-value ${life.key === 'running' ? 'running' : life.key === 'paused' || life.key === 'ready' ? 'stopped' : ''}`}>{life.label}</strong>
-        </div>
-        {!hasSim ? <Empty>No simulation has been started. {compact ? 'Start one from Scenario Studio on the Overview.' : 'Configure a scenario below.'}</Empty> : (
-          <div className="tq-motor-state-grid">
-            <div className="tq-motor-state-item"><span className="tq-muted">Simulation time</span><strong className="tq-num">{fmt(s.t, 0)} s</strong></div>
-            <div className="tq-motor-state-item"><span className="tq-muted">Scenario</span><strong>{scenarioText(sc)}</strong></div>
-            <div className="tq-motor-state-item"><span className="tq-muted">Fault injection</span>
-              <span>{!sc.fault ? 'none scheduled' : injected ? `injected from t = ${sc.inject_after_s} s` : `scheduled at t = ${sc.inject_after_s} s`}</span></div>
-            <div className="tq-motor-state-item"><span className="tq-muted">Setpoint (simulated)</span><strong className="tq-num">{fmt(s.device?.setpoint_rpm, 0)} rpm</strong></div>
-            <div className="tq-motor-state-item"><span className="tq-muted">Seed</span><span className="tq-num">{sc.seed ?? '—'}</span></div>
-            <div className="tq-motor-state-item"><span className="tq-muted">Human approval</span><span>{sc.human_approval_required ? 'required' : 'automatic in simulation'}</span></div>
-          </div>)}
-      </div>
-
-      <div className="tq-row tq-scn-run" role="group" aria-label="Simulation time">
-        <button className="tq-btn" onClick={() => setRunning(!running)} disabled={!ctl || !hasSim || stale}>
-          {running ? <><Pause size={14} aria-hidden="true" /> Pause</> : <><Play size={14} aria-hidden="true" /> Run</>}
-        </button>
-        <button className="tq-btn" onClick={actions.step} disabled={!ctl || !hasSim || running || busy || stale || !actions.step} title={running ? 'Pause first: time is already advancing' : undefined}>
-          <StepForward size={14} aria-hidden="true" /> Step {stepSeconds} s
-        </button>
-        <button className="tq-btn tq-danger" onClick={actions.stop} disabled={!hasSim || busy} aria-label="Stop motor (coast) in the simulator"><StopCircle size={14} aria-hidden="true" /> STOP SIMULATED MOTOR</button>
-      </div>
-      <p className="tq-muted tq-small">{life.detail} STOP coasts the simulated motor through the same Safety Supervisor path as every other command; it does not stop a real motor.{!ctl ? ` Your role (${role}) can press STOP only.` : ''}</p>
+      <SimState d={d} life={life} compact={compact} />
+      <RunControls d={d} role={role} actions={actions} running={running} setRunning={setRunning} busy={busy} stale={stale} stepSeconds={stepSeconds} life={life} />
 
       {compact ? (
-        <p className="tq-small tq-muted" data-testid="scn-compact">New scenarios are configured in Scenario Studio on the Overview{go ? <> · <button type="button" className="tq-linkbtn" onClick={() => go('overview')}>Open Overview</button></> : ''}.</p>
+        <p className="tq-small tq-muted" data-testid="scn-compact">New scenarios are configured in Scenario Studio on the Overview and on the Scenario Studio page{go ? <> · <button type="button" className="tq-linkbtn" onClick={() => go('scenario')}>Open Scenario Studio</button></> : ''}.</p>
       ) : (
       <details ref={newRef} className="tq-disclosure tq-scn-new" data-testid="scn-new" open={newOpen || undefined}>
       <summary><span className="tq-disclosure-title">Configure a new scenario</span><span className="tq-disclosure-meta">{hasSim ? 'replaces the current run' : 'no simulation is running yet'}</span></summary>
-      <form className="tq-form tq-scn-form tq-disclosure-body" onSubmit={(e) => { e.preventDefault(); if (!bad.length) { submitted.current = true; start(); } }} aria-label="Configure a new scenario">
+      <form className="tq-form tq-scn-form tq-disclosure-body" onSubmit={submit} aria-label="Configure a new scenario">
         {!ctl && <Empty>Your role ({role}) can view but not start simulations.</Empty>}
-        <fieldset className="tq-scn-presets" data-testid="scn-presets" disabled={!ctl}><legend>Start from a preset <span className="tq-muted">(fills the form; nothing starts yet)</span></legend>
-          {PRESETS.map(([k, name, hint, v]) => (
-            <button key={k} type="button" className="tq-btn tq-scn-preset" data-testid={`preset-${k}`} aria-pressed={JSON.stringify(form) === JSON.stringify(v)}
-              onClick={() => { touched.current = true; setForm(v); }}><strong>{name}</strong><span className="tq-muted">{hint}</span></button>))}
-        </fieldset>
-        <div className="tq-scn-grid">
-          <label>Injected fault
-            <select value={form.fault} onChange={set('fault')} disabled={!ctl}>
-              <option value="none">none (healthy run)</option>
-              {FAULTS.map((f) => <option key={f} value={f}>{title(f)}</option>)}
-            </select>
-          </label>
-          <div className="tq-scn-field"><label>Severity ({Number(form.severity).toFixed(2)})
-            <input type="range" min="0.05" max="1" step="0.05" value={form.severity} onChange={set('severity')} disabled={!ctl || healthy} aria-describedby="scn-hint-sev" />
-          </label><small className="tq-muted" id="scn-hint-sev">0.05 slight – 1.00 strongest the fault model produces</small></div>
-          <label>Setpoint (rpm)
-            <input type="number" min="1" max={LIMITS.setpoint[1]} step="any" value={form.setpoint} onChange={set('setpoint')} disabled={!ctl} />
-          </label>
-          <div className="tq-scn-field"><label>Inject fault at (s)
-            <input type="number" min="0" max={LIMITS.inject[1]} step="1" value={form.inject} onChange={set('inject')} disabled={!ctl || healthy} aria-describedby="scn-hint-inj" />
-          </label><small className="tq-muted" id="scn-hint-inj">simulation time before the fault starts, so C1 sees healthy windows first</small></div>
-          <div className="tq-scn-field"><label>Seed
-            <input type="number" step="1" value={form.seed} onChange={set('seed')} disabled={!ctl} aria-describedby="scn-hint-seed" />
-          </label><small className="tq-muted" id="scn-hint-seed">the same seed and settings reproduce the same run</small></div>
-        </div>
-        <label className="tq-check"><input type="checkbox" checked={form.transient} onChange={set('transient')} disabled={!ctl || healthy} />
-          Condition clears when speed is reduced (simulated transient)</label>
-        <label className="tq-check"><input type="checkbox" checked={form.approval} onChange={set('approval')} disabled={!ctl} />
-          Require human approval (as in hardware mode)</label>
-        <p className="tq-scn-summary" data-testid="scn-summary"><Clock size={14} aria-hidden="true" /> {summary}</p>
-        {bad.length > 0 && <p className="tq-callout warn" role="alert">Cannot start: {bad.join('; ')}.</p>}
+        <PresetPicker f={f} ctl={ctl} />
+        <FaultFields f={f} ctl={ctl} />
+        <ParamFields f={f} ctl={ctl} />
+        <p className="tq-scn-summary" data-testid="scn-summary"><Clock size={14} aria-hidden="true" /> {f.summary}</p>
+        {f.bad.length > 0 && <p className="tq-callout warn" role="alert">Cannot start: {f.bad.join('; ')}.</p>}
         <div className="tq-row">
-          <button type="submit" className="tq-btn tq-primary" disabled={!ctl || busy || bad.length > 0}><RotateCcw size={14} aria-hidden="true" /> Start new simulation</button>
+          <button type="submit" className="tq-btn tq-primary" disabled={!ctl || busy || f.bad.length > 0}><RotateCcw size={14} aria-hidden="true" /> Start new simulation</button>
           {hasSim && <span className="tq-muted tq-small">Replaces the current run; its records stay in the store but leave these pages.</span>}
+          {go && <LinkButton onClick={() => go('scenario')}>Guided setup in Scenario Studio</LinkButton>}
         </div>
       </form>
       </details>)}
       <ErrorBox error={error} />
     </Card>
+  );
+}
+
+// ------------------------------------------------------------------------------------------------ Scenario Studio page (guided workflow)
+
+// Telemetry preview signals: one unit per chart, from the simulator's own telemetry samples.
+const SIGNALS = [
+  { key: 'speed', label: 'Speed', unit: 'rpm', digits: 0, lines: [['rpm', 'Speed (rpm)', 'var(--tq-sig-rpm)'], ['setpoint', 'Setpoint (rpm)', 'var(--tq-chart-ink)', '4 3']] },
+  { key: 'temp', label: 'Temperature', unit: '°C', digits: 1, lines: [['housing', 'Housing (°C)', 'var(--tq-sig-temp)']] },
+  { key: 'current', label: 'Current', unit: 'A', digits: 2, lines: [['current', 'Current (A)', 'var(--tq-sig-current)']] },
+  { key: 'vib', label: 'Vibration', unit: 'g', digits: 3, lines: [['vib_rms', 'Vibration RMS (g)', 'var(--tq-sig-vib)']] },
+];
+const PREVIEW_N = 120;
+const cap = (x) => (x ? x[0].toUpperCase() + x.slice(1) : x);
+const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+
+/** Simulated telemetry preview: the last simulated seconds of the run, one signal at a time, with the scenario's injection time marked. */
+function TelemetryPreview({ d }) {
+  const [sig, setSig] = useState('speed');
+  const S = SIGNALS.find((x) => x.key === sig);
+  const samples = (d.telemetry?.samples || []).slice(-PREVIEW_N);
+  const data = samples.map((x) => ({ t: x.t, ...Object.fromEntries(S.lines.map(([k]) => [k, finite(x[k]) ? x[k] : null])) }));
+  const lead = S.lines[0][0];
+  const lastVal = [...data].reverse().find((x) => finite(x[lead]))?.[lead];
+  const sc = d.status?.scenario || {};
+  // The injection time is the scenario's own setting (ground truth of the simulation); drawn on the nearest sample inside the window.
+  const inj = sc.fault && finite(sc.inject_after_s) && data.length > 1 && sc.inject_after_s >= data[0].t && sc.inject_after_s <= data[data.length - 1].t
+    ? data.reduce((b, x) => (Math.abs(x.t - sc.inject_after_s) < Math.abs(b.t - sc.inject_after_s) ? x : b), data[0]) : null;
+  const marks = inj ? [{ t: sc.inject_after_s, at: inj.t, n: 1, label: 'fault injected (scenario)' }] : [];
+  return (
+    <ChartPanel title="Simulated telemetry (preview)" id="scn-tele-h" testid="scn-telemetry" value={data.length ? (finite(lastVal) ? fmt(lastVal, S.digits) : null) : undefined}
+      unit={S.unit} prov="SIMULATED" status="UNAVAILABLE"
+      foot={data.length > 1 ? `Last ${data.length} simulated seconds, simulation time on the x axis. SIMULATED data from the backend's simulator.` : null}>
+      <Tabs tabs={SIGNALS.map(({ key, label }) => ({ key, label }))} value={sig} onChange={setSig} label="Signal" idBase="scn-sig" />
+      <TabPanel tab={sig} idBase="scn-sig">
+        {data.length < 2 ? <Empty>No simulated telemetry yet. Start a scenario, then press Run or Step to advance simulation time.</Empty> : (
+          <div role="img" aria-label={`${S.label} over simulation time`} className="tq-chart">
+            <TrendLines data={data} lines={S.lines.map(([key, name, color, dash]) => ({ key, name, color, dash }))} height={220} digits={S.digits} unit={S.unit} marks={marks} />
+          </div>)}
+        {marks.length > 0 && <p className="tq-chart-note" data-testid="scn-marks">1 = fault injected at t = {sc.inject_after_s} s (the scenario&apos;s setting, shown because this is a simulation; not a detection).</p>}
+      </TabPanel>
+    </ChartPanel>
+  );
+}
+
+/** Plain-language description of the run the backend reports, and where to follow it. */
+function RunDescription({ d, go }) {
+  const s = d.status || {};
+  const sc = s.scenario || {};
+  if (!hasSimOf(s)) return <Empty>No simulation has been started yet. Configure one on the left; step 4 describes it before you start it.</Empty>;
+  const injected = sc.fault && finite(s.t) && finite(sc.inject_after_s) ? s.t >= sc.inject_after_s : null;
+  return (
+    <div className="tq-scn-desc" data-testid="scn-description">
+      <p>{!sc.fault ? 'Healthy run: no fault is scheduled. The simulator runs a healthy motor at the setpoint.'
+        : <>{cap(title(sc.fault))} at severity {fmt(sc.severity, 2)}, {injected ? 'injected' : 'scheduled'} at t = {sc.inject_after_s} s. {FAULT_INFO[sc.fault] || ''}</>}</p>
+      <ul className="tq-scn-facts">
+        {sc.fault && <li>{sc.clears_below_rpm ? `Clears once the setpoint drops below ${sc.clears_below_rpm} rpm (simulated transient).` : 'Persists: a speed reduction does not clear it.'}</li>}
+        <li>{sc.human_approval_required ? 'Proposed actions wait for an analyst decision on the Interventions page.' : 'Proposed actions are applied without an approval step (simulation only).'}</li>
+        <li>Seed {sc.seed ?? '—'}: the same seed and settings reproduce this run.</li>
+      </ul>
+      {go && (
+        <div className="tq-scn-links">
+          <LinkButton onClick={() => go('live')} testid="scn-go-live">Watch it in Live Monitor</LinkButton>
+          <LinkButton onClick={() => go('workflow')} testid="scn-go-workflow">Follow it in the Diagnostic Workflow</LinkButton>
+          <LinkButton onClick={() => go('twin')} testid="scn-go-twin">See it on the Digital Twin</LinkButton>
+        </div>)}
+    </div>
+  );
+}
+
+const StepHead = ({ n, id, children, sub }) => (
+  <div className="tq-scn-stephead"><span className="tq-scn-num" aria-hidden="true">{n}</span><div><h4 id={id}><span className="tq-sr">Step {n}: </span>{children}</h4>{sub && <p className="tq-muted">{sub}</p>}</div></div>
+);
+
+/** The Scenario Studio page (simulation mode): a guided workflow over the same form, routes and controls as the card. */
+export function ScenarioPage({ d, role, actions, running, setRunning, busy, error, stale, stepSeconds = 5, go }) {
+  const f = useScenarioForm();
+  const s = d.status || {};
+  const hasSim = hasSimOf(s);
+  const ctl = canControl(role);
+  const life = lifecycle(d, running, stale);
+  const { launched, start: launchStart } = useLaunch(f, d);
+  const submit = (e) => { e.preventDefault(); if (!f.bad.length && ctl && !busy) launchStart(actions.start(f.body())); };
+  const nErr = Object.values(f.errors).filter(Boolean).length;
+  const steps = [
+    { key: 'scn-s1', label: 'Select a scenario', state: f.preset ? 'done' : 'skipped', sub: f.preset ? f.preset[1] : 'custom settings' },
+    { key: 'scn-s2', label: 'Fault injection', state: 'done', sub: f.healthy ? 'no fault' : `${title(f.form.fault)} · ${Number(f.form.severity).toFixed(2)}` },
+    { key: 'scn-s3', label: 'Parameters', state: nErr ? 'failed' : 'done', sub: nErr ? `${nErr} field${nErr > 1 ? 's' : ''} to fix` : `${f.form.setpoint} rpm · seed ${f.form.seed}` },
+    { key: 'scn-s4', label: 'Review', state: f.bad.length ? 'blocked' : 'done', sub: f.bad.length ? 'cannot start yet' : 'configuration valid' },
+    { key: 'scn-s5', label: 'Run', state: !ctl ? 'blocked' : busy ? 'active' : launched ? 'done' : 'waiting', sub: !ctl ? `role ${role} cannot start` : busy ? 'starting…' : launched ? 'started' : 'ready to start' },
+    { key: 'scn-s6', label: 'Inspect results', state: hasSim ? (life.key === 'running' ? 'active' : 'waiting') : 'pending', sub: hasSim ? life.label : 'no run yet' },
+  ];
+  const jump = (id) => { try { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* not supported */ } };
+  const desc = f.preset && JSON.stringify(f.preset[3]) === JSON.stringify(f.form) ? f.preset[4]
+    : f.healthy ? 'A healthy run at the chosen setpoint with no injected fault.' : `${title(f.form.fault)}: ${FAULT_INFO[f.form.fault]}`;
+  return (
+    <div className="tq-scn-page" data-testid="scenario-page">
+      <PageHead title="Scenario Studio" sub="Set up a fault scenario, run it on the software simulator and inspect the simulated telemetry. Nothing here reaches hardware."
+        right={<SourceTag kind="SIMULATED" />} />
+      <p className="tq-scn-simnote" role="note"><FlaskConical size={15} aria-hidden="true" /><span><strong>SIMULATED.</strong> Every control on this page uses the backend&apos;s simulator routes (start, step, stop) and every value comes from the software simulator. No physical motor is connected or commanded.</span></p>
+      <StepTracker steps={steps} label="Scenario workflow" onSelect={jump} testid="scn-steps" />
+      <div className="tq-scn-layout">
+        <Card title="Scenario configuration" id="scn-cfg-h" icon={ListChecks} className="tq-scn-config" sub={hasSim ? 'Starting a new scenario replaces the current run.' : 'No simulation is running yet.'}>
+          <form className="tq-form tq-scn-form" onSubmit={submit} aria-label="Configure a new scenario">
+            {!ctl && <p className="tq-callout info" role="note">Your role ({role}) can view but not start simulations. STOP stays available.</p>}
+            <section className="tq-scn-step" id="scn-s1" aria-labelledby="scn-s1-h">
+              <StepHead n={1} id="scn-s1-h" sub="A preset fills in steps 2 and 3; adjust anything afterwards.">Select a scenario</StepHead>
+              <PresetPicker f={f} ctl={ctl} cards />
+            </section>
+            <section className="tq-scn-step" id="scn-s2" aria-labelledby="scn-s2-h">
+              <StepHead n={2} id="scn-s2-h" sub="Optional. Only faults the simulator accepts are listed.">Configure fault injection</StepHead>
+              <FaultFields f={f} ctl={ctl} />
+            </section>
+            <section className="tq-scn-step" id="scn-s3" aria-labelledby="scn-s3-h">
+              <StepHead n={3} id="scn-s3-h" sub="Every field here is sent to the simulator and changes the run.">Parameters</StepHead>
+              <ParamFields f={f} ctl={ctl} />
+            </section>
+            <section className="tq-scn-step" id="scn-s4" aria-labelledby="scn-s4-h">
+              <StepHead n={4} id="scn-s4-h">Review the configuration</StepHead>
+              <dl className="tq-scn-review" data-testid="scn-review">
+                <div><dt>Scenario</dt><dd>{f.preset ? f.preset[1] : 'Custom'}</dd></div>
+                <div><dt>Fault</dt><dd>{f.healthy ? 'none (healthy run)' : `${title(f.form.fault)}, severity ${Number(f.form.severity).toFixed(2)}`}</dd></div>
+                <div><dt>Injected at</dt><dd className="tq-num">{f.healthy ? '—' : `t = ${f.form.inject === '' ? '—' : f.form.inject} s`}</dd></div>
+                <div><dt>Clears</dt><dd>{f.healthy ? '—' : f.form.transient ? `below ${CLEARS_BELOW} rpm` : 'never (persists)'}</dd></div>
+                <div><dt>Setpoint</dt><dd className="tq-num">{f.form.setpoint === '' ? '—' : `${f.form.setpoint} rpm`}</dd></div>
+                <div><dt>Seed</dt><dd className="tq-num">{f.form.seed === '' ? '—' : f.form.seed}</dd></div>
+                <div><dt>Approval</dt><dd>{f.form.approval ? 'required before each action' : 'automatic (simulation)'}</dd></div>
+              </dl>
+              <p className="tq-scn-summary" data-testid="scn-summary"><Clock size={14} aria-hidden="true" /> {desc}</p>
+              {f.bad.length > 0 && <p className="tq-callout warn" role="alert">Cannot start: {f.bad.join('; ')}.</p>}
+            </section>
+            <section className="tq-scn-step tq-scn-step-run" id="scn-s5" aria-labelledby="scn-s5-h">
+              <StepHead n={5} id="scn-s5-h" sub="POST /simulation/start on the software simulator. The new run starts paused at t = 0 s.">Run</StepHead>
+              <div className="tq-row">
+                <button type="submit" className="tq-btn tq-primary tq-scn-start" disabled={!ctl || busy || f.bad.length > 0}><RotateCcw size={14} aria-hidden="true" /> Start new simulation</button>
+                {launched && !busy && <Pill tone="ok">Started. Press Run under Simulation status to advance time.</Pill>}
+              </div>
+              {hasSim && <p className="tq-muted tq-small">Replaces the current run; its records stay in the store but leave these pages.</p>}
+              <ErrorBox error={error} />
+            </section>
+          </form>
+        </Card>
+        <div className="tq-scn-results" id="scn-s6">
+          <Card title="Simulation status" id="scn-status-h" icon={Gauge} right={<ProvBadge kind="SIMULATED" />} testid="scn-status" sub={<><span className="tq-sr">Step 6: inspect results. </span>As the backend reports it</>}>
+            <SimState d={d} life={life} />
+            <RunControls d={d} role={role} actions={actions} running={running} setRunning={setRunning} busy={busy} stale={stale} stepSeconds={stepSeconds} life={life} />
+          </Card>
+          <TelemetryPreview d={d} />
+          <Card title="Scenario description" id="scn-desc-h" icon={Activity}>
+            <RunDescription d={d} go={go} />
+          </Card>
+          <Disclosure summary="What happens next" meta="how a run moves through the pipeline">
+            <ul className="tq-scn-facts">
+              <li><Workflow size={13} aria-hidden="true" /> C1 scores each simulated window; a persistent anomaly opens an incident that the Diagnostic Workflow follows through tests, prediction and decision.</li>
+              <li><Box size={13} aria-hidden="true" /> The Digital Twin shows the simulated readings on the rig model and, after injection, the part the scenario&apos;s fault applies to.</li>
+              <li><FlaskConical size={13} aria-hidden="true" /> For blind, recorded and repeatable runs, use the Lab.</li>
+            </ul>
+          </Disclosure>
+        </div>
+      </div>
+    </div>
   );
 }

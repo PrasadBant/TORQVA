@@ -1,13 +1,14 @@
 // Predictions (C2), simulation mode: compare up to three REDUCE_SPEED targets (Action A, B, C) against the CONTINUE_MONITORING and STOP
 // references. Every number shown for a candidate is the backend predictor's output for exactly that target (POST /simulation/workbench/predict);
 // changing a target marks its card pending until a prediction computed for the new value arrives. Selecting an action is a proposal for
-// review on Interventions: nothing is sent from this page.
+// review on Interventions: nothing is sent from this page. Tabs: Candidate Comparison | Recommended Action | Uncertainty.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { ArrowRight, RefreshCw, CheckCircle2, Microscope, ShieldCheck, Clock, ListChecks, LineChart, Compass, AlertTriangle } from 'lucide-react';
 import { api } from '../api.js';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, PageHead, Disclosure } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, PageHead, Disclosure, StatTile, StatGrid, Tabs, TabPanel, LinkButton, SourceTag } from '../shared/components.jsx';
 import { ResponseChart } from '../shared/lazyCharts.jsx';
-import { PredictionsPage } from './pages.jsx';
+import { PredictionsPage } from './analysis.jsx';
+import { lastOf } from './simdata.js';
 import { StatusPill } from './c2c4.jsx';
 import { usePlan, title, pct, fmtRpm } from './workbench.js';
 import { CounterfactualLab } from './counterfactual.jsx';
@@ -65,6 +66,13 @@ function MiniResponse({ p, signal, cur, domain }) {
   return <div role="img" aria-label={`Predicted ${SIG[signal][0]} with 90 percent interval`} className="tq-chart"><ResponseChart data={data} height={170} yDomain={domain} /></div>;
 }
 
+
+const postTone = (post) => (post?.label === 'confident' ? 'ok' : post?.label === 'ambiguous' ? 'warn' : 'info');
+/** Opens the counterfactual lab disclosure further down this page and scrolls to it (a real in-page navigation). */
+const openCounterfactual = () => {
+  try { const el = document.querySelector('[data-testid=c2-counterfactual]'); if (el) { el.open = true; el.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); } } catch { /* not supported */ }
+};
+
 export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
   const { plan } = usePlan(d);
   const s = d.status || {};
@@ -72,11 +80,13 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
   const post = plan?.posterior;
   const env = plan?.limits?.reduce_envelope_rpm;
   const sugg = plan?.suggested_targets || [];
+  const [tab, setTab] = useState('compare');
   const [targets, setTargets] = useState(['', '', '']);
   const [res, setRes] = useState(null);
   const [pending, setPending] = useState(false);
   const [err, setErr] = useState(null);
   const [signal, setSignal] = useState('housing');
+  const [focus, setFocus] = useState(null);
   const seeded = useRef(false); const reqKey = useRef('');
   useEffect(() => {                                        // first time a plan with suggestions arrives: one suggestion per slot
     if (!seeded.current && sugg.length) { seeded.current = true; setTargets(LABELS.map((_, i) => (sugg[i] ? String(sugg[i].target_rpm) : ''))); }
@@ -110,81 +120,159 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
   const select = (label, p) => setWb((x) => ({ ...x, selection: { label, candidate_id: p.candidate_id, action: p.action, target_rpm: p.target_rpm, prediction: p, basis: p.basis, request_id: res.request_id, selected_at: s.t } }));
   const canSelect = (p) => p && !isStale && !pending && p.status === 'supported' && p.within_supervisor_envelope;
   const why = (p) => (!p ? 'no prediction for this target yet' : isStale ? 'the prediction is stale' : p.status !== 'supported' ? `prediction ${title(p.status)}` : !p.within_supervisor_envelope ? 'outside the Safety Supervisor envelope' : '');
+  const rank = lastOf(d.log, 'c2_ranking');
+  const named = [...shown.filter(([, , p]) => p).map(([l, , p]) => [`Action ${l}`, p]), ['Continue monitoring', cont], ['STOP (coast)', stop]].filter(([, p]) => p);
+  const focused = named.find(([n]) => n === focus) || named[0];
+  const label = s.models?.c2_label || 'Intervention Outcome Prediction (unvalidated)';
 
   return (
     <>
-      <PageHead title="Predictions (C2)" sub="Compare what the predictor expects for different target speeds, then select one action for review."
+      <PageHead title="Predictions (C2)" sub="What the predictor expects for different target speeds, how sure it is, and which action to put forward for review."
         right={<><ProvBadge kind="PREDICTED" />{sel && <Pill tone="info">{`selected: ${sel.action === 'STOP' ? 'STOP' : `Action ${sel.label} · ${fmtRpm(sel.target_rpm)} rpm`}`}</Pill>}</>} />
+      <div className="tq-an-page">
+        <div className="tq-alertpanel tq-warn" role="note" data-testid="c2-model-warning">
+          <span className="tq-alertpanel-icon" aria-hidden="true"><AlertTriangle size={20} /></span>
+          <div className="tq-alertpanel-body"><strong>{label}</strong><div className="tq-alertpanel-text"><p>Not validated against physical experiments. Values marked PRED are model estimates, never evidence of recovery, and an unsupported prediction never authorises an action.{s.models?.c2_variant && s.models.c2_variant !== 'control' ? ` Experimental variant in use (opt-in): ${s.models.c2_variant}.` : ' The shipped predictor is in use; experimental variants are opt-in.'}</p></div></div>
+        </div>
 
-      {!hasSim ? <Card title="Action comparison" id="c-cmp"><Empty>No simulation is running.</Empty></Card>
-        : !post ? <Card title="Action comparison" id="c-cmp"><Empty>C2 predictions are conditional on a fault-hypothesis ranking, and there is none yet in this run. They become available once an anomaly has persisted.</Empty></Card> : (
-          <Card title="Action comparison" id="c-cmp" right={<>{pending ? <Pill tone="wait">calculating…</Pill> : isStale ? <Pill tone="warn">stale</Pill> : res ? <Pill tone="ok">{`computed at t = ${fmt(res.basis.t, 0)} s`}</Pill> : null}<ProvBadge kind="PREDICTED" /></>}>
-            {isStale && <div className="tq-callout warn" role="status" data-testid="pred-stale">These predictions were computed for an earlier state ({age > res.max_age_s ? `${fmt(age, 0)} s ago` : 'the state changed'}). Recalculate before selecting.
-              <button type="button" className="tq-btn" onClick={() => request(valid)}><RefreshCw size={14} aria-hidden="true" /> Recalculate</button></div>}
-            <div className="tq-toolbar"><span className="tq-toolbar-label">Signal</span>
-              <div className="tq-seg" role="group" aria-label="Signal to compare">{Object.entries(SIG).map(([k, [n]]) => <button key={k} type="button" className="tq-btn" aria-pressed={signal === k} onClick={() => setSignal(k)}>{n.split(' (')[0]}</button>)}</div></div>
-            <div className="tq-cands" data-testid="candidates">
-              {LABELS.map((l, i) => {
-                const t = targets[i]; const p = forTarget(t);
-                const waiting = t !== '' && !p;
-                return (
-                  <article key={l} className={`tq-cand ${sel?.candidate_id && p && sel.candidate_id === p.candidate_id ? 'is-selected' : ''}`} data-testid={`cand-${l}`}>
-                    <header className="tq-cand-head"><strong>Action {l}</strong><span className="tq-row">{p && <StatusPill status={p.status} />}{p && <span className="tq-muted tq-small tq-num">{p.candidate_id}</span>}</span></header>
-                    <TargetRPMSelector label={l} value={t} onChange={(v) => setTargets((x) => x.map((y, j) => (j === i ? v : y)))} suggestions={sugg} envelope={env} currentRpm={res?.current?.rpm ?? s.last_window?.rpm} />
-                    {t === '' ? <Empty>Not compared. Choose a target to add this action.</Empty> : waiting ? <p className="tq-empty" data-testid={`pending-${l}`}>{pending ? `Calculating the prediction for ${fmtRpm(t)} rpm…` : `Not yet predicted for ${fmtRpm(t)} rpm.`}</p> : (
-                      <>
-                        <MiniResponse p={p} signal={signal} cur={res.current} domain={domain} />
-                        <ul className="tq-list tq-small tq-explain">{explainPrediction(p, cont, res.current).map((x) => <li key={x}>{x}</li>)}</ul>
-                      </>)}
-                    <button type="button" className="tq-btn tq-primary" disabled={!canSelect(p) || !t} onClick={() => select(l, p)} title={why(p)}>
-                      <CheckCircle2 size={14} aria-hidden="true" /> {`Select Action ${l}${t ? ` — target ${fmtRpm(t)} rpm` : ''}`}</button>
-                    {t !== '' && !canSelect(p) && <p className="tq-muted tq-small">{why(p)}</p>}
-                  </article>);
-              })}
+        <StatGrid label="C2 summary">
+          <StatTile icon={Microscope} tone={post ? postTone(post) : 'off'} label="Conditioned on (AI interpretation)" value={post ? title(post.top) : 'No ranking'} unit={post ? pct(post.top_p, 0) : undefined}
+            sub={post ? `${post.label} · ${post.n_windows} evidence windows` : 'C2 needs a fault-hypothesis ranking'} />
+          <StatTile icon={ShieldCheck} tone={!res ? 'off' : res.trust.trusted ? 'ok' : 'warn'} label="Model trust" value={!res ? '—' : res.trust.trusted ? 'Trusted' : 'Not trusted'}
+            sub={!res ? 'no prediction yet' : res.trust.trusted ? `by the predictor's own checks · experiments: ${res.validated_by_experiments ? 'simulation only' : 'not validated'}` : res.trust.reasons.map(title).join(', ')} />
+          <StatTile icon={Clock} tone={pending ? 'wait' : isStale ? 'warn' : res ? 'ok' : 'off'} label="Prediction basis" value={pending ? 'Calculating…' : isStale ? 'Stale' : res ? `t = ${fmt(res.basis.t, 0)} s` : '—'}
+            sub={res ? `setpoint ${fmtRpm(res.basis.setpoint_rpm)} rpm · valid ${res.max_age_s} s` : 'computed for the current simulated state'} />
+          <StatTile icon={ListChecks} tone={sel ? 'info' : 'off'} label="Selected for review" value={sel ? (sel.action === 'STOP' ? 'STOP (coast)' : `Action ${sel.label}`) : 'None'}
+            sub={sel ? (sel.action === 'STOP' ? 'nothing sent' : `${fmtRpm(sel.target_rpm)} rpm · nothing sent`) : 'select a supported candidate'} />
+        </StatGrid>
+
+        {sel && (
+          <div className="tq-callout info tq-an-selection" role="status" data-testid="selection">
+            <strong>{sel.action === 'STOP' ? 'Selected: STOP (coast)' : `Selected: Action ${sel.label} — target ${fmtRpm(sel.target_rpm)} rpm`}</strong>
+            <p>Candidate {sel.candidate_id}, predicted at t = {fmt(sel.basis.t, 0)} s. Selecting is a proposal for review: nothing has been sent. The decision gate and the Safety Supervisor decide on Interventions.</p>
+            <button type="button" className="tq-btn tq-primary" onClick={() => go('interventions')}>Review on Interventions <ArrowRight size={14} aria-hidden="true" /></button>
+          </div>)}
+
+        <Tabs label="Prediction views" idBase="c2-tab" value={tab} onChange={setTab}
+          tabs={[{ key: 'compare', label: 'Candidate Comparison', count: named.length || undefined }, { key: 'recommend', label: 'Recommended Action' }, { key: 'uncertainty', label: 'Uncertainty' }]} />
+
+        {tab === 'compare' && (
+          <TabPanel tab="compare" idBase="c2-tab">
+            {!hasSim ? <Card title="Action comparison" id="c-cmp"><Empty>No simulation is running.</Empty></Card>
+              : !post ? <Card title="Action comparison" id="c-cmp"><Empty>C2 predictions are conditional on a fault-hypothesis ranking, and there is none yet in this run. They become available once an anomaly has persisted.</Empty></Card> : (
+                <Card title="Action comparison" id="c-cmp" icon={LineChart} sub="Up to three reduce-speed targets against continuing and stopping; every number is the predictor's output for exactly that target"
+                  right={<span className="tq-an-right">{pending ? <Pill tone="wait">calculating…</Pill> : isStale ? <Pill tone="warn">stale</Pill> : res ? <Pill tone="ok">{`computed at t = ${fmt(res.basis.t, 0)} s`}</Pill> : null}<ProvBadge kind="PREDICTED" /></span>}
+                  foot={<LinkButton onClick={openCounterfactual} testid="c2-view-cf">View counterfactual: compare the candidates on simulator copies</LinkButton>}>
+                  {isStale && <div className="tq-callout warn" role="status" data-testid="pred-stale">These predictions were computed for an earlier state ({age > res.max_age_s ? `${fmt(age, 0)} s ago` : 'the state changed'}). Recalculate before selecting.
+                    <button type="button" className="tq-btn" onClick={() => request(valid)}><RefreshCw size={14} aria-hidden="true" /> Recalculate</button></div>}
+                  <div className="tq-toolbar"><span className="tq-toolbar-label">Signal</span>
+                    <div className="tq-seg" role="group" aria-label="Signal to compare">{Object.entries(SIG).map(([k, [n]]) => <button key={k} type="button" className="tq-btn" aria-pressed={signal === k} onClick={() => setSignal(k)}>{n.split(' (')[0]}</button>)}</div></div>
+                  <div className="tq-cands" data-testid="candidates">
+                    {LABELS.map((l, i) => {
+                      const t = targets[i]; const p = forTarget(t);
+                      const waiting = t !== '' && !p;
+                      return (
+                        <article key={l} className={`tq-cand ${sel?.candidate_id && p && sel.candidate_id === p.candidate_id ? 'is-selected' : ''}`} data-testid={`cand-${l}`}>
+                          <header className="tq-cand-head"><strong>Action {l}</strong><span className="tq-row">{p && <StatusPill status={p.status} />}{p && <span className="tq-muted tq-small tq-num">{p.candidate_id}</span>}</span></header>
+                          <TargetRPMSelector label={l} value={t} onChange={(v) => setTargets((x) => x.map((y, j) => (j === i ? v : y)))} suggestions={sugg} envelope={env} currentRpm={res?.current?.rpm ?? s.last_window?.rpm} />
+                          {t === '' ? <Empty>Not compared. Choose a target to add this action.</Empty> : waiting ? <p className="tq-empty" data-testid={`pending-${l}`}>{pending ? `Calculating the prediction for ${fmtRpm(t)} rpm…` : `Not yet predicted for ${fmtRpm(t)} rpm.`}</p> : (
+                            <>
+                              <MiniResponse p={p} signal={signal} cur={res.current} domain={domain} />
+                              <ul className="tq-list tq-small tq-explain">{explainPrediction(p, cont, res.current).map((x) => <li key={x}>{x}</li>)}</ul>
+                            </>)}
+                          <button type="button" className="tq-btn tq-primary" disabled={!canSelect(p) || !t} onClick={() => select(l, p)} title={why(p)}>
+                            <CheckCircle2 size={14} aria-hidden="true" /> {`Select Action ${l}${t ? ` — target ${fmtRpm(t)} rpm` : ''}`}</button>
+                          {t !== '' && !canSelect(p) && <p className="tq-muted tq-small">{why(p)}</p>}
+                        </article>);
+                    })}
+                  </div>
+
+                  {res && (
+                    <div className="tq-table-wrap tq-mt"><table className="tq-table" data-testid="cmp-table"><caption>Predicted {SIG[signal][0].toLowerCase()} ({SIG[signal][1]}): mean and [90 % interval] for one future 1 s simulated measurement</caption>
+                      <thead><tr><th scope="col">Action</th><th scope="col">Target</th><th scope="col">+30 s</th><th scope="col">+60 s</th><th scope="col">+120 s</th><th scope="col">Risk (120 s)</th><th scope="col">Status</th></tr></thead>
+                      <tbody>
+                        <tr><th scope="row">Now <ProvBadge kind="SIMULATED" /></th><td className="tq-num">{fmtRpm(res.current.setpoint_rpm)}</td><td colSpan={3} className="tq-num">{fmt(res.current[signal], SIG[signal][2])} (mean of the last {res.current.averaged_windows} windows)</td><td>—</td><td>measured in simulation</td></tr>
+                        {named.map(([n, p]) => (
+                          <tr key={n}><th scope="row">{n} <ProvBadge kind="PREDICTED" /></th><td className="tq-num">{p.action === 'REDUCE_SPEED' ? `${fmtRpm(p.target_rpm)} rpm` : p.action === 'STOP' ? '0 rpm' : 'unchanged'}</td>
+                            {[0, 1, 2].map((i) => <td key={i} className="tq-num">{fmt(at(p, signal, i), SIG[signal][2])}{band(p, signal, i) ? <span className="tq-muted"> [{fmt(band(p, signal, i)[0], SIG[signal][2])}–{fmt(band(p, signal, i)[1], SIG[signal][2])}]</span> : ''}</td>)}
+                            <td className="tq-num">{pct(p.risk, 0)}</td><td><StatusPill status={p.status} /></td></tr>))}
+                      </tbody></table></div>)}
+                  {stop && <div className="tq-row tq-mt"><button type="button" className="tq-btn" disabled={isStale || pending} onClick={() => select('STOP', stop)}>Select STOP (coast) for review</button></div>}
+                  <ErrorBox error={err} />
+                </Card>)}
+          </TabPanel>)}
+
+        {tab === 'recommend' && (
+          <TabPanel tab="recommend" idBase="c2-tab">
+            <div className="tq-an-grid">
+              <Card title="The pipeline's C2 ranking" id="c-c2rank" icon={Compass} sub="What the automatic pipeline compared when the incident reached action evaluation" right={<ProvBadge kind="PREDICTED" />}
+                foot={<LinkButton onClick={() => go('interventions')}>Decide on Interventions</LinkButton>}>
+                {!rank ? <Empty>No C2 ranking in this run yet. The pipeline ranks candidate actions only when an incident reaches action evaluation.</Empty> : (<>
+                  <div className="tq-wf-rec" data-testid="c2-recommended">
+                    <div className="tq-wf-rec-label">RANKED FIRST BY C2 <span className="tq-num">· t = {fmt(rank.t, 0)} s</span></div>
+                    <div className="tq-wf-rec-head">{rank.chosen ? title(rank.chosen) : 'No action ranked'}</div>
+                    <p className="tq-small tq-muted">{rank.chosen ? 'The lowest predicted risk among the actions other than continuing, as logged by the pipeline.' : 'No action other than continuing was ranked, so the pipeline did not propose one.'}</p>
+                  </div>
+                  <ol className="tq-an-ranklist">{(rank.ranking || []).map(([a, r], i) => <li key={a} className={a === rank.chosen ? 'is-on' : ''}><span className="tq-num">{i + 1}</span><strong>{title(a)}</strong><span className="tq-num">risk {fmt(r, 3)}</span>{a === rank.chosen && <Pill tone="info">ranked first</Pill>}</li>)}</ol>
+                  {s.pending_approval?.rationale && <p className="tq-small"><span className="tq-muted">Held for approval: </span>{title(s.pending_approval.action)}{s.pending_approval.params?.rpm ? ` to ${fmtRpm(s.pending_approval.params.rpm)} rpm` : ''} — {s.pending_approval.rationale}</p>}
+                  {plan?.gate && <p className="tq-small"><span className="tq-muted">Decision gate now: </span><Pill tone={plan.gate.verdict === 'ACT' ? 'ok' : 'warn'}>{title(plan.gate.verdict)}</Pill> {plan.gate.reason}</p>}
+                </>)}
+                <p className="tq-muted tq-small">Risk = the predictor's probability of crossing a warning limit within 120 s. A ranking is a proposal; the decision gate, the Safety Supervisor and a person decide.</p>
+              </Card>
+              <Card title="Your selection" id="c-c2sel" icon={ListChecks} right={<SourceTag kind="PREDICTED" />}>
+                {!sel ? <Empty>No candidate selected. Select a supported candidate on Candidate Comparison to put it forward for review.</Empty> : (<>
+                  <p><strong>{sel.action === 'STOP' ? 'STOP (coast)' : `Action ${sel.label} — reduce to ${fmtRpm(sel.target_rpm)} rpm`}</strong> <span className="tq-muted tq-small">candidate {sel.candidate_id}</span></p>
+                  <ul className="tq-list tq-small">{explainPrediction(sel.prediction, cont, res?.current).map((x) => <li key={x}>{x}</li>)}</ul>
+                  {isStale && <p className="tq-callout warn">The predictions behind this selection are stale; recalculate on Candidate Comparison.</p>}
+                </>)}
+              </Card>
             </div>
+          </TabPanel>)}
 
-            {res && (
-              <div className="tq-table-wrap tq-mt"><table className="tq-table" data-testid="cmp-table"><caption>Predicted {SIG[signal][0].toLowerCase()} ({SIG[signal][1]}): mean and 90 % interval for one future 1 s simulated measurement</caption>
-                <thead><tr><th scope="col">Action</th><th scope="col">Target</th><th scope="col">+30 s</th><th scope="col">+60 s</th><th scope="col">+120 s</th><th scope="col">Risk (120 s)</th><th scope="col">Status</th></tr></thead>
-                <tbody>
-                  <tr><th scope="row">Now <ProvBadge kind="SIMULATED" /></th><td className="tq-num">{fmtRpm(res.current.setpoint_rpm)}</td><td colSpan={3} className="tq-num">{fmt(res.current[signal], SIG[signal][2])} (mean of the last {res.current.averaged_windows} windows)</td><td>—</td><td>measured in simulation</td></tr>
-                  {[...shown.filter(([, , p]) => p).map(([l, , p]) => [`Action ${l}`, p]), ['Continue monitoring', cont], ['STOP (coast)', stop]].map(([n, p]) => p && (
-                    <tr key={n}><th scope="row">{n}</th><td className="tq-num">{p.action === 'REDUCE_SPEED' ? `${fmtRpm(p.target_rpm)} rpm` : p.action === 'STOP' ? '0 rpm' : 'unchanged'}</td>
-                      {[0, 1, 2].map((i) => <td key={i} className="tq-num">{fmt(at(p, signal, i), SIG[signal][2])}{band(p, signal, i) ? <span className="tq-muted"> [{fmt(band(p, signal, i)[0], SIG[signal][2])}–{fmt(band(p, signal, i)[1], SIG[signal][2])}]</span> : ''}</td>)}
-                      <td className="tq-num">{pct(p.risk, 0)}</td><td><StatusPill status={p.status} /></td></tr>))}
-                </tbody></table></div>)}
-            <p className="tq-chart-note">Intervals are {res?.candidates?.[0]?.interval_method ? title(res.candidates[0].interval_method) : 'conformal'} 90 % intervals for a single future simulated measurement. They are not a probability that an action succeeds, and the predictor's interval widths are calibrated per action, not per target speed. Risk limits: housing {res?.risk_limits?.housing ?? '—'} °C, vibration {res?.risk_limits?.vib_rms ?? '—'} g, current {res?.risk_limits?.current ?? '—'} A.</p>
-            {stop && <div className="tq-row"><button type="button" className="tq-btn" disabled={isStale || pending} onClick={() => select('STOP', stop)}>Select STOP (coast) for review</button></div>}
-            <ErrorBox error={err} />
-          </Card>)}
+        {tab === 'uncertainty' && (
+          <TabPanel tab="uncertainty" idBase="c2-tab">
+            <div className="tq-an-grid">
+              <Card title="Predicted response with its interval" id="c-unc" icon={LineChart} right={<ProvBadge kind="PREDICTED" />}>
+                {!named.length || !res ? <Empty>{!post ? 'No predictions: C2 needs a fault-hypothesis ranking.' : 'No prediction has been computed yet.'}</Empty> : (<>
+                  <div className="tq-toolbar">
+                    <label className="tq-inline">Candidate <select value={focused[0]} onChange={(e) => setFocus(e.target.value)}>{named.map(([n]) => <option key={n} value={n}>{n}</option>)}</select></label>
+                    <label className="tq-inline">Signal <select value={signal} onChange={(e) => setSignal(e.target.value)}>{Object.entries(SIG).map(([k, [n]]) => <option key={k} value={k}>{n.split(' (')[0]}</option>)}</select></label>
+                  </div>
+                  <MiniResponse p={focused[1]} signal={signal} cur={res.current} domain={domain} />
+                  <div className="tq-table-wrap"><table className="tq-table tq-small"><caption className="tq-sr">Interval widths by horizon</caption>
+                    <thead><tr><th scope="col">Horizon</th><th scope="col">Predicted mean</th><th scope="col">90 % interval</th><th scope="col">Width</th></tr></thead>
+                    <tbody>{[30, 60, 120].map((h, i) => { const b = band(focused[1], signal, i); const dg = SIG[signal][2]; return (
+                      <tr key={h}><th scope="row">+{h} s</th><td className="tq-num">{fmt(at(focused[1], signal, i), dg)}</td><td className="tq-num">{b ? `${fmt(b[0], dg)}–${fmt(b[1], dg)}` : 'no interval'}</td><td className="tq-num">{b ? fmt(b[1] - b[0], dg) : '—'}</td></tr>); })}</tbody></table></div>
+                </>)}
+                <p className="tq-chart-note">The interval covers a single future 1 s simulated measurement. It is not a guarantee, not a probability that an action succeeds, and not a measurement.</p>
+              </Card>
+              <Card title="What these predictions are based on" id="c-ctx" right={<ProvBadge kind="SIMULATED" />}>
+                <dl className="tq-kv">
+                  <dt>Current speed (simulated)</dt><dd className="tq-num">{hasSim && s.last_window ? `${fmtRpm(s.last_window.rpm)} rpm at setpoint ${fmtRpm(s.device?.setpoint_rpm)} rpm` : '—'}</dd>
+                  <dt>Housing · current · vibration</dt><dd className="tq-num">{hasSim && s.last_window ? `${fmt(s.last_window.housing, 1)} °C · ${fmt(s.last_window.current, 2)} A · ${fmt(s.last_window.vib_rms, 3)} g` : '—'}</dd>
+                  <dt>Incident</dt><dd>{s.incident ? `${s.incident.id}: ${title(s.incident.state)}` : 'none open'}</dd>
+                  <dt>Conditioned on</dt><dd>{post ? <>{title(post.top)} {pct(post.top_p, 0)} <Pill tone={post.label === 'confident' ? 'ok' : 'warn'}>{post.label}</Pill> <span className="tq-muted">({post.n_windows} evidence windows)</span></> : 'no hypothesis ranking yet'}</dd>
+                  <dt>Model trust</dt><dd>{res ? (res.trust.trusted ? <Pill tone="ok">trusted by the predictor's own checks</Pill> : <Pill tone="warn">{`not trusted: ${res.trust.reasons.map(title).join(', ')}`}</Pill>) : '—'}</dd>
+                  <dt>Validated by experiments</dt><dd>{res ? (res.validated_by_experiments ? 'yes (simulation experiments)' : 'no — not validated against physical experiments') : '—'}</dd>
+                  <dt>Interval method</dt><dd>{res?.candidates?.[0]?.interval_method ? title(res.candidates[0].interval_method) : '—'}</dd>
+                  <dt>Risk limits</dt><dd className="tq-num">{res?.risk_limits ? `housing ${res.risk_limits.housing ?? '—'} °C · vibration ${res.risk_limits.vib_rms ?? '—'} g · current ${res.risk_limits.current ?? '—'} A` : '—'}</dd>
+                  <dt>Reduce envelope</dt><dd className="tq-num">{env ? `${fmtRpm(env[0])} – below ${fmtRpm(env[1])} rpm` : '—'}</dd>
+                </dl>
+                <p className="tq-muted tq-small">Interval widths are calibrated per action, not per target speed.</p>
+              </Card>
+            </div>
+          </TabPanel>)}
 
-
-      {sel && (
-        <div className="tq-callout info tq-mt" role="status" data-testid="selection">
-          <strong>{sel.action === 'STOP' ? 'Selected: STOP (coast)' : `Selected: Action ${sel.label} — target ${fmtRpm(sel.target_rpm)} rpm`}</strong>
-          <p>Candidate {sel.candidate_id}, predicted at t = {fmt(sel.basis.t, 0)} s. Selecting is a proposal for review: nothing has been sent. The decision gate and the Safety Supervisor decide on Interventions.</p>
-          <button type="button" className="tq-btn tq-primary" onClick={() => go('interventions')}>Review on Interventions <ArrowRight size={14} aria-hidden="true" /></button>
-        </div>)}
-
-      <Card title="What these predictions are based on" id="c-ctx" className="tq-mt" right={<ProvBadge kind="SIMULATED" />}>
-        <dl className="tq-kv">
-          <dt>Current speed (simulated)</dt><dd className="tq-num">{hasSim && s.last_window ? `${fmtRpm(s.last_window.rpm)} rpm at setpoint ${fmtRpm(s.device?.setpoint_rpm)} rpm` : '—'}</dd>
-          <dt>Housing · current · vibration</dt><dd className="tq-num">{hasSim && s.last_window ? `${fmt(s.last_window.housing, 1)} °C · ${fmt(s.last_window.current, 2)} A · ${fmt(s.last_window.vib_rms, 3)} g` : '—'}</dd>
-          <dt>Incident</dt><dd>{s.incident ? `${s.incident.id}: ${title(s.incident.state)}` : 'none open'}</dd>
-          <dt>Conditioned on</dt><dd>{post ? <>{title(post.top)} {pct(post.top_p, 0)} <Pill tone={post.label === 'confident' ? 'ok' : 'warn'}>{post.label}</Pill> <span className="tq-muted">({post.n_windows} evidence windows)</span></> : 'no hypothesis ranking yet'}</dd>
-          <dt>Model trust</dt><dd>{res ? (res.trust.trusted ? <Pill tone="ok">trusted by the predictor's own checks</Pill> : <Pill tone="warn">{`not trusted: ${res.trust.reasons.map(title).join(', ')}`}</Pill>) : '—'}</dd>
-          <dt>Validated by experiments</dt><dd>{res ? (res.validated_by_experiments ? 'yes (simulation experiments)' : 'no — not validated against physical experiments') : '—'}</dd>
-          <dt>Reduce envelope</dt><dd className="tq-num">{env ? `${fmtRpm(env[0])} – below ${fmtRpm(env[1])} rpm` : '—'}</dd>
-        </dl>
-      </Card>
-
-      <Disclosure summary="Run a counterfactual experiment" meta="compare the candidates on copies of one simulator snapshot and re-run exactly" testid="c2-counterfactual">
-        <CounterfactualLab targets={valid} role={role} stale={stale} hasRanking={!!post} hasSim={hasSim} />
-      </Disclosure>
-      <Disclosure summary="Inspect the pipeline's own C2 comparison" meta="what the automatic pipeline compared, and its predicted-vs-observed record" testid="c2-pipeline">
-        <PredictionsPage d={d} go={go} head={false} />
-      </Disclosure>
-      <TraceLink go={go} setWb={setWb} stages={['prediction']} testid="c2-trace" />
+        <div className="tq-an-below">
+          <Disclosure summary="Run a counterfactual experiment" meta="compare the candidates on copies of one simulator snapshot and re-run exactly" testid="c2-counterfactual">
+            <CounterfactualLab targets={valid} role={role} stale={stale} hasRanking={!!post} hasSim={hasSim} />
+          </Disclosure>
+          <Disclosure summary="Inspect the pipeline's own C2 comparison" meta="what the automatic pipeline compared, and its predicted-vs-observed record" testid="c2-pipeline">
+            <PredictionsPage d={d} go={go} head={false} />
+          </Disclosure>
+        </div>
+        <TraceLink go={go} setWb={setWb} stages={['prediction']} testid="c2-trace" />
+      </div>
     </>
   );
 }
