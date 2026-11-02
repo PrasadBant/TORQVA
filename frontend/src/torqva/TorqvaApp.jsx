@@ -1,17 +1,17 @@
 import React, { Suspense, lazy, useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { Activity, Box, Gauge, ListChecks, Microscope, Workflow, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap, Usb, SlidersHorizontal, Sun, Moon, ClipboardCheck, Menu, KeyRound, PanelLeftClose, PanelLeftOpen, Cpu } from 'lucide-react';
+import { Activity, Box, Gauge, ListChecks, Microscope, Workflow, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap, Usb, SlidersHorizontal, Sun, Moon, ClipboardCheck, Menu, KeyRound, PanelLeftClose, PanelLeftOpen, Cpu, Brain, ChevronDown, ShieldAlert, Server } from 'lucide-react';
 import { api, setToken, getToken, ApiError } from './api.js';
-import { SimulationBanner, Pill, Logo, NavContext, PageHead, Empty, AlertPanel } from './shared/components.jsx';
+import { SimulationBanner, Pill, Logo, NavContext, PageHead, Empty, AlertPanel, Tabs, TabPanel } from './shared/components.jsx';
 import { prefetchCharts } from './shared/lazyCharts.jsx';
 import { Evaluation } from './simulation/evaluation.jsx';
-import { SimOverview } from './simulation/overview.jsx';
+import { SimOverview, simHealth } from './simulation/overview.jsx';
 import { LivePage, DevicesPage, isPhysOf } from './simulation/pages.jsx';
 import { RecoveryPage, LearningPage } from './simulation/assurance.jsx';
 import { JourneyBar } from './simulation/journey.jsx';
 import { useDeviceStream, DevicePage, DeviceCard, DeviceLive } from './physical/device.jsx';
 import Lab from './simulation/lab.jsx';
 import Attestation from './simulation/attestation.jsx';
-import { ModeSwitch, PhysicalBanner, PhysicalOverview, PhysicalLive, PhysicalAiPage, PhysicalSafetyPage } from './physical/physical.jsx';
+import { ModeSwitch, PhysicalBanner, PhysicalOverview, PhysicalLive, PhysicalAiPage, PhysicalSafetyPage, physHealth } from './physical/physical.jsx';
 import { ScenarioPage } from './simulation/scenario.jsx';
 import { AlertsMenu, deviceAlerts, simAlerts } from './shared/alerts.jsx';
 import './torqva.css';
@@ -21,45 +21,38 @@ import './styles/analysis.css';
 import './styles/assurance.css';
 import './styles/twin-sim.css';
 
-// The analyst's path through the product, top to bottom: watch the motor, diagnose, decide and verify, then the engineering tools.
+// The analyst's path through the product, top to bottom: watch the motor, diagnose and decide, verify and learn, then the engineering tools.
+// Labels are the product names only; internal layer identifiers never appear in the interface.
 const NAV_GROUPS = [
-  {
-    heading: 'Monitor',
-    items: [
-      ['overview', 'Overview', Gauge, ''],
-      ['live', 'Live Monitor', Activity, ''],
-      ['twin', 'Digital Twin', Box, ''],
-      ['control', 'Safety & Commissioning', ClipboardCheck, ''],
-      ['device', 'Device', Usb, ''],
-      ['devices', 'Devices & Settings', Settings, ''],
-    ],
-  },
-  {
-    heading: 'Diagnose',
-    items: [
-      ['workflow', 'Diagnostic Workflow', Workflow, 'C4→C3'],
-      ['diagnostics', 'AI Diagnostics', Microscope, 'C1'],
-      ['predictions', 'Predictions', LineChart, 'C2'],
-      ['interventions', 'Interventions', ListChecks, 'C3'],
-      ['tests', 'Diagnostic Tests', TestTube2, 'C4'],
-    ],
-  },
-  {
-    heading: 'Verify & Learn',
-    items: [
-      ['recovery', 'Recovery', ShieldCheck, 'C5'],
-      ['learning', 'Learning', GraduationCap, 'C6'],
-      ['evaluation', 'Evaluation', FlaskConical, ''],
-    ],
-  },
-  {
-    heading: 'Engineering',
-    items: [
-      ['lab', 'Lab', Beaker, ''],
-      ['scenario', 'Scenario Studio', SlidersHorizontal, ''],
-    ],
-  },
+  { heading: 'Monitor', items: [
+    ['overview', 'Overview', Gauge],
+    ['live', 'Live Monitor', Activity],
+    ['twin', 'Digital Twin', Box],
+  ] },
+  { heading: 'Diagnose', items: [
+    ['workflow', 'Diagnostic Workflow', Workflow],
+    ['diagnostics', 'Anomaly Detection', Microscope],
+    ['predictions', 'Failure Prediction', LineChart],
+    ['interventions', 'Action Recommendations', ListChecks],
+    ['tests', 'Diagnostic Investigation', TestTube2],
+  ] },
+  { heading: 'Intelligence', items: [
+    ['recovery', 'Recovery Verification', ShieldCheck],
+    ['learning', 'Continuous Intelligence', Brain],
+    ['evaluation', 'Performance Evaluation', FlaskConical],
+  ] },
+  { heading: 'Engineering', items: [
+    ['scenario', 'Scenario Studio', SlidersHorizontal],
+    ['lab', 'Lab', Beaker],
+  ] },
+  { heading: 'Device & Safety', items: [
+    ['device', 'Device & Safety', Cpu],
+  ] },
 ];
+// Former page ids that are now sections of Device & Safety: links and stored selections keep working and open the right section.
+const ALIASES = { control: ['device', 'safety'], devices: ['device', 'system'], connection: ['device', 'connection'] };
+const GROUPS_KEY = 'torqva.navgroups';
+const readFolded = () => { try { return JSON.parse(window.localStorage.getItem(GROUPS_KEY) || '[]'); } catch { return []; } };
 
 // The Digital Twin (drawing, workspace and mappings) is fetched when first opened, so it does not delay sign-in or the dashboards.
 const SimTwinPage = lazy(() => import('./simulation/twin.jsx').then((m) => ({ default: m.SimTwinPage })));
@@ -75,13 +68,8 @@ const WorkflowPage = lazy(() => import('./workflow/workflow.jsx').then((m) => ({
 const pageFallback = <Empty loading>Loading…</Empty>;
 
 const NAV = NAV_GROUPS.flatMap((g) => g.items);
-// Safety & Commissioning is the record of the physical USB device's interlocks, so it is listed only in physical mode; the simulator is run from Scenario Studio.
-const PHYSICAL_ONLY = new Set(['control']);
-// Plain-language meaning of each layer tag, read out with the tag and shown on hover.
-const TAG_HELP = { C1: 'anomaly detection and diagnosis', C2: 'outcome prediction', C3: 'decision gate and intervention', C4: 'diagnostic tests', C5: 'recovery verification', C6: 'gated learning', 'C4→C3': 'test, diagnose, predict and decide in one pass' };
-// Simulation pages that show the investigation progress bar.
-const JOURNEY_VIEWS = new Set(['diagnostics', 'tests', 'predictions', 'interventions', 'recovery']);
-const groupOf = (k) => (NAV_GROUPS.find((g) => g.items.some((n) => n[0] === k)) || { heading: '' }).heading;
+// Simulation pages that show the investigation progress bar (Monitor → Investigate → Understand → Act → Verify).
+const JOURNEY_VIEWS = new Set(['live', 'diagnostics', 'tests', 'predictions', 'interventions', 'recovery']);
 
 // True while the viewport uses the off-canvas navigation drawer (matches the CSS breakpoint).
 function useCompact(query = '(max-width: 860px)') {
@@ -202,7 +190,10 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const toggleCollapsed = () => setCollapsed((c) => { const n = !c; try { window.localStorage.setItem(NAV_KEY, n ? 'collapsed' : 'open'); } catch { /* storage unavailable */ } return n; });
   const navRef = useRef(null);
-  const go = useCallback((k) => { setView(k); setNavOpen(false); scrollTop(); }, []);
+  const [devTab, setDevTab] = useState('system');
+  const go = useCallback((k) => { const a = ALIASES[k]; if (a) setDevTab(a[1]); else if (k === 'device') setDevTab('system'); setView(a ? a[0] : k); setNavOpen(false); scrollTop(); }, []);
+  const [folded, setFolded] = useState(readFolded);
+  const toggleGroup = (h) => setFolded((f) => { const n = f.includes(h) ? f.filter((x) => x !== h) : [...f, h]; try { window.localStorage.setItem(GROUPS_KEY, JSON.stringify(n)); } catch { /* storage unavailable */ } return n; });
   useEffect(() => { if (!compact) setNavOpen(false); }, [compact]);
   useEffect(() => {
     if (!navOpen) return undefined;
@@ -219,11 +210,12 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   // simulator records measured; the board's own readings arrive separately through `device`.
   const isPhys = isPhysOf(d);
   const physicalMode = appMode === 'PHYSICAL';
-  // A stale selection (or a link) can never show a physical-only page in simulation mode.
-  const view = !physicalMode && PHYSICAL_ONLY.has(rawView) ? 'overview' : rawView;
+  const view = ALIASES[rawView]?.[0] || rawView;
+  // Safety & Commissioning is the physical device's interlock record, so that section exists only in physical mode.
+  const deviceTab = !physicalMode && devTab === 'safety' ? 'system' : devTab;
   // Analyst workbench state (simulation): the selected action, the last test run and a test to pre-add. Never carried across modes or runs.
   const [wb, setWb] = useState({ selection: null, run: null, prefill: null, lastRequest: null });
-  const changeMode = (m) => { setAppMode(m); storeMode(m); if (m !== 'PHYSICAL') setView((v) => (PHYSICAL_ONLY.has(v) ? 'overview' : v)); setRunning(false); setWb({ selection: null, run: null, prefill: null, lastRequest: null }); };
+  const changeMode = (m) => { setAppMode(m); storeMode(m); setRunning(false); setWb({ selection: null, run: null, prefill: null, lastRequest: null }); };
   const [error, setError] = useState(null);
   const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -277,7 +269,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
 
   useEffect(() => {
     if (!user) return undefined;
-    if (physicalMode) { if (view === 'devices') refresh(); return undefined; }        // physical mode never polls or steps the simulator
+    if (physicalMode) { if (view === 'device') refresh(); return undefined; }        // physical mode never polls or steps the simulator
     refresh();
     const id = setInterval(async () => {
       if (ticking.current) return;
@@ -298,7 +290,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
       api.evaluation().then((r) => setEvalState({ run: r, error: null })).catch((e) => setEvalState({ run: null, error: e }));
       api.evaluationC2C4().then((r) => setC2c4({ data: r, error: null })).catch((e) => setC2c4({ data: null, error: e }));
     }
-    if (view === 'devices' && user.role === 'admin') api.audit().then((rows) => setAudit({ rows, error: null })).catch((e) => setAudit({ rows: [], error: e }));
+    if (view === 'device' && user.role === 'admin') api.audit().then((rows) => setAudit({ rows, error: null })).catch((e) => setAudit({ rows: [], error: e }));
   }, [view, user]);
 
   // Resolves true only when the backend accepted the request (so a caller can confirm a NEW run started), false when it refused.
@@ -315,11 +307,20 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const stale = useStale(lastOk, offline, Math.max(8000, pollMs * 4));
   if (!user) return <Login onLogin={onLogin} error={loginError} theme={theme === 'light' ? 'light' : 'dark'} />;
   const mode = physicalMode ? 'PHYSICAL' : (d.status?.mode || 'SIMULATION');
-  const dev = d.status?.device;
   const ctx = { d, role: user.role, user, actions, running, setRunning, busy, error, stale, go, wb, setWb, ctl: canStart(user.role), device, physicalMode, isPhys, deviceCard: <DeviceCard stream={device} go={go} />, deviceLive: <DeviceLive stream={device} /> };
   // Evaluation is the same page in both modes (it only ever shows simulator evidence); physical mode adds a note saying so.
-  const evaluationPage = (note) => (<><PageHead title="Evaluation and Research" sub="Simulation evaluation artifacts, baselines versus candidates, provenance and known limitations." />{note}
+  const evaluationPage = (note) => (<><PageHead title="Performance Evaluation" sub="How well detection, prediction and recovery verification performed in the committed simulation evaluation, against simple baselines." />{note}
     <Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} /></>);
+  // Device & Safety: connection and readiness, the physical interlocks and commissioning record (physical mode only), and the device
+  // inventory, session and audit log. One page with sections, so device information is not repeated across pages.
+  const deviceSafety = (connection, safety, system) => {
+    const tabs = [{ key: 'system', label: 'Device', icon: Server }, { key: 'connection', label: 'Connection & Readiness', icon: Usb },
+      ...(safety ? [{ key: 'safety', label: 'Safety & Commissioning', icon: ShieldAlert }] : [])];
+    const body = { connection, safety, system }[deviceTab];
+    return (<><PageHead title="Device & Safety" right={<Pill tone="info">{physicalMode ? 'Physical mode' : 'Simulation mode'}</Pill>} />
+      <Tabs label="Device & Safety sections" idBase="tq-dev" value={deviceTab} onChange={setDevTab} tabs={tabs} />
+      <TabPanel tab={deviceTab} idBase="tq-dev">{body}</TabPanel></>);
+  };
   const simPages = {
     overview: <SimOverview {...ctx} stepSeconds={stepSeconds} />, live: <LivePage {...ctx} stepSeconds={stepSeconds} />, twin: <Suspense fallback={twinFallback}><SimTwinPage d={d} running={running} stale={stale} go={go} /></Suspense>, diagnostics: <Suspense fallback={pageFallback}><SimDiagnosticsPage {...ctx} /></Suspense>,
     predictions: <Suspense fallback={pageFallback}><SimPredictionsPage {...ctx} /></Suspense>, tests: <Suspense fallback={pageFallback}><SimTestsPage {...ctx} c2c4={c2c4.data} /></Suspense>,
@@ -327,8 +328,8 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     workflow: <Suspense fallback={pageFallback}><WorkflowPage mode="SIMULATION" d={d} role={user.role} stale={stale} go={go} /></Suspense>,
     recovery: <RecoveryPage {...ctx} />, learning: <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>,
     evaluation: evaluationPage(null),
-    device: <DevicePage stream={device} role={user.role} go={go} simMode />,
-    lab: (<><PageHead title="Lab" sub="Reproducible recording sessions, fault-injection records and matched experiments on the software simulator." /><Lab role={user.role} isPhys={physicalMode} /></>), devices: <DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />,
+    device: deviceSafety(<DevicePage stream={device} role={user.role} go={go} simMode embedded />, null, <DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} embedded />),
+    lab: (<><PageHead title="Lab" sub="Reproducible recording sessions, fault-injection records and matched experiments on the software simulator." /><Lab role={user.role} isPhys={physicalMode} /></>),
     scenario: <ScenarioPage {...ctx} stepSeconds={stepSeconds} />,
   };
   // Simulation-only tools in physical mode: say so, and offer the explicit mode switch (changing mode never commands a motor).
@@ -361,17 +362,15 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     recovery: phys('C5', <RecoveryPage {...ctx} />),
     learning: phys('C6', <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>),
     evaluation: evaluationPage(<AlertPanel tone="info" icon={FlaskConical} title="SIMULATION EVIDENCE" testid="eval-sim-note">These are results from the software simulator. They say nothing about this physical device and are not hardware validation.</AlertPanel>),
-    device: <DevicePage stream={device} role={user.role} go={go} />,
-    control: <PhysicalSafetyPage stream={device} role={user.role} go={go} />,
+    device: deviceSafety(<DevicePage stream={device} role={user.role} go={go} embedded />, <PhysicalSafetyPage stream={device} role={user.role} go={go} embedded />,
+      <DevicesPage {...ctx} isPhys rows={audit.rows} auditError={audit.error} embedded />),
     lab: simOnly('Lab', 'lab-sim-note'),
-    // Same page, but the mode comes from the shell: in Physical mode it must never read as simulation, whatever the last simulator record said.
-    devices: <DevicesPage {...ctx} isPhys rows={audit.rows} auditError={audit.error} />,
     scenario: simOnly('Scenario Studio', 'scenario-sim-note'),
   };
   const pages = physicalMode ? physPages : simPages;
   const navItem = (k) => {
-    const [, label, Icon, tag] = NAV.find((n) => n[0] === k);
-    return { label, Icon, tag };
+    const [, label, Icon] = NAV.find((n) => n[0] === k);
+    return { label, Icon };
   };
   const current = navItem(view);
   const drawerHidden = compact && !navOpen;
@@ -394,13 +393,19 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
       <div className="tq-body">
         <nav className="tq-sidebar" id="tq-nav" aria-label="TORQVA sections" ref={navRef} inert={drawerHidden ? '' : undefined}>
           <div className="tq-brand"><Logo /><span className="tq-brand-name"><strong>TORQVA</strong><small>AI Motor Diagnostics</small></span></div>
-          {NAV_GROUPS.map((grp, gi) => (
-            <div className="tq-navgroup" key={grp.heading}>
-              <p className="tq-navgroup-label" id={`tq-ng-${gi}`}>{grp.heading}</p>
-              <ul aria-labelledby={`tq-ng-${gi}`}>{grp.items.filter(([k]) => physicalMode || !PHYSICAL_ONLY.has(k)).map(([k]) => { const { label, Icon, tag } = navItem(k); return (
-                <li key={k}><button className={`tq-nav ${view === k ? 'active' : ''}`} aria-current={view === k ? 'page' : undefined} onClick={() => go(k)} title={collapsed && !compact ? label : undefined}>
-                  <Icon size={16} aria-hidden="true" /><span className="tq-nav-label">{label}</span>{tag && <span className="tq-tag" title={TAG_HELP[tag]}>{tag}{TAG_HELP[tag] && <span className="tq-sr"> ({TAG_HELP[tag]})</span>}</span>}</button></li>); })}</ul>
-            </div>))}
+          {NAV_GROUPS.map((grp, gi) => {
+            const single = grp.items.length === 1;
+            // A group folds only when it does not hold the open page, so the active page is always visible.
+            const shut = !single && folded.includes(grp.heading) && !grp.items.some(([k]) => k === view);
+            return (
+              <div className="tq-navgroup" key={grp.heading}>
+                {single ? <p className="tq-navgroup-label" id={`tq-ng-${gi}`}>{grp.heading}</p>
+                  : <button type="button" className="tq-navgroup-label tq-navgroup-btn" id={`tq-ng-${gi}`} aria-expanded={!shut} onClick={() => toggleGroup(grp.heading)}>
+                    <span>{grp.heading}</span><ChevronDown size={13} aria-hidden="true" className="tq-navgroup-chev" /></button>}
+                {!shut && <ul aria-labelledby={`tq-ng-${gi}`}>{grp.items.map(([k]) => { const { label, Icon } = navItem(k); return (
+                  <li key={k}><button className={`tq-nav ${view === k ? 'active' : ''}`} aria-current={view === k ? 'page' : undefined} onClick={() => go(k)} title={collapsed && !compact ? label : undefined}>
+                    <Icon size={16} aria-hidden="true" /><span className="tq-nav-label">{label}</span></button></li>); })}</ul>}
+              </div>); })}
           <div className="tq-sidebar-foot">
             <button type="button" className="tq-collapse-btn" onClick={toggleCollapsed} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-pressed={collapsed}>
               {collapsed ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}<span>{collapsed ? 'Expand' : 'Collapse'}</span>
@@ -425,24 +430,23 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
                 <span className={`tq-ctx-icon tq-${physicalMode ? (modeCtx.tone === 'ok' ? 'info' : modeCtx.tone) : 'sim'}`} aria-hidden="true">{physicalMode ? <Usb size={17} /> : <FlaskConical size={17} />}</span>
                 <span className="tq-ctx-text"><strong>{modeCtx.title}</strong><span className="tq-env-text">{modeCtx.text}</span></span>
               </div>
-              <div className="tq-ctx tq-ctx-device" data-testid="top-device">
-                {physicalMode
-                  ? <><span className={`tq-ctx-dot tq-${devCtx.tone}`} aria-hidden="true" /><span className="tq-ctx-text"><strong>{devCtx.title}</strong>{devCtx.text && <span>{devCtx.text}</span>}</span></>
-                  : <><Cpu size={16} aria-hidden="true" className="tq-muted" /><Pill tone={dev?.estop ? 'stop' : 'ok'}>{dev?.estop ? 'SIMULATED E-STOP' : 'Simulated device OK'}</Pill></>}
-              </div>
+              {physicalMode && (
+                <div className="tq-ctx tq-ctx-device" data-testid="top-device">
+                  <span className={`tq-ctx-dot tq-${devCtx.tone}`} aria-hidden="true" /><span className="tq-ctx-text"><strong>{devCtx.title}</strong>{devCtx.text && <span>{devCtx.text}</span>}</span>
+                </div>)}
               <span className="tq-grow" />
               <ModeSwitch mode={appMode} onChange={changeMode} />
               <AlertsMenu alerts={alerts} go={go} />
               <button type="button" className="tq-iconbtn" onClick={toggleTheme} aria-label="Toggle theme" title={theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Cockpit Theme'}>
                 {theme === 'dark' ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}</button>
-              <button type="button" className="tq-iconbtn" onClick={() => go('devices')} aria-label="Devices and settings" title="Devices & Settings"><Settings size={16} aria-hidden="true" /></button>
+              <button type="button" className="tq-iconbtn" onClick={() => go('devices')} aria-label="Inventory, session and audit log" title="Inventory, session and audit log"><Settings size={16} aria-hidden="true" /></button>
               <span className="tq-user" title={`${user.user} · ${user.role}`}><span className="tq-avatar" aria-hidden="true">{String(user.user || '?').slice(0, 1)}</span><span className="tq-user-name tq-user-badge">{user.user} · {user.role}</span></span>
               <button type="button" className="tq-iconbtn" onClick={() => { setToken(''); setUser(null); setRunning(false); }} aria-label="Sign out" title="Sign out"><LogOut size={16} aria-hidden="true" /></button>
             </header>
           </div>
           <main className="tq-main">
             <h1 className="tq-sr">{NAV.find((n) => n[0] === view)[1]}</h1>
-            <NavContext.Provider value={{ icon: current.Icon, group: groupOf(view), tag: current.tag }}><div className="tq-view" key={`${appMode}-${view}`}>{!physicalMode && JOURNEY_VIEWS.has(view) && <JourneyBar d={d} view={view} go={go} />}{pages[view]}</div></NavContext.Provider>
+            <NavContext.Provider value={{ icon: current.Icon, condition: view === 'overview' ? null : physicalMode ? physHealth(device.snap) : simHealth(d, running, stale) }}><div className="tq-view" key={`${appMode}-${view}`}>{!physicalMode && JOURNEY_VIEWS.has(view) && <JourneyBar d={d} view={view} go={go} />}{pages[view]}</div></NavContext.Provider>
           </main>
         </div>
       </div>

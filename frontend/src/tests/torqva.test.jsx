@@ -84,8 +84,8 @@ describe('TORQVA workspace', () => {
 
   it('keeps the non-dismissable simulation banner on every view', async () => {
     await signedIn();
-    for (const name of ['Overview', 'Live Monitor', 'AI Diagnostics', 'Predictions', 'Diagnostic Tests', 'Interventions', 'Recovery', 'Learning', 'Evaluation', 'Devices & Settings']) {
-      fireEvent.click(screen.getByRole('button', { name: new RegExp(name) }));
+    for (const name of ['Overview', 'Live Monitor', 'Anomaly Detection', 'Failure Prediction', 'Diagnostic Investigation', 'Action Recommendations', 'Recovery Verification', 'Continuous Intelligence', 'Performance Evaluation', 'Device & Safety']) {
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${name}`) }));
       expect(screen.getByTestId('sim-banner')).toHaveTextContent(/simulated/i);
     }
   });
@@ -102,26 +102,25 @@ describe('TORQVA workspace', () => {
     }));
     render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
-    fireEvent.click(screen.getByRole('button', { name: /Live Monitor/ }));
-    await waitFor(() => expect(screen.getByRole('button', { name: /Run/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: /^Scenario Studio/ }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run', exact: true })).toBeEnabled());
     expect(screen.getByRole('button', { name: /Stop motor/ })).toBeEnabled();
   });
 
   it('viewer cannot start a simulation but can always press STOP', async () => {
     await signedIn({ role: 'viewer' });
-    // Live Monitor keeps the run controls and STOP; a new scenario is configured in Scenario Studio on the Overview.
-    fireEvent.click(screen.getByRole('button', { name: /Live Monitor/ }));
-    expect(screen.getByRole('button', { name: /Stop motor/ })).toBeEnabled();
-    expect(screen.getByTestId('scn-compact')).toHaveTextContent('Scenario Studio on the Overview');
-    expect(screen.queryByRole('button', { name: 'Start new simulation' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /^Overview/ }));
+    // Scenario Studio is the one place the simulator is configured, run and stopped; Live Monitor and Overview only link there.
+    fireEvent.click(screen.getByRole('button', { name: /^Live Monitor/ }));
+    expect(screen.queryByRole('button', { name: /Stop motor/ })).toBeNull();
+    expect(screen.getByTestId('live-to-studio')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Scenario Studio/ }));
     expect(screen.getByRole('button', { name: 'Start new simulation' })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Stop motor/ })).toBeEnabled();
   });
 
   it('labels C2 predictions as unvalidated and PREDICTED, never as measurements', async () => {
     await signedIn();
-    fireEvent.click(screen.getByRole('button', { name: /^Predictions/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Failure Prediction/ }));
     expect(await screen.findByText('Intervention Outcome Prediction (unvalidated)')).toBeInTheDocument();
     expect(screen.getAllByText('PRED').length).toBeGreaterThan(0);
     expect(screen.getByText(/never evidence of recovery/i)).toBeInTheDocument();
@@ -131,7 +130,7 @@ describe('TORQVA workspace', () => {
 
   it('approval is disabled for a viewer and explains why', async () => {
     await signedIn({ role: 'viewer', pending });
-    fireEvent.click(screen.getByRole('button', { name: /^Interventions/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Action Recommendations/ }));
     const approve = await screen.findByRole('button', { name: /Approve/ });
     expect(approve).toBeDisabled();
     expect(screen.getByText(/requires role operator or admin/i)).toBeInTheDocument();
@@ -139,14 +138,14 @@ describe('TORQVA workspace', () => {
 
   it('an operator can approve, which POSTs to the approvals endpoint', async () => {
     const srv = await signedIn({ role: 'operator', pending });
-    fireEvent.click(screen.getByRole('button', { name: /^Interventions/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Action Recommendations/ }));
     fireEvent.click(await screen.findByRole('button', { name: /Approve/ }));
     await waitFor(() => expect(srv.calls.some((c) => c.path === '/approvals/approve' && c.method === 'POST')).toBe(true));
   });
 
   it('recovery view shows empty state, then criteria pass/fail and what was observed', async () => {
     await signedIn();
-    fireEvent.click(screen.getByRole('button', { name: /Recovery/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Recovery Verification/ }));
     expect(await screen.findByText(/No incident has been verified yet/)).toBeInTheDocument();
   });
 
@@ -154,7 +153,7 @@ describe('TORQVA workspace', () => {
     const outcomes = [{ incident: 'INC-001', outcome: 'UNRESOLVED', reasons: ['in_learned_band'], criteria: { in_learned_band: false, trend_not_worsening: true },
       observed: { rpm: 1260, housing: 25, frac_in_band: 0.1 }, n_fresh: 60, command_executed: true, action: 'REDUCE_SPEED' }];
     await signedIn({ outcomes });
-    fireEvent.click(screen.getByRole('button', { name: /Recovery/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Recovery Verification/ }));
     const art = await screen.findByRole('article');
     expect(within(art).getByText('UNRESOLVED')).toBeInTheDocument();
     expect(within(art).getByText('fail')).toBeInTheDocument();
@@ -163,7 +162,7 @@ describe('TORQVA workspace', () => {
 
   it('evaluation view carries the simulation-only warning and states there is no measured data', async () => {
     await signedIn();
-    fireEvent.click(screen.getByRole('button', { name: /^Evaluation/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Performance Evaluation/ }));
     expect(await screen.findByText(/Simulation only/)).toBeInTheDocument();
     expect(screen.getByText('NO MEASURED DATA')).toBeInTheDocument();
     expect(screen.getByText('no')).toBeInTheDocument();           // C2 validated: no
@@ -171,13 +170,14 @@ describe('TORQVA workspace', () => {
 
   it('audit log is restricted to admins', async () => {
     await signedIn({ role: 'operator' });
-    fireEvent.click(screen.getByRole('button', { name: /Devices & Settings/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Device & Safety/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /^Device$/ }));
     expect(await screen.findByText(/visible to admins only/)).toBeInTheDocument();
   });
 
   it('a 401 during polling returns the user to the sign-in screen', async () => {
     await signedIn({ overrides: {} });
-    fireEvent.click(screen.getByRole('button', { name: /Live Monitor/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Scenario Studio/ }));
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401, json: async () => ({ detail: 'expired' }) })));
     // STOP is enabled for every role, and any action triggers a refresh, which now returns 401
     fireEvent.click(screen.getByRole('button', { name: /Stop motor/ }));

@@ -27,7 +27,7 @@ function Snapshot({ s }) {
       <dl className="tq-kv tq-small">
         <dt>Gate record</dt><dd>{s.gate ? `${s.gate.verdict}: ${s.gate.reason}` : 'none recorded'}</dd>
         <dt>Supervisor decisions</dt><dd>{s.supervisor_decisions.map((x) => `${x.verdict} (${(x.reasons || []).map(title).join(', ')})`).join(' · ') || 'none'}</dd>
-        <dt>C2 predictions recorded</dt><dd>{s.predictions.length ? s.predictions.map((p) => `${title(p.action)}${p.action === 'REDUCE_SPEED' ? ` ${fmtRpm(p.target_rpm)} rpm` : ''}: risk ${pct(p.risk, 0)} (${p.status})`).join(' · ') : 'none'}</dd>
+        <dt>predictions recorded</dt><dd>{s.predictions.length ? s.predictions.map((p) => `${title(p.action)}${p.action === 'REDUCE_SPEED' ? ` ${fmtRpm(p.target_rpm)} rpm` : ''}: risk ${pct(p.risk, 0)} (${p.status})`).join(' · ') : 'none'}</dd>
       </dl>);
   }
   const t = s.telemetry; const g = s.gate; const sup = s.supervisor; const p = s.prediction;
@@ -35,17 +35,17 @@ function Snapshot({ s }) {
     <dl className="tq-kv tq-small" data-testid="receipt-snapshot">
       <dt>Investigation</dt><dd>{s.investigation || 'no incident'} · simulation t = {fmt(s.sim_t, 0)} s · session {s.session}</dd>
       <dt>Telemetry (SIM)</dt><dd className="tq-num">{t ? `${fmtRpm(t.rpm)} rpm (setpoint ${fmtRpm(t.setpoint)}) · ${fmt(t.current, 2)} A · ${fmt(t.voltage, 2)} V · ${fmt(t.housing, 1)} °C · ${fmt(t.vib_rms, 3)} g · ${t.valid ? 'valid' : 'INVALID'} · ${fmt(t.age_s, 0)} s old` : 'none'}</dd>
-      <dt>C1</dt><dd>{s.c1 ? `${title(s.c1.status)}${s.c1.score_over_threshold !== null ? `, ${fmt(s.c1.score_over_threshold, 2)} × threshold` : ''}` : '—'}</dd>
+      <dt>Anomaly Detection</dt><dd>{s.c1 ? `${title(s.c1.status)}${s.c1.score_over_threshold !== null ? `, ${fmt(s.c1.score_over_threshold, 2)} × threshold` : ''}` : '—'}</dd>
       <dt>Hypotheses</dt><dd>{s.hypotheses ? `${s.hypotheses.ranked.slice(0, 3).map(([h, v]) => `${title(h)} ${pct(v, 0)}`).join(' · ')} (${s.hypotheses.label}, ${s.hypotheses.n_windows} windows)` : 'no ranking'}</dd>
       <dt>Evidence features</dt><dd>{s.evidence_features?.length ? s.evidence_features.slice(0, 4).map((f) => `${f.feature} ${f.mean_z > 0 ? '+' : ''}${fmt(f.mean_z, 1)}σ`).join(' · ') : 'none'}</dd>
-      <dt>C4 evidence</dt><dd>{[...(s.c4_tests_in_incident || []).map((x) => `${x.test} at t = ${fmt(x.t, 0)} s`), ...(s.diagnostic_runs || []), ...(s.counterfactual_experiments || [])].join(' · ') || 'none'}</dd>
-      <dt>C2 prediction for this target</dt><dd className="tq-num">{p ? `${p.candidate_id} · ${p.status} · risk ${pct(p.risk, 0)} · housing +120 s ${fmt(p.mean?.housing?.[2], 1)} °C [${fmt(p.lo?.housing?.[2], 1)}–${fmt(p.hi?.housing?.[2], 1)}]` : 'none'}</dd>
+      <dt>Test evidence</dt><dd>{[...(s.c4_tests_in_incident || []).map((x) => `${x.test} at t = ${fmt(x.t, 0)} s`), ...(s.diagnostic_runs || []), ...(s.counterfactual_experiments || [])].join(' · ') || 'none'}</dd>
+      <dt>prediction for this target</dt><dd className="tq-num">{p ? `${p.candidate_id} · ${p.status} · risk ${pct(p.risk, 0)} · housing +120 s ${fmt(p.mean?.housing?.[2], 1)} °C [${fmt(p.lo?.housing?.[2], 1)}–${fmt(p.hi?.housing?.[2], 1)}]` : 'none'}</dd>
       <dt>Gate</dt><dd>{g ? <><Pill tone={g.verdict === 'ACT' ? 'ok' : 'warn'}>{title(g.verdict)}</Pill> {g.reason}</> : 'not evaluated'}</dd>
       <dt>Safety Supervisor</dt><dd>{sup ? <><Pill tone={sup.verdict === 'REJECT' ? 'crit' : 'ok'}>{sup.verdict}</Pill> {(sup.reasons || []).map(title).join(', ')}</> : '—'}</dd>
       <dt>Human approval</dt><dd>{s.awaiting_human_decision ? `required: the pipeline was holding ${title(s.pending_proposal?.action)}${s.pending_proposal?.params?.rpm ? ` to ${fmtRpm(s.pending_proposal.params.rpm)} rpm` : ''}` : 'no action was held for a human decision'}</dd>
       <dt>Freshness</dt><dd>{s.stale?.length ? `stale: ${s.stale.join('; ')}` : 'current'}</dd>
       {s.blockers?.length > 0 && <><dt>Blockers</dt><dd>{s.blockers.join('; ')}</dd></>}
-      <dt>Versions</dt><dd className="tq-num">hypotheses v{s.versions?.hypothesis_model} · C4 v{s.versions?.c4_signatures} · C2 v{s.versions?.c2_predictor} · C1 v{s.versions?.c1_detector ?? '—'}</dd>
+      <dt>Versions</dt><dd className="tq-num">hypotheses v{s.versions?.hypothesis_model} · Diagnostic Investigation v{s.versions?.c4_signatures} · Failure Prediction v{s.versions?.c2_predictor} · Anomaly Detection v{s.versions?.c1_detector ?? '—'}</dd>
     </dl>);
 }
 
@@ -70,8 +70,8 @@ export function ReceiptsPanel({ d, focusId }) {
   }, [sel, n]);
   const rows = list?.receipts || [];
   return (
-    <Card title="Decision receipts" id="c-receipts" icon={ReceiptText} sub="Every request, accepted or refused, with the evidence it was decided on" right={<ProvBadge kind="SIMULATED" />}>
-      {!hasSim ? <Empty>No simulation is running.</Empty> : err ? <p className="tq-muted">Receipts could not be loaded: {err}</p> : !list ? <Empty loading>Loading receipts…</Empty> : (
+    <Card title="Decision summaries" id="c-receipts" icon={ReceiptText} sub="Every request, accepted or refused, with its evidence" right={<ProvBadge kind="SIMULATED" />}>
+      {!hasSim ? <Empty>No simulation is running.</Empty> : err ? <p className="tq-muted">Decision summaries could not be loaded: {err}</p> : !list ? <Empty loading>Loading decision summaries…</Empty> : (
         <>
           {list.pending && (
             <div className={`tq-callout ${list.pending.still_valid ? 'info' : 'warn'}`} data-testid="receipt-pending">
@@ -90,7 +90,7 @@ export function ReceiptsPanel({ d, focusId }) {
             </ul>)}
           {rec && (
             <article className="tq-receipt" data-testid="receipt">
-              <header className="tq-cand-head"><strong>Receipt {rec.id}</strong>
+              <header className="tq-cand-head"><strong>Decision summary {rec.id}</strong>
                 <span className="tq-row"><Pill tone={rec.decision === 'REFUSED' ? 'crit' : 'ok'}>{rec.decision}</Pill>
                   <Pill tone={rec.digest_valid ? 'ok' : 'crit'}>{rec.digest_valid ? 'snapshot digest matches' : 'SNAPSHOT CHANGED'}</Pill>
                   <button type="button" className="tq-btn" onClick={() => exportReceipt(rec)} data-testid="receipt-export"><Download size={14} aria-hidden="true" /> Export JSON</button></span></header>

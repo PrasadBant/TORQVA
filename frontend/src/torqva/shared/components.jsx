@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ShieldAlert, Info, XOctagon, Clock, XCircle, FlaskConical, Inbox, Loader2, AlertCircle, ArrowRight, CircleDashed, CircleDot, HelpCircle, Lock } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, ShieldAlert, Info, XOctagon, Clock, XCircle, FlaskConical, Inbox, Loader2, AlertCircle, ArrowRight, CircleDashed, CircleDot, HelpCircle, Lock } from 'lucide-react';
 
 /** Where the current page sits in the navigation (icon and group), provided by the application shell. */
 export const NavContext = createContext(null);
@@ -19,18 +19,43 @@ export function Logo({ size = 30 }) {
   );
 }
 
-/** Page title row: a breadcrumb (navigation group and layer tag, from the shell), the title, a one-line purpose and right-aligned status. */
+// The five motor-condition words used everywhere, each with one tone. A condition is only ever derived from records the app has;
+// anything it cannot judge is Unavailable.
+export const CONDITION_TONE = { Normal: 'ok', 'Investigation Required': 'warn', 'Action Verification': 'wait', Critical: 'stop', Unavailable: 'off' };
+
+/** Compact motor-condition badge for page heads (the shell supplies the condition; the Overview shows the full banner instead). */
+export function ConditionBadge({ c }) {
+  if (!c) return null;
+  return <span className="tq-cond-badge" data-testid="cond-badge" title={c.why}><Pill tone={CONDITION_TONE[c.status] || 'off'}>Motor: {c.status}</Pill></span>;
+}
+
+/** The Overview's lead: the motor condition, why, and one next step. */
+export function ConditionBanner({ c, go, testid = 'ov-health', children }) {
+  return (
+    <section className={`tq-ov-health tq-ov-health--${CONDITION_TONE[c.status] || 'off'}`} data-testid={testid} aria-label="Motor condition">
+      <span className="tq-ov-health-icon" aria-hidden="true"><Activity size={22} /></span>
+      <div className="tq-ov-health-text">
+        <span className="tq-ov-health-label">Motor condition</span>
+        <strong data-testid={`${testid}-status`}>{c.status}</strong>
+        <p>{c.why}</p>{children}
+      </div>
+      {c.next && go && <button type="button" className="tq-btn tq-primary" data-testid="ov-next" onClick={() => go(c.next[0])}>{c.next[1]}<ArrowRight size={14} aria-hidden="true" /></button>}
+    </section>
+  );
+}
+
+/** Page title row: the title, an optional short purpose, the motor-condition badge and right-aligned status. The sidebar names the
+ *  section, so the head repeats neither the group nor the page name. */
 export function PageHead({ title: t, sub, right, eyebrow }) {
   const nav = useNavContext();
   const I = nav?.icon;
-  const crumb = eyebrow ?? [nav?.group, nav?.tag].filter(Boolean).join(' · ');
   return (
     <div className="tq-page-head">
       <div className="tq-page-head-main">
         {I && <span className="tq-page-icon" aria-hidden="true"><I size={20} /></span>}
-        <div>{crumb && <p className="tq-eyebrow">{crumb}</p>}<h2>{t}</h2>{sub && <p>{sub}</p>}</div>
+        <div>{eyebrow && <p className="tq-eyebrow">{eyebrow}</p>}<h2>{t}</h2>{sub && <p>{sub}</p>}</div>
       </div>
-      <div className="tq-row">{right}</div>
+      <div className="tq-row"><ConditionBadge c={nav?.condition} />{right}</div>
     </div>
   );
 }

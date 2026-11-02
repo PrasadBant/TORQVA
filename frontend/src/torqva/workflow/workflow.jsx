@@ -209,7 +209,7 @@ export function WorkflowPage({ mode = 'SIMULATION', d, role, stale, go }) {
   const secOf = Object.fromEntries(FLOW.map((f) => [f.key, wf ? f.sec : 'wf-config']));
   return (
     <>
-      <PageHead title="Diagnostic Workflow" sub="One guided pass: check the motor, run a test, read the evidence and diagnosis, compare predicted outcomes, decide, then verify recovery."
+      <PageHead title="Diagnostic Workflow" sub="One guided investigation: test, diagnose, predict, decide and verify."
         right={<span className="tq-an-right"><Pill tone={physical ? 'ok' : 'info'}>{physical ? 'PHYSICAL MODE' : 'SIMULATION MODE'}</Pill><ProvBadge kind={prov} /></span>} />
       <div className="tq-wf tq-an-page">
         <section className="tq-card tq-an-flow" id="wf-flow" aria-labelledby="wf-flow-h" data-testid="wf-flow">
@@ -253,7 +253,7 @@ function NextStep({ wf, ctl, go, physical }) {
   let action = null;
   if (wf.status === 'AWAITING_AUTHORIZATION') action = <button type="button" className="tq-btn tq-primary" onClick={() => reveal('wf-sec-auth')}><ShieldCheck size={14} aria-hidden="true" />{ctl ? 'Review and authorize' : 'Review the recommendation'}</button>;
   else if (wf.status === 'VERIFYING_OUTCOME') action = <button type="button" className="tq-btn" onClick={() => go?.('live')}><Activity size={14} aria-hidden="true" />Advance the simulation on Live Monitor</button>;
-  else if (TERMINAL.includes(wf.status) && c.intervention) action = <button type="button" className="tq-btn" onClick={() => go?.('recovery')}><ShieldCheck size={14} aria-hidden="true" />Open Recovery (C5)</button>;
+  else if (TERMINAL.includes(wf.status) && c.intervention) action = <button type="button" className="tq-btn" onClick={() => go?.('recovery')}><ShieldCheck size={14} aria-hidden="true" />Open Recovery Verification</button>;
   else if (TERMINAL.includes(wf.status)) action = <button type="button" className="tq-btn" onClick={() => reveal('wf-config')}><Play size={14} aria-hidden="true" />{wf.status === 'BLOCKED' || physical ? 'Review the prerequisites' : 'Start another workflow'}</button>;
   return (
     <AlertPanel tone={tone === 'wait' ? 'info' : tone} title={wf.headline || title(wf.status)} testid="wf-headline" action={action}>
@@ -339,7 +339,7 @@ function Configuration({ physical, ctx, patterns, chosen, setSel, policy, setPol
           {running ? <Loader2 size={15} className="tq-spin" aria-hidden="true" /> : <Play size={15} aria-hidden="true" />} {running ? 'Running diagnostic workflow…' : 'Run Diagnostic Workflow'}</button>
       </div>
       <p className="tq-muted tq-small">
-        {policy === 'auto_when_permitted' ? 'Pre-authorizes only the recommended REDUCE SPEED or STOP; the backend still applies freshness, the decision gate, C2 support and the Safety Supervisor, and sends nothing if any refuses.'
+        {policy === 'auto_when_permitted' ? 'Pre-authorizes only the recommended REDUCE SPEED or STOP; the backend still applies freshness, the decision gate, prediction support and the Safety Supervisor, and sends nothing if any refuses.'
           : 'TORQVA stops before any command and shows exactly which action, RPM and evidence you are authorizing.'}
       </p>
       {why.length > 0 && <p className="tq-callout warn tq-small">{why.join(' ')}</p>}
@@ -376,7 +376,7 @@ function StartAndExecution({ wf, physical }) {
   const kind = physical ? 'MEASURED' : 'SIMULATED';
   const reading = (k, d) => (v[k] === null || v[k] === undefined || !Number.isFinite(Number(v[k])) ? null : fmt(v[k], d));
   return (
-    <Card title="Motor status, test and execution" id="wf-sec-start" icon={Gauge} sub="Steps 1–3 · the state the run started from and what the test returned"
+    <Card title="Motor status, test and execution" id="wf-sec-start" icon={Gauge} sub="Steps 1–3"
       right={<span className="tq-an-right"><Pill tone={STATUS_TONE[wf.status] || 'info'}>{title(wf.status)}</Pill>{wf.outcome !== wf.status && <OutcomePill outcome={wf.outcome} />}</span>}>
       <h4 className="tq-an-h">Backend stages</h4>
       <StageList wf={wf} />
@@ -456,7 +456,7 @@ function EvidenceAndDiagnosis({ c }) {
   const top = dx?.hypotheses?.[0];
   const post = dx?.posterior;
   return (
-    <Card title="Evidence and diagnosis" id="wf-sec-dx" icon={Microscope} sub="Steps 4–5 · what was observed, kept apart from what TORQVA infers from it"
+    <Card title="Evidence and diagnosis" id="wf-sec-dx" icon={Microscope} sub="Steps 4–5 · observed evidence, then TORQVA's interpretation"
       right={<span className="tq-an-right">{dx && <Pill tone={COND_TONE[dx.condition] || 'info'}>{title(dx.condition)}</Pill>}</span>}>
       <div className="tq-an-cols">
         <section className="tq-an-col" aria-labelledby="wf-ev-h">
@@ -464,12 +464,12 @@ function EvidenceAndDiagnosis({ c }) {
           {ev ? (
             <dl className="tq-kv tq-small" data-testid="wf-evidence">
               <dt>Windows (simulated 1 s)</dt><dd className="tq-num">{ev.windows} · {pct(ev.valid_fraction)} valid</dd>
-              <dt>C1 scored / flagged</dt><dd className="tq-num">{ev.scored_windows} · {pct(ev.c1_flagged_fraction)} above threshold</dd>
+              <dt>Windows scored / flagged</dt><dd className="tq-num">{ev.scored_windows} · {pct(ev.c1_flagged_fraction)} above threshold</dd>
               <dt>Tested setpoints</dt><dd className="tq-num">{ev.tested_setpoints_rpm.map(rpm).join(', ') || '—'} rpm</dd>
               <dt>Signals present</dt><dd>{ev.signals_present.join(', ') || 'none'}</dd>
               <dt>Missing signals</dt><dd>{ev.signals_missing.length ? ev.signals_missing.join(', ') : 'none'}</dd>
               {ev.unscored_statuses.length > 0 && <><dt>Unscored windows</dt><dd>{ev.unscored_statuses.map(title).join(', ')}</dd></>}
-              <dt>Evidence sufficiency</dt><dd>{an?.sufficiency ? title(an.sufficiency) : 'not applicable'}</dd>
+              <dt>Evidence quality</dt><dd>{an?.sufficiency ? title(an.sufficiency) : 'not applicable'}</dd>
             </dl>) : <Empty>No evidence was recorded.</Empty>}
           {ev?.kinds && <p className="tq-muted tq-small">Measured: {ev.kinds.measured}. Derived: {ev.kinds.derived}.</p>}
           {an?.sufficiency_rule && <p className="tq-muted tq-small">Sufficiency rule: {an.sufficiency_rule}.</p>}
@@ -478,7 +478,7 @@ function EvidenceAndDiagnosis({ c }) {
           <h4 className="tq-an-h" id="wf-dx-h">5 · Diagnosis <span className="tq-an-ai">AI interpretation, not proof</span></h4>
           {dx && <div className={`tq-narrate tone-${COND_TONE[dx.condition] || 'info'}`} data-testid="wf-diagnosis"><strong>{dx.headline}</strong><span>{dx.detail}</span></div>}
           {dx?.ranked?.length ? <PosteriorBars ranked={dx.ranked.slice(0, 4)} label={dx.posterior?.label} />
-            : <Empty>{dx?.condition === 'NO_ANOMALY_DETECTED' ? 'No ranking: the hypothesis model ranks faults, and C1 found no anomaly to explain.' : 'No ranking from this evidence.'}</Empty>}
+            : <Empty>{dx?.condition === 'NO_ANOMALY_DETECTED' ? 'No ranking: the hypothesis model ranks faults, and Anomaly Detection found no anomaly to explain.' : 'No ranking from this evidence.'}</Empty>}
           {post && (
             <p className="tq-small tq-an-uncert"><span className="tq-muted">Uncertainty: </span>margin {fmt(post.margin, 2)} between the top two · {post.n_windows} evidence windows
               {post.ood ? <> · <Pill tone="warn">unlike any learned signature</Pill></> : ''}</p>)}
@@ -513,7 +513,7 @@ function Recommendation({ wf }) {
   const predOf = useMemo(() => Object.fromEntries([...(pr?.candidates || []), ...(pr?.references || [])].map((p) => [p.candidate_id, p])), [pr]);
   const at120 = (p, s, d) => { const i = (p?.horizons_s || [30, 60, 120]).indexOf(120); const m = p?.mean?.[s]?.[i]; return m == null ? '—' : fmt(m, d); };
   return (
-    <Card title="Prediction and decision" id="wf-sec-rec" icon={LineChart} sub="Steps 6–7 · predicted outcomes of each candidate and the action the backend recommends"
+    <Card title="Prediction and decision" id="wf-sec-rec" icon={LineChart} sub="Steps 6–7"
       right={<span className="tq-an-right">{rec.actionable ? <Pill tone="info">command</Pill> : <Pill tone="off">no command</Pill>}</span>}>
       <div className={`tq-wf-rec kind-${rec.kind}`} data-testid="wf-recommendation" data-action={rec.action}>
         <div className="tq-wf-rec-label">RECOMMENDED ACTION <ProvBadge kind="DERIVED" /></div>
@@ -551,9 +551,9 @@ function Recommendation({ wf }) {
       </div>
       {rec.ranking?.length > 0 && (
         <div className="tq-mt" data-testid="wf-candidates-more">
-          <h4 className="tq-an-h">Candidate comparison <span className="tq-muted tq-small">· {rec.ranking.length} candidates ranked by C2 · predicted values at 120 s</span></h4>
-          <div className="tq-table-wrap"><table className="tq-table tq-small" data-testid="wf-candidates"><caption className="tq-sr">Candidate actions compared by C2</caption>
-            <thead><tr><th scope="col">Rank</th><th scope="col">Candidate</th><th scope="col">Action</th><th scope="col">Target</th><th scope="col">Vibration @120 s (PRED)</th><th scope="col">Housing @120 s (PRED)</th><th scope="col">Risk</th><th scope="col">C2 status</th><th scope="col">Selection</th></tr></thead>
+          <h4 className="tq-an-h">Candidate comparison <span className="tq-muted tq-small">· {rec.ranking.length} candidates ranked by Failure Prediction · predicted values at 120 s</span></h4>
+          <div className="tq-table-wrap"><table className="tq-table tq-small" data-testid="wf-candidates"><caption className="tq-sr">Candidate actions compared by Failure Prediction</caption>
+            <thead><tr><th scope="col">Rank</th><th scope="col">Candidate</th><th scope="col">Action</th><th scope="col">Target</th><th scope="col">Vibration @120 s (PRED)</th><th scope="col">Housing @120 s (PRED)</th><th scope="col">Risk</th><th scope="col">Failure Prediction status</th><th scope="col">Selection</th></tr></thead>
             <tbody>{rec.ranking.map((r) => { const p = predOf[r.candidate_id]; return (
               <tr key={r.candidate_id} className={r.candidate_id === rec.candidate_id ? 'is-on' : ''}><td className="tq-num">{r.rank}</td><td>{r.label}{r.pipeline_default ? <span className="tq-muted"> (pipeline default)</span> : ''}</td><td>{title(r.action)}</td>
                 <td className="tq-num">{r.action === 'REDUCE_SPEED' ? `${rpm(r.target_rpm)} rpm` : r.action === 'STOP' ? 'stop' : '—'}</td>
@@ -574,7 +574,7 @@ function Authorization({ wf, ctl, busy, onAuthorize, onDecline }) {
   const awaiting = wf.status === 'AWAITING_AUTHORIZATION';
   if (!awaiting && !auth?.decision) return null;
   return (
-    <Card title="Authorization" id="wf-sec-auth" icon={ShieldCheck} sub="Step 7 · a person decides; the backend re-checks every gate at that moment"
+    <Card title="Authorization" id="wf-sec-auth" icon={ShieldCheck} sub="Step 7 · a person decides"
       right={auth?.decision ? <><Pill tone={auth.decision === 'AUTHORIZED' ? 'ok' : auth.decision === 'EXPIRED' ? 'warn' : 'off'}>{title(auth.decision).toLowerCase()}</Pill><ProvBadge kind="HUMAN_CONFIRMED" /></> : <Pill tone="wait">awaiting a decision</Pill>}>
       {awaiting ? (
         <div className="tq-an-auth" data-testid="wf-authorize-box">
@@ -585,7 +585,7 @@ function Authorization({ wf, ctl, busy, onAuthorize, onDecline }) {
             <dt>Evidence basis</dt><dd className="tq-num">simulation t = {fmt(rec.basis?.t, 0)} s{rec.basis?.posterior_top ? ` · ${title(rec.basis.posterior_top)} (${rec.basis.posterior_label})` : ''}</dd>
             {auth?.expires && <><dt>Expires</dt><dd>{auth.expires}</dd></>}
           </dl>
-          <p className="tq-small">Nothing has been sent. When you authorize, the backend re-checks freshness, the decision gate, C2 support and the Safety Supervisor, and sends nothing if any of them refuses.</p>
+          <p className="tq-small">Nothing has been sent. Authorizing re-runs every safety check first.</p>
           <div className="tq-row">
             <button type="button" className="tq-btn tq-primary" onClick={onAuthorize} disabled={!ctl || !!busy} data-testid="wf-authorize">
               {busy === 'authorize' ? <Loader2 size={14} className="tq-spin" aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />} {busy === 'authorize' ? 'Sending…' : 'Authorize and execute'}</button>
@@ -621,15 +621,15 @@ function Verification({ wf, go }) {
     ['requested', 'Command requested', iv.command_id != null, iv.command_id != null ? `#${iv.command_id} ${title(cmd.action)}${iv.command?.params?.rpm ? ` ${rpm(iv.command.params.rpm)} rpm` : ''}` : 'not dispatched'],
     ['accepted', 'Accepted by the simulated device', !!cmd.accepted, cmd.status || '—'],
     ['executed', 'Execution confirmed', !!cmd.executed, cmd.executed ? 'the device reports it took effect' : 'not confirmed'],
-    ['improved', 'Improvement observed', improved, v ? `C1 score ÷ threshold ${fmt(v.c1_score_before, 2)} before → ${fmt(v.c1_score_after, 2)} after (${v.post_ack_windows} windows)` : '—'],
-    ['verified', 'Recovery verified (C5)', wf.outcome === 'RECOVERY_VERIFIED', v?.assessment ? `${title(v.assessment.outcome)}: ${(v.assessment.reasons || []).map(title).join(', ')}` : 'waiting'],
+    ['improved', 'Improvement observed', improved, v ? `Anomaly severity (× threshold) ${fmt(v.c1_score_before, 2)} before → ${fmt(v.c1_score_after, 2)} after (${v.post_ack_windows} windows)` : '—'],
+    ['verified', 'Recovery verified', wf.outcome === 'RECOVERY_VERIFIED', v?.assessment ? `${title(v.assessment.outcome)}: ${(v.assessment.reasons || []).map(title).join(', ')}` : 'waiting'],
   ];
   return (
-    <Card title="Intervention and recovery" id="wf-sec-verify" icon={Activity} sub="Steps 8–9 · each step is shown only when the record confirms it" right={<span className="tq-an-right"><OutcomePill outcome={wf.outcome} /><ProvBadge kind="SIMULATED" /></span>}
-      foot={<>{iv.receipt_id && <span className="tq-small">Decision receipt <strong>{iv.receipt_id}</strong></span>}<LinkButton onClick={() => go?.('interventions')}>Open Interventions</LinkButton><LinkButton onClick={() => go?.('recovery')}>Open Recovery</LinkButton></>}>
+    <Card title="Intervention and recovery" id="wf-sec-verify" icon={Activity} sub="Steps 8–9" right={<span className="tq-an-right"><OutcomePill outcome={wf.outcome} /><ProvBadge kind="SIMULATED" /></span>}
+      foot={<>{iv.receipt_id && <span className="tq-small">Decision summary <strong>{iv.receipt_id}</strong></span>}<LinkButton onClick={() => go?.('interventions')}>Open Action Recommendations</LinkButton><LinkButton onClick={() => go?.('recovery')}>Open Recovery Verification</LinkButton></>}>
       <CheckList testid="wf-verify-steps" label="Command and verification lifecycle"
         items={steps.map(([k, label, ok, detail]) => ({ key: k, label, detail, state: ok ? 'ok' : 'pending', status: ok ? 'yes' : 'not yet' }))} />
-      {wf.status === 'VERIFYING_OUTCOME' && <p className="tq-callout info">C5 decides from fresh simulated windows after the acknowledgement. The simulation must advance (Run, or Step on the Live Monitor) for verification to finish.</p>}
+      {wf.status === 'VERIFYING_OUTCOME' && <p className="tq-callout info">Verification needs fresh simulated readings: run the simulation in Scenario Studio to finish it.</p>}
       {iv.note && <p className="tq-muted tq-small">{iv.note}.</p>}
       {v?.predicted_vs_observed?.length > 0 && (
         <Disclosure summary="Compare the prediction with what was observed" meta={`${v.predicted_vs_observed.filter((r) => r.inside_interval).length} of ${v.predicted_vs_observed.length} samples inside the 90 % interval`} testid="wf-pvo-more">
@@ -638,7 +638,7 @@ function Verification({ wf, go }) {
           <tbody>{v.predicted_vs_observed.map((r) => { const [n, u, dg] = SIGNAL[r.signal] || [r.signal, '', 2]; return (
             <tr key={`${r.signal}${r.horizon_s}`}><th scope="row">{n}</th><td className="tq-num">{r.horizon_s} s</td><td className="tq-num">{fmt(r.predicted_mean, dg)} ({fmt(r.lo, dg)}–{fmt(r.hi, dg)}) {u}</td>
               <td className="tq-num">{fmt(r.observed, dg)} {u}</td><td>{r.inside_interval ? <Pill tone="ok">yes</Pill> : <Pill tone="warn">no</Pill>}</td></tr>); })}</tbody></table>
-          <p className="tq-muted tq-small">Single samples at each horizon; a predicted improvement is not an observed one, and neither is a recovery verdict.</p></div>
+          <p className="tq-muted tq-small">Single samples at each horizon.</p></div>
         </Disclosure>)}
     </Card>
   );
@@ -654,19 +654,19 @@ function FinalReport({ wf, go, physical }) {
   const link = (view, text) => <LinkButton onClick={() => go?.(view)}>{text}</LinkButton>;
   const dx = c.diagnosis; const rec = c.recommendation; const iv = c.intervention; const auth = c.authorization;
   const items = [
-    { key: 'test', label: 'Test', state: stateOf('RUNNING_DIAGNOSTIC_TEST'), status: c.test ? `run ${c.test.run_id}` : 'not run', detail: c.test ? `${wf.pattern?.name}: ${title(c.test.status)}` : by.VALIDATING?.summary, action: !physical && c.test ? link('tests', 'Diagnostic Tests') : null },
+    { key: 'test', label: 'Test', state: stateOf('RUNNING_DIAGNOSTIC_TEST'), status: c.test ? `run ${c.test.run_id}` : 'not run', detail: c.test ? `${wf.pattern?.name}: ${title(c.test.status)}` : by.VALIDATING?.summary, action: !physical && c.test ? link('tests', 'Diagnostic Investigation') : null },
     { key: 'evidence', label: 'Evidence', state: stateOf('COLLECTING_EVIDENCE', 'ANALYSING_EVIDENCE'), status: c.evidence ? `${c.evidence.windows} windows` : 'none', detail: by.COLLECTING_EVIDENCE?.summary },
-    { key: 'diagnosis', label: 'Diagnosis (AI interpretation)', state: stateOf('GENERATING_DIAGNOSIS'), status: dx ? title(dx.condition).toLowerCase() : 'none', detail: dx?.headline, action: dx ? link('diagnostics', 'AI Diagnostics') : null },
-    { key: 'prediction', label: 'Prediction', state: c.predictions?.available === false ? 'info' : stateOf('CALCULATING_PREDICTIONS'), status: c.predictions ? (c.predictions.available ? 'predicted' : 'not applicable') : 'none', detail: by.CALCULATING_PREDICTIONS?.summary, action: c.predictions?.available ? link('predictions', 'Predictions') : null },
+    { key: 'diagnosis', label: 'Diagnosis (AI interpretation)', state: stateOf('GENERATING_DIAGNOSIS'), status: dx ? title(dx.condition).toLowerCase() : 'none', detail: dx?.headline, action: dx ? link('diagnostics', 'Anomaly Detection') : null },
+    { key: 'prediction', label: 'Prediction', state: c.predictions?.available === false ? 'info' : stateOf('CALCULATING_PREDICTIONS'), status: c.predictions ? (c.predictions.available ? 'predicted' : 'not applicable') : 'none', detail: by.CALCULATING_PREDICTIONS?.summary, action: c.predictions?.available ? link('predictions', 'Failure Prediction') : null },
     { key: 'decision', label: 'Decision', state: auth?.decision === 'AUTHORIZED' ? 'ok' : auth?.decision === 'EXPIRED' ? 'warn' : auth?.decision === 'DECLINED' ? 'info' : stateOf('GENERATING_RECOMMENDATION'), status: auth?.decision ? title(auth.decision).toLowerCase() : rec ? (rec.actionable ? (wf.status === 'AWAITING_AUTHORIZATION' ? 'awaiting authorization' : 'recommended') : 'no command') : 'none', detail: rec?.headline },
-    { key: 'intervention', label: 'Intervention', state: iv ? stateOf('EXECUTING_ACTION') : 'pending', status: iv?.command_id != null ? `command #${iv.command_id}` : 'none sent', detail: iv ? `${title(iv.command?.action)} via ${title(iv.path)}${iv.receipt_id ? ` · receipt ${iv.receipt_id}` : ''}` : 'nothing was sent to the motor', action: iv ? link('interventions', 'Interventions') : null },
+    { key: 'intervention', label: 'Intervention', state: iv ? stateOf('EXECUTING_ACTION') : 'pending', status: iv?.command_id != null ? `command #${iv.command_id}` : 'none sent', detail: iv ? `${title(iv.command?.action)} via ${title(iv.path)}${iv.receipt_id ? ` · receipt ${iv.receipt_id}` : ''}` : 'nothing was sent to the motor', action: iv ? link('interventions', 'Action Recommendations') : null },
     { key: 'recovery', label: 'Recovery', state: wf.outcome === 'RECOVERY_VERIFIED' ? 'ok' : iv ? stateOf('VERIFYING_OUTCOME') : 'pending', status: iv ? (OUTCOME[wf.outcome]?.[1] || title(wf.outcome)).toLowerCase() : 'not applicable', detail: by.VERIFYING_OUTCOME?.summary, action: iv ? link('recovery', 'Recovery') : null },
   ];
   return (
-    <Card title={terminal ? 'Final report' : 'Report so far'} id="wf-sec-report" icon={FileText} sub="Step 10 · test → evidence → diagnosis → prediction → decision → intervention → recovery, from the record"
+    <Card title={terminal ? 'Final report' : 'Report so far'} id="wf-sec-report" icon={FileText} sub="Step 10"
       right={<OutcomePill outcome={wf.outcome} />}>
       <CheckList testid="wf-report" label="Workflow chain" items={items} />
-      <p className="tq-muted tq-small">Workflow {wf.id} · {wf.mode === 'PHYSICAL' ? 'physical mode' : `simulation${wf.session ? ` session ${wf.session}` : ''}`} · {(wf.events || []).length} recorded events. A diagnosis is a ranked interpretation, a prediction is a model estimate, and only C5 verifies recovery.</p>
+      <p className="tq-muted tq-small">Workflow {wf.id} · {wf.mode === 'PHYSICAL' ? 'physical mode' : `simulation${wf.session ? ` session ${wf.session}` : ''}`} · {(wf.events || []).length} recorded events. A diagnosis is a ranked interpretation, a prediction is a model estimate, and only Recovery Verification verifies recovery.</p>
     </Card>
   );
 }
@@ -676,25 +676,24 @@ function Details({ wf }) {
   const c = wf.context || {};
   const series = c.test?.series || [];
   return (
-    <Card title="Evidence details" id="wf-details" sub="Raw test windows, the starting snapshot, model details and the workflow's own event log">
+    <Card title="Evidence details" id="wf-details" sub="Advanced: raw records">
       <Disclosure summary="Test time series" meta={`${series.length} points${c.test?.series_step > 1 ? `, every ${c.test.series_step}th window` : ''}`} testid="wf-series">
         {series.length > 1 ? (<div className="tq-grid tq-grid-2">
           <div role="img" aria-label="Speed during the test" className="tq-chart"><TrendLines data={series} height={180} digits={0} unit="rpm" lines={[{ key: 'rpm', name: 'observed rpm', color: 'var(--tq-chart-ink)' }, { key: 'setpoint', name: 'setpoint', color: 'var(--tq-chart-1)', dash: '4 3' }]} /></div>
           <div role="img" aria-label="Vibration during the test" className="tq-chart"><TrendLines data={series} height={180} digits={3} unit="g" lines={[{ key: 'vib_rms', name: 'vibration RMS', color: 'var(--tq-chart-3)' }]} /></div>
           <div role="img" aria-label="Current during the test" className="tq-chart"><TrendLines data={series} height={180} digits={2} unit="A" lines={[{ key: 'current', name: 'current', color: 'var(--tq-chart-4)' }]} /></div>
-          <div role="img" aria-label="C1 score during the test" className="tq-chart"><TrendLines data={series} height={180} digits={2} unit="" lines={[{ key: 'score', name: 'C1 score ÷ threshold', color: 'var(--tq-chart-2)' }]} /></div>
+          <div role="img" aria-label="anomaly severity during the test" className="tq-chart"><TrendLines data={series} height={180} digits={2} unit="" lines={[{ key: 'score', name: 'Anomaly severity (× threshold)', color: 'var(--tq-chart-2)' }]} /></div>
         </div>) : <Empty>No test windows were recorded.</Empty>}
-        <p className="tq-chart-note">Simulated windows of the copy the test ran on (simulation time, provenance SIMULATED).</p>
       </Disclosure>
       {c.initial_telemetry && (
         <Disclosure summary="Initial telemetry snapshot" meta="as recorded when the workflow started">
           <dl className="tq-kv tq-small">{['t', 'rpm', 'setpoint', 'current', 'voltage', 'power', 'housing', 'vib_rms', 'valid', 'age_s'].filter((k) => k in c.initial_telemetry).map((k) => (
             <React.Fragment key={k}><dt>{k}</dt><dd className="tq-num">{String(c.initial_telemetry[k] ?? 'unavailable')}</dd></React.Fragment>))}</dl></Disclosure>)}
       {c.predictions?.available && (
-        <Disclosure summary="Model details" meta="what C2 was conditioned on and whether it is trusted">
+        <Disclosure summary="Model details" meta="what the predictor was conditioned on and whether it is trusted">
           <dl className="tq-kv tq-small">
-            <dt>C2 conditioned on</dt><dd>{rankText(c.predictions.conditioned_on)}</dd>
-            <dt>C2 trusted</dt><dd>{c.predictions.trust.trusted ? 'yes' : `no (${c.predictions.trust.reasons.map(title).join(', ')})`}</dd>
+            <dt>Prediction conditioned on</dt><dd>{rankText(c.predictions.conditioned_on)}</dd>
+            <dt>Prediction trusted</dt><dd>{c.predictions.trust.trusted ? 'yes' : `no (${c.predictions.trust.reasons.map(title).join(', ')})`}</dd>
             <dt>Validated by intervention experiments</dt><dd>{c.predictions.validated_by_experiments ? 'yes' : 'no'}</dd>
             <dt>Target grid</dt><dd>{c.predictions.target_grid}</dd>
             {c.recommendation?.gate && <><dt>Gate</dt><dd>{title(c.recommendation.gate.verdict)}: {c.recommendation.gate.reason}</dd></>}

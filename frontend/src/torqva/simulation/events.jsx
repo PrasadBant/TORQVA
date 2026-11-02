@@ -29,7 +29,6 @@ export function EventTimeline({ log, limit = 12, incident }) {
           })}
         </ol>)}
       {all.length > limit && <button type="button" className="tq-link" onClick={() => setMore(!more)}>{more ? 'Show fewer' : `Show all ${all.length}`}</button>}
-      <p className="tq-chart-note">Simulation time in seconds. The backend keeps the latest 200 log entries for the current run.</p>
     </>
   );
 }

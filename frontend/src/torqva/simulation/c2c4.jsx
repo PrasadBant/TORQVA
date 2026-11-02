@@ -59,7 +59,7 @@ export function DiagnosticTests({ log = [] }) {
   const rows = testLogRows(log);
   const tone = TEST_LOG_TONE;
   return (
-    <Card title="Diagnostic tests (C4)" id="c-tests">
+    <Card title="Diagnostic tests" id="c-tests">
       <p className="tq-muted">A test only runs after the Safety Supervisor allows it (and, in hardware mode, a person approves). An aborted test produces no diagnosis; an
         ambiguous result stays <em>inconclusive</em>.</p>
       {!rows.length ? <Empty>No diagnostic test has been recommended in this session.</Empty> : (
@@ -76,35 +76,35 @@ const pct = (v) => (v == null ? '—' : `${fmt(v * 100, 1)}%`);
 
 /** Phase 10 validation status: C2 interval coverage per regime and C4 test value, with the limitations spelled out. */
 export function C2C4Validation({ data, error }) {
-  if (error && !data) return <Card title="C2 / C4 validation (Phase 10)" id="c-c2c4"><Empty>No C2/C4 study result available ({String(error.message)}).</Empty></Card>;
+  if (error && !data) return <Card title="Prediction and diagnostic-test validation (Phase 10)" id="c-c2c4"><Empty>No prediction and diagnostic-test study result available ({String(error.message)}).</Empty></Card>;
   if (!data || !data.c2) return null;
   const regs = Object.keys(data.c2.control || {});
-  const variants = [['control', 'shipped C2'], ['noise_aware', 'noise-aware C2 (opt-in)']];
+  const variants = [['control', 'shipped predictor'], ['noise_aware', 'noise-aware predictor (opt-in)']];
   const real = data.c4_realistic_v2 || data.c4_realistic_v1 || {};
   const label = data.c4_realistic_v2 ? 'fresh seeds, v2' : 'v1';
   return (
-    <Card title="C2 / C4 validation (Phase 10)" id="c-c2c4" className="tq-span" right={<ProvBadge kind="SIMULATED" />}>
+    <Card title="Prediction and diagnostic-test validation (Phase 10)" id="c-c2c4" className="tq-span" right={<ProvBadge kind="SIMULATED" />}>
       <p className="tq-warnbox" role="note">{data.WARNING}</p>
       <Pill tone="warn">unvalidated against hardware</Pill>
-      {data.phase11?.c4_calibration && <p className="tq-muted">C4 calibration: {data.phase11.c4_calibration.adopted ? 'adopted' : 'NOT adopted (failed the pre-registered validation bar)'}; shipped C4 behaviour is unchanged.</p>}
-      <Disclosure summary="View per-regime results" meta="C2 interval coverage, C4 test value and the Phase 11 opt-in variant, by regime" testid="eval-c2c4-tables" className="tq-mt">
-      <h4>C2: coverage of the intervals actually returned (target 90 %)</h4>
-      <table className="tq-table"><caption className="tq-sr">C2 interval coverage by regime</caption>
+      {data.phase11?.c4_calibration && <p className="tq-muted">Test calibration: {data.phase11.c4_calibration.adopted ? 'adopted' : 'NOT adopted (failed the pre-registered validation bar)'}; shipped test model behaviour is unchanged.</p>}
+      <Disclosure summary="View per-regime results" meta="Prediction interval coverage, Diagnostic Investigation test value and the Phase 11 opt-in variant, by regime" testid="eval-c2c4-tables" className="tq-mt">
+      <h4>Failure Prediction: coverage of the intervals actually returned (target 90 %)</h4>
+      <table className="tq-table"><caption className="tq-sr">Prediction interval coverage by regime</caption>
         <thead><tr><th scope="col">Regime</th>{variants.map(([k, n]) => <th scope="col" key={k}>{n}</th>)}<th scope="col">Width (norm.) control → candidate</th></tr></thead>
         <tbody>{regs.map((rg) => (
           <tr key={rg}><td>{rg.replaceAll('_', ' ')}</td>
             {variants.map(([k]) => { const e = data.c2[k][rg]; return (
               <td key={k} className="tq-num">{pct(e.coverage)} <span className="tq-muted">[{pct(e.coverage_ci95[0])}–{pct(e.coverage_ci95[1])}] · abstains {pct(1 - e.trusted_frac)}</span></td>); })}
             <td className="tq-num">{fmt(data.c2.control[rg].mean_width_norm, 2)} → {fmt(data.c2.noise_aware[rg].mean_width_norm, 2)}</td></tr>))}</tbody></table>
-      <h4>C4: what a speed-step test changes (looseness vs sensor fault, after C1 evidence; {label})</h4>
-      <table className="tq-table"><caption className="tq-sr">C4 diagnostic value</caption>
+      <h4>Diagnostic Investigation: what a speed-step test changes (looseness vs sensor fault, after Anomaly Detection evidence; {label})</h4>
+      <table className="tq-table"><caption className="tq-sr">Diagnostic test value</caption>
         <thead><tr><th scope="col">Regime</th><th scope="col">Model</th><th scope="col">No test</th><th scope="col">After test</th><th scope="col">Inconclusive</th><th scope="col">Confidently wrong</th></tr></thead>
         <tbody>{Object.entries(real).flatMap(([rg, v]) => Object.entries(v).filter(([m, a]) => a.n && ['control', 'style_aware', 'style_aware_guarded'].includes(m)).map(([m, a]) => (
           <tr key={rg + m}><td>{rg}</td><td>{m.replaceAll('_', ' ')}</td><td className="tq-num">{pct(a.no_test_top1)}</td><td className="tq-num">{pct(a.accuracy_after)}</td>
             <td className="tq-num">{pct(a.inconclusive)}</td><td className="tq-num">{pct(a.confident_wrong)}</td></tr>)))}</tbody></table>
       {data.phase11?.c2_conditional && (<>
-        <h4>Phase 11 (opt-in, not adopted by default): class-conditional C2 coverage, overload and worst fault, fresh seeds</h4>
-        <table className="tq-table"><caption className="tq-sr">Phase 11 class-conditional C2 coverage</caption>
+        <h4>Phase 11 (opt-in, not adopted by default): class-conditional Failure Prediction coverage, overload and worst fault, fresh seeds</h4>
+        <table className="tq-table"><caption className="tq-sr">Phase 11 class-conditional Failure Prediction coverage</caption>
           <thead><tr><th scope="col">Regime</th><th scope="col">Cases</th><th scope="col">Coverage</th><th scope="col">Overload</th><th scope="col">Trusted</th><th scope="col">Coverage when trusted</th></tr></thead>
           <tbody>{Object.entries(data.phase11.c2_conditional.variants.class_conditional || {}).map(([rg, e]) => (
             <tr key={rg}><td>{rg.replaceAll('_', ' ')}</td><td className="tq-num">{e.n_cases}</td>

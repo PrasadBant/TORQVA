@@ -45,7 +45,7 @@ await shot('twin-physical-disconnected');
 
 // ---- simulation mode: start a run from Scenario Studio on the Overview, then watch the twin
 await page.click('button:has-text("Simulation mode (demo)")');
-await nav('Overview');
+await nav('Scenario Studio');
 for (let i = 0; i < 20; i++) {   // the new-scenario form is a disclosure in Scenario Studio; it folds once when the run state first loads
   await page.evaluate(() => document.querySelectorAll('[data-testid=scn-new]').forEach((x) => { x.open = true; }));
   await page.waitForTimeout(300);
@@ -53,7 +53,7 @@ for (let i = 0; i < 20; i++) {   // the new-scenario form is a disclosure in Sce
 }
 await page.click('button:has-text("Start new simulation")');
 await page.waitForTimeout(800);
-await page.click('button:has-text("Run")');
+await page.getByRole('button', { name: 'Run', exact: true }).click();
 await nav('Digital Twin');
 await page.waitForSelector('[data-testid=twin-page][data-source=SIMULATION]', { timeout: 15000 });
 await page.waitForFunction(() => document.querySelector('[data-testid=twin-model]')?.getAttribute('data-spinning') === 'yes', null, { timeout: 15000 }).catch(() => {});
@@ -65,7 +65,7 @@ check('speed tile shows a simulated number with its SIM badge', /\d/.test(rpmTil
 check('power is labelled DERIVED', /DERIVED/.test(await page.textContent('[data-testid=twin-kpi-power]')));
 await shot('twin-sim-running');
 
-await nav('Live Monitor');
+await nav('Scenario Studio');      // run controls live only in Scenario Studio
 await page.click('button:has-text("Pause")');
 await nav('Digital Twin');
 await page.waitForTimeout(600);

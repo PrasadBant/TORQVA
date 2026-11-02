@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Usb, Unplug, Cpu, HeartPulse, Gauge, Zap, Thermometer, Plug, Move3d, Activity, Waves, SlidersHorizontal, Radio } from 'lucide-react';
+import { plainify } from '../shared/plain.js';
 import { api, getToken, ApiError } from '../api.js';
 import { Card, Empty, ErrorBox, Pill, fmt, title, PageHead, CardLink, Disclosure, AlertPanel, LinkButton, MetricList, ChartPanel, DataTable, SourceTag } from '../shared/components.jsx';
 import { HistoryChart } from '../shared/lazyCharts.jsx';
@@ -56,7 +57,7 @@ export function useDeviceStream(enabled, wsFactory = defaultWs, pollMs = 3000, o
       try { sock = wsFactory(`${proto}://${window.location.host}/api/torqva/ws`); } catch { setWs('closed'); return; }
       sock.onopen = () => { try { sock.send(JSON.stringify({ type: 'auth', token: getToken() })); } catch { /* socket closed before auth */ } };
       sock.onmessage = (ev) => {
-        let m; try { m = JSON.parse(ev.data); } catch { return; }          // malformed frames are ignored, never trusted
+        let m; try { m = plainify(JSON.parse(ev.data)); } catch { return; }          // malformed frames are ignored, never trusted; prose in product language
         if (!isObj(m)) return;
         setLastMsg(Date.now());
         setUnreachable(false);
@@ -110,7 +111,7 @@ const SENSOR_WORDS = { valid: 'Reading valid', unavailable: 'Not reported by thi
 const sensorTone = (v) => (v === 'valid' ? 'ok' : v === 'unavailable' ? 'off' : 'warn');
 
 /* ------------------------------------------------------------------ Device connection */
-export function DevicePage({ stream, role, go, simMode = false }) {
+export function DevicePage({ stream, role, go, simMode = false, embedded = false }) {
   const { snap, events, ws, error } = stream;
   const [ports, setPorts] = useState([]);
   const [form, setForm] = useState({ port: '', baud: 115200, expected: '' });
@@ -129,8 +130,8 @@ export function DevicePage({ stream, role, go, simMode = false }) {
   const sensors = Object.entries(snap?.sensor_status || {});
   return (
     <>
-      <PageHead title="Device" sub="Connection status and device information. The backend owns the USB serial link to the ESP32-S3; the browser never touches the port."
-        right={<><Pill tone={o.tone}>{o.label}</Pill><ConnPill snap={snap} /></>} />
+      {!embedded && <PageHead title="Device" sub="Connection status and device information. The backend owns the USB serial link to the ESP32-S3; the browser never touches the port."
+        right={<><Pill tone={o.tone}>{o.label}</Pill><ConnPill snap={snap} /></>} />}
       <AlertPanel tone={simMode ? 'info' : bl.length ? 'warn' : 'info'} testid="dev-readiness" icon={simMode ? Cpu : undefined}
         title={bl.length ? `Physical motion blocked (${bl.length})` : 'No motion blocker reported'}
         action={go && !simMode ? <LinkButton onClick={() => go('control')}>Review readiness and commissioning</LinkButton> : null}>
@@ -185,7 +186,7 @@ export function DevicePage({ stream, role, go, simMode = false }) {
               </div>
             </form>)}
           <ErrorBox error={err} />
-          <p className="tq-small tq-muted">If the device disappears the backend closes the port and shows DISCONNECTED; reconnect by selecting the port again. Nothing is replayed after a reconnect.</p>
+          <p className="tq-small tq-muted">If the device disconnects, select the port again to reconnect. Nothing is replayed.</p>
         </Card>
 
         <Card title="Device information" id="c-devinfo" icon={Cpu} sub="Reported by the device in its handshake">
@@ -219,7 +220,7 @@ export function DevicePage({ stream, role, go, simMode = false }) {
         </Card>
       </div>
 
-      <Card title="Sensor status" id="c-devsens" icon={Activity} className="tq-mt" sub="What the backend reports for each sensor; invalid or stale readings are never shown as numbers">
+      <Card title="Sensor status" id="c-devsens" icon={Activity} className="tq-mt" sub="Invalid or stale readings are never shown as numbers">
         {!sensors.length ? <Empty>No device data.</Empty> : (
           <ul className="tq-mon-sensors" aria-label="Sensor availability" data-testid="dev-sensors">
             {sensors.map(([k, v]) => { const I = SENSOR_ICON[k] || Activity; return (
@@ -232,7 +233,7 @@ export function DevicePage({ stream, role, go, simMode = false }) {
           </ul>)}
       </Card>
 
-      <Card title="Recent device events" id="c-devev" icon={Radio} className="tq-mt" sub="Events the backend pushed over the live connection during this session">
+      <Card title="Recent device events" id="c-devev" icon={Radio} className="tq-mt" sub="This session">
         {!events.length ? <Empty>No events yet.</Empty> : (
           <ul className="tq-feed">{events.slice(0, 12).map((e) => (<li key={e.k}><Pill tone={/error|disconnected|fault|timed|unknown|rejected/.test(e.name) ? 'crit' : 'info'}>{title(e.name)}{e.total > 1 ? ` ×${e.total}` : ''}</Pill><span className="tq-muted">{clock(e.ts)} · {JSON.stringify(e.data).slice(0, 90)}</span></li>))}</ul>)}
       </Card>
@@ -348,7 +349,7 @@ export function DeviceLive({ stream }) {
           </Card>
         </div>
       </div>
-      <Card title="Latest telemetry samples" id="c-devsamples" sub="Newest first, from the backend's device history. — means an invalid or missing reading, never zero.">
+      <Card title="Latest telemetry samples" id="c-devsamples" sub="Newest first; — means invalid or missing, never zero">
         <DataTable testid="dev-samples" caption="Latest device telemetry samples" rowKey={(r) => r.t} rows={rows} empty="No samples in this window."
           columns={[{ key: 't', label: 'Time', render: (r) => clock(r.t) }, { key: 'rpm', label: 'Speed (rpm)', align: 'num', render: (r) => n(r.rpm, 0) },
             { key: 'current', label: 'Current (A)', align: 'num', render: (r) => n(r.current, 2) }, { key: 'voltage', label: 'Voltage (V)', align: 'num', render: (r) => n(r.voltage, 1) },
@@ -474,7 +475,7 @@ export function InterlocksCard({ snap, go }) {
   const rows = snap?.interlocks;
   const groups = interlockGroups(rows);
   return (
-    <Card title="Safety interlocks" id="c-interlocks" sub="Every check the backend reports, grouped; the evidence column is the backend's own wording">
+    <Card title="Safety interlocks" id="c-interlocks" sub="Every check the backend reports, grouped">
       {!rows ? <Empty>No interlock data.</Empty> : (
         <div className="tq-table-wrap"><table className="tq-table tq-ilk" data-testid="interlocks"><caption className="tq-sr">Physical motion interlocks, grouped</caption>
           <thead><tr><th scope="col">Check</th><th scope="col">Status</th><th scope="col">Evidence or reason</th></tr></thead>
@@ -484,7 +485,7 @@ export function InterlocksCard({ snap, go }) {
               <tbody key={g.key} data-testid={`ilk-${g.key}`} id={`ilk-g-${g.key}`}>
                 <tr className="tq-ilk-group"><th scope="rowgroup" colSpan={3}>
                   <span>{g.name}</span> <span className="tq-muted">{open.length ? `${g.items.length - open.length} of ${g.items.length} passed` : 'all passed'}</span>
-                  {open.length > 0 && g.next === 'device' && go && <> · <button type="button" className="tq-linkbtn" onClick={() => go('device')}>Check the connection on the Device page</button></>}
+                  {open.length > 0 && g.next === 'device' && go && <> · <button type="button" className="tq-linkbtn" onClick={() => go('connection')}>Check the connection on Device & Safety</button></>}
                   {open.length > 0 && g.next === 'record' && <> · <button type="button" className="tq-linkbtn" onClick={toComm}>Go to the commissioning record</button></>}
                 </th></tr>
                 {g.items.map((r) => { const [tone, word] = ILK[r.status] || ['info', r.status]; return (
@@ -511,7 +512,7 @@ export function ReadinessCard({ snap, go }) {
       ) : (
         <p className="tq-callout warn" role="note">No blocker is reported. Every command is still checked by the Safety Supervisor, the commissioning record and the firmware interlocks; this is not a hardware verification.</p>)}
       {snap?.interlocks?.length > 0 && <p className="tq-small tq-muted" data-testid="ready-counts">Interlocks: {Object.entries(counts).map(([k, n]) => `${n} ${k.toLowerCase()}`).join(' · ')}.</p>}
-      {go && blockers.some((b) => /NOT CONNECTED|HANDSHAKE|TELEMETRY/i.test(b)) && <p className="tq-small"><button type="button" className="tq-linkbtn" onClick={() => go('device')}>Connect the device on the Device page</button></p>}
+      {go && blockers.some((b) => /NOT CONNECTED|HANDSHAKE|TELEMETRY/i.test(b)) && <p className="tq-small"><button type="button" className="tq-linkbtn" onClick={() => go('connection')}>Connect the device on Device & Safety</button></p>}
     </Card>
   );
 }
@@ -529,7 +530,7 @@ export function DeviceCard({ stream, go }) {
         <dt>Safety state</dt><dd>{snap?.safety_state || '—'}</dd>
         <dt>Physical motion</dt><dd>{blockers.length ? <Pill tone="stop">blocked ({blockers.length})</Pill> : <Pill tone="info">no blocker reported</Pill>}</dd>
       </dl>
-      <CardLink onClick={() => go('device')}>Open Device</CardLink>
+      <CardLink onClick={() => go('connection')}>Open the connection section</CardLink>
     </Card>
   );
 }

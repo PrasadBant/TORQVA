@@ -29,8 +29,8 @@ async function login(tok) {
   await page.reload();
   await page.fill('input[type=password]', tok);
   await page.click('button:has-text("Sign in")');
-  await page.waitForSelector('nav button:has-text("Learning")');
-  await page.click('nav button:has-text("Learning")');
+  await page.waitForSelector('nav button:has-text("Continuous Intelligence")');
+  await page.click('nav button:has-text("Continuous Intelligence")');
   await page.waitForSelector('text=Candidate warm-up sessions');
 }
 const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -143,7 +143,7 @@ const priv = page.locator('button:has-text("Attest…"), button:has-text("Reject
 let enabledPriv = 0; for (let i = 0; i < await priv.count(); i++) if (await priv.nth(i).isEnabled()) enabledPriv++;
 check('viewer has no enabled privileged action (decision buttons are absent, others disabled)', enabledPriv === 0 && (await page.locator('button:has-text("Attest…"), button:has-text("Reject…"), button:has-text("Revoke…")').count()) === 0);
 check('viewer capture button disabled', await page.locator('button:has-text("Capture candidate")').isDisabled());
-check('viewer warning about role visible', (await page.textContent('section[aria-labelledby="c-att-notice"]')).includes('cannot capture, attest, reject, revoke or activate'));
+check('viewer warning about role visible', (await page.textContent('main')).includes('cannot capture, attest, reject, revoke or activate'));
 const forbid = await api('/attestation/candidates', VW, 'POST');
 check('server returns 403 to a viewer mutation', forbid.status === 403);
 check('server returns 401 without a token', (await api('/attestation/candidates', 'wrong')).status === 401);

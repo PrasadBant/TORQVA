@@ -65,12 +65,12 @@ export function pipelineStages(d) {
 
   // C1 — anomaly detection
   let c1;
-  if (!hasSim) c1 = st('c1', 'C1', 'Anomaly detection', 'diagnostics', 'na', 'No simulation is running.');
-  else if (inc) { const op = of('incident_opened'); c1 = st('c1', 'C1', 'Anomaly detection', 'diagnostics', 'ok', `Anomaly persisted: incident ${inc.id} opened.`, op?.t ?? null); }
-  else if (!last) c1 = st('c1', 'C1', 'Anomaly detection', 'diagnostics', 'na', 'No telemetry window yet.');
-  else if (last.score == null) c1 = st('c1', 'C1', 'Anomaly detection', 'diagnostics', 'wait', `Latest window not scored: ${title(last.score_status) || 'unknown reason'}.`, last.t);
-  else if (last.score > 1) c1 = st('c1', 'C1', 'Anomaly detection', 'diagnostics', 'active', `Score ${fmt(last.score, 2)} × threshold; not yet persistent.`, last.t);
-  else c1 = st('c1', 'C1', 'Anomaly detection', 'diagnostics', 'ok', `Monitoring: score ${fmt(last.score, 2)} × threshold (normal).`, last.t);
+  if (!hasSim) c1 = st('c1', 'C1', 'Anomaly Detection', 'diagnostics', 'na', 'No simulation is running.');
+  else if (inc) { const op = of('incident_opened'); c1 = st('c1', 'C1', 'Anomaly Detection', 'diagnostics', 'ok', `Anomaly persisted: incident ${inc.id} opened.`, op?.t ?? null); }
+  else if (!last) c1 = st('c1', 'C1', 'Anomaly Detection', 'diagnostics', 'na', 'No telemetry window yet.');
+  else if (last.score == null) c1 = st('c1', 'C1', 'Anomaly Detection', 'diagnostics', 'wait', `Latest window not scored: ${title(last.score_status) || 'unknown reason'}.`, last.t);
+  else if (last.score > 1) c1 = st('c1', 'C1', 'Anomaly Detection', 'diagnostics', 'active', `Anomaly severity ${fmt(last.score, 2)} × threshold; not yet persistent.`, last.t);
+  else c1 = st('c1', 'C1', 'Anomaly Detection', 'diagnostics', 'ok', `Normal: anomaly severity ${fmt(last.score, 2)} × threshold.`, last.t);
 
   // Hypothesis generation and ranking (not one of the C layers)
   const hy = of('hypotheses');
@@ -82,43 +82,43 @@ export function pipelineStages(d) {
 
   // C2 — outcome prediction
   const rank = of('c2_ranking'); const uns = of('c2_unsupported');
-  const c2 = !inc ? st('c2', 'C2', 'Outcome prediction', 'predictions', 'idle', noInc)
-    : uns && (!rank || uns.t >= rank.t) && !rank?.chosen ? st('c2', 'C2', 'Outcome prediction', 'predictions', 'stop', `Unsupported: ${(uns.reasons || []).map(title).join(', ') || 'no reason given'}.`, uns.t)
-    : rank ? st('c2', 'C2', 'Outcome prediction', 'predictions', 'ok', `${(rank.ranking || []).length} action(s) compared${rank.chosen ? `; lowest risk: ${title(rank.chosen)}` : '; none chosen'}.`, rank.t)
-    : inc.open && s.incident?.state === 'ACTION_EVALUATION' ? st('c2', 'C2', 'Outcome prediction', 'predictions', 'active', 'Comparing candidate actions.')
-    : st('c2', 'C2', 'Outcome prediction', 'predictions', 'idle', 'No prediction logged for this incident.');
+  const c2 = !inc ? st('c2', 'C2', 'Failure Prediction', 'predictions', 'idle', noInc)
+    : uns && (!rank || uns.t >= rank.t) && !rank?.chosen ? st('c2', 'C2', 'Failure Prediction', 'predictions', 'stop', `Unsupported: ${(uns.reasons || []).map(title).join(', ') || 'no reason given'}.`, uns.t)
+    : rank ? st('c2', 'C2', 'Failure Prediction', 'predictions', 'ok', `${(rank.ranking || []).length} action(s) compared${rank.chosen ? `; lowest risk: ${title(rank.chosen)}` : '; none chosen'}.`, rank.t)
+    : inc.open && s.incident?.state === 'ACTION_EVALUATION' ? st('c2', 'C2', 'Failure Prediction', 'predictions', 'active', 'Comparing candidate actions.')
+    : st('c2', 'C2', 'Failure Prediction', 'predictions', 'idle', 'No prediction logged for this incident.');
 
   // C3 — decision gate (+ human approval and Safety Supervisor)
   const gate = of('gate'); const sup = of('supervisor');
   let c3;
-  if (!inc) c3 = st('c3', 'C3', 'Decision gate', 'interventions', 'idle', noInc);
-  else if (inc.open && s.pending_approval) c3 = st('c3', 'C3', 'Decision gate', 'interventions', 'wait', `Awaiting human approval: ${title(s.pending_approval.action)}.`, gate?.t ?? null);
-  else if (sup && (!gate || sup.t >= gate.t) && sup.verdict !== 'ALLOW') c3 = st('c3', 'C3', 'Decision gate', 'interventions', sup.verdict === 'DEFER' ? 'wait' : 'stop', `Safety Supervisor ${sup.verdict}: ${title(sup.action)}${sup.reasons?.length ? ` (${sup.reasons.map(title).join(', ')})` : ''}.`, sup.t);
-  else if (gate) c3 = st('c3', 'C3', 'Decision gate', 'interventions', GATE[gate.verdict] || 'active', `${title(gate.verdict)}${gate.test ? ` → test ${gate.test}` : ''}${gate.reason ? `: ${gate.reason}` : ''}`, gate.t);
-  else c3 = st('c3', 'C3', 'Decision gate', 'interventions', 'idle', 'The gate has not evaluated this incident yet.');
+  if (!inc) c3 = st('c3', 'C3', 'Action Recommendations', 'interventions', 'idle', noInc);
+  else if (inc.open && s.pending_approval) c3 = st('c3', 'C3', 'Action Recommendations', 'interventions', 'wait', `Awaiting human approval: ${title(s.pending_approval.action)}.`, gate?.t ?? null);
+  else if (sup && (!gate || sup.t >= gate.t) && sup.verdict !== 'ALLOW') c3 = st('c3', 'C3', 'Action Recommendations', 'interventions', sup.verdict === 'DEFER' ? 'wait' : 'stop', `Safety Supervisor ${sup.verdict}: ${title(sup.action)}${sup.reasons?.length ? ` (${sup.reasons.map(title).join(', ')})` : ''}.`, sup.t);
+  else if (gate) c3 = st('c3', 'C3', 'Action Recommendations', 'interventions', GATE[gate.verdict] || 'active', `${title(gate.verdict)}${gate.test ? ` → test ${gate.test}` : ''}${gate.reason ? `: ${gate.reason}` : ''}`, gate.t);
+  else c3 = st('c3', 'C3', 'Action Recommendations', 'interventions', 'idle', 'The gate has not evaluated this incident yet.');
 
   // C4 — diagnostic tests
   const tr = of('test_result'); const ta = of('test_aborted');
-  const c4 = !inc ? st('c4', 'C4', 'Diagnostic tests', 'tests', 'idle', noInc)
-    : ta && (!tr || ta.t >= tr.t) ? st('c4', 'C4', 'Diagnostic tests', 'tests', 'fail', `Test aborted: ${title(ta.status)}${ta.reason ? ` (${ta.reason})` : ''}.`, ta.t)
-    : s.incident?.state === 'DIAGNOSTIC_RUNNING' ? st('c4', 'C4', 'Diagnostic tests', 'tests', 'active', 'A diagnostic test is in progress.')
-    : s.incident?.state === 'DIAGNOSTIC_PROPOSED' ? st('c4', 'C4', 'Diagnostic tests', 'tests', 'wait', 'A test is proposed and waits for the Safety Supervisor.')
-    : tr ? st('c4', 'C4', 'Diagnostic tests', 'tests', 'ok', `${tr.test} done; top after test: ${title(tr.posterior?.[0]?.[0])} ${fmt((tr.posterior?.[0]?.[1] ?? NaN) * 100, 0)}%.`, tr.t)
-    : st('c4', 'C4', 'Diagnostic tests', 'tests', 'idle', 'No test was requested for this incident.');
+  const c4 = !inc ? st('c4', 'C4', 'Diagnostic Investigation', 'tests', 'idle', noInc)
+    : ta && (!tr || ta.t >= tr.t) ? st('c4', 'C4', 'Diagnostic Investigation', 'tests', 'fail', `Test aborted: ${title(ta.status)}${ta.reason ? ` (${ta.reason})` : ''}.`, ta.t)
+    : s.incident?.state === 'DIAGNOSTIC_RUNNING' ? st('c4', 'C4', 'Diagnostic Investigation', 'tests', 'active', 'A diagnostic test is in progress.')
+    : s.incident?.state === 'DIAGNOSTIC_PROPOSED' ? st('c4', 'C4', 'Diagnostic Investigation', 'tests', 'wait', 'A test is proposed and waits for the Safety Supervisor.')
+    : tr ? st('c4', 'C4', 'Diagnostic Investigation', 'tests', 'ok', `${tr.test} done; top after test: ${title(tr.posterior?.[0]?.[0])} ${fmt((tr.posterior?.[0]?.[1] ?? NaN) * 100, 0)}%.`, tr.t)
+    : st('c4', 'C4', 'Diagnostic Investigation', 'tests', 'idle', 'No test was requested for this incident.');
 
   // C5 — recovery verification (the backend's verdict only; an acknowledgement alone is never recovery)
   const out = inc ? lastWhere(d?.outcomes, (o) => o.incident === inc.id) : null;
-  const c5 = !inc ? st('c5', 'C5', 'Recovery verification', 'recovery', 'idle', noInc)
-    : out ? st('c5', 'C5', 'Recovery verification', 'recovery', out.outcome === 'RECOVERED' ? 'ok' : out.outcome === 'UNRESOLVED' ? 'fail' : out.outcome === 'HUMAN_INSPECTION_REQUIRED' ? 'stop' : 'wait', `${title(out.outcome)} from ${out.n_fresh ?? 0} fresh sample(s); device acknowledged: ${out.command_executed ? 'yes' : 'no'}.`, of('recovery_assessment')?.t ?? null)
-    : s.incident?.state === 'VERIFYING_RECOVERY' ? st('c5', 'C5', 'Recovery verification', 'recovery', 'active', 'Collecting fresh samples after the acknowledged action.')
-    : st('c5', 'C5', 'Recovery verification', 'recovery', 'idle', 'No action has been verified for this incident.');
+  const c5 = !inc ? st('c5', 'C5', 'Recovery Verification', 'recovery', 'idle', noInc)
+    : out ? st('c5', 'C5', 'Recovery Verification', 'recovery', out.outcome === 'RECOVERED' ? 'ok' : out.outcome === 'UNRESOLVED' ? 'fail' : out.outcome === 'HUMAN_INSPECTION_REQUIRED' ? 'stop' : 'wait', `${title(out.outcome)} from ${out.n_fresh ?? 0} fresh sample(s); device acknowledged: ${out.command_executed ? 'yes' : 'no'}.`, of('recovery_assessment')?.t ?? null)
+    : s.incident?.state === 'VERIFYING_RECOVERY' ? st('c5', 'C5', 'Recovery Verification', 'recovery', 'active', 'Collecting fresh samples after the acknowledged action.')
+    : st('c5', 'C5', 'Recovery Verification', 'recovery', 'idle', 'No action has been verified for this incident.');
 
   // C6 — gated learning (the backend records a case only for RECOVERED / UNRESOLVED outcomes; pipeline._record_outcome)
   const nCases = (d?.cases || []).length;
-  const c6 = !inc ? st('c6', 'C6', 'Gated learning', 'learning', 'idle', `${nCases} case(s) recorded in this run.`)
-    : !out ? st('c6', 'C6', 'Gated learning', 'learning', 'idle', 'Waits for a recovery verdict.')
-    : ['RECOVERED', 'UNRESOLVED'].includes(out.outcome) ? st('c6', 'C6', 'Gated learning', 'learning', 'ok', `Eligible outcome; ${nCases} case(s) recorded in this run.`)
-    : st('c6', 'C6', 'Gated learning', 'learning', 'stop', `Not recorded: a ${title(out.outcome)} outcome is not learnable.`);
+  const c6 = !inc ? st('c6', 'C6', 'Continuous Intelligence', 'learning', 'idle', `${nCases} case(s) recorded in this run.`)
+    : !out ? st('c6', 'C6', 'Continuous Intelligence', 'learning', 'idle', 'Waits for a recovery verdict.')
+    : ['RECOVERED', 'UNRESOLVED'].includes(out.outcome) ? st('c6', 'C6', 'Continuous Intelligence', 'learning', 'ok', `Eligible outcome; ${nCases} case(s) recorded in this run.`)
+    : st('c6', 'C6', 'Continuous Intelligence', 'learning', 'stop', `Not recorded: a ${title(out.outcome)} outcome is not learnable.`);
 
   return { incident: inc, stages: [c1, hyp, c2, c3, c4, c5, c6] };
 }
@@ -135,8 +135,8 @@ export function describeLog(l) {
     case 'incident_opened': return 'Incident opened';
     case 'incident_closed': return `Incident closed: ${title(l.final)}`;
     case 'recovery_assessment': return `Recovery assessment: ${title(l.outcome)}`;
-    case 'c2_unsupported': return `C2 unsupported: ${(l.reasons || []).map(title).join(', ')}`;
-    case 'c2_ranking': return `C2 ranked ${(l.ranking || []).length} action(s)${l.chosen ? `: ${title(l.chosen)} lowest risk` : ''}`;
+    case 'c2_unsupported': return `Failure Prediction unsupported: ${(l.reasons || []).map(title).join(', ')}`;
+    case 'c2_ranking': return `Failure Prediction ranked ${(l.ranking || []).length} action(s)${l.chosen ? `: ${title(l.chosen)} lowest risk` : ''}`;
     case 'mandatory_stop': return `Mandatory stop: ${(l.reasons || []).map(title).join(', ')}`;
     case 'command_failed': return `Command failed: ${title(l.status)}`;
     default: return title(l.kind);

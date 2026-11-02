@@ -314,3 +314,14 @@ button.tq-step-btn { cursor: pointer; } button.tq-step-btn:hover { background: v
 }
 .tq-inv-name { display: grid; gap: 2px; justify-items: start; }
 .tq-inv-name .tq-linkbtn { font-size: 12.5px; text-align: left; }
+
+/* Collapsible sidebar groups: the heading is a button that folds its pages (a group holding the open page never folds). */
+.tq-navgroup-btn { display: flex; align-items: center; justify-content: space-between; width: 100%; background: none; border: 0; cursor: pointer; font-family: inherit; text-align: left; }
+.tq-navgroup-btn:hover { color: var(--tq-nav-text, inherit); }
+.tq-navgroup-btn:focus-visible { outline: 2px solid var(--tq-accent); outline-offset: 2px; border-radius: 4px; }
+.tq-navgroup-chev { transition: transform .15s ease; opacity: .7; }
+.tq-navgroup-btn[aria-expanded="false"] .tq-navgroup-chev { transform: rotate(-90deg); }
+.tq-nav-collapsed .tq-navgroup-chev { display: none; }
+
+/* Compact motor-condition badge in page heads. */
+.tq-cond-badge { display: inline-flex; }

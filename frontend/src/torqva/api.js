@@ -1,4 +1,6 @@
 // TORQVA API client. Token is kept in sessionStorage only (cleared when the tab closes).
+import { plainify, plainText } from './shared/plain.js';
+
 const BASE = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || '';
 const KEY = 'torqva.token';
 
@@ -16,6 +18,8 @@ export class ApiError extends Error {
 // Reads time out so a backend that stops answering (rather than refusing) cannot leave the polling loop waiting forever. Writes are not timed
 // out: aborting a POST would not undo it on the server, it would only hide whether it happened.
 export const READ_TIMEOUT_MS = 20000;
+
+const RAW = /^\/simulation\/workbench\/receipts/;
 
 async function req(path, { method = 'GET', body } = {}) {
   const ctl = method === 'GET' && typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -37,9 +41,11 @@ async function req(path, { method = 'GET', body } = {}) {
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
     const d = j.detail;
-    throw new ApiError(res.status, typeof d === 'string' ? d : d ? JSON.stringify(d) : `HTTP ${res.status}`);
+    throw new ApiError(res.status, plainText(typeof d === 'string' ? d : d ? JSON.stringify(d) : `HTTP ${res.status}`));
   }
-  return res.json();
+  // Prose from the backend is shown in product language (no internal layer ids). Decision summaries are kept exactly as recorded:
+  // they carry a SHA-256 digest and are exported as JSON, so their text must match the record byte for byte.
+  return RAW.test(path) ? res.json() : res.json().then(plainify);
 }
 
 export const api = {

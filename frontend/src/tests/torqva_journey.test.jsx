@@ -16,10 +16,10 @@ describe('investigation progress bar', () => {
     const go = vi.fn();
     render(<JourneyBar d={{ status: {}, log: [] }} view="predictions" go={go} />);
     const steps = screen.getAllByRole('listitem').map((li) => li.getAttribute('data-testid'));
-    expect(steps).toEqual(['journey-c1', 'journey-c4', 'journey-c2', 'journey-c3', 'journey-c5']);
+    expect(steps).toEqual(['journey-monitor', 'journey-c1', 'journey-c4', 'journey-c2', 'journey-c3', 'journey-c5']);
     expect(within(screen.getByTestId('journey-c2')).getByRole('button')).toHaveAttribute('aria-current', 'step');
     fireEvent.click(within(screen.getByTestId('journey-c4')).getByRole('button'));
     expect(go).toHaveBeenCalledWith('tests');
-    expect(screen.getByTestId('journey-note')).toHaveTextContent('C2 Predict outcomes: Not reached: no incident has been opened.');   // the backend summary is visible, not only on hover
+    expect(screen.getByTestId('journey-note')).toHaveTextContent('Understand · Failure Prediction: Not reached: no incident has been opened.');   // the backend summary is visible, not only on hover
   });
 });

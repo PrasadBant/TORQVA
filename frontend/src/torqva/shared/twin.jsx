@@ -165,13 +165,13 @@ function Hypotheses({ items, go }) {
         <li key={h.fault} className="tq-tw-tone-info">
           <Brain size={14} aria-hidden="true" />
           <div>
-            <span className="tq-tw-eyebrow">C1 hypothesis · TORQVA diagnosis</span>
+            <span className="tq-tw-eyebrow">Fault hypothesis · TORQVA diagnosis</span>
             <strong>{title(h.fault)} <span className="tq-num">{fmt(h.p * 100, 0)}%</span> <span className="tq-muted">({h.label || 'unlabelled'})</span></strong>
             <span className="tq-muted">Incident {h.incident}. The simulator models {title(h.fault)} as {h.where}, on this part. This is the AI&apos;s ranking from simulated evidence, not the scenario ground truth.</span>
           </div>
         </li>
       ))}
-      {go && <li className="tq-tw-hyps-link"><LinkButton onClick={() => go('diagnostics')}>Full ranking in AI Diagnostics</LinkButton></li>}
+      {go && <li className="tq-tw-hyps-link"><LinkButton onClick={() => go('diagnostics')}>Full ranking in Anomaly Detection</LinkButton></li>}
     </ul>
   );
 }
@@ -481,7 +481,7 @@ export function DigitalTwin({ model, renderTrend, go, aside }) {
             <li>The ADXL345 reports raw acceleration including gravity. The firmware does not compute vibration RMS, so none is shown for the physical device; the simulator&apos;s vibration value is a simulated quantity.</li>
             <li>The shaft animation is presentation only. It runs only while the source reports a valid, current, non-zero speed, at a reduced rate and in one direction (the real direction depends on unverified motor polarity), and it never feeds any model or safety decision.</li>
             <li>A part is highlighted as an alert only when the source names it: a reading the device marked invalid, a safety trip the firmware attributes to that sensor&apos;s reading, or (simulation only) the fault the scenario injected. The absence of an alert says nothing about a part&apos;s health.</li>
-            <li>C1 hypotheses are listed in a part&apos;s panel only in simulation, and only for faults the simulator models on that part (for example imbalance on the shaft and disc). They are TORQVA&apos;s ranking, are never drawn on the model and are not ground truth.</li>
+            <li>Fault hypotheses are listed in a part&apos;s panel only in simulation, and only for faults the simulator models on that part (for example imbalance on the shaft and disc). They are TORQVA&apos;s ranking, are never drawn on the model and are not ground truth.</li>
             <li>The status LEDs and the OLED are drawn unlit because their state is not reported. This page sends no commands; motor control stays on its existing, supervised pages.</li>
           </ul>
         </Disclosure>

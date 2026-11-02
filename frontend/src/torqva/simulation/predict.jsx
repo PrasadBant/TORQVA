@@ -127,7 +127,7 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
 
   return (
     <>
-      <PageHead title="Predictions (C2)" sub="What the predictor expects for different target speeds, how sure it is, and which action to put forward for review."
+      <PageHead title="Failure Prediction" sub="Expected outcome of each action, with its uncertainty."
         right={<><ProvBadge kind="PREDICTED" />{sel && <Pill tone="info">{`selected: ${sel.action === 'STOP' ? 'STOP' : `Action ${sel.label} · ${fmtRpm(sel.target_rpm)} rpm`}`}</Pill>}</>} />
       <div className="tq-an-page">
         <div className="tq-alertpanel tq-warn" role="note" data-testid="c2-model-warning">
@@ -135,9 +135,9 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
           <div className="tq-alertpanel-body"><strong>{label}</strong><div className="tq-alertpanel-text"><p>Not validated against physical experiments. Values marked PRED are model estimates, never evidence of recovery, and an unsupported prediction never authorises an action.{s.models?.c2_variant && s.models.c2_variant !== 'control' ? ` Experimental variant in use (opt-in): ${s.models.c2_variant}.` : ' The shipped predictor is in use; experimental variants are opt-in.'}</p></div></div>
         </div>
 
-        <StatGrid label="C2 summary">
+        <StatGrid label="Failure Prediction summary">
           <StatTile icon={Microscope} tone={post ? postTone(post) : 'off'} label="Conditioned on (AI interpretation)" value={post ? title(post.top) : 'No ranking'} unit={post ? pct(post.top_p, 0) : undefined}
-            sub={post ? `${post.label} · ${post.n_windows} evidence windows` : 'C2 needs a fault-hypothesis ranking'} />
+            sub={post ? `${post.label} · ${post.n_windows} evidence windows` : 'Failure Prediction needs a fault-hypothesis ranking'} />
           <StatTile icon={ShieldCheck} tone={!res ? 'off' : res.trust.trusted ? 'ok' : 'warn'} label="Model trust" value={!res ? '—' : res.trust.trusted ? 'Trusted' : 'Not trusted'}
             sub={!res ? 'no prediction yet' : res.trust.trusted ? `by the predictor's own checks · experiments: ${res.validated_by_experiments ? 'simulation only' : 'not validated'}` : res.trust.reasons.map(title).join(', ')} />
           <StatTile icon={Clock} tone={pending ? 'wait' : isStale ? 'warn' : res ? 'ok' : 'off'} label="Prediction basis" value={pending ? 'Calculating…' : isStale ? 'Stale' : res ? `t = ${fmt(res.basis.t, 0)} s` : '—'}
@@ -149,8 +149,8 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
         {sel && (
           <div className="tq-callout info tq-an-selection" role="status" data-testid="selection">
             <strong>{sel.action === 'STOP' ? 'Selected: STOP (coast)' : `Selected: Action ${sel.label} — target ${fmtRpm(sel.target_rpm)} rpm`}</strong>
-            <p>Candidate {sel.candidate_id}, predicted at t = {fmt(sel.basis.t, 0)} s. Selecting is a proposal for review: nothing has been sent. The decision gate and the Safety Supervisor decide on Interventions.</p>
-            <button type="button" className="tq-btn tq-primary" onClick={() => go('interventions')}>Review on Interventions <ArrowRight size={14} aria-hidden="true" /></button>
+            <p>Candidate {sel.candidate_id}, predicted at t = {fmt(sel.basis.t, 0)} s. Selecting is a proposal for review: nothing has been sent. The decision gate and the Safety Supervisor decide on Action Recommendations.</p>
+            <button type="button" className="tq-btn tq-primary" onClick={() => go('interventions')}>Review on Action Recommendations <ArrowRight size={14} aria-hidden="true" /></button>
           </div>)}
 
         <Tabs label="Prediction views" idBase="c2-tab" value={tab} onChange={setTab}
@@ -159,10 +159,10 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
         {tab === 'compare' && (
           <TabPanel tab="compare" idBase="c2-tab">
             {!hasSim ? <Card title="Action comparison" id="c-cmp"><Empty>No simulation is running.</Empty></Card>
-              : !post ? <Card title="Action comparison" id="c-cmp"><Empty>C2 predictions are conditional on a fault-hypothesis ranking, and there is none yet in this run. They become available once an anomaly has persisted.</Empty></Card> : (
-                <Card title="Action comparison" id="c-cmp" icon={LineChart} sub="Up to three reduce-speed targets against continuing and stopping; every number is the predictor's output for exactly that target"
+              : !post ? <Card title="Action comparison" id="c-cmp"><Empty>predictions are conditional on a fault-hypothesis ranking, and there is none yet in this run. They become available once an anomaly has persisted.</Empty></Card> : (
+                <Card title="Action comparison" id="c-cmp" icon={LineChart} sub="Reduce-speed targets compared with continuing and stopping"
                   right={<span className="tq-an-right">{pending ? <Pill tone="wait">calculating…</Pill> : isStale ? <Pill tone="warn">stale</Pill> : res ? <Pill tone="ok">{`computed at t = ${fmt(res.basis.t, 0)} s`}</Pill> : null}<ProvBadge kind="PREDICTED" /></span>}
-                  foot={<LinkButton onClick={openCounterfactual} testid="c2-view-cf">View counterfactual: compare the candidates on simulator copies</LinkButton>}>
+                  foot={<LinkButton onClick={openCounterfactual} testid="c2-view-cf">What-if analysis: compare the candidates on simulator copies</LinkButton>}>
                   {isStale && <div className="tq-callout warn" role="status" data-testid="pred-stale">These predictions were computed for an earlier state ({age > res.max_age_s ? `${fmt(age, 0)} s ago` : 'the state changed'}). Recalculate before selecting.
                     <button type="button" className="tq-btn" onClick={() => request(valid)}><RefreshCw size={14} aria-hidden="true" /> Recalculate</button></div>}
                   <div className="tq-toolbar"><span className="tq-toolbar-label">Signal</span>
@@ -205,11 +205,11 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
         {tab === 'recommend' && (
           <TabPanel tab="recommend" idBase="c2-tab">
             <div className="tq-an-grid">
-              <Card title="The pipeline's C2 ranking" id="c-c2rank" icon={Compass} sub="What the automatic pipeline compared when the incident reached action evaluation" right={<ProvBadge kind="PREDICTED" />}
-                foot={<LinkButton onClick={() => go('interventions')}>Decide on Interventions</LinkButton>}>
-                {!rank ? <Empty>No C2 ranking in this run yet. The pipeline ranks candidate actions only when an incident reaches action evaluation.</Empty> : (<>
+              <Card title="The pipeline's prediction ranking" id="c-c2rank" icon={Compass} sub="What the pipeline compared at action evaluation" right={<ProvBadge kind="PREDICTED" />}
+                foot={<LinkButton onClick={() => go('interventions')}>Decide on Action Recommendations</LinkButton>}>
+                {!rank ? <Empty>No prediction ranking in this run yet. The pipeline ranks candidate actions only when an incident reaches action evaluation.</Empty> : (<>
                   <div className="tq-wf-rec" data-testid="c2-recommended">
-                    <div className="tq-wf-rec-label">RANKED FIRST BY C2 <span className="tq-num">· t = {fmt(rank.t, 0)} s</span></div>
+                    <div className="tq-wf-rec-label">LOWEST PREDICTED RISK <span className="tq-num">· t = {fmt(rank.t, 0)} s</span></div>
                     <div className="tq-wf-rec-head">{rank.chosen ? title(rank.chosen) : 'No action ranked'}</div>
                     <p className="tq-small tq-muted">{rank.chosen ? 'The lowest predicted risk among the actions other than continuing, as logged by the pipeline.' : 'No action other than continuing was ranked, so the pipeline did not propose one.'}</p>
                   </div>
@@ -217,7 +217,7 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
                   {s.pending_approval?.rationale && <p className="tq-small"><span className="tq-muted">Held for approval: </span>{title(s.pending_approval.action)}{s.pending_approval.params?.rpm ? ` to ${fmtRpm(s.pending_approval.params.rpm)} rpm` : ''} — {s.pending_approval.rationale}</p>}
                   {plan?.gate && <p className="tq-small"><span className="tq-muted">Decision gate now: </span><Pill tone={plan.gate.verdict === 'ACT' ? 'ok' : 'warn'}>{title(plan.gate.verdict)}</Pill> {plan.gate.reason}</p>}
                 </>)}
-                <p className="tq-muted tq-small">Risk = the predictor's probability of crossing a warning limit within 120 s. A ranking is a proposal; the decision gate, the Safety Supervisor and a person decide.</p>
+                <p className="tq-muted tq-small">Risk: probability of crossing a warning limit within 120 s. A ranking is a proposal, not a decision.</p>
               </Card>
               <Card title="Your selection" id="c-c2sel" icon={ListChecks} right={<SourceTag kind="PREDICTED" />}>
                 {!sel ? <Empty>No candidate selected. Select a supported candidate on Candidate Comparison to put it forward for review.</Empty> : (<>
@@ -233,7 +233,7 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
           <TabPanel tab="uncertainty" idBase="c2-tab">
             <div className="tq-an-grid">
               <Card title="Predicted response with its interval" id="c-unc" icon={LineChart} right={<ProvBadge kind="PREDICTED" />}>
-                {!named.length || !res ? <Empty>{!post ? 'No predictions: C2 needs a fault-hypothesis ranking.' : 'No prediction has been computed yet.'}</Empty> : (<>
+                {!named.length || !res ? <Empty>{!post ? 'No predictions: Failure Prediction needs a fault-hypothesis ranking.' : 'No prediction has been computed yet.'}</Empty> : (<>
                   <div className="tq-toolbar">
                     <label className="tq-inline">Candidate <select value={focused[0]} onChange={(e) => setFocus(e.target.value)}>{named.map(([n]) => <option key={n} value={n}>{n}</option>)}</select></label>
                     <label className="tq-inline">Signal <select value={signal} onChange={(e) => setSignal(e.target.value)}>{Object.entries(SIG).map(([k, [n]]) => <option key={k} value={k}>{n.split(' (')[0]}</option>)}</select></label>
@@ -244,7 +244,7 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
                     <tbody>{[30, 60, 120].map((h, i) => { const b = band(focused[1], signal, i); const dg = SIG[signal][2]; return (
                       <tr key={h}><th scope="row">+{h} s</th><td className="tq-num">{fmt(at(focused[1], signal, i), dg)}</td><td className="tq-num">{b ? `${fmt(b[0], dg)}–${fmt(b[1], dg)}` : 'no interval'}</td><td className="tq-num">{b ? fmt(b[1] - b[0], dg) : '—'}</td></tr>); })}</tbody></table></div>
                 </>)}
-                <p className="tq-chart-note">The interval covers a single future 1 s simulated measurement. It is not a guarantee, not a probability that an action succeeds, and not a measurement.</p>
+                <p className="tq-chart-note">The band covers one future simulated reading. It is not a guarantee or a measurement.</p>
               </Card>
               <Card title="What these predictions are based on" id="c-ctx" right={<ProvBadge kind="SIMULATED" />}>
                 <dl className="tq-kv">
@@ -264,10 +264,10 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
           </TabPanel>)}
 
         <div className="tq-an-below">
-          <Disclosure summary="Run a counterfactual experiment" meta="compare the candidates on copies of one simulator snapshot and re-run exactly" testid="c2-counterfactual">
+          <Disclosure summary="What-if analysis (advanced)" meta="run the candidates on copies of the simulated motor" testid="c2-counterfactual">
             <CounterfactualLab targets={valid} role={role} stale={stale} hasRanking={!!post} hasSim={hasSim} />
           </Disclosure>
-          <Disclosure summary="Inspect the pipeline's own C2 comparison" meta="what the automatic pipeline compared, and its predicted-vs-observed record" testid="c2-pipeline">
+          <Disclosure summary="Pipeline comparison (advanced)" meta="what the pipeline compared, and predicted versus observed" testid="c2-pipeline">
             <PredictionsPage d={d} go={go} head={false} />
           </Disclosure>
         </div>

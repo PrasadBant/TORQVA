@@ -139,13 +139,14 @@ describe('Simulation Overview', () => {
     expect(strip).toHaveTextContent(/Paused/); expect(strip).toHaveTextContent(/imbalance · severity 0.60/); expect(strip).toHaveTextContent(/simulated E-stop clear/);
     expect(strip).not.toHaveTextContent(/firmware|handshake|board|commission/i);
     const kpis = screen.getByTestId('sim-kpis');
-    expect(within(kpis).getAllByText('SIM')).toHaveLength(5);
-    expect(within(kpis).getByText('DERIVED')).toBeInTheDocument();
-    expect(kpis).toHaveTextContent('36.0');                                         // 24 V × 1.5 A of the same window
+    expect(within(kpis).getAllByText('SIM')).toHaveLength(4);                       // speed, current, housing, vibration: the full set is on Live Monitor
+    expect(screen.getByTestId('ov-health-status').textContent).toMatch(/^(Normal|Monitoring|Warning|Investigation Required|Action Recommended|Awaiting Verification|Critical|Unavailable)$/);
+    expect(screen.queryByRole('button', { name: 'Start new simulation' })).toBeNull();   // scenario controls live only in Scenario Studio
   });
   it('an invalid simulated window is unavailable, never a number or zero', () => {
     view(base({ status: { ...STATUS, last_window: { ...W, valid: false } } }));
-    expect(within(screen.getByTestId('sim-kpis')).getAllByText('UNAVAILABLE')).toHaveLength(6);
+    expect(within(screen.getByTestId('sim-kpis')).getAllByText('UNAVAILABLE')).toHaveLength(4);
+    expect(screen.getByTestId('ov-health-status')).toHaveTextContent('Unavailable');
   });
   it('pipeline stages open their detailed pages', () => {
     const go = vi.fn();

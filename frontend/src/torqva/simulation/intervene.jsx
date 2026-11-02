@@ -33,15 +33,15 @@ export function lifecycleOf(d) {
   const state = d.status?.incident?.id === inc.id ? d.status.incident.state : inc.state;
   const st = (k, label, s, detail = '', t = null) => [k, label, s, detail, t];
   const steps = [
-    st('gate', 'Decision reviewed (C3 gate)', gate ? (gate.verdict === 'ACT' ? 'done' : 'no') : 'todo', gate ? `${title(gate.verdict)}: ${gate.reason}` : '', gate?.t),
-    st('proposed', 'Proposed', proposed ? 'done' : 'todo', proposed ? 'C2 ranked the candidates and the pipeline proposed an action' : 'no action proposed yet', proposed?.t),
+    st('gate', 'Decision reviewed (decision gate)', gate ? (gate.verdict === 'ACT' ? 'done' : 'no') : 'todo', gate ? `${title(gate.verdict)}: ${gate.reason}` : '', gate?.t),
+    st('proposed', 'Proposed', proposed ? 'done' : 'todo', proposed ? 'Failure Prediction ranked the candidates and the pipeline proposed an action' : 'no action proposed yet', proposed?.t),
     st('approval', 'Awaiting approval', deferred ? 'done' : proposed ? 'no' : 'todo', deferred ? 'the Safety Supervisor deferred it for a human decision' : proposed ? 'not required (simulation auto-approval)' : '', deferred?.t),
     st('decision', 'Approved or rejected', approved ? 'done' : rejected ? 'no' : state === 'AWAITING_APPROVAL' ? 'now' : 'todo',
       approved ? (analyst ? `approved with the analyst's selection: ${title(analyst.action)}${analyst.target_rpm ? ` to ${fmtRpm(analyst.target_rpm)} rpm` : ''}` : 'approved as proposed') : rejected ? 'rejected or expired' : state === 'AWAITING_APPROVAL' ? 'waiting for a decision' : '', (approved || rejected)?.t),
     st('requested', 'Action requested', cmd ? 'done' : 'todo', cmd ? `command #${cmd.id} ${title(cmd.action)}${cmd.params?.rpm ? ` ${fmtRpm(cmd.params.rpm)} rpm` : ''}` : ''),
     st('ack', 'Acknowledged by the simulated device', !cmd ? 'todo' : ACKED.includes(cmd.status) ? 'done' : REFUSED.includes(cmd.status) ? 'no' : 'now', cmd ? `${cmd.status}${cmd.reason ? ` (${cmd.reason})` : ''}` : ''),
     st('post', 'Fresh post-action telemetry', state === 'VERIFYING_RECOVERY' ? 'now' : assess || out ? 'done' : 'todo', state === 'VERIFYING_RECOVERY' ? 'collecting windows after the acknowledgement' : ''),
-    st('evaluated', 'Outcome evaluated (C5)', assess ? 'done' : 'todo', assess ? title(assess.outcome) : '', assess?.t),
+    st('evaluated', 'Outcome evaluated', assess ? 'done' : 'todo', assess ? title(assess.outcome) : '', assess?.t),
     st('verified', 'Recovery verified', !out ? 'todo' : out.outcome === 'RECOVERED' ? 'done' : 'no', out ? `${title(out.outcome)} from ${out.n_fresh} fresh window(s)` : 'an acknowledgement alone is never recovery'),
   ];
   return { inc, steps, cmd, out };
@@ -53,7 +53,7 @@ const STEP_WORD = { done: 'done', now: 'in progress', no: 'no', todo: 'not yet' 
 export function ActionLifecycle({ d }) {
   const { inc, steps } = lifecycleOf(d);
   return (
-    <Card title="Action lifecycle" id="c-life" icon={Route} sub="Each step is read from the run's records: a selection is not an action, an acknowledgement is not recovery"
+    <Card title="Action lifecycle" id="c-life" icon={Route} sub="A selection is not an action; an acknowledgement is not recovery"
       right={<>{inc && <Pill tone="info">{inc.id}</Pill>}<ProvBadge kind="SIMULATED" /></>}>
       {!inc ? <Empty>No incident in this run yet, so no action has been proposed.</Empty> : (
         <ol className="tq-life tq-as-life" data-testid="lifecycle">
@@ -90,21 +90,21 @@ function DecisionTiles({ d, go }) {
         : { tone: 'off', value: 'Not dispatched', sub: 'nothing is sent before approval' };
   const result = S.verified?.s === 'done' ? { tone: 'ok', value: 'Recovery verified', sub: S.verified.detail }
     : S.verified?.s === 'no' ? { tone: out?.outcome === 'UNRESOLVED' ? 'crit' : 'warn', value: title(out?.outcome), sub: S.verified.detail }
-      : S.post?.s === 'now' ? { tone: 'wait', value: 'Verifying', sub: 'C5 is collecting fresh windows' }
-        : { tone: 'off', value: 'Not verified', sub: 'C5 has recorded no verdict for this incident' };
+      : S.post?.s === 'now' ? { tone: 'wait', value: 'Verifying', sub: 'Recovery Verification is collecting fresh windows' }
+        : { tone: 'off', value: 'Not verified', sub: 'Recovery Verification has recorded no verdict for this incident' };
   const showC5 = go && (out || S.post?.s === 'now');
   return (
     <div data-testid="c3-status"><StatGrid label="Current action status">
       <StatTile icon={Crosshair} label="Proposed action" {...proposed} />
       <StatTile icon={Hand} label="Approval" {...approval} />
       <StatTile icon={Cpu} label="Execution (simulated device)" {...exec} />
-      <StatTile icon={Flag} label="Result (C5)" {...result} action={showC5 ? <LinkButton onClick={() => go('recovery')}>View C5 verification</LinkButton> : null} />
+      <StatTile icon={Flag} label="Result" {...result} action={showC5 ? <LinkButton onClick={() => go('recovery')}>View Recovery Verification</LinkButton> : null} />
     </StatGrid></div>
   );
 }
 
-const NEXT_STEP = (chk) => (chk.stale.length ? ['Recalculate on Predictions.', 'predictions', 'Open Predictions']
-  : chk.gate && chk.gate.verdict === 'RUN_DIAGNOSTIC_TEST' ? [`Run ${chk.gate.test} on Diagnostic Tests first.`, 'tests', 'Open Diagnostic Tests']
+const NEXT_STEP = (chk) => (chk.stale.length ? ['Recalculate on Failure Prediction.', 'predictions', 'Open Failure Prediction']
+  : chk.gate && chk.gate.verdict === 'RUN_DIAGNOSTIC_TEST' ? [`Run ${chk.gate.test} on Diagnostic Investigation first.`, 'tests', 'Open Diagnostic Investigation']
     : !chk.awaiting_decision ? ['Start a scenario with "Require human approval" so the pipeline holds its action for you.', 'scenario', 'Open Scenario Studio']
       : ['Follow the gate\'s verdict.', null, null]);
 
@@ -142,7 +142,7 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
   const openReceipt = () => setTab('receipts');
   const next = chk ? NEXT_STEP(chk) : null;
   const checks = chk ? [
-    { key: 'gate', label: 'Decision gate (C3)', state: !chk.gate ? 'unknown' : chk.gate.verdict === 'ACT' ? 'ok' : ['SAFE_STOP', 'SENSOR_UNRELIABLE'].includes(chk.gate.verdict) ? 'fail' : 'warn',
+    { key: 'gate', label: 'Decision gate', state: !chk.gate ? 'unknown' : chk.gate.verdict === 'ACT' ? 'ok' : ['SAFE_STOP', 'SENSOR_UNRELIABLE'].includes(chk.gate.verdict) ? 'fail' : 'warn',
       status: chk.gate ? title(chk.gate.verdict) : 'not evaluated', detail: chk.gate ? chk.gate.reason : 'cannot evaluate without an incident and a ranking' },
     { key: 'sup', label: 'Safety Supervisor', state: chk.supervisor.verdict === 'REJECT' ? 'fail' : chk.supervisor.verdict === 'DEFER' ? 'pending' : 'ok',
       status: chk.supervisor.verdict, detail: chk.supervisor.reasons.map(title).join(', ') || undefined },
@@ -153,14 +153,14 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
   ] : [];
   return (
     <>
-      <PageHead title="Interventions (C3)" sub="Propose, review and approve corrective actions; every step is checked by the decision gate and the Safety Supervisor on the backend."
+      <PageHead title="Action Recommendations" sub="What TORQVA recommends, why, and the approval status."
         right={<><ProvBadge kind="SIMULATED" />{sel ? <Pill tone="info">{sel.action === 'STOP' ? 'STOP selected' : `Action ${sel.label} · ${fmtRpm(sel.target_rpm)} rpm`}</Pill> : <Pill tone="off">nothing selected</Pill>}</>} />
       <DecisionTiles d={d} go={go} />
-      <Tabs label="Interventions views" idBase="tq-c3" value={tab} onChange={setTab} tabs={[
+      <Tabs label="Action Recommendations views" idBase="tq-c3" value={tab} onChange={setTab} tabs={[
         { key: 'decision', label: 'Current decision', icon: ShieldCheck },
         { key: 'history', label: 'Action history', icon: ListChecks, count: nCmd },
-        { key: 'trace', label: 'Investigation trace', icon: Route },
-        { key: 'receipts', label: 'Decision receipts', icon: FileCheck2 },
+        { key: 'trace', label: 'Investigation history', icon: Route },
+        { key: 'receipts', label: 'Decision summaries', icon: FileCheck2 },
       ]} />
 
       {tab === 'decision' && (
@@ -168,8 +168,8 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
           <p className="tq-as-lede" role="note">A prediction never authorises an action, and nothing on this page reaches a physical motor: actions go to the simulated device only after the backend's checks.</p>
           <ApprovalCard d={d} role={role} actions={actions} error={error} busy={shellBusy} />
           <div className="tq-split tq-mt">
-            <Card title="Your selected action" id="c-selrev" icon={Crosshair} sub="An alternative chosen on Predictions" right={<ProvBadge kind="PREDICTED" />}>
-              {!sel ? <Empty action={go ? <LinkButton onClick={() => go('predictions')}>Compare on Predictions</LinkButton> : null}>No action selected. Compare candidates on Predictions and select one.</Empty> : (
+            <Card title="Your selected action" id="c-selrev" icon={Crosshair} sub="Chosen on Failure Prediction" right={<ProvBadge kind="PREDICTED" />}>
+              {!sel ? <Empty action={go ? <LinkButton onClick={() => go('predictions')}>Compare on Failure Prediction</LinkButton> : null}>No action selected. Compare candidates on Failure Prediction and select one.</Empty> : (
                 <>
                   <dl className="tq-kv" data-testid="sel-review">
                     <dt>Action</dt><dd><strong>{sel.action === 'STOP' ? 'STOP (coast)' : `Action ${sel.label}: reduce speed`}</strong> <span className="tq-muted tq-num">{sel.candidate_id}</span></dd>
@@ -182,13 +182,13 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
                     <dt>Predicted at</dt><dd className="tq-num">t = {fmt(sel.basis.t, 0)} s ({age !== null ? `${fmt(age, 0)} s ago` : '—'})</dd>
                   </dl>
                   <div className="tq-row tq-mt">
-                    <button type="button" className="tq-btn" onClick={() => go('predictions')}><ArrowLeft size={14} aria-hidden="true" /> Change on Predictions</button>
+                    <button type="button" className="tq-btn" onClick={() => go('predictions')}><ArrowLeft size={14} aria-hidden="true" /> Change on Failure Prediction</button>
                     <button type="button" className="tq-btn tq-ghost" onClick={() => setWb((x) => ({ ...x, selection: null }))}><X size={14} aria-hidden="true" /> Clear selection</button>
                   </div>
                 </>)}
             </Card>
 
-            <Card title="Decision check" id="c-dcheck" icon={ClipboardCheck} sub="Gate and Safety Supervisor, asked without side effects"
+            <Card title="Decision check" id="c-dcheck" icon={ClipboardCheck} sub="Decision gate and Safety Supervisor (no side effects)"
               right={chk ? <Pill tone={chk.executable ? 'ok' : 'warn'}>{chk.executable ? 'allowed' : 'not allowed now'}</Pill> : null}>
               {!sel ? <Empty>Select an action to check it.</Empty> : !chk ? <Empty loading>Checking with the gate and the Safety Supervisor…</Empty> : (
                 <div data-testid="dcheck">
@@ -216,7 +216,7 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
                   {!ctl && <p className="tq-muted">Requesting requires role operator or admin.</p>}
                 </div>)}
               <ErrorBox error={err} />
-              {refused && <p className="tq-small"><button type="button" className="tq-linkbtn" onClick={openReceipt}>Open decision receipt {refused}</button> <span className="tq-muted">(the refusal and the evidence it was decided on)</span></p>}
+              {refused && <p className="tq-small"><button type="button" className="tq-linkbtn" onClick={openReceipt}>Open decision summary {refused}</button> <span className="tq-muted">(the refusal and the evidence it was decided on)</span></p>}
             </Card>
           </div>
 
@@ -224,7 +224,7 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
             <div className="tq-callout info tq-mt" role="status" data-testid="req-result">
               <strong>Requested: {title(last.requested.action)}{last.requested.target_rpm ? ` to ${fmtRpm(last.requested.target_rpm)} rpm` : ''}</strong>
               <p>{last.command ? `Command #${last.command.id} is ${last.command.status} on the simulated device.` : 'No command was dispatched.'} {last.note}</p>
-              {last.receipt_id && <p className="tq-small"><button type="button" className="tq-linkbtn" onClick={openReceipt}>Open decision receipt {last.receipt_id}</button></p>}
+              {last.receipt_id && <p className="tq-small"><button type="button" className="tq-linkbtn" onClick={openReceipt}>Open decision summary {last.receipt_id}</button></p>}
             </div>)}
 
           <div className="tq-mt"><ActionLifecycle d={d} /></div>

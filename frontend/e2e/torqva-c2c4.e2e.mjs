@@ -36,8 +36,8 @@ await page.goto('http://127.0.0.1:5173/#/torqva');
 await page.evaluate(() => sessionStorage.clear()); await page.reload();
 await page.fill('input[type=password]', OP);
 await page.click('button:has-text("Sign in")');
-await page.waitForSelector('nav button:has-text("Predictions")');
-await page.click('nav button:has-text("Predictions")');
+await page.waitForSelector('nav button:has-text("Failure Prediction")');
+await page.click('nav button:has-text("Failure Prediction")');
 await reveal('c2-pipeline');
 await page.waitForSelector(section('c-pred'));
 const predTxt = await page.textContent(section('c-pred'));
@@ -45,16 +45,16 @@ check('prediction table shows a status for every action', (predTxt.match(/suppor
 check('predictions labelled PRED and unvalidated', (await page.textContent('main')).includes('Intervention Outcome Prediction (unvalidated)'));
 check('predicted-vs-observed card present with provenance note', (await page.textContent(section('c-predcheck'))).includes('not a recovery verdict'));
 check('no comparison yet (action not executed)', (await page.textContent(section('c-predcheck'))).includes('No comparison yet'));
-await page.click('nav button:has-text("Diagnostic Tests")');
+await page.click('nav button:has-text("Diagnostic Investigation")');
 await reveal('c4-pipeline');
 await page.waitForSelector(section('c-tests'));
-check('diagnostic-tests card present', (await page.textContent(section('c-tests'))).includes('Diagnostic tests (C4)'));
+check('diagnostic-tests card present', (await page.textContent(section('c-tests'))).includes('Diagnostic tests'));
 await page.waitForSelector('text=NOT adopted', { timeout: 10000 }).catch(() => {});
 check('C4 calibration labelled not adopted', (await page.textContent('main')).includes('NOT adopted'));
 await shot('40-c2c4-decisions-before');
 
 // ---- approve through the UI, let the incident run to its end
-await page.click('nav button:has-text("Interventions")');
+await page.click('nav button:has-text("Action Recommendations")');
 await page.click('button:has-text("Approve")');
 await page.waitForTimeout(600);
 for (let i = 0; i < 60; i++) { await api('/simulation/step', 'POST', { seconds: 20 }); st = (await api('/status')).json; if (st.closed_incidents >= 1) break; }
@@ -62,7 +62,7 @@ check('incident closed after the approved action', st.closed_incidents >= 1);
 const checks = (await api('/prediction-checks')).json;
 check('server stored a prediction_check record', checks.length >= 1, `comparison=${checks[0]?.comparison}`);
 await page.waitForTimeout(2500);                                                      // the UI polls
-await page.click('nav button:has-text("Predictions")'); await reveal('c2-pipeline'); await page.waitForSelector(section('c-predcheck'));
+await page.click('nav button:has-text("Failure Prediction")'); await reveal('c2-pipeline'); await page.waitForSelector(section('c-predcheck'));
 const pcTxt = await page.textContent(section('c-predcheck'));
 if (checks[0]?.comparison === 'available') {
   check('UI shows predicted vs observed rows', (await page.locator(`${section('c-predcheck')} table tbody tr`).count()) === checks[0].rows.length);
@@ -74,14 +74,16 @@ check('observation provenance is shown as simulated', (await page.locator(`${sec
 await shot('41-c2c4-decisions-after');
 
 // ---- Evaluation view: run card (the latest-run endpoint must return an EvaluationRun) + Phase 10 validation card
-await page.click('nav button:has-text("Evaluation")');
+await page.click('nav button:has-text("Performance Evaluation")');
+await page.getByRole('tab', { name: /validation/ }).click();     // the validation study has its own tab
 await page.waitForSelector(section('c-c2c4'));
+await page.evaluate(() => document.querySelectorAll('section[aria-labelledby="c-c2c4"] details').forEach((x) => { x.open = true; }));   // per-regime tables are a disclosure
 const evTxt = await page.textContent('main');
-check('evaluation run card shows an eval_sim_run file (not another study artifact)', /File eval_sim_run\d/.test(evTxt));
+check('evaluation run card shows an eval_sim_run file (not another study artifact)', /eval_sim_run\d/.test(evTxt));
 check('validation card has the hardware caveat', evTxt.includes('unvalidated against hardware'));
-check('validation card has coverage tables for both variants', (await page.locator(`${section('c-c2c4')} table`).count()) === 3 && evTxt.includes('noise-aware C2 (opt-in)'));
+check('validation card has coverage tables for both variants', (await page.locator(`${section('c-c2c4')} table`).count()) === 3 && evTxt.includes('noise-aware predictor (opt-in)'));
 check('Phase 11 card labels the conditional variant opt-in and C4 calibration as not adopted', evTxt.includes('Phase 11 (opt-in, not adopted by default)') && evTxt.includes('NOT adopted'));
-check('limitations listed', evTxt.includes('No C2 variant is validated by Intervention Outcome Experiments on hardware'));
+check('limitations listed', /variant is validated by Intervention Outcome Experiments on hardware/.test(evTxt));
 await shot('42-c2c4-evaluation');
 
 // ---- responsive
@@ -92,7 +94,7 @@ for (const w of [1024, 768, 390]) {
 }
 await page.setViewportSize({ width: 390, height: 900 });
 await page.click('[data-testid=nav-toggle]');                     // at phone width the navigation is a drawer
-await page.click('nav button:has-text("Predictions")'); await page.waitForTimeout(400);
+await page.click('nav button:has-text("Failure Prediction")'); await page.waitForTimeout(400);
 check('no horizontal overflow at 390px (decisions view)', (await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)) <= 1);
 await shot('43-c2c4-decisions-390');
 

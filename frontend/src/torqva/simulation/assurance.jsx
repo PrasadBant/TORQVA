@@ -23,8 +23,8 @@ export function predictionFor(d, action, rpm) {
 // The decision gate's own recorded preconditions (GET /decisions → inputs), shown as recorded: [key, label, value that is favourable].
 const GATE_CHECKS = [
   ['mandatory_stop', 'Mandatory-stop condition present', false], ['data_ok', 'Data quality sufficient', true], ['sensor_unreliable', 'Sensors flagged unreliable', false],
-  ['ood', 'Operating data outside the training range', false], ['conflict', 'Conflicting evidence', false], ['c2_trusted', 'C2 prediction trusted', true],
-  ['op_point_familiar', 'Operating point learned by C1', true],
+  ['ood', 'Operating data outside the training range', false], ['conflict', 'Conflicting evidence', false], ['c2_trusted', 'prediction trusted', true],
+  ['op_point_familiar', 'Operating point learned by Anomaly Detection', true],
 ];
 const PRED_SIGNALS = [['rpm', 'Speed', 'rpm', 0], ['housing', 'Housing temperature', '°C', 1], ['vib_rms', 'Vibration RMS', 'g', 3], ['current', 'Current', 'A', 2]];
 
@@ -36,13 +36,13 @@ function ExpectedOutcome({ p }) {
     <div className="tq-as-expect">
       <div className="tq-as-subhead"><span className="tq-section-title">Expected outcome <ProvBadge kind="PREDICTED" /></span>
         <Pill tone={p.status === 'supported' ? 'ok' : 'warn'}>{p.status === 'supported' ? 'supported' : `${title(p.status)}: cannot drive a decision`}</Pill></div>
-      {!rows.length ? <p className="tq-muted tq-small">C2 returned no trajectory for this action.</p> : (
-        <div className="tq-table-wrap"><table className="tq-table tq-as-compact"><caption className="tq-sr">C2 predicted outcome of the proposed action</caption>
+      {!rows.length ? <p className="tq-muted tq-small">Failure Prediction returned no trajectory for this action.</p> : (
+        <div className="tq-table-wrap"><table className="tq-table tq-as-compact"><caption className="tq-sr">Predicted outcome of the proposed action</caption>
           <thead><tr><th scope="col">Signal</th><th scope="col" className="tq-th-num">+30 s</th><th scope="col" className="tq-th-num">+60 s</th><th scope="col" className="tq-th-num">+120 s</th><th scope="col" className="tq-th-num">90 % interval at +120 s</th></tr></thead>
           <tbody>{rows.map(([k, n, u, dg]) => (
             <tr key={k}><th scope="row">{n} <span className="tq-muted">({u})</span></th>{m[k].slice(0, 3).map((v, i) => <td key={i} className="tq-num tq-td-num">{fmt(v, dg)}</td>)}
               <td className="tq-num tq-td-num">{p.lo_120?.[k] !== undefined && p.hi_120?.[k] !== undefined ? `${fmt(p.lo_120[k], dg)}–${fmt(p.hi_120[k], dg)}` : '—'}</td></tr>))}</tbody></table></div>)}
-      <p className="tq-chart-note">Predicted at t = {fmt(p.predicted_at, 0)} s. A prediction is not a measurement and never authorises an action{p.validated_by_experiments === false ? '; C2 is not validated by intervention experiments' : ''}.
+      <p className="tq-chart-note">Predicted at t = {fmt(p.predicted_at, 0)} s. A prediction is not a measurement and never authorises an action{p.validated_by_experiments === false ? '; Failure Prediction is not validated by intervention experiments' : ''}.
         {p.status_reasons?.length ? ` Reasons: ${p.status_reasons.map(title).join(', ')}.` : ''}</p>
     </div>
   );
@@ -92,10 +92,10 @@ export function ApprovalCard({ d, role, actions, error, busy = false }) {
             <section aria-label="Risk assessment">
               <span className="tq-section-title">Risk assessment</span>
               {p ? (
-                <MetricList label="C2 predicted risk" items={[
+                <MetricList label="Predicted risk" items={[
                   { key: 'risk', label: 'Predicted risk within 120 s', value: pct(p.risk, 0) === '—' ? null : pct(p.risk, 0), prov: 'PREDICTED' },
                   ...bySignal.map(([k, v]) => ({ key: k, label: `… from ${title(k)}`, value: pct(v, 0) === '—' ? null : pct(v, 0) }))]} />
-              ) : <p className="tq-muted tq-small">No C2 prediction is recorded for this exact action and target, so no predicted risk is shown.</p>}
+              ) : <p className="tq-muted tq-small">No prediction is recorded for this exact action and target, so no predicted risk is shown.</p>}
               {checks.length > 0 && <><span className="tq-as-minor">Gate preconditions (as recorded)</span><CheckList dense label="Gate preconditions" items={checks} /></>}
             </section>
           </div>
@@ -105,7 +105,7 @@ export function ApprovalCard({ d, role, actions, error, busy = false }) {
               <button type="button" className="tq-btn tq-primary" onClick={actions.approve} disabled={!ctl || busy}><Check size={14} aria-hidden="true" /> Approve</button>
               <button type="button" className="tq-btn tq-danger" onClick={actions.reject} disabled={!ctl || busy}><X size={14} aria-hidden="true" /> Reject</button>
             </div>
-            <p className="tq-muted tq-small">Approving re-runs the Safety Supervisor on the current state before anything is sent. Only a simulated-device acknowledgement counts as executed, and only C5 declares recovery.</p>
+            <p className="tq-muted tq-small">Approving re-runs the Safety Supervisor before anything is sent.</p>
           </div>
           {!ctl && <p className="tq-muted">Approving requires role operator or admin.</p>}
         </div>)}
@@ -123,11 +123,11 @@ export function InterventionsPage({ d, role, actions, error, isPhys: isPhysProp,
   const cmds = (d.commands || []).filter((c) => c.action !== 'HEARTBEAT').slice(-20).reverse();
   return (
     <>
-      {head && <PageHead title="Interventions (C3)" sub="What the system proposes, what the gate and Safety Supervisor decided, and what the device acknowledged." right={<ProvBadge kind={provKind} />} />}
+      {head && <PageHead title="Action Recommendations" sub="Proposals, decisions and device acknowledgements." right={<ProvBadge kind={provKind} />} />}
       {head && <p className="tq-callout" role="note">This page never commands a motor directly. Every action passes the decision gate and the deterministic Safety Supervisor on the backend; the frontend can only approve or reject what the backend proposes.</p>}
       {head && <div className="tq-mb"><ApprovalCard d={d} role={role} actions={actions} error={error} busy={busy} /></div>}
       <div className="tq-stack">
-        <Card title="Commands and device acknowledgements" id="c-cmd" icon={ListChecks} sub="An HTTP 200 only means a command was dispatched; only a device acknowledgement counts." right={<ProvBadge kind={provKind} />}>
+        <Card title="Commands and device acknowledgements" id="c-cmd" icon={ListChecks} sub="Only a device acknowledgement counts as executed" right={<ProvBadge kind={provKind} />}>
           <DataTable caption="Commands and device acknowledgements" rows={cmds} rowKey={(c) => `${c.session ?? ''}-${c.id}`} empty="No commands sent in this run."
             columns={[
               { key: 'id', label: '#', align: 'num', sort: (c) => c.id },
@@ -166,12 +166,12 @@ export function InterventionsPage({ d, role, actions, error, isPhys: isPhysProp,
 export function recoveryStatus(d) {
   const s = d.status || {}; const inc = s.incident;
   const outs = d.outcomes || []; const last = outs[outs.length - 1] || null;
-  if (inc?.state === 'VERIFYING_RECOVERY') return { tone: 'wait', head: 'Verifying recovery', text: `C5 is collecting fresh samples for ${inc.id} after the device acknowledged the action; the simulation must keep running.`, to: ['interventions', 'View the action on Interventions'] };
-  if (inc && (!last || last.incident !== inc.id)) return { tone: 'info', head: 'Not in recovery', text: `Incident ${inc.id} is open (${title(inc.state)}). No action for it has been verified yet.`, to: ['interventions', 'Open Interventions'] };
+  if (inc?.state === 'VERIFYING_RECOVERY') return { tone: 'wait', head: 'Verifying recovery', text: `Recovery Verification is collecting fresh samples for ${inc.id} after the device acknowledged the action; the simulation must keep running.`, to: ['interventions', 'View the action on Action Recommendations'] };
+  if (inc && (!last || last.incident !== inc.id)) return { tone: 'info', head: 'Not in recovery', text: `Incident ${inc.id} is open (${title(inc.state)}). No action for it has been verified yet.`, to: ['interventions', 'Open Action Recommendations'] };
   if (!last) return { tone: 'off', head: 'Not in recovery', text: 'No action has been verified in this run. Recovery is assessed only after the device acknowledges an action.', to: null };
   if (last.outcome === 'RECOVERED') return { tone: 'ok', head: 'Recovery verified', text: `${last.incident}: from ${last.n_fresh} fresh window(s) after the acknowledged ${title(last.action)}. Keep monitoring.`, to: ['live', 'Open Live Monitor'], last };
   if (last.outcome === 'UNRESOLVED') return { tone: 'crit', head: 'Condition persists', text: `${last.incident}: the action did not resolve it. Re-run the diagnosis.`, to: ['workflow', 'Run the Diagnostic Workflow'], last };
-  if (last.outcome === 'HUMAN_INSPECTION_REQUIRED') return { tone: 'warn', head: 'Human inspection required', text: `${last.incident}: C5 cannot decide from the data; a person must inspect the motor.`, to: null, last };
+  if (last.outcome === 'HUMAN_INSPECTION_REQUIRED') return { tone: 'warn', head: 'Human inspection required', text: `${last.incident}: Recovery Verification cannot decide from the data; a person must inspect the motor.`, to: null, last };
   return { tone: 'warn', head: `Recovery not verified: ${title(last.outcome)}`, text: `${last.incident}: ${(last.reasons || []).map(title).join(', ') || 'no reason recorded'}.`, to: ['workflow', 'Run the Diagnostic Workflow'], last };
 }
 
@@ -189,19 +189,19 @@ function BeforeAfter({ d, o, provKind }) {
     ['Speed', 'rpm', 0, pre?.rpm, ob.rpm, predAt('rpm')],
     ['Housing temperature', '°C', 1, pre?.housing, ob.housing, predAt('housing')],
     ['Windows inside the learned band', '%', 0, undefined, Number.isFinite(ob.frac_in_band) ? ob.frac_in_band * 100 : undefined, null],
-    ['Anomaly score ÷ threshold (mean)', '', 2, undefined, ob.score_over_threshold_mean, null],
+    ['Anomaly severity, × threshold (mean)', '', 2, undefined, ob.score_over_threshold_mean, null],
     ['Score trend per minute', '', 2, undefined, ob.trend_per_min, null],
   ].filter((r) => r[3] !== undefined || r[4] !== undefined || r[5]);
   const v = (x, dg) => (x === null || x === undefined || !Number.isFinite(Number(x)) ? '—' : fmt(x, dg));
   return (
     <Card title="Before and after the action" id="c-prepost" icon={ArrowLeftRight} sub={`${o.incident} · observed values; the prediction is shown separately`} right={<ProvBadge kind={provKind} />}>
-      {!rows.length ? <Empty>C5 recorded no observed values for this outcome.</Empty> : (
-        <div className="tq-table-wrap"><table className="tq-table" data-testid="rec-prepost"><caption className="tq-sr">Observed before and after the action, and the C2 prediction</caption>
-          <thead><tr><th scope="col">Signal</th><th scope="col" className="tq-th-num">Before (observed)</th><th scope="col" className="tq-th-num">After (observed)</th><th scope="col" className="tq-th-num">C2 predicted <ProvBadge kind="PREDICTED" /></th></tr></thead>
+      {!rows.length ? <Empty>Recovery Verification recorded no observed values for this outcome.</Empty> : (
+        <div className="tq-table-wrap"><table className="tq-table" data-testid="rec-prepost"><caption className="tq-sr">Observed before and after the action, and the prediction</caption>
+          <thead><tr><th scope="col">Signal</th><th scope="col" className="tq-th-num">Before (observed)</th><th scope="col" className="tq-th-num">After (observed)</th><th scope="col" className="tq-th-num">Predicted <ProvBadge kind="PREDICTED" /></th></tr></thead>
           <tbody>{rows.map(([n, u, dg, a, b, p]) => (
             <tr key={n}><th scope="row">{n}{u && <span className="tq-muted"> ({u})</span>}</th><td className="tq-num tq-td-num">{v(a, dg)}</td><td className="tq-num tq-td-num">{v(b, dg)}</td>
               <td className="tq-num tq-td-num">{p ? `${fmt(p.predicted, dg)} at +${p.horizon_s} s` : '—'}</td></tr>))}</tbody></table></div>)}
-      <p className="tq-chart-note">Before: the last {provKind === 'MEASURED' ? 'measured' : 'simulated'} sample at the decision{Number.isFinite(tAct) ? ` (t = ${fmt(tAct, 0)} s)` : ''}{pre ? '' : ', not in the recent telemetry buffer'}. After: C5's fresh window after the acknowledgement. A prediction is never evidence of recovery.</p>
+      <p className="tq-chart-note">Before: the last {provKind === 'MEASURED' ? 'measured' : 'simulated'} sample at the decision{Number.isFinite(tAct) ? ` (t = ${fmt(tAct, 0)} s)` : ''}{pre ? '' : ', not in the recent telemetry buffer'}. After: Recovery Verification's fresh window after the acknowledgement. A prediction is never evidence of recovery.</p>
     </Card>
   );
 }
@@ -215,29 +215,29 @@ export function RecoveryPage({ d, isPhys: isPhysProp, go }) {
   const crit = last ? Object.entries(last.criteria || {}) : [];
   const items = last ? [
     { key: 'ack', label: 'Device acknowledged the action', detail: last.action ? `${title(last.action)}${last.command ? ` · command #${last.command}` : ''}` : 'no action recorded', state: last.command_executed ? 'ok' : 'fail', status: last.command_executed ? 'yes' : 'no' },
-    { key: 'fresh', label: 'Fresh valid samples after the acknowledgement', detail: 'counted by C5 after the settle time', state: 'info', status: <span className="tq-num">{last.n_fresh ?? '—'}</span> },
+    { key: 'fresh', label: 'Fresh valid samples after the acknowledgement', detail: 'counted by Recovery Verification after the settle time', state: 'info', status: <span className="tq-num">{last.n_fresh ?? '—'}</span> },
     ...crit.map(([k, v]) => ({ key: k, label: title(k), state: v ? 'ok' : 'fail', status: v ? 'met' : 'not met' })),
   ] : [];
   return (
     <>
-      <PageHead title="Recovery Verification (C5)" sub="Recovery is declared only from fresh, valid samples observed after the device acknowledged an action." right={<ProvBadge kind={provKind} />} />
+      <PageHead title="Recovery Verification" sub="Did the motor recover after the action?" right={<ProvBadge kind={provKind} />} />
       <AlertPanel tone={st.tone} title={st.head} testid="rec-status" action={st.to && go ? <LinkButton onClick={() => go(st.to[0])}>{st.to[1]}</LinkButton> : null}>
         <p>{st.text}</p>
       </AlertPanel>
-      <p className="tq-muted tq-small tq-as-note" role="note">A prediction of improvement is not a verified recovery, and an acknowledgement is not recovery.{isPhys ? '' : ' Records below are simulator observations, not hardware evidence.'}</p>
+      <p className="tq-muted tq-small tq-as-note" role="note">Recovery is declared only from fresh readings after the device acknowledged the action.{isPhys ? '' : ' Simulator observations, not hardware evidence.'}</p>
       <div className="tq-split tq-as-rec">
-        <Card title="Verification criteria" id="c-ver" icon={ListChecks} sub={last ? `Latest C5 verdict · ${last.incident}` : 'Shown once C5 has assessed an acknowledged action'}
+        <Card title="Verification criteria" id="c-ver" icon={ListChecks} sub={last ? `Latest recovery verdict · ${last.incident}` : 'Shown once Recovery Verification has assessed an acknowledged action'}
           right={last ? <Pill tone={last.outcome === 'RECOVERED' ? 'ok' : last.outcome === 'UNRESOLVED' ? 'crit' : 'warn'}>{title(last.outcome)}</Pill> : null}>
-          {!last ? <Empty>{st.tone === 'wait' ? 'Verification is still in progress: criteria appear when C5 records its verdict.' : 'No verdict yet. C5 checks the device acknowledgement, a fresh window of valid samples, the learned band and the trend.'}</Empty> : (
-            <><CheckList label="C5 verification criteria" items={items} testid="rec-criteria" />
+          {!last ? <Empty>{st.tone === 'wait' ? 'Verification is still in progress: criteria appear when Recovery Verification records its verdict.' : 'No verdict yet. Recovery Verification checks the device acknowledgement, a fresh window of valid samples, the learned band and the trend.'}</Empty> : (
+            <><CheckList label="Recovery verification criteria" items={items} testid="rec-criteria" />
               <p className="tq-muted tq-small">Reason: {(last.reasons || []).map(title).join(', ') || '—'}</p></>)}
         </Card>
         {last ? <BeforeAfter d={d} o={last} provKind={provKind} /> : (
           <Card title="Before and after the action" id="c-prepost" icon={ArrowLeftRight} right={<ProvBadge kind={provKind} />}>
-            <Empty>Observed values before and after an action appear once C5 has verified one.</Empty>
+            <Empty>Observed values before and after an action appear once Recovery Verification has verified one.</Empty>
           </Card>)}
       </div>
-      <Card title="Outcomes" id="c-out" icon={History} className="tq-mt" sub="Every C5 verdict in this run, newest first" right={<ProvBadge kind={provKind} />}>
+      <Card title="Outcomes" id="c-out" icon={History} className="tq-mt" sub="Every recovery verdict in this run, newest first" right={<ProvBadge kind={provKind} />}>
         {!outs.length ? <Empty>No incident has been verified yet. Verified outcomes appear here after an acknowledged action and a fresh observation window.</Empty> : (
           <div className="tq-as-outcomes">{outs.map((o) => (
             <article key={o.incident} className="tq-outcome tq-as-outcome">
@@ -262,19 +262,19 @@ export function LearningPage({ d, children, isPhys: isPhysProp }) {
   const cases = d.cases || [];
   return (
     <>
-      <PageHead title="Learning (C6)" sub="The operator-attested healthy reference used by adaptive C1, and the cases eligible for learning." right={<ProvBadge kind={provKind} />} />
+      <PageHead title="Continuous Intelligence" sub="Trusted references and the cases eligible for learning." right={<ProvBadge kind={provKind} />} />
       {children}
       <Card title="Learning dataset" id="c-learn" icon={Database} className="tq-mt" sub="Cases recorded from verified outcomes in this run" right={<ProvBadge kind={provKind} />}>
         <DataTable caption="Learning dataset" rows={cases} rowKey={(c) => `${c.label}-${c.outcome}-${c.session}-${c.executed}`}
           empty="No eligible cases recorded in this run. Blocked, rejected or aborted actions never count."
           columns={[
             { key: 'label', label: 'Label', render: (c) => <strong>{title(c.label)}</strong> },
-            { key: 'outcome', label: 'C5 outcome', render: (c) => title(c.outcome) },
+            { key: 'outcome', label: 'Recovery outcome', render: (c) => title(c.outcome) },
             { key: 'src', label: 'Label source', render: (c) => title(c.label_source) },
             { key: 'exec', label: 'Executed', render: (c) => String(c.executed) },
             { key: 'prov', label: 'Source', render: () => <ProvBadge kind={provKind} /> },
           ]} />
-        <p className="tq-muted tq-small tq-mt">No model training, promotion or rollback of C2/C4 models is exposed: those are not implemented as operator actions. The reference lifecycle above is the only model-management feature that exists.</p>
+        <p className="tq-muted tq-small tq-mt">Model training and rollback are not operator actions; the reference lifecycle above is the only model management.</p>
       </Card>
     </>
   );

@@ -12,7 +12,7 @@ export function deviceAlerts(stream) {
   const out = [];
   const snap = stream?.snap;
   if (stream?.unreachable) out.push({ key: 'backend', tone: 'crit', icon: 'net', title: 'Backend unreachable', text: 'Device readings shown are the last received and are not live.', to: 'device' });
-  if (!snap || snap.connection === 'DISCONNECTED') { out.push({ key: 'disc', tone: 'off', title: 'Device disconnected', text: 'Physical readings are unavailable. Connect the rig on the Device page.', to: 'device' }); return out; }
+  if (!snap || snap.connection === 'DISCONNECTED') { out.push({ key: 'disc', tone: 'off', title: 'Device disconnected', text: 'Physical readings are unavailable. Connect the rig on Device & Safety.', to: 'device' }); return out; }
   if (snap.connection === 'ERROR') out.push({ key: 'err', tone: 'crit', title: 'Device connection error', text: snap.error?.message || snap.state_label || 'The device link reported an error.', to: 'device' });
   if (snap.handshake && snap.origin !== 'physical_device') out.push({ key: 'fwsim', tone: 'warn', title: 'Firmware simulation mode', text: 'The board reports simulated values; they are not physical measurements.', to: 'device' });
   const live = !!(snap.handshake && snap.origin === 'physical_device');
@@ -31,7 +31,7 @@ export function simAlerts(d, stale) {
   const s = d?.status || {};
   if (stale) out.push({ key: 'backend', tone: 'crit', icon: 'net', title: 'Backend unreachable', text: 'Values shown are stale and not live.', to: 'overview' });
   if (s.device?.estop) out.push({ key: 'estop', tone: 'stop', title: 'Simulated E-stop latched', text: title(s.device.estop_reason) || 'The simulated motor is stopped.', to: 'overview' });
-  if (s.pending_approval) out.push({ key: 'appr', tone: 'wait', title: 'Action awaiting your decision', text: `${title(s.pending_approval.action)}: review it in Interventions.`, to: 'interventions' });
+  if (s.pending_approval) out.push({ key: 'appr', tone: 'wait', title: 'Action awaiting your decision', text: `${title(s.pending_approval.action)}: review it in Action Recommendations.`, to: 'interventions' });
   if (s.incident) out.push({ key: 'inc', tone: 'warn', title: `Incident ${s.incident.id} open`, text: `State: ${title(s.incident.state)}.`, to: 'diagnostics' });
   if (s.last_window && s.last_window.valid === false) out.push({ key: 'inv', tone: 'warn', title: 'Latest simulated window invalid', text: 'Its values are shown as unavailable.', to: 'live' });
   return out;

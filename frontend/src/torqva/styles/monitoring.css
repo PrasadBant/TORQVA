@@ -83,3 +83,13 @@
 
 .tq-mon-status .tq-stat.tq-off .tq-stat-value { color: var(--tq-text-2); }
 .tq-mon-status .tq-stat-value { font-size: 17px; }
+
+/* Overview: the motor's condition and the one next step, above everything else. The status colour is a left rule and the icon only. */
+.tq-ov-health { --h: var(--tq-accent); display: flex; align-items: center; gap: 14px; margin: 0 0 14px; padding: 14px 16px; border: 1px solid var(--tq-border); border-left: 4px solid var(--h); border-radius: var(--tq-r-l); background: var(--tq-s1); }
+.tq-ov-health--ok { --h: var(--tq-ok); } .tq-ov-health--warn, .tq-ov-health--wait { --h: var(--tq-warn); } .tq-ov-health--stop, .tq-ov-health--crit { --h: var(--tq-crit); } .tq-ov-health--off { --h: var(--tq-off); }
+.tq-ov-health-icon { color: var(--h); display: inline-flex; }
+.tq-ov-health-text { flex: 1; min-width: 0; }
+.tq-ov-health-label { display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--tq-muted); }
+.tq-ov-health-text strong { display: block; font-size: 20px; line-height: 1.25; color: var(--tq-text); }
+.tq-ov-health-text p { margin: 2px 0 0; color: var(--tq-text-2, var(--tq-muted)); font-size: 13.5px; }
+@media (max-width: 640px) { .tq-ov-health { flex-wrap: wrap; } .tq-ov-health .tq-btn { width: 100%; justify-content: center; } }

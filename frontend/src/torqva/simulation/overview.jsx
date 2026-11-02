@@ -1,10 +1,8 @@
 // Simulation Overview, laid out like the physical dashboard (page head → status strip → control panel + telemetry → detail), with the
 // C1–C6 pipeline as its centrepiece. Every value is the simulator's own record; ground truth, AI output, prediction and observation are kept apart.
 import React from 'react';
-import { FlaskConical, Layers, Gauge, Thermometer, Waves, Zap, Plug, Siren, Activity, History } from 'lucide-react';
-import { Card, Empty, Pill, ProvBadge, fmt, stateTone, PageHead, StatTile, StatGrid, AlertPanel, LinkButton, MetricList, SourceTag } from '../shared/components.jsx';
-import { Kpi } from './pages.jsx';
-import { ScenarioStudio } from './scenario.jsx';
+import { FlaskConical, Layers, Gauge, Thermometer, Waves, Zap, Siren, Activity, History, HeartPulse, LineChart, ArrowRight } from 'lucide-react';
+import { Card, Empty, Pill, ProvBadge, fmt, stateTone, PageHead, StatTile, StatGrid, AlertPanel, LinkButton, MetricList, SourceTag, ConditionBanner } from '../shared/components.jsx';
 import { lifecycle, scenarioText, pipelineStages, hasSimOf, title, STAGE_TONE, STAGE_WORD } from './pipeline.js';
 import { EventTimeline } from './events.jsx';
 
@@ -44,13 +42,13 @@ export function SimStatusStrip({ d, running, stale }) {
 export function PipelineView({ d, go }) {
   const { incident, stages } = pipelineStages(d);
   return (
-    <Card title="AI diagnostic pipeline" id="c-pipe" className="tq-pipe-card"
+    <Card title="Analysis progress" id="c-pipe" className="tq-pipe-card"
       right={<>{incident ? <Pill tone={incident.open ? stateTone(incident.state) : 'off'}>{incident.open ? `${incident.id} open` : `${incident.id} (last, closed)`}</Pill> : <Pill tone="off">no incident</Pill>}<ProvBadge kind="DERIVED" /></>}>
       <ol className="tq-pipe" aria-label="Pipeline stages" data-testid="pipeline">
-        {stages.map((x) => (
+        {stages.map((x, i) => (
           <li key={x.key} className={`tq-pipe-stage is-${x.state}`} data-testid={`stage-${x.key}`} data-state={x.state}>
-            <button type="button" className="tq-pipe-btn" onClick={() => go(x.page)} aria-label={`Stage ${x.code}, ${STAGE_WORD[x.state]}: open details`} aria-describedby={`pipe-${x.key}`}>
-              <span className="tq-pipe-top"><span className="tq-pipe-code">{x.code}</span><span className="tq-pipe-dot" aria-hidden="true" /></span>
+            <button type="button" className="tq-pipe-btn" onClick={() => go(x.page)} aria-label={`Stage ${i + 1}, ${x.name}, ${STAGE_WORD[x.state]}: open details`} aria-describedby={`pipe-${x.key}`}>
+              <span className="tq-pipe-top"><span className="tq-pipe-code">{i + 1}</span><span className="tq-pipe-dot" aria-hidden="true" /></span>
               <strong className="tq-pipe-name" id={`pipe-${x.key}`}>{x.name}</strong>
               <Pill tone={STAGE_TONE[x.state]}>{STAGE_WORD[x.state]}</Pill>
               <span className="tq-pipe-sum">{x.summary}</span>
@@ -58,52 +56,61 @@ export function PipelineView({ d, go }) {
             </button>
           </li>))}
       </ol>
-      <p className="tq-chart-note">States come from the backend's log, decisions and outcomes for {incident ? `incident ${incident.id}` : 'this run'}; a stage that has not run says so. H (hypothesis ranking) sits between C1 and C2 and is not a C layer.</p>
+      
     </Card>
   );
 }
 
-export function SimOverview({ d, role, go, actions, running, setRunning, busy, error, stale, stepSeconds }) {
-  const s = d.status || {}; const w = s.last_window; const t = d.telemetry?.samples || [];
+/** Overall condition of the simulated motor and the one next step, read only from the run's own records (status, incident, latest
+ *  scored window). It never invents a state: anything it cannot judge reads Unavailable or Monitoring. */
+export function simHealth(d, running, stale) {
+  const s = d.status || {}; const w = s.last_window; const inc = s.incident; const pend = s.pending_approval;
+  const samples = d.telemetry?.samples || []; const last = samples[samples.length - 1];
+  if (stale) return { status: 'Unavailable', why: 'The backend is unreachable.', next: null };
+  if (!hasSimOf(s)) return { status: 'Unavailable', why: 'No simulation is running.', next: ['scenario', 'Start a scenario in Scenario Studio'] };
+  if (s.device?.estop) return { status: 'Critical', why: `The simulated E-stop is latched${s.device.estop_reason ? ` (${title(s.device.estop_reason)})` : ''}.`, next: ['interventions', 'Review Action Recommendations'] };
+  if (w && w.valid === false) return { status: 'Unavailable', why: 'The latest simulated window is flagged invalid; its values are not shown as numbers.', next: ['live', 'Check the readings in Live Monitor'] };
+  if (pend) return { status: 'Action Verification', why: `TORQVA recommends ${title(pend.action)}; it waits for your decision.`, next: ['interventions', 'Review the recommendation'] };
+  if (inc?.state === 'VERIFYING_RECOVERY') return { status: 'Action Verification', why: `The action for ${inc.id} was acknowledged; recovery is being verified.`, next: ['recovery', 'Follow Recovery Verification'] };
+  if (inc) return { status: 'Investigation Required', why: `Incident ${inc.id} is open: an anomaly persisted.`, next: ['workflow', 'Investigate with the Diagnostic Workflow'] };
+  if (last && last.score != null && last.score > 1) return { status: 'Investigation Required', why: `Anomaly severity ${fmt(last.score, 2)} × threshold, not yet persistent.`, next: ['diagnostics', 'Review Anomaly Detection'] };
+  if (!last || last.score == null) return { status: 'Unavailable', why: last ? `The latest reading is not scored yet (${title(last.score_status) || 'no score'}).` : 'Waiting for the first simulated reading.', next: running ? ['live', 'Watch Live Monitor'] : ['scenario', 'Run the simulation in Scenario Studio'] };
+  return { status: 'Normal', why: `No anomaly (severity ${fmt(last.score, 2)} × threshold) and no open incident.`, next: running ? null : ['scenario', 'Run the simulation in Scenario Studio'] };
+}
+
+export function SimOverview({ d, go, running, stale }) {
+  const s = d.status || {}; const w = s.last_window;
   const hasSim = hasSimOf(s);
   const life = lifecycle(d, running, stale);
-  const tail = t.slice(-60);
-  const V = w?.voltage, I = w?.current;
-  const power = finite(V) && finite(I) ? V * I : null;
   const invalid = w && w.valid === false;
-  const val = (v) => (hasSim && w && !invalid ? v : null);           // an invalid simulated window is shown unavailable, never as a number
-  const fresh = !hasSim || !w ? null : stale ? { state: 'stale', text: `STALE · t = ${fmt(w.t, 0)} s` } : invalid ? { state: 'invalid', text: 'window invalid' } : { state: 'live', text: `t = ${fmt(w.t, 0)} s` };
+  const val = (v) => (hasSim && w && !invalid && !stale ? v : null);           // an invalid or stale window is shown unavailable, never as a number
   const gate = [...(d.decisions || [])].reverse().find((x) => x.inputs);
   const inc = s.incident;
-  const pend = s.pending_approval;
+  const h = simHealth(d, running, stale);
+  const all = d.predictions || [];
+  const latestAt = all.length ? all[all.length - 1].predicted_at : null;
+  const preds = all.filter((p) => p.predicted_at === latestAt).slice().sort((a, b) => (a.risk ?? 1) - (b.risk ?? 1));
   return (
     <>
-      <PageHead title="Simulation Overview" sub="Virtual motor, controlled fault scenarios and the C1–C6 pipeline on the software simulator. Not hardware evidence."
+      <PageHead title="Overview"
         right={<><ProvBadge kind="SIMULATED" /><Pill tone={life.tone}>{life.label}</Pill></>} />
+      <ConditionBanner c={h} go={go} />
       <SimStatusStrip d={d} running={running} stale={stale} />
-      {invalid && <AlertPanel tone="crit" title="The latest simulated window is flagged invalid"><p>Its values are shown as unavailable, never as numbers.</p></AlertPanel>}
-      {pend && (
-        <AlertPanel tone="warn" testid="sim-pending" title={`Awaiting human approval: ${title(pend.action)}`}
-          action={<button type="button" className="tq-btn tq-primary" onClick={() => go('interventions')}>Review in Interventions</button>}>
-          <p>{pend.rationale}</p>
-        </AlertPanel>)}
 
-      <div className="tq-mon-ovgrid tq-sim-main">
-        <div className="tq-stack">
-          <ScenarioStudio d={d} role={role} actions={actions} running={running} setRunning={setRunning} busy={busy} error={error} stale={stale} stepSeconds={stepSeconds} />
-          <p className="tq-small tq-mon-studiolink"><LinkButton onClick={() => go('scenario')} testid="sim-to-studio">Open the full Scenario Studio</LinkButton></p>
-        </div>
-        <Card title="Simulated telemetry" id="c-simtel" icon={Activity} right={<SourceTag kind={stale ? 'STALE' : 'SIMULATED'} />} sub="Latest one-second window, with the last minute of the run"
-          foot={<><LinkButton onClick={() => go('live')}>Open live charts</LinkButton><LinkButton onClick={() => go('twin')}>Inspect the motor in 3D</LinkButton></>}>
-          <div className="tq-kpis tq-mon-tiles" aria-label="Latest simulated telemetry" data-testid="sim-kpis">
-            <Kpi label="Speed" icon={Gauge} value={val(w?.rpm)} unit="rpm" digits={0} data={tail} dataKey="rpm" prov="SIMULATED" color="var(--tq-sig-rpm)" fresh={fresh} />
-            <Kpi label="Current" icon={Zap} value={val(I)} unit="A" digits={2} data={tail} dataKey="current" prov="SIMULATED" color="var(--tq-sig-current)" fresh={fresh} />
-            <Kpi label="Housing temperature" icon={Thermometer} value={val(w?.housing)} unit="°C" data={tail} dataKey="housing" prov="SIMULATED" color="var(--tq-sig-temp)" fresh={fresh} />
-            <Kpi label="Supply voltage" icon={Plug} value={val(V)} unit="V" digits={2} data={tail} dataKey="voltage" prov="SIMULATED" color="var(--tq-sig-voltage)" fresh={fresh} />
-            <Kpi label="Power (V × I)" icon={Zap} value={val(power)} unit="W" digits={1} prov="DERIVED" fresh={fresh} />
-            <Kpi label="Vibration RMS" icon={Waves} value={val(w?.vib_rms)} unit="g" digits={3} data={tail} dataKey="vib_rms" prov="SIMULATED" color="var(--tq-sig-vib)" fresh={fresh} />
-          </div>
-          <p className="tq-chart-note">The simulator's vibration model reports RMS directly; the physical board reports raw acceleration. Power is voltage × current of the same window, computed for display.</p>
+      <div className="tq-mon-ovgrid tq-mon-ovgrid--even">
+        <Card title="Key readings" id="c-simtel" icon={Activity} right={<SourceTag kind={stale ? 'STALE' : 'SIMULATED'} />} sub={hasSim && w ? `Latest one-second window · t = ${fmt(w.t, 0)} s` : 'No simulated window yet'}
+          foot={<LinkButton onClick={() => go('live')}>Trends and all readings in Live Monitor</LinkButton>}>
+          <MetricList label="Key simulated readings" testid="sim-kpis" items={[
+            { key: 'rpm', label: 'Speed', icon: Gauge, value: val(w?.rpm) == null ? null : fmt(w.rpm, 0), unit: 'rpm', prov: 'SIMULATED' },
+            { key: 'cur', label: 'Current', icon: Zap, value: val(w?.current) == null ? null : fmt(w.current, 2), unit: 'A', prov: 'SIMULATED' },
+            { key: 'hous', label: 'Housing temperature', icon: Thermometer, value: val(w?.housing) == null ? null : fmt(w.housing, 1), unit: '°C', prov: 'SIMULATED' },
+            { key: 'vib', label: 'Vibration RMS', icon: Waves, value: val(w?.vib_rms) == null ? null : fmt(w.vib_rms, 3), unit: 'g', prov: 'SIMULATED' },
+          ].map((m) => ({ ...m, missingText: 'UNAVAILABLE' }))} />
+        </Card>
+        <Card title="Predicted risk" id="c-ov-risk" icon={LineChart} right={<ProvBadge kind="PREDICTED" />} sub={preds.length ? `Latest comparison · predicted at t = ${fmt(latestAt, 0)} s` : 'No prediction in this run yet'}
+          foot={<LinkButton onClick={() => go('predictions')}>Compare actions in Failure Prediction</LinkButton>}>
+          {!preds.length ? <Empty>Predictions are made when an incident reaches action evaluation. A prediction is a model estimate, never a measurement.</Empty> : (
+            <MetricList label="Predicted risk of crossing a limit, by action" testid="ov-risk" items={preds.map((p) => ({ key: p.action, label: title(p.action), value: p.risk == null ? null : fmt(p.risk * 100, 0), unit: '%', prov: 'PREDICTED' }))} />)}
         </Card>
       </div>
 
@@ -112,16 +119,15 @@ export function SimOverview({ d, role, go, actions, running, setRunning, busy, e
       <div className="tq-mon-ovgrid tq-mon-ovgrid--even">
         <Card title={inc ? `Active incident ${inc.id}` : 'Active incident'} id="c-inc" icon={Siren} right={inc ? <Pill tone={stateTone(inc.state)}>{title(inc.state)}</Pill> : null}
           foot={<LinkButton onClick={() => go('recovery')}>Open the incident story</LinkButton>}>
-          {!hasSim ? <Empty>No simulation is running.</Empty> : !inc ? <Empty>No open incident. {s.closed_incidents ? `${s.closed_incidents} closed in this run; see Recovery for their story.` : 'C1 opens one when an anomaly persists.'}</Empty> : (
+          {!hasSim ? <Empty>No simulation is running.</Empty> : !inc ? <Empty>No open incident. {s.closed_incidents ? `${s.closed_incidents} closed in this run; see Recovery Verification for their story.` : 'Anomaly Detection opens one when an anomaly persists.'}</Empty> : (
             <MetricList label="Incident" items={[
               { key: 'tests', label: 'Diagnostic tests run', value: inc.tests_run },
               { key: 'req', label: 'Extra data requests', value: inc.data_requests },
             ]} />)}
-          {gate && inc && <p className="tq-small">Latest gate verdict: <Pill tone={gate.verdict === 'ACT' ? 'ok' : gate.verdict === 'SAFE_STOP' ? 'stop' : 'warn'}>{title(gate.verdict)}</Pill> <span className="tq-muted">{gate.reason}</span></p>}
-          <p className="tq-small tq-muted">A recommendation is never an executed action; only a simulated-device acknowledgement counts, and only C5 declares recovery.</p>
+          {gate && inc && <p className="tq-small">Latest recommendation check: <Pill tone={gate.verdict === 'ACT' ? 'ok' : gate.verdict === 'SAFE_STOP' ? 'stop' : 'warn'}>{title(gate.verdict)}</Pill> <span className="tq-muted">{gate.reason}</span></p>}
         </Card>
-        <Card title="Recent events" id="c-events" icon={History} right={<ProvBadge kind="SIMULATED" />}>
-          <EventTimeline log={d.log} limit={8} />
+        <Card title="Recent activity" id="c-events" icon={History} right={<ProvBadge kind="SIMULATED" />} foot={<LinkButton onClick={() => go('live')}>Full event timeline in Live Monitor</LinkButton>}>
+          <EventTimeline log={d.log} limit={6} />
         </Card>
       </div>
     </>

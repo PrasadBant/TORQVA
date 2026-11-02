@@ -32,7 +32,8 @@ const status = () => page.getAttribute('[data-testid=wf-record]', 'data-status')
 await page.goto(URL);
 await page.waitForSelector('[data-testid=sim-status-strip]', { timeout: 30000 });
 
-// a faulty run whose pipeline holds its action for a human decision
+// a faulty run whose pipeline holds its action for a human decision (configured in Scenario Studio)
+await page.click('nav button:has-text("Scenario Studio")');
 for (let i = 0; i < 20; i++) {   // the new-scenario form is a disclosure in Scenario Studio; it folds once when the run state first loads
   await page.evaluate(() => document.querySelectorAll('[data-testid=scn-new]').forEach((x) => { x.open = true; }));
   await page.waitForTimeout(300);
@@ -43,7 +44,7 @@ await page.fill('label:has-text("Inject fault at") input', '10');
 await page.check('text=Require human approval');
 await page.click('button:has-text("Start new simulation")');
 await page.waitForTimeout(800);
-await page.click('button:has-text("Run")');
+await page.getByRole('button', { name: 'Run', exact: true }).click();
 let st = null;
 for (let i = 0; i < 60; i++) { await page.waitForTimeout(1000); st = await api('/status'); if (st.pending_approval) break; }
 await page.click('button:has-text("Pause")').catch(() => {});
@@ -51,6 +52,8 @@ check('the scenario reaches a held action', !!st?.pending_approval, st?.pending_
 
 // 1. configuration
 await nav('Diagnostic Workflow');
+// after an earlier run the page restores it and folds the new-run configuration; open it the way a user would
+await page.evaluate(() => document.querySelectorAll('[data-testid=wf-config-fold]').forEach((x) => { x.open = true; }));
 await page.waitForSelector('[data-testid=wf-pattern-T3]', { timeout: 15000 });
 check('five real test patterns are offered', (await page.locator('[data-testid^=wf-pattern-]:not([data-testid=wf-pattern-detail])').count()) === 5);
 await page.click('[data-testid=wf-pattern-T3]');
@@ -62,7 +65,7 @@ const cmds0 = (await api('/commands')).length;
 const started = page.waitForResponse((r) => r.request().method() === 'POST' && /\/workflow\/runs$/.test(r.url()), { timeout: 20000 });
 await page.dblclick('[data-testid=wf-run]');
 const newId = (await (await started).json()).id;
-await page.waitForFunction((i) => document.querySelector('#wf-exec')?.textContent.includes(i), newId, { timeout: 20000 });
+await page.waitForFunction((i) => document.querySelector('[data-testid=wf-record]')?.textContent.includes(i), newId, { timeout: 20000 });
 check('one double-click sends exactly one workflow request', runPosts.length === 1, String(runPosts.length));
 check('the request carries the pattern, policy and an idempotency key', runPosts[0]?.pattern === 'T3' && runPosts[0]?.execution_policy === 'require_confirmation' && /^wf-/.test(runPosts[0]?.idempotency_key || ''));
 check('the workflow stops for authorization', (await status()) === 'AWAITING_AUTHORIZATION', await status());
@@ -84,10 +87,10 @@ const last = cmds[cmds.length - 1];
 check('exactly one command was dispatched', cmds.length === cmds0 + 1, `${cmds0} → ${cmds.length}`);
 check('the dispatched command is the recommended one', last && last.action === 'REDUCE_SPEED' && target.includes(Math.round(last.params.rpm).toLocaleString('en-US')), JSON.stringify(last?.params));
 check('the authorize button is gone (no second send)', (await page.locator('[data-testid=wf-authorize]').count()) === 0);
-const id = (await page.textContent('#wf-exec')).match(/WF-\d+/)?.[0];
+const id = (await page.textContent('[data-testid=wf-record]')).match(/WF-\d+/)?.[0];
 
 // 4. C5 verification after simulated time passes
-await nav('Live Monitor');
+await nav('Scenario Studio');      // run controls live only in Scenario Studio
 await page.getByRole('button', { name: 'Run', exact: true }).click();
 let w = null;
 for (let i = 0; i < 90; i++) { await page.waitForTimeout(1000); w = await api(`/workflow/runs/${id}`); if (w.status !== 'VERIFYING_OUTCOME') break; }

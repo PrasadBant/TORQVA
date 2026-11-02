@@ -11,7 +11,7 @@ import { title, fmtRpm } from './workbench.js';
 
 const HORIZONS = [30, 60, 120, 180, 300];
 const SIGNALS = [['rpm', 'Speed', 'rpm', 0], ['current', 'Current', 'A', 3], ['voltage', 'Voltage', 'V', 2], ['power', 'Power (simulator)', 'W', 1],
-  ['housing', 'Housing temperature', '°C', 2], ['vib_rms', 'Vibration RMS (simulator model)', 'g', 4], ['score', 'C1 score ÷ threshold', '', 2]];
+  ['housing', 'Housing temperature', '°C', 2], ['vib_rms', 'Vibration RMS (simulator model)', 'g', 4], ['score', 'Anomaly severity (× threshold)', '', 2]];
 const COLORS = ['var(--tq-chart-ink)', 'var(--tq-chart-1)', 'var(--tq-chart-2)', 'var(--tq-chart-3)', 'var(--tq-chart-4)'];
 
 /** Rows {t: seconds after the branch point, <label>: value} for one signal across all completed branches. */
@@ -40,7 +40,7 @@ export function CounterfactualLab({ targets, role, stale, hasRanking, hasSim }) 
   const data = res ? mergeBranches(res.branches, sig) : [];
   const done = res ? res.branches.filter((b) => b.status === 'completed') : [];
   return (
-    <Card title="Counterfactual experiment lab" id="c-cf" className="tq-mt" icon={GitFork} sub="Compare candidates on copies of one snapshot of the simulated motor" right={<ProvBadge kind="SIMULATED" />}>
+    <Card title="What-if analysis" id="c-cf" className="tq-mt" icon={GitFork} sub="Compare candidates on copies of one snapshot of the simulated motor" right={<ProvBadge kind="SIMULATED" />}>
       <p className="tq-muted">Runs each candidate on its own copy of one snapshot of the simulated motor (same state, injected fault and random stream) for the same horizon, so the outcomes can be compared fairly. The live run is not changed and no device is involved.</p>
       <div className="tq-row tq-wrap-pills tq-as-cf-controls">
         <span className="tq-muted tq-small">Candidates:</span>
@@ -56,7 +56,7 @@ export function CounterfactualLab({ targets, role, stale, hasRanking, hasSim }) 
       <ErrorBox error={err} />
       {res && (
         <div className="tq-mt" data-testid="cf-result">
-          <p className="tq-small"><strong>Experiment {res.id}</strong> <span className="tq-muted">· from t = {fmt(res.inputs.start_sim_t, 0)} s · seed {res.inputs.seed ?? '—'} · setpoint {fmtRpm(res.inputs.setpoint_rpm)} rpm · horizon {res.inputs.horizon_s} s · state digest {res.inputs.state_digest} · models: hypotheses v{res.inputs.model_versions.hypothesis_model}, C4 v{res.inputs.model_versions.c4_signatures}, C2 v{res.inputs.model_versions.c2_predictor}</span></p>
+          <p className="tq-small"><strong>Experiment {res.id}</strong> <span className="tq-muted">· from t = {fmt(res.inputs.start_sim_t, 0)} s · seed {res.inputs.seed ?? '—'} · setpoint {fmtRpm(res.inputs.setpoint_rpm)} rpm · horizon {res.inputs.horizon_s} s · state digest {res.inputs.state_digest} · models: hypotheses v{res.inputs.model_versions.hypothesis_model}, Diagnostic Investigation v{res.inputs.model_versions.c4_signatures}, Failure Prediction v{res.inputs.model_versions.c2_predictor}</span></p>
           <p className="tq-small"><span className="tq-muted">Start (SIM): </span>{fmtRpm(res.start.rpm)} rpm · {fmt(res.start.current, 2)} A · {fmt(res.start.voltage, 2)} V · {fmt(res.start.housing, 1)} °C · {fmt(res.start.vib_rms, 3)} g · injected fault: {res.start.injected_fault ? title(res.start.injected_fault) : 'none'} (ground truth){res.inputs.scheduled_injection_in_branches ? ` · the scheduled ${res.inputs.scheduled_injection_in_branches.fault} injection at t = ${res.inputs.scheduled_injection_in_branches.at} s is applied in every branch` : ''}</p>
           <div className="tq-cands">
             {res.branches.map((b) => (
@@ -68,7 +68,7 @@ export function CounterfactualLab({ targets, role, stale, hasRanking, hasSim }) 
                     <dt>Final (mean of last 10 s)</dt><dd className="tq-num">{fmtRpm(b.metrics.final_mean_last_10s.rpm)} rpm · {fmt(b.metrics.final_mean_last_10s.housing, 1)} °C · {fmt(b.metrics.final_mean_last_10s.current, 2)} A</dd>
                     <dt>Maximum</dt><dd className="tq-num">{fmt(b.metrics.max.housing, 1)} °C · {fmt(b.metrics.max.current, 2)} A · {fmt(b.metrics.max.vib_rms, 3)} g</dd>
                     <dt>Seconds above a warn limit</dt><dd className="tq-num">{Object.entries(b.metrics.seconds_above_warn_limit).map(([k, v]) => `${title(k)} ${v}`).join(' · ') || '—'}</dd>
-                    <dt>C1 flagged</dt><dd className="tq-num">{b.metrics.c1_flagged_fraction === null ? 'not scored' : `${fmt(b.metrics.c1_flagged_fraction * 100, 0)}% of ${b.metrics.c1_scored_windows}`}</dd>
+                    <dt>Flagged as anomalous</dt><dd className="tq-num">{b.metrics.c1_flagged_fraction === null ? 'not scored' : `${fmt(b.metrics.c1_flagged_fraction * 100, 0)}% of ${b.metrics.c1_scored_windows}`}</dd>
                     <dt>Valid windows</dt><dd className="tq-num">{b.metrics.valid_windows} of {b.observed.length}</dd>
                   </dl>)}
               </article>))}
@@ -81,13 +81,13 @@ export function CounterfactualLab({ targets, role, stale, hasRanking, hasSim }) 
             </div>)}
           <p className="tq-chart-note">Seconds after the branch point. Every line is the simulator's own trajectory for that branch, recorded once per simulated second.</p>
           {sig !== 'score' && sig !== 'voltage' && sig !== 'power' && done.some((b) => b.prediction?.rows) && (
-            <div className="tq-table-wrap"><table className="tq-table" data-testid="cf-pred"><caption>{def[1]}: C2 prediction made at the start vs the branch's observed simulated value</caption>
+            <div className="tq-table-wrap"><table className="tq-table" data-testid="cf-pred"><caption>{def[1]}: prediction made at the start vs the branch's observed simulated value</caption>
               <thead><tr><th scope="col">Branch</th><th scope="col">Horizon</th><th scope="col">Predicted (90 % interval) <ProvBadge kind="PREDICTED" /></th><th scope="col">Observed <ProvBadge kind="SIMULATED" /></th><th scope="col">Inside interval</th></tr></thead>
               <tbody>{done.flatMap((b) => (b.prediction?.rows || []).filter((r) => r.signal === sig).map((r) => (
                 <tr key={`${b.label}-${r.horizon_s}`}><th scope="row">{b.label}</th><td className="tq-num">+{r.horizon_s} s</td>
                   <td className="tq-num">{fmt(r.predicted_mean, def[3])} [{fmt(r.lo, def[3])}–{fmt(r.hi, def[3])}]</td><td className="tq-num">{fmt(r.observed, def[3])}</td>
                   <td>{r.observed === null ? '—' : r.inside_interval ? 'yes' : 'no'}</td></tr>)))}</tbody></table></div>)}
-          {!hasRanking && <p className="tq-muted tq-small">No C2 prediction was made: predictions need a hypothesis ranking. The observed branches are still comparable.</p>}
+          {!hasRanking && <p className="tq-muted tq-small">No prediction was made: predictions need a hypothesis ranking. The observed branches are still comparable.</p>}
           <details className="tq-disclosure tq-mt"><summary>Metric definitions</summary><div className="tq-disclosure-body"><dl className="tq-kv tq-small">{Object.entries(res.metric_definitions).map(([k, v]) => <React.Fragment key={k}><dt>{title(k)}</dt><dd>{v}</dd></React.Fragment>)}
             <dt>Warn limits</dt><dd className="tq-num">{Object.entries(res.risk_limits).map(([k, v]) => `${title(k)} ${v}`).join(' · ')}</dd></dl></div></details>
           <div className="tq-row tq-mt">

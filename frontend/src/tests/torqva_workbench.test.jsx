@@ -48,7 +48,7 @@ describe('sequence validation (mirrors the backend limits)', () => {
   });
 });
 
-describe('Diagnostic Tests: the edited sequence is exactly what is submitted', () => {
+describe('Diagnostic Investigation: the edited sequence is exactly what is submitted', () => {
   it('adding, editing, reordering and removing steps changes the request body', async () => {
     setToken('t');
     const { SimTestsPage } = await import('../torqva/simulation/tests.jsx');
@@ -181,7 +181,7 @@ describe('Interventions: check first, then an explicit confirmation', () => {
     render(<SimInterventionsPage d={d} role="operator" actions={{}} go={() => {}} wb={{ selection: sel }} setWb={() => {}} />);
     expect(await screen.findByTestId('dcheck-blockers')).toHaveTextContent(/RUN_DIAGNOSTIC_TEST/);
     expect(screen.getByTestId('req-start')).toBeDisabled();
-    expect(screen.getByText(/Run T1 on Diagnostic Tests first/)).toBeInTheDocument();
+    expect(screen.getByText(/Run T1 on Diagnostic Investigation first/)).toBeInTheDocument();
     expect(calls.some((c) => c.path === '/simulation/workbench/request')).toBe(false);
   });
   it('an allowed check needs a second, explicit confirmation before the request carries the exact target and basis', async () => {

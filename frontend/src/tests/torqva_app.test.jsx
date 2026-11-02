@@ -53,17 +53,18 @@ describe('redesigned application shell', () => {
   it('every page is reachable from the navigation and the physical device is shown as not connected', async () => {
     server(); setToken('t'); render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
-    for (const n of ['Live Monitor', 'AI Diagnostics', 'Predictions', 'Diagnostic Tests', 'Interventions', 'Recovery', 'Learning', 'Evaluation', 'Devices & Settings']) {
+    for (const n of ['Live Monitor', 'Anomaly Detection', 'Failure Prediction', 'Diagnostic Investigation', 'Action Recommendations', 'Recovery Verification', 'Continuous Intelligence', 'Performance Evaluation', 'Device & Safety']) {
       fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${n}`) }));
       await waitFor(() => expect(screen.getByRole('button', { name: new RegExp(`^${n}`) })).toHaveAttribute('aria-current', 'page'));
     }
+    fireEvent.click(screen.getByRole('tab', { name: /^Device$/ }));
     expect(await screen.findByText('not connected')).toBeInTheDocument();
   });
 
   it('no page ever labels simulator data as physical-device data (no HW badge while the backend says SIMULATED)', async () => {
     server(); setToken('t'); render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
-    for (const n of ['Overview', 'Live Monitor', 'AI Diagnostics', 'Predictions', 'Diagnostic Tests', 'Interventions', 'Recovery', 'Learning', 'Evaluation', 'Devices & Settings']) {
+    for (const n of ['Overview', 'Live Monitor', 'Anomaly Detection', 'Failure Prediction', 'Diagnostic Investigation', 'Action Recommendations', 'Recovery Verification', 'Continuous Intelligence', 'Performance Evaluation', 'Device & Safety']) {
       fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${n}`) }));
       await waitFor(() => expect(screen.getByRole('button', { name: new RegExp(`^${n}`) })).toHaveAttribute('aria-current', 'page'));
       expect(screen.queryAllByText('HW'), n).toHaveLength(0);
@@ -83,10 +84,10 @@ describe('redesigned application shell', () => {
     }));
     setToken('t'); render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
-    fireEvent.click(screen.getByRole('button', { name: /^Evaluation/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Performance Evaluation/ }));
     expect(await screen.findByRole('table', { name: 'Available evaluation runs' })).toBeInTheDocument();
     expect(screen.getAllByText('unavailable').length).toBeGreaterThan(3);      // missing metrics are labelled, never blank or zero
-    expect(screen.getByText(/there is no longer history/)).toBeInTheDocument();
+    expect(screen.getByText(/Shown:/)).toBeInTheDocument();
   });
 
   it('a slow older response never overwrites a newer one (out-of-order polling)', async () => {
@@ -113,8 +114,9 @@ describe('redesigned application shell', () => {
 });
 
 describe('application shell behaviour (audit)', () => {
-  const NAV_SIM = ['Overview', 'Live Monitor', 'AI Diagnostics', 'Diagnostic Tests', 'Predictions', 'Interventions', 'Recovery', 'Learning', 'Evaluation', 'Device', 'Motor Control', 'Lab', 'Devices & Settings'];
-  const navButton = (n) => screen.getByRole('button', { name: n === 'Device' ? /^Device$/ : new RegExp(`^${n.replace('&', '\&')}`) });
+  // The full sidebar, in order: one entry per page in both modes (Device & Safety holds the device, safety and audit sections).
+  const NAV_SIM = ['Overview', 'Live Monitor', 'Digital Twin', 'Diagnostic Workflow', 'Anomaly Detection', 'Failure Prediction', 'Action Recommendations', 'Diagnostic Investigation', 'Recovery Verification', 'Continuous Intelligence', 'Performance Evaluation', 'Scenario Studio', 'Lab', 'Device & Safety'];
+  const navButton = (n) => screen.getByRole('button', { name: new RegExp(`^${n}$`) });
   const simCalls = () => fetch.mock.calls.map(([u]) => String(u)).filter((u) => /\/api\/torqva\/(status|telemetry|simulation)/.test(u)).length;
 
   it('every page in both modes renders its own heading (no blank page, no silent fallback to another screen)', async () => {
@@ -124,16 +126,41 @@ describe('application shell behaviour (audit)', () => {
       const { unmount } = render(<TorqvaApp pollMs={100000} />);
       await screen.findByText(/tester · /);
       const seen = new Set();
-      const list = NAV_SIM.flatMap((x) => (x !== 'Motor Control' ? [x] : mode === 'PHYSICAL' ? ['Safety & Commissioning'] : []));   // Motor Control is not listed in simulation mode
-      if (mode === 'SIMULATION') expect(screen.queryByRole('button', { name: /^Motor Control/ })).toBeNull();
+      const list = NAV_SIM;
+      expect(screen.queryByRole('button', { name: /^Motor Control/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^Safety & Commissioning/ })).toBeNull();      // a section of Device & Safety, not a separate page
       for (const n of list) {
         fireEvent.click(navButton(n));
         await waitFor(() => expect(navButton(n)).toHaveAttribute('aria-current', 'page'));
+        await waitFor(() => expect(document.querySelector('main h2')).not.toBeNull(), { timeout: 5000 });      // lazy pages (Digital Twin, workspaces) load first
         const h = document.querySelector('main h2')?.textContent || '';
         expect(h.trim().length, `${mode} ${n}`).toBeGreaterThan(0);
         seen.add(h);
       }
       expect(seen.size, mode).toBeGreaterThanOrEqual(list.length - 1);                       // distinct pages, not one fallback screen
+      unmount(); vi.unstubAllGlobals(); setToken('');
+    }
+  });
+
+  it('no page shows an internal layer identifier (C1–C6) in text, labels or tooltips', async () => {
+    const ID = /C[1-6]/;
+    for (const mode of ['SIMULATION', 'PHYSICAL']) {
+      window.localStorage.setItem('torqva.mode', mode);
+      server(); setToken('t');
+      const { unmount } = render(<TorqvaApp pollMs={100000} />);
+      await screen.findByText(/tester · /);
+      for (const n of NAV_SIM) {
+        fireEvent.click(navButton(n));
+        await waitFor(() => expect(document.querySelector('main h2')).not.toBeNull(), { timeout: 5000 });
+        const tabs = [...document.querySelectorAll('main [role=tab]')];
+        for (const t of tabs.length ? tabs : [null]) {
+          if (t) fireEvent.click(t);
+          const text = document.body.textContent || '';
+          const attrs = [...document.querySelectorAll('[aria-label],[title],[placeholder]')].flatMap((e) => ['aria-label', 'title', 'placeholder'].map((a) => e.getAttribute(a) || ''));
+          const hit = [text, ...attrs].find((x) => ID.test(x));
+          expect(hit && hit.slice(Math.max(0, hit.search(ID) - 60), hit.search(ID) + 40), `${mode} ${n}${t ? ` / ${t.textContent}` : ''}`).toBeUndefined();
+        }
+      }
       unmount(); vi.unstubAllGlobals(); setToken('');
     }
   });
@@ -153,11 +180,11 @@ describe('application shell behaviour (audit)', () => {
   it('switching the theme keeps the current page', async () => {
     server(); setToken('t'); render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
-    fireEvent.click(navButton('Recovery'));
+    fireEvent.click(navButton('Recovery Verification'));
     const theme = document.documentElement.getAttribute('data-theme');
     fireEvent.click(screen.getByRole('button', { name: 'Toggle theme' }));
     expect(document.documentElement.getAttribute('data-theme')).not.toBe(theme);
-    expect(navButton('Recovery')).toHaveAttribute('aria-current', 'page');
+    expect(navButton('Recovery Verification')).toHaveAttribute('aria-current', 'page');
     expect(document.querySelector('main h2').textContent).toMatch(/Recovery/);
   });
 

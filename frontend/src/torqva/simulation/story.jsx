@@ -15,7 +15,7 @@ export function IncidentStory({ d }) {
   const s = d.status || {}; const sc = s.scenario || {};
   if (!id) return (
     <Card title="Incident story" id="c-story" icon={BookOpen} right={<ProvBadge kind="SIMULATED" />}>
-      <Empty>No incident in this run's log yet. When C1 opens one, its path from injection to resolution appears here.</Empty>
+      <Empty>No incident in this run's log yet. When Anomaly Detection opens one, its path from injection to resolution appears here.</Empty>
     </Card>);
   const L = (d.log || []).filter((l) => l.incident === id);
   const of = (k) => lastWhere(L, (l) => l.kind === k);
@@ -28,7 +28,7 @@ export function IncidentStory({ d }) {
   const match = !top ? 'no diagnosis yet' : !truth ? `diagnosed ${title(top)}; the scenario injected no fault` : top === truth ? 'top hypothesis matches the injected fault' : `top hypothesis differs from the injected fault`;
   const open = s.incident?.id === id;
   return (
-    <Card title="Incident story" id="c-story" icon={BookOpen} sub="Ground truth, diagnosis, prediction and observed outcome, kept apart" right={<><Pill tone={open ? 'wait' : closed ? 'off' : 'info'}>{open ? `open: ${title(s.incident.state)}` : closed ? `closed: ${title(closed.final)}` : 'record incomplete'}</Pill><ProvBadge kind="SIMULATED" /></>}>
+    <Card title="Incident story" id="c-story" icon={BookOpen} sub="Injected fault, diagnosis, prediction and outcome" right={<><Pill tone={open ? 'wait' : closed ? 'off' : 'info'}>{open ? `open: ${title(s.incident.state)}` : closed ? `closed: ${title(closed.final)}` : 'record incomplete'}</Pill><ProvBadge kind="SIMULATED" /></>}>
       {ids.length > 1 && (
         <label className="tq-inline">Incident <select value={id} onChange={(e) => setPick(e.target.value)}>{ids.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>)}
       <div className="tq-story-cols" data-testid="story-cols">
@@ -45,13 +45,13 @@ export function IncidentStory({ d }) {
           <span className="tq-muted tq-small" data-testid="story-match">{match}</span>
         </section>
         <section className="tq-story-col is-pred" aria-label="Predicted outcome">
-          <span className="tq-section-title">Predicted (C2) <ProvBadge kind="PREDICTED" /></span>
+          <span className="tq-section-title">Predicted <ProvBadge kind="PREDICTED" /></span>
           <strong>{rank?.chosen ? title(rank.chosen) : out?.predicted_top ? title(out.predicted_top) : 'no prediction'}</strong>
-          <span className="tq-muted">{rank ? `lowest predicted risk of ${(rank.ranking || []).length} action(s)` : 'C2 did not rank actions for this incident'}</span>
+          <span className="tq-muted">{rank ? `lowest predicted risk of ${(rank.ranking || []).length} action(s)` : 'Failure Prediction did not rank actions for this incident'}</span>
           <span className="tq-muted tq-small">A prediction is never evidence of recovery.</span>
         </section>
         <section className="tq-story-col is-obs" aria-label="Observed outcome">
-          <span className="tq-section-title">Observed (C5) <ProvBadge kind="SIMULATED" /></span>
+          <span className="tq-section-title">Observed <ProvBadge kind="SIMULATED" /></span>
           <strong>{out ? <Pill tone={outcomeTone(out.outcome)}>{title(out.outcome)}</Pill> : 'not verified'}</strong>
           <span className="tq-muted">{out ? `action ${out.action || '—'} · acknowledged ${out.command_executed ? 'yes' : 'no'} · ${out.n_fresh ?? '—'} fresh sample(s)` : open ? 'verification has not finished' : 'no verdict recorded'}</span>
           {out?.observed?.rpm !== undefined && <span className="tq-muted tq-small tq-num">after the action: {fmt(out.observed.rpm, 0)} rpm, {fmt(out.observed.housing, 1)} °C, {fmt((out.observed.frac_in_band ?? NaN) * 100, 0)}% in band</span>}

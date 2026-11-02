@@ -17,7 +17,7 @@ const res = []; const check = (n, ok, x = '') => res.push(`${ok ? 'PASS' : 'FAIL
 await page.goto('http://127.0.0.1:5173/#/torqva');
 await page.fill('input[type=password]', TOKEN);
 await page.click('button:has-text("Sign in")');
-await page.click('nav button:has-text("Overview")'); await page.waitForSelector('text=Start new simulation', { state: 'attached' });
+await page.waitForSelector('nav button:has-text("Overview")');
 await page.click('nav button:has-text("Lab")');
 await page.waitForSelector('text=New recording session');
 await page.waitForSelector('[data-testid=regime-desc]');
@@ -26,7 +26,7 @@ await shot('20-lab-empty');
 await page.selectOption('select >> nth=1', 'confusable_sensor');
 check('regime description updates', (await page.textContent('[data-testid=regime-desc]')).includes('mimics looseness'));
 await page.selectOption('select >> nth=2', 'looseness');
-await page.check('text=Blind session');
+await page.check('label:has-text("Blind session (hide") input');
 await page.fill('input[aria-label="step 1 hold seconds"]', '90');
 await page.click('button:has-text("Add step")');
 check('profile step added', (await page.locator('input[aria-label^="step"]').count()) === 4);

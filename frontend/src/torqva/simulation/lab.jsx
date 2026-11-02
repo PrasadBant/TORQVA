@@ -92,7 +92,7 @@ export default function Lab({ role, isPhys = false }) {
         <StatTile icon={Repeat} tone="info" label="Matched experiments" value={experiments.length} sub="same seed, every action compared" />
       </StatGrid>
       <div className="tq-lab-top">
-        <Card title="New recording session" id="c-lab-new" icon={ListChecks} right={<ProvBadge kind="SIMULATED" />} sub="A reproducible simulated run: regime, injected fault, speed profile and seed.">
+        <Card title="New recording session" id="c-lab-new" icon={ListChecks} right={<ProvBadge kind="SIMULATED" />} sub="A reproducible simulated run">
           {!ctl && <Empty>Your role ({role}) can view the Lab but not create sessions.</Empty>}
           <form className="tq-form tq-lab-form" onSubmit={(e) => { e.preventDefault(); create(); }} aria-label="New session">
             <div className="tq-lab-grid">
@@ -125,7 +125,7 @@ export default function Lab({ role, isPhys = false }) {
             </fieldset>
             <label className="tq-check"><input type="checkbox" checked={form.blind} onChange={(e) => setForm({ ...form, blind: e.target.checked })} disabled={!ctl} />
               Blind session (hide the injected fault until the model output is frozen and you reveal it)</label>
-            <Disclosure summary="Optional: recorded metadata (not a simulation control)" meta="notes stored with the session and shown in its record; the simulator never reads them" testid="lab-optional">
+            <Disclosure summary="Notes (optional)" meta="stored with the session; not a simulation control" testid="lab-optional">
               <label>Notes<input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} disabled={!ctl} /></label>
             </Disclosure>
             <div><button type="submit" className="tq-btn tq-primary" disabled={!ctl || a.busy}>Create session</button></div>
@@ -133,7 +133,7 @@ export default function Lab({ role, isPhys = false }) {
           <ErrorBox error={a.error} />
         </Card>
 
-        <Card title="Sessions" id="c-lab-list" icon={ClipboardList} sub="Open a session to confirm its checklist, run it, reveal and reproduce it.">
+        <Card title="Sessions" id="c-lab-list" icon={ClipboardList} sub="Open a session to run, reveal or reproduce it">
           <DataTable rows={sessions} rowKey={(x) => x.id} caption="Recording sessions" empty="No sessions yet. Create one to record a reproducible simulated run."
             rowClass={(x) => (x.id === sel ? 'tq-selected' : '')} testid="lab-sessions"
             columns={[
@@ -198,8 +198,8 @@ export default function Lab({ role, isPhys = false }) {
         </Card>)}
 
       <Card title="Intervention experiments (matched conditions)" id="c-lab-exp" icon={Repeat} right={<ProvBadge kind="SIMULATED" />}
-        sub="Every action runs from identical starting conditions (same seed), so measured outcomes exist for chosen and non-chosen actions.">
-        <p className="tq-muted tq-small">This is a simulation experiment: it does <strong>not</strong> validate the C2 predictions on hardware.</p>
+        sub="Every action from identical starting conditions">
+        <p className="tq-muted tq-small">This is a simulation experiment: it does <strong>not</strong> validate the predictions on hardware.</p>
         <form className="tq-form" onSubmit={(e) => { e.preventDefault(); runExperiment(); }} aria-label="New experiment">
           <div className="tq-row tq-lab-exp-row">
             <label className="tq-inline">Fault<select value={xf.fault} onChange={(e) => setXf({ ...xf, fault: e.target.value })} disabled={!ctl}>{FAULTS.map((f) => <option key={f}>{f}</option>)}</select></label>

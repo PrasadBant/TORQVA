@@ -57,18 +57,18 @@ describe('C2/C4 components', () => {
       c4_realistic_v2: null, limitations: ['No C2 variant is validated by Intervention Outcome Experiments on hardware.'] };
     render(<C2C4Validation data={data} />);
     expect(screen.getByText('unvalidated against hardware')).toBeInTheDocument();
-    const t = screen.getByRole('table', { name: 'C2 interval coverage by regime' });
+    const t = screen.getByRole('table', { name: 'Prediction interval coverage by regime' });
     expect(within(t).getByText(/86\.3%/)).toBeInTheDocument();
     expect(within(t).getByText(/89\.3%/)).toBeInTheDocument();
     expect(within(t).getAllByText(/abstains/).length).toBeGreaterThan(0);
-    const c4 = screen.getByRole('table', { name: 'C4 diagnostic value' });
+    const c4 = screen.getByRole('table', { name: 'Diagnostic test value' });
     expect(within(c4).getByText('35.4%')).toBeInTheDocument();                       // the confidently-wrong rate is shown, not hidden
     expect(screen.getByText(/validated by Intervention Outcome Experiments on hardware/)).toBeInTheDocument();
   });
 
   it('degrades to an explanatory message when no study result exists', () => {
     render(<C2C4Validation data={null} error={new Error('no C2/C4 study result found')} />);
-    expect(screen.getByText(/No C2\/C4 study result available/)).toBeInTheDocument();
+    expect(screen.getByText(/No prediction and diagnostic-test study result available/)).toBeInTheDocument();
   });
 });
 
@@ -92,7 +92,7 @@ describe('Predictions and Evaluation views', () => {
     server({ '/predictions': [pred(), pred({ action: 'REDUCE_SPEED', status: 'unsupported', status_reasons: ['measurement_noise_5.0x_calibration_level'] })] });
     setToken('t'); render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
-    fireEvent.click(screen.getByRole('button', { name: /^Predictions/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Failure Prediction/ }));
     expect(await screen.findByText('unsupported — not used for decisions', {}, { timeout: 4000 })).toBeInTheDocument();   // the Predictions page is a lazy chunk
     expect(screen.getByText(/measurement noise 5.0x calibration level/)).toBeInTheDocument();
     expect(screen.getByText('Predicted vs observed (simulated)')).toBeInTheDocument();
@@ -102,13 +102,13 @@ describe('Predictions and Evaluation views', () => {
     server({ '/prediction-checks': () => ({ ok: false, status: 404, json: async () => ({ detail: 'x' }) }) });
     setToken('t'); render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
-    fireEvent.click(screen.getByRole('button', { name: /^Predictions/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Failure Prediction/ }));
     expect(await screen.findByText('Predicted vs observed (simulated)')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
 
-describe('Diagnostic Tests (C4) page', () => {
+describe('Diagnostic Investigation page', () => {
   it('describes T1, T3 and T4 with the signals the backend observes', () => {
     expect(TEST_SPECS.T1).toBeDefined();
     expect(TEST_SPECS.T3).toBeDefined();
@@ -157,7 +157,7 @@ describe('Predictions never invent candidates or command the motor', () => {
     }));
     setToken('t'); render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
-    fireEvent.click(screen.getByRole('button', { name: /^Predictions/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Failure Prediction/ }));
     expect(await screen.findByText(/No predictions yet/)).toBeInTheDocument();
     expect(screen.queryByText(/Maintain Current Speed|hardware-verified/i)).toBeNull();
     expect(screen.queryByRole('button', { name: /execute|apply|set safe speed|coast stop/i })).toBeNull();
@@ -175,7 +175,7 @@ describe('Predictions never invent candidates or command the motor', () => {
     }));
     setToken('t'); render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
-    fireEvent.click(screen.getByRole('button', { name: /^Predictions/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Failure Prediction/ }));
     expect(await screen.findByRole('button', { name: /REDUCE SPEED/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /execute|apply|set safe speed|coast stop/i })).toBeNull();
   });

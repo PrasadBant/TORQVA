@@ -53,7 +53,8 @@ async function open(snap, page) {
   setToken('t');
   render(<TorqvaApp pollMs={100000} wsFactory={(u) => new FakeWs(u)} />);
   await screen.findByText(/tester · /);
-  if (page) fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${page}`) }));
+  if (page === 'Safety') { fireEvent.click(screen.getByRole('button', { name: /^Device & Safety$/ })); fireEvent.click(screen.getByRole('tab', { name: /Safety & Commissioning/ })); }
+  else if (page) fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${page}`) }));
   return calls;
 }
 
@@ -63,7 +64,8 @@ describe('physical-device-first application', () => {
   it('defaults to physical mode: disconnected shows DEVICE DISCONNECTED, no simulated numbers and no simulator calls', async () => {
     const calls = await open(DISCONNECTED);
     expect(await screen.findByTestId('phys-banner')).toHaveTextContent('DEVICE DISCONNECTED');
-    expect(await screen.findByTestId('phys-disconnected')).toHaveTextContent('Physical readings are unavailable');
+    expect(await screen.findByTestId('phys-disconnected')).toHaveTextContent('DEVICE DISCONNECTED');
+    expect(screen.getByTestId('ov-health-status')).toHaveTextContent('Unavailable');             // never a condition the device path cannot support
     expect(screen.queryByTestId('sim-banner')).toBeNull();
     const kpis = screen.getByTestId('phys-kpis');
     expect(kpis).toHaveTextContent('UNAVAILABLE'); expect(kpis).not.toHaveTextContent(/1500|24\.0|40\.0/);
@@ -91,7 +93,7 @@ describe('physical-device-first application', () => {
     expect(within(screen.getByTestId('tile-Measured speed (Hall)')).getByText(/STALE/)).toBeInTheDocument();
   });
 
-  it.each([['AI Diagnostics', 'C1'], ['Predictions', 'C2'], ['Diagnostic Tests', 'C4'], ['Recovery', 'C5'], ['Learning', 'C6']])('%s waits for valid physical telemetry and shows no simulated result', async (page, layer) => {
+  it.each([['Anomaly Detection', 'C1'], ['Failure Prediction', 'C2'], ['Diagnostic Investigation', 'C4'], ['Recovery Verification', 'C5'], ['Continuous Intelligence', 'C6']])('%s waits for valid physical telemetry and shows no simulated result', async (page, layer) => {
     await open(DISCONNECTED, page);
     const box = await screen.findByTestId(`layer-${layer}`);
     expect(box).toHaveTextContent('WAITING FOR VALID PHYSICAL TELEMETRY');
@@ -99,7 +101,7 @@ describe('physical-device-first application', () => {
   });
 
   it('with a valid device the AI pages say exactly why they cannot run and never show a green status', async () => {
-    await open(CONNECTED, 'AI Diagnostics');
+    await open(CONNECTED, 'Anomaly Detection');
     const box = await screen.findByTestId('layer-C1');
     expect(box).toHaveTextContent('NOT AVAILABLE'); expect(box).toHaveTextContent('vib_rms'); expect(box).not.toHaveTextContent(/NORMAL|HEALTHY/i);
   });
@@ -109,7 +111,7 @@ describe('physical-device-first application', () => {
     expect(await screen.findByTestId('phys-live-empty')).toHaveTextContent('DEVICE DISCONNECTED');
     fireEvent.click(screen.getByRole('button', { name: /^Lab/ }));
     expect(await screen.findByTestId('lab-sim-note')).toHaveTextContent('SIMULATION ONLY');
-    fireEvent.click(screen.getByRole('button', { name: /^Evaluation/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Performance Evaluation/ }));
     expect(await screen.findByTestId('eval-sim-note')).toHaveTextContent('SIMULATION EVIDENCE');
     expect(calls).not.toContain('/simulation/start');
   });

@@ -47,7 +47,7 @@ function lifecycleSteps(detail, refs) {
     { key: 'dec', label: 'Operator decision', ...(st === 'ATTESTED' ? { state: 'done', sub: `attested by ${decided?.by || '—'}` } : st === 'REJECTED' ? { state: 'failed', sub: `rejected${decided ? ` by ${decided.by}` : ''}` }
       : st === 'REVOKED' ? { state: 'failed', sub: `revoked${decided ? ` by ${decided.by}` : ''}` } : st === 'ELIGIBLE' ? { state: 'waiting', sub: 'awaiting an operator' } : { state: 'pending', sub: 'not possible yet' }) },
     { key: 'ver', label: 'Reference version', ...(v ? { state: 'done', sub: `v${v} (immutable)` } : { state: 'pending', sub: 'created on attestation' }) },
-    { key: 'use', label: 'In use by C1', ...(v && refs.active_version === v ? { state: 'done', sub: 'the current reference' } : { state: 'pending', sub: v ? 'not activated' : 'not applicable yet' }) },
+    { key: 'use', label: 'In use by Anomaly Detection', ...(v && refs.active_version === v ? { state: 'done', sub: 'the current reference' } : { state: 'pending', sub: v ? 'not activated' : 'not applicable yet' }) },
   ];
 }
 
@@ -133,14 +133,14 @@ export default function Attestation({ role }) {
         {!ctl && <Empty>Your role ({role}) can review candidates but cannot capture, attest, reject, revoke or activate.</Empty>}
         <Disclosure summary="What attestation means" meta="provenance, scope and what it never changes" testid="att-explain">
           <p className="tq-muted">Telemetry and checks are <ProvBadge kind="SIMULATED" /> values; a decision recorded here is <ProvBadge kind="HUMAN_CONFIRMED" /> — a named
-          operator's judgment, recorded with the evidence hash and model versions. Attestation only affects the experimental adaptive C1 detector, which is off by default.
+          operator's judgment, recorded with the evidence hash and model versions. Attestation only affects the experimental adaptive anomaly detector, which is off by default.
           It never changes the deterministic Safety Supervisor or any command path.</p>
           <p className="tq-muted tq-small">Lifecycle: capture a warm-up session → automatic eligibility checks → an operator attests or rejects → an attested candidate becomes an
           immutable reference version → an operator activates it (or rolls back) for the running session.</p>
         </Disclosure>
       </div>
 
-      <Card title="Candidate warm-up sessions" id="c-att-list" icon={Camera} sub="Captured from the running simulation; open one to review its evidence" right={<ProvBadge kind="SIMULATED" />}>
+      <Card title="Candidate warm-up sessions" id="c-att-list" icon={Camera} sub="Open one to review its evidence" right={<ProvBadge kind="SIMULATED" />}>
         <div className="tq-row tq-as-toolbar"><button type="button" className="tq-btn tq-primary" onClick={capture} disabled={!ctl || a.busy}>Capture candidate from current simulation</button></div>
         <ErrorBox error={a.error} />
         <DataTable caption="Candidate warm-up sessions" rows={list} rowKey={(c) => c.id} rowClass={(c) => (c.id === sel ? 'tq-selected' : undefined)}
@@ -220,7 +220,7 @@ export default function Attestation({ role }) {
           </Disclosure>
         </Card>)}
 
-      <Card title="Reference versions" id="c-att-refs" icon={Layers} sub="Immutable versions; activation swaps the running session's reference only, never the trained baseline" right={<ProvBadge kind="DERIVED" />}>
+      <Card title="Reference versions" id="c-att-refs" icon={Layers} sub="Activation changes the running reference only" right={<ProvBadge kind="DERIVED" />}>
         <p className="tq-muted">Active: <strong>{refs.active_version ? `v${refs.active_version}` : 'none (shipped detector, unadapted)'}</strong></p>
         {ctl && (
           <label className="tq-as-reason">Reason for activate / roll back (at least {MIN_REASON} characters)

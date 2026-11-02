@@ -15,8 +15,8 @@ const FAULT_PART = { imbalance: ['shaft', 'mass imbalance on the rotating disc']
 // "View details" for each component: the page that shows its data. Sensors and the driver -> the simulated telemetry; the controller is the simulator
 // itself -> Scenario Studio; mechanical and power parts carry the scenario's fault and TORQVA's diagnosis -> AI Diagnostics.
 const LINKS = { hall: ['live', 'Live Monitor'], temp: ['live', 'Live Monitor'], ina: ['live', 'Live Monitor'], accel: ['live', 'Live Monitor'], driver: ['live', 'Live Monitor'],
-  controller: ['scenario', 'Scenario Studio'], motor: ['diagnostics', 'AI Diagnostics'], shaft: ['diagnostics', 'AI Diagnostics'], base: ['diagnostics', 'AI Diagnostics'],
-  psu: ['diagnostics', 'AI Diagnostics'], harness: ['live', 'Live Monitor'] };
+  controller: ['scenario', 'Scenario Studio'], motor: ['diagnostics', 'Anomaly Detection'], shaft: ['diagnostics', 'Anomaly Detection'], base: ['diagnostics', 'Anomaly Detection'],
+  psu: ['diagnostics', 'Anomaly Detection'], harness: ['live', 'Live Monitor'] };
 
 /** Pure mapping, exported for tests. `running` = the browser is auto-advancing simulation time; `stale` = the backend stopped answering. */
 export function simTwin(d, { running = false, stale = false } = {}) {
@@ -76,20 +76,20 @@ export function simTwin(d, { running = false, stale = false } = {}) {
   // TORQVA's latest hypothesis ranking for the open incident (pipeline log). It is listed in the Component Info panel of the part where the simulator
   // models each fault (FAULT_PART, from sim.py), and is never drawn on the model: a ranking is not a located finding and is not ground truth.
   const hy = hasRun && inc ? [...(d?.log || [])].reverse().find((l) => l.kind === 'hypotheses' && l.incident === inc.id) : null;
-  const hypotheses = !stale && hy?.ranked ? hy.ranked.filter(([f, p]) => FAULT_PART[f] && finite(p) && p >= 0.005)   // below 1 % the full ranking stays on AI Diagnostics
+  const hypotheses = !stale && hy?.ranked ? hy.ranked.filter(([f, p]) => FAULT_PART[f] && finite(p) && p >= 0.005)   // below 1 % the full ranking stays on Anomaly Detection
    
     .map(([f, p]) => ({ part: FAULT_PART[f][0], fault: f, p, label: hy.label, where: FAULT_PART[f][1], incident: inc.id })) : [];
   const findings = [];
   if (hasRun) {
-    if (last) findings.push({ tone: last.score_status === 'OK' ? (last.score != null && last.score > 1 ? 'warn' : 'ok') : 'info', label: `C1 anomaly score: ${last.score == null ? title(last.score_status) : `${fmt(last.score, 2)} × threshold`}`,
-      detail: last.score == null ? 'This window was not scored.' : 'Ratio to the learned threshold (1 = threshold).', go: ['diagnostics', 'AI Diagnostics'] });
-    findings.push(inc ? { tone: stateTone(inc.state), label: `Incident ${inc.id}: ${title(inc.state)}`, detail: `${Number.isFinite(inc.tests_run) ? inc.tests_run : 0} diagnostic test(s) run`, go: ['diagnostics', 'AI Diagnostics'] }
+    if (last) findings.push({ tone: last.score_status === 'OK' ? (last.score != null && last.score > 1 ? 'warn' : 'ok') : 'info', label: `Anomaly severity: ${last.score == null ? title(last.score_status) : `${fmt(last.score, 2)} × threshold`}`,
+      detail: last.score == null ? 'This window was not scored.' : 'Ratio to the learned threshold (1 = threshold).', go: ['diagnostics', 'Anomaly Detection'] });
+    findings.push(inc ? { tone: stateTone(inc.state), label: `Incident ${inc.id}: ${title(inc.state)}`, detail: `${Number.isFinite(inc.tests_run) ? inc.tests_run : 0} diagnostic test(s) run`, go: ['diagnostics', 'Anomaly Detection'] }
       : { tone: 'ok', label: 'No open incident', detail: `${st.closed_incidents || 0} closed in this run` });
-    if (st.pending_approval) findings.push({ tone: 'wait', label: `Awaiting approval: ${title(st.pending_approval.action)}`, detail: st.pending_approval.rationale, go: ['interventions', 'Interventions'] });
+    if (st.pending_approval) findings.push({ tone: 'wait', label: `Awaiting approval: ${title(st.pending_approval.action)}`, detail: st.pending_approval.rationale, go: ['interventions', 'Action Recommendations'] });
     // TORQVA's own diagnosis, kept apart from the scenario's ground truth: a system-level ranking, so it marks no part on the model.
     if (hy?.ranked?.length) findings.push({ tone: hy.label === 'confident' ? 'warn' : 'info', label: `TORQVA diagnosis: ${title(hy.ranked[0][0])} ${fmt(hy.ranked[0][1] * 100, 0)}% (${hy.label})`,
-      detail: 'Ranked by the hypothesis stage from the simulated evidence. It is the AI output, not the scenario ground truth.', go: ['diagnostics', 'AI Diagnostics'] });
-    findings.push({ tone: 'info', label: `C2: ${st.models?.c2_label || 'unknown'}`, go: ['predictions', 'Predictions'] });
+      detail: 'Ranked by the hypothesis stage from the simulated evidence. It is the AI output, not the scenario ground truth.', go: ['diagnostics', 'Anomaly Detection'] });
+    findings.push({ tone: 'info', label: `Failure Prediction: ${st.models?.c2_label || 'unknown'}`, go: ['predictions', 'Failure Prediction'] });
   }
   const facts = [
     ['Origin', 'Backend software simulator (deterministic; seeded)'],

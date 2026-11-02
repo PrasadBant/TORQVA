@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Usb, Octagon, Play, ShieldCheck, ShieldAlert, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, Lock, HeartPulse, SlidersHorizontal, History, ClipboardCheck, Info } from 'lucide-react';
 import { api } from '../api.js';
-import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, useNavContext, PageHead, StatTile, StatGrid, AlertPanel, BlockedReason, LinkButton, CheckList, StepTracker, DataTable, SourceTag } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, useNavContext, PageHead, StatTile, StatGrid, AlertPanel, BlockedReason, LinkButton, CheckList, StepTracker, DataTable, SourceTag, ConditionBanner } from '../shared/components.jsx';
 import { DeviceLive, CommissioningCard, canOperate, STATE_TONE, ReadinessCard, InterlocksCard, interlockGroups, groupStatus, toComm, toIlk, useDeviceHistories, readingOf, ago, clock } from './device.jsx';
 import { Sparkline } from '../shared/lazyCharts.jsx';
 import { TEST_SPECS } from '../shared/diagnostics.js';
@@ -215,7 +215,7 @@ export function StatusStrip({ snap, go }) {
       <StatGrid label="Device status">
         <StatTile icon={Usb} tone={connTone} label="Device status" value={connWord} testid="stat-device"
           sub={snap?.handshake ? `handshake ok · ${snap.device_id || '—'} · fw ${snap.firmware || '—'}` : snap?.port ? `port ${snap.port} · no handshake` : 'no device handshake'}
-          action={go ? <LinkButton onClick={() => go('device')}>Open Device page</LinkButton> : null}>
+          action={go ? <LinkButton onClick={() => go('connection')}>Open Device & Safety</LinkButton> : null}>
           {snap?.last_rx_unix ? <span className="tq-stat-sub tq-num">last telemetry {ago(snap.last_rx_unix)}</span> : null}
           {live && snap.transport_label && <span className="tq-mon-statpill"><Pill tone={snap.session?.active ? 'info' : 'warn'}>{snap.transport_label}</Pill></span>}
         </StatTile>
@@ -371,7 +371,7 @@ export function MotionPanel({ stream, role, go }) {
   const dutyBad = duty === '' || !(Number(duty) > 0 && Number(duty) <= maxDuty);
 
   return (
-    <Card title="Motor Control" id="p-motion" icon={SlidersHorizontal} className="tq-mon-motion" sub="Requests go through the Safety Supervisor and the firmware; the device decides."
+    <Card title="Motor Control" id="p-motion" icon={SlidersHorizontal} className="tq-mon-motion" sub="Every request is checked by the Safety Supervisor and the firmware."
       right={<Pill tone={motor === 'RUNNING' ? 'ok' : motor === 'STOPPED' ? 'info' : 'off'}>{motor}</Pill>}>
       {/* 1. MOTOR STATE FIRST */}
       <div className="tq-motor-state-box" data-testid="motor-state">
@@ -523,12 +523,23 @@ const groupItems = (snap, action) => interlockGroups(snap?.interlocks).map((g) =
   return { key: g.key, label: g.name, state: st.state, status: st.status, detail: st.of, action: action ? action(g) : undefined, testid: `chk-${g.key}` };
 });
 
+/** The physical motor's condition, from the device path only. The firmware does not yet supply what anomaly analysis needs, so the
+ *  condition is never "Normal" here: it is Critical on a latched trip the board reports, and otherwise Unavailable with the reason. */
+export function physHealth(snap) {
+  if (!snap) return { status: 'Unavailable', why: 'Loading the device state.', next: null };
+  if (snap.connection === 'ERROR') return { status: 'Unavailable', why: `Connection error${snap.error?.message ? `: ${snap.error.message}` : ''}.`, next: ['connection', 'Check the connection'] };
+  if (!isLive(snap)) return { status: 'Unavailable', why: snap.handshake ? 'The board reports firmware simulation mode, not physical readings.' : 'No device is connected, so there are no physical readings.', next: ['connection', 'Connect a device'] };
+  if (snap.safety_state === 'EMERGENCY_STOP') return { status: 'Critical', why: `The board latched an emergency stop${snap.trip_reason ? `: ${title(snap.trip_reason)}` : ''}.`, next: ['control', 'Review safety'] };
+  if (!snap.telemetry_fresh) return { status: 'Unavailable', why: 'Device telemetry is stale.', next: ['connection', 'Check the connection'] };
+  return { status: 'Unavailable', why: 'Live readings are arriving, but anomaly analysis is not available for this firmware yet.', next: ['live', 'Watch Live Monitor'] };
+}
+
 export function PhysicalOverview({ stream, go, role }) {
   const { snap, commands, events } = stream;
   const [alarmMuted, setAlarmMuted] = useState(false);
   const live = isLive(snap);
   const { series } = useDeviceHistories(TILE_SIGNALS, 120, live, 3000);
-  if (!snap) return <><PageHead title="Physical Overview" /><Empty loading>Loading device state…</Empty></>;
+  if (!snap) return <><PageHead title="Overview" /><Empty loading>Loading device state…</Empty></>;
   const vals = snap.values || {};
   const rpm = live ? readingOf(vals.rpm) : null;   // an invalid reading is unknown, never 0
   const isRunning = isRunningOf(snap, rpm);
@@ -538,18 +549,11 @@ export function PhysicalOverview({ stream, go, role }) {
 
   return (
     <>
-      <PageHead title="Physical Overview" sub="Monitor the device, control the motor and watch live telemetry from the ESP32-S3 rig." />
-
-      {!live && (
-        <AlertPanel tone={snap.connection === 'ERROR' ? 'crit' : 'warn'} icon={Unplug} testid="phys-disconnected"
-          title={snap.connection === 'DISCONNECTED' ? 'DEVICE DISCONNECTED' : (snap.state_label || snap.connection)}
-          action={<button type="button" className="tq-btn tq-primary" onClick={() => go('device')}><Usb size={14} aria-hidden="true" />Connect a device</button>}>
-          <p>
-            Physical readings are unavailable. {snap.error?.message || ''} {snap.connection === 'DISCONNECTED' ? (snap.autoconnect?.note || '') : ''}
-            {snap.autoconnect?.last_error ? ` Last automatic attempt failed: ${snap.autoconnect.last_error}` : ''}
-          </p>
-        </AlertPanel>
-      )}
+      <PageHead title="Overview" sub="Physical device" />
+      <ConditionBanner c={physHealth(snap)} go={go}>
+        {!live && <p className="tq-small tq-muted" data-testid="phys-disconnected">{snap.connection === 'DISCONNECTED' ? 'DEVICE DISCONNECTED' : (snap.state_label || snap.connection)}.
+          {snap.connection === 'DISCONNECTED' && snap.autoconnect?.note ? ` ${snap.autoconnect.note}` : ''}{snap.autoconnect?.last_error ? ` Last automatic attempt failed: ${snap.autoconnect.last_error}` : ''}</p>}
+      </ConditionBanner>
 
       <StatusStrip snap={snap} go={go} />
 
@@ -558,7 +562,7 @@ export function PhysicalOverview({ stream, go, role }) {
 
       <div className="tq-mon-ovgrid">
         <MotionPanel stream={stream} role={role} go={go} />
-        <Card title="Live telemetry" id="p-meas" icon={Activity} sub={live ? 'Latest device readings with the last 2 minutes; gaps are invalid readings' : 'No physical readings while the device is disconnected'}
+        <Card title="Live telemetry" id="p-meas" icon={Activity} sub={live ? 'Last 2 minutes; gaps are invalid readings' : 'No physical readings'}
           right={<><SourceTag kind={!live ? 'UNKNOWN' : snap.telemetry_fresh ? 'PHYSICAL' : 'STALE'} /></>}
           foot={<><LinkButton onClick={() => go('live')}>Open live charts</LinkButton><LinkButton onClick={() => go('twin')}>See the sensors on the Digital Twin</LinkButton></>}>
           <div className="tq-kpis tq-mon-tiles" data-testid="phys-kpis">
@@ -572,13 +576,13 @@ export function PhysicalOverview({ stream, go, role }) {
       </div>
 
       <div className="tq-mon-ovgrid tq-mon-ovgrid--even">
-        <Card title="Recent events" id="p-events" icon={History} sub="Commands and device events in this session" foot={<LinkButton onClick={() => go('control')}>View all</LinkButton>}>
+        <Card title="Recent events" id="p-events" icon={History} sub="This session" foot={<LinkButton onClick={() => go('control')}>View all</LinkButton>}>
           <DataTable caption="Recent device commands and events" testid="phys-events" rows={ev} rowKey={(r) => r.k} maxRows={6} empty="No commands or device events in this session."
             columns={[{ key: 't', label: 'Time', render: (r) => <span className="tq-num">{clock(r.t)}</span> }, { key: 'level', label: 'Status', render: (r) => <Pill tone={r.tone}>{r.level}</Pill> }, { key: 'text', label: 'Event' }]} />
         </Card>
         <Card title="Safety & Commissioning" id="p-safety" icon={ClipboardCheck}
           sub={blockers.length ? `${blockers.length} blocker${blockers.length > 1 ? 's' : ''} reported by the device path` : 'No blocker reported by the device path'}
-          foot={<LinkButton onClick={() => go('control')}>Open Safety & Commissioning</LinkButton>}>
+          foot={<LinkButton onClick={() => go('control')}>Open Device & Safety</LinkButton>}>
           {checks.length ? <CheckList dense label="Interlock groups" testid="phys-checks" items={checks} /> : <Empty>No interlock data.</Empty>}
         </Card>
       </div>
@@ -588,7 +592,7 @@ export function PhysicalOverview({ stream, go, role }) {
 
 // Why each interlock group matters and what to do next. Explanatory text only: which group is shown comes from the backend's report.
 const WHY = {
-  connect: ['TORQVA trusts readings and accepts commands only after a valid handshake with fresh telemetry. Until then nothing on the device can be checked.', 'Connect the device on the Device page and wait for fresh telemetry.', 'device'],
+  connect: ['TORQVA trusts readings and accepts commands only after a valid handshake with fresh telemetry. Until then nothing on the device can be checked.', 'Connect the device on Device & Safety and wait for fresh telemetry.', 'device'],
   firmware: ['The firmware reports latched faults, and the watchdog and driver circuitry decide what the motor does if software stops. Software cannot verify them.', 'Inspect the hardware and attest it, with written evidence, in the commissioning record.', 'record'],
   estop: ['An independent emergency stop must cut motor power even if the software or the ESP32 fails; the ESP32 input alone never removes power.', 'Install and test the E-stop circuit, then attest it in the commissioning record.', 'record'],
   auth: ['Motor commands must arrive over an authenticated session and be permitted by the deterministic Safety Supervisor.', 'Resolve the reason the backend gives for this check.', null],
@@ -622,7 +626,7 @@ function commissioningSteps(snap, groups, blockers) {
   ];
 }
 
-export function PhysicalSafetyPage({ stream, role, go }) {
+export function PhysicalSafetyPage({ stream, role, go, embedded = false }) {
   const { snap, commands } = stream;
   const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
   const groups = interlockGroups(snap?.interlocks);
@@ -632,12 +636,12 @@ export function PhysicalSafetyPage({ stream, role, go }) {
   const firstGroup = groups.find((g) => groupStatus(g.items).state !== 'ok');
   const first = firstGroup && (firstGroup.items.find((r) => r.status === 'BLOCKED') || firstGroup.items.find((r) => r.status !== 'VERIFIED'));
   const why = firstGroup ? WHY[firstGroup.key] || WHY.other : null;
-  const nextAction = (kind) => (kind === 'device' ? <LinkButton onClick={() => go('device')}>Open the Device page</LinkButton>
+  const nextAction = (kind) => (kind === 'device' ? <LinkButton onClick={() => go('connection')}>Open the connection section</LinkButton>
     : kind === 'record' ? <LinkButton onClick={toComm}>Go to the commissioning record</LinkButton> : null);
   return (
     <>
-      <PageHead title="Safety & Commissioning" sub="Check every safety requirement before motor operation is permitted. The operating controls are on the Overview."
-        right={<Pill tone={blockers.length ? 'stop' : 'warn'}>{blockers.length ? 'OPERATION BLOCKED' : 'NO BLOCKER REPORTED'}</Pill>} />
+      {!embedded && <PageHead title="Safety & Commissioning" sub="Check every safety requirement before motor operation is permitted. The operating controls are on the Overview."
+        right={<Pill tone={blockers.length ? 'stop' : 'warn'}>{blockers.length ? 'OPERATION BLOCKED' : 'NO BLOCKER REPORTED'}</Pill>} />}
       {blockers.length ? (
         <AlertPanel tone="stop" testid="safety-alert" title={`System not ready — ${blockers.length} blocking issue${blockers.length > 1 ? 's' : ''} must be resolved`}
           action={<button type="button" className="tq-btn" onClick={toId('c-ready')}>View all blockers</button>}>
@@ -649,12 +653,12 @@ export function PhysicalSafetyPage({ stream, role, go }) {
         </AlertPanel>
       )}
 
-      <Card title="Commissioning progress" id="c-steps" className="tq-mon-steps" sub="From the device link, the backend's interlock report and its blocker list">
+      <Card title="Commissioning progress" id="c-steps" className="tq-mon-steps">
         <StepTracker label="Commissioning progress" steps={steps} testid="safety-steps" />
       </Card>
 
       <div className="tq-mon-ovgrid tq-mt">
-        <Card title="Safety checks" id="c-checks" icon={ShieldCheck} sub="Interlock groups; open Details for each check and the backend's evidence">
+        <Card title="Safety checks" id="c-checks" icon={ShieldCheck} sub="Open Details for the backend's evidence">
           {checks.length ? <CheckList label="Safety checks" testid="safety-checks" items={checks} /> : <Empty>No interlock data.</Empty>}
         </Card>
         <Card title="What to do next" id="c-next" icon={Info} testid="safety-next">
@@ -676,7 +680,7 @@ export function PhysicalSafetyPage({ stream, role, go }) {
       <div className="tq-mt"><ReadinessCard snap={snap} go={go} /></div>
       <div className="tq-mt"><InterlocksCard snap={snap} go={go} /></div>
       <div className="tq-mt"><CommissioningCard role={role} expanded /></div>
-      <Card title="Command history" id="p-hist" icon={History} className="tq-mt" sub="Every motor command requested in this session, with the state the backend recorded">
+      <Card title="Command history" id="p-hist" icon={History} className="tq-mt" sub="Motor commands this session">
         <DataTable caption="Device command history" testid="cmd-history" rows={(commands || []).slice(0, 20)} rowKey={(c) => c.id} empty="No commands requested in this session."
           columns={[{ key: 'id', label: '#', align: 'num' }, { key: 't', label: 'Time', render: (c) => <span className="tq-num">{clock(c.created_unix)}</span> },
             { key: 'action', label: 'Action', render: (c) => title(c.action) }, { key: 'by', label: 'By', render: (c) => c.requested_by },
@@ -692,11 +696,11 @@ export function PhysicalLive({ stream, go }) {
   const live = isLive(snap);
   return (
     <>
-      <PageHead title="Live Monitor" sub="Real-time device measurements; gaps are shown, nothing is interpolated or simulated."
+      <PageHead title="Live Monitor" sub="Measured readings; gaps are shown, never filled in."
         right={<Pill tone={live ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'off'}>{live ? (snap.telemetry_fresh ? 'LIVE' : 'STALE') : 'DEVICE DISCONNECTED'}</Pill>} />
       {!live ? (
         <AlertPanel tone="warn" icon={Unplug} title="DEVICE DISCONNECTED" testid="phys-live-empty"
-          action={go ? <button type="button" className="tq-btn tq-primary" onClick={() => go('device')}><Usb size={14} aria-hidden="true" />Connect a device</button> : null}>
+          action={go ? <button type="button" className="tq-btn tq-primary" onClick={() => go('connection')}><Usb size={14} aria-hidden="true" />Connect a device</button> : null}>
           <p>Physical readings are unavailable, so there is nothing to chart.</p>
         </AlertPanel>
       ) : <DeviceLive stream={stream} />}
@@ -705,13 +709,13 @@ export function PhysicalLive({ stream, go }) {
 }
 
 const LAYER_TEXT = {
-  C1: ['AI Diagnostics (C1)', 'Anomaly detection on real measurements.'],
+  C1: ['Anomaly Detection', 'Anomaly detection on real measurements.'],
   HYPOTHESES: ['Fault Hypotheses', 'Competing fault explanations from real evidence.'],
-  C2: ['Predictions (C2)', 'Predictions from valid physical inputs, with uncertainty.'],
-  C3: ['Interventions (C3)', 'Every physical intervention is decided by the deterministic Safety Supervisor; an AI result can never authorise motion.'],
-  C4: ['Diagnostic Tests (C4)', 'Diagnostic tests based on real evidence.'],
-  C5: ['Recovery (C5)', 'Recovery verified from observed telemetry after an intervention.'],
-  C6: ['Learning (C6)', 'Outcome records with provenance; no learning from unverified data, no model change without approval.'],
+  C2: ['Failure Prediction', 'Predictions from valid physical inputs, with uncertainty.'],
+  C3: ['Action Recommendations', 'Every physical intervention is decided by the deterministic Safety Supervisor; an AI result can never authorise motion.'],
+  C4: ['Diagnostic Investigation', 'Diagnostic tests based on real evidence.'],
+  C5: ['Recovery Verification', 'Recovery verified from observed telemetry after an intervention.'],
+  C6: ['Continuous Intelligence', 'Outcome records with provenance; no learning from unverified data, no model change without approval.'],
 };
 
 // What the physical C2/C3/C4 workflow would need, and why it is locked. Execution stays with the existing supervised device path
@@ -760,9 +764,9 @@ export function PhysicalAiPage({ stream, layer, go }) {
   const statusMsg = l?.status || (connected ? WAITING : 'DEVICE DISCONNECTED');
   const reasonMsg = l?.reason
     || (connected ? 'Device is connected. Waiting for valid telemetry frames to activate this layer.'
-        : 'Connect a physical device on the Device page to activate this layer.');
+        : 'Connect a physical device on Device & Safety to activate this layer.');
   const action = !connected
-    ? <button type="button" className="tq-btn tq-primary" onClick={() => go('device')}><Usb size={14} aria-hidden="true" />Connect a device</button>
+    ? <button type="button" className="tq-btn tq-primary" onClick={() => go('connection')}><Usb size={14} aria-hidden="true" />Connect a device</button>
     : layer === 'C3' ? <button type="button" className="tq-btn" onClick={() => go('overview')}>Open the motor controls</button> : null;
 
   return (

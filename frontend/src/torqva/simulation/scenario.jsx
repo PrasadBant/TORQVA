@@ -28,11 +28,11 @@ const DEFAULTS = { fault: 'imbalance', severity: 0.5, transient: true, approval:
 // Starting points for the form. A preset only fills in the fields below; nothing starts until Start new simulation is pressed.
 const PRESETS = [
   ['healthy', 'Healthy baseline', 'no fault, to see normal behaviour', { ...DEFAULTS, fault: 'none' },
-    'A healthy motor at the setpoint with no injected fault. It shows the normal behaviour the anomaly detector (C1) compares against; any incident it opens is a false alarm.'],
+    'A healthy motor at the setpoint with no injected fault. It shows the normal behaviour the anomaly detector compares against; any incident it opens is a false alarm.'],
   ['recoverable', 'Recoverable imbalance', 'the default: clears when speed is reduced', DEFAULTS,
     `Imbalance injected after a healthy start. The simulator clears it once the setpoint drops below ${CLEARS_BELOW} rpm, so a speed reduction can recover it.`],
   ['review', 'Analyst review', 'the pipeline holds its action for your approval', { ...DEFAULTS, approval: true },
-    'The same recoverable imbalance, but the pipeline holds its proposed action until an analyst approves or rejects it on the Interventions page.'],
+    'The same recoverable imbalance, but the pipeline holds its proposed action until an analyst approves or rejects it on the Action Recommendations page.'],
   ['persistent', 'Persistent overload', 'does not clear with a speed reduction', { ...DEFAULTS, fault: 'overload', severity: 0.6, transient: false },
     'An overload that a speed reduction does not clear: recovery cannot be verified by slowing down, so the pipeline must escalate or stop.'],
 ];
@@ -115,7 +115,7 @@ function ParamFields({ f, ctl }) {
         <div className="tq-scn-field"><label>Inject fault at (s)
           <input type="number" min="0" max={LIMITS.inject[1]} step="1" value={form.inject} onChange={set('inject')} disabled={!ctl || healthy}
             aria-invalid={!!errors.inject} aria-describedby={errors.inject ? 'scn-err-inj scn-hint-inj' : 'scn-hint-inj'} />
-        </label><FieldError id="scn-err-inj" msg={errors.inject} /><small className="tq-muted" id="scn-hint-inj">{healthy ? 'Not used for a healthy run.' : 'simulation time before the fault starts, so C1 sees healthy windows first'}</small></div>
+        </label><FieldError id="scn-err-inj" msg={errors.inject} /><small className="tq-muted" id="scn-hint-inj">{healthy ? 'Not used for a healthy run.' : 'simulation time before the fault starts, so Anomaly Detection sees healthy windows first'}</small></div>
         <div className="tq-scn-field"><label>Seed
           <input type="number" min="0" step="1" value={form.seed} onChange={set('seed')} disabled={!ctl}
             aria-invalid={!!errors.seed} aria-describedby={errors.seed ? 'scn-err-seed scn-hint-seed' : 'scn-hint-seed'} />
@@ -170,7 +170,7 @@ function RunControls({ d, role, actions, running, setRunning, busy, stale, stepS
         </button>
         <button type="button" className="tq-btn tq-danger" onClick={actions.stop} disabled={!hasSim || busy} aria-label="Stop motor (coast) in the simulator"><StopCircle size={14} aria-hidden="true" /> STOP SIMULATED MOTOR</button>
       </div>
-      <p className="tq-muted tq-small">{life.detail} STOP coasts the simulated motor through the same Safety Supervisor path as every other command; it does not stop a real motor.{!ctl ? ` Your role (${role}) can press STOP only.` : ''}</p>
+      <p className="tq-muted tq-small">{life.detail} STOP stops the simulated motor only.{!ctl ? ` Your role (${role}) can press STOP only.` : ''}</p>
     </>
   );
 }
@@ -214,7 +214,7 @@ export function ScenarioStudio({ d, role, actions, running, setRunning, busy, er
       <RunControls d={d} role={role} actions={actions} running={running} setRunning={setRunning} busy={busy} stale={stale} stepSeconds={stepSeconds} life={life} />
 
       {compact ? (
-        <p className="tq-small tq-muted" data-testid="scn-compact">New scenarios are configured in Scenario Studio on the Overview and on the Scenario Studio page{go ? <> · <button type="button" className="tq-linkbtn" onClick={() => go('scenario')}>Open Scenario Studio</button></> : ''}.</p>
+        <p className="tq-small tq-muted" data-testid="scn-compact">New scenarios are configured in Scenario Studio{go ? <> · <button type="button" className="tq-linkbtn" onClick={() => go('scenario')}>Open Scenario Studio</button></> : ''}.</p>
       ) : (
       <details ref={newRef} className="tq-disclosure tq-scn-new" data-testid="scn-new" open={newOpen || undefined}>
       <summary><span className="tq-disclosure-title">Configure a new scenario</span><span className="tq-disclosure-meta">{hasSim ? 'replaces the current run' : 'no simulation is running yet'}</span></summary>
@@ -291,7 +291,7 @@ function RunDescription({ d, go }) {
         : <>{cap(title(sc.fault))} at severity {fmt(sc.severity, 2)}, {injected ? 'injected' : 'scheduled'} at t = {sc.inject_after_s} s. {FAULT_INFO[sc.fault] || ''}</>}</p>
       <ul className="tq-scn-facts">
         {sc.fault && <li>{sc.clears_below_rpm ? `Clears once the setpoint drops below ${sc.clears_below_rpm} rpm (simulated transient).` : 'Persists: a speed reduction does not clear it.'}</li>}
-        <li>{sc.human_approval_required ? 'Proposed actions wait for an analyst decision on the Interventions page.' : 'Proposed actions are applied without an approval step (simulation only).'}</li>
+        <li>{sc.human_approval_required ? 'Proposed actions wait for an analyst decision on the Action Recommendations page.' : 'Proposed actions are applied without an approval step (simulation only).'}</li>
         <li>Seed {sc.seed ?? '—'}: the same seed and settings reproduce this run.</li>
       </ul>
       {go && (
@@ -331,7 +331,7 @@ export function ScenarioPage({ d, role, actions, running, setRunning, busy, erro
     : f.healthy ? 'A healthy run at the chosen setpoint with no injected fault.' : `${title(f.form.fault)}: ${FAULT_INFO[f.form.fault]}`;
   return (
     <div className="tq-scn-page" data-testid="scenario-page">
-      <PageHead title="Scenario Studio" sub="Set up a fault scenario, run it on the software simulator and inspect the simulated telemetry. Nothing here reaches hardware."
+      <PageHead title="Scenario Studio" sub="Configure, run and review simulated fault scenarios. Nothing here reaches hardware."
         right={<SourceTag kind="SIMULATED" />} />
       <p className="tq-scn-simnote" role="note"><FlaskConical size={15} aria-hidden="true" /><span><strong>SIMULATED.</strong> Every control on this page uses the backend&apos;s simulator routes (start, step, stop) and every value comes from the software simulator. No physical motor is connected or commanded.</span></p>
       <StepTracker steps={steps} label="Scenario workflow" onSelect={jump} testid="scn-steps" />
@@ -340,7 +340,7 @@ export function ScenarioPage({ d, role, actions, running, setRunning, busy, erro
           <form className="tq-form tq-scn-form" onSubmit={submit} aria-label="Configure a new scenario">
             {!ctl && <p className="tq-callout info" role="note">Your role ({role}) can view but not start simulations. STOP stays available.</p>}
             <section className="tq-scn-step" id="scn-s1" aria-labelledby="scn-s1-h">
-              <StepHead n={1} id="scn-s1-h" sub="A preset fills in steps 2 and 3; adjust anything afterwards.">Select a scenario</StepHead>
+              <StepHead n={1} id="scn-s1-h" sub="A preset fills in the next steps.">Select a scenario</StepHead>
               <PresetPicker f={f} ctl={ctl} cards />
             </section>
             <section className="tq-scn-step" id="scn-s2" aria-labelledby="scn-s2-h">
@@ -348,7 +348,7 @@ export function ScenarioPage({ d, role, actions, running, setRunning, busy, erro
               <FaultFields f={f} ctl={ctl} />
             </section>
             <section className="tq-scn-step" id="scn-s3" aria-labelledby="scn-s3-h">
-              <StepHead n={3} id="scn-s3-h" sub="Every field here is sent to the simulator and changes the run.">Parameters</StepHead>
+              <StepHead n={3} id="scn-s3-h" sub={null}>Parameters</StepHead>
               <ParamFields f={f} ctl={ctl} />
             </section>
             <section className="tq-scn-step" id="scn-s4" aria-labelledby="scn-s4-h">
@@ -366,7 +366,7 @@ export function ScenarioPage({ d, role, actions, running, setRunning, busy, erro
               {f.bad.length > 0 && <p className="tq-callout warn" role="alert">Cannot start: {f.bad.join('; ')}.</p>}
             </section>
             <section className="tq-scn-step tq-scn-step-run" id="scn-s5" aria-labelledby="scn-s5-h">
-              <StepHead n={5} id="scn-s5-h" sub="POST /simulation/start on the software simulator. The new run starts paused at t = 0 s.">Run</StepHead>
+              <StepHead n={5} id="scn-s5-h" sub="The new run starts paused at t = 0 s.">Run</StepHead>
               <div className="tq-row">
                 <button type="submit" className="tq-btn tq-primary tq-scn-start" disabled={!ctl || busy || f.bad.length > 0}><RotateCcw size={14} aria-hidden="true" /> Start new simulation</button>
                 {launched && !busy && <Pill tone="ok">Started. Press Run under Simulation status to advance time.</Pill>}
@@ -387,7 +387,7 @@ export function ScenarioPage({ d, role, actions, running, setRunning, busy, erro
           </Card>
           <Disclosure summary="What happens next" meta="how a run moves through the pipeline">
             <ul className="tq-scn-facts">
-              <li><Workflow size={13} aria-hidden="true" /> C1 scores each simulated window; a persistent anomaly opens an incident that the Diagnostic Workflow follows through tests, prediction and decision.</li>
+              <li><Workflow size={13} aria-hidden="true" /> Anomaly Detection scores each simulated window; a persistent anomaly opens an incident that the Diagnostic Workflow follows through tests, prediction and decision.</li>
               <li><Box size={13} aria-hidden="true" /> The Digital Twin shows the simulated readings on the rig model and, after injection, the part the scenario&apos;s fault applies to.</li>
               <li><FlaskConical size={13} aria-hidden="true" /> For blind, recorded and repeatable runs, use the Lab.</li>
             </ul>

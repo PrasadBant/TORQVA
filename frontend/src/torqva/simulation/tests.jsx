@@ -17,7 +17,7 @@ import { TraceLink } from './trace.jsx';
 const FIXED_S = { T1: 60, T3: 300, T4: 50 };
 const PROFILE_SPEC = {
   code: 'P', name: 'Multi-step speed profile', short: 'Your RPM steps',
-  target: 'Shows how speed tracking, current, temperature, vibration and the C1 score respond at each speed you choose.',
+  target: 'Shows how speed tracking, current, temperature, vibration and the anomaly severity respond at each speed you choose.',
   method: 'Each step sets the simulated setpoint and holds it for the dwell you set. Step pairs report the same speed-scaling exponents T1 uses; the learned T1 signature is applied only to a pair that matches the conditions it was learned at.',
 };
 const HOLD = [5, 900];
@@ -97,7 +97,7 @@ const SIGNALS = [
   ['power', 'Power', 'W', 1, [{ key: 'power', name: 'power W (simulator)', color: 'var(--tq-chart-1)' }]],
   ['housing', 'Housing temperature', '°C', 2, [{ key: 'housing', name: 'housing °C', color: 'var(--tq-chart-2)' }]],
   ['vib', 'Vibration RMS (simulator model)', 'g', 4, [{ key: 'vib_rms', name: 'vibration g', color: 'var(--tq-chart-3)' }]],
-  ['score', 'C1 score ÷ threshold', '', 2, [{ key: 'score', name: 'score ratio', color: 'var(--tq-crit)' }]],
+  ['score', 'Anomaly severity (× threshold)', '', 2, [{ key: 'score', name: 'score ratio', color: 'var(--tq-crit)' }]],
 ];
 
 export function SequenceResult({ run, onAddTest }) {
@@ -107,7 +107,7 @@ export function SequenceResult({ run, onAddTest }) {
   return (
     <Card title={`Result ${run.id}`} id="c-run" right={<><Pill tone={a[0]}>{a[1]}</Pill><ProvBadge kind="SIMULATED" /></>}>
       <div className={`tq-narrate tone-${a[0]}`} data-testid="run-assessment"><strong>{a[1]}</strong><span>{run.assessment.detail}. Tested setpoints: {run.assessment.tested_setpoints_rpm.map(fmtRpm).join(', ') || '—'} rpm.</span></div>
-      <p className="tq-muted tq-small">Executed on {run.executed_on}. {run.assessment.baseline_note}. One run covers only the speeds and conditions tested; it does not show the whole motor is healthy.</p>
+      <p className="tq-muted tq-small">Executed on {run.executed_on}. {run.assessment.baseline_note}. It covers only the speeds tested.</p>
       <div className="tq-story-cols tq-story-cols-3">
         <section className="tq-story-col is-truth" aria-label="Scenario ground truth"><span className="tq-section-title">Scenario ground truth</span><strong>{run.scenario_truth ? title(run.scenario_truth) : 'no active fault'}</strong><span className="tq-muted tq-small">{run.scenario_note}</span></section>
         <section className="tq-story-col is-ai" aria-label="TORQVA ranking after the tests"><span className="tq-section-title">TORQVA ranking after the tests <ProvBadge kind="DERIVED" /></span>
@@ -130,7 +130,7 @@ export function SequenceResult({ run, onAddTest }) {
             {r.observation && <p className="tq-small">Observation: {r.observation_meaning.map((m, i) => <span key={m}>{m} <strong className="tq-num">{fmt(r.observation[i], 3)}</strong>{i < r.observation.length - 1 ? ' · ' : ''}</span>)} <span className="tq-muted">({r.fixed_parameters}{r.signature_applied ? '; learned signature applied' : ''})</span></p>}
             {r.steps && (
               <div className="tq-table-wrap"><table className="tq-table" data-testid="profile-table"><caption className="tq-sr">Per-step observations</caption>
-                <thead><tr><th scope="col">Step</th><th scope="col">Target rpm</th><th scope="col">Observed rpm (settled)</th><th scope="col">Tracking error</th><th scope="col">Current A</th><th scope="col">Voltage V</th><th scope="col">Power W</th><th scope="col">Housing °C</th><th scope="col">Vibration g</th><th scope="col">C1 flagged</th></tr></thead>
+                <thead><tr><th scope="col">Step</th><th scope="col">Target rpm</th><th scope="col">Observed rpm (settled)</th><th scope="col">Tracking error</th><th scope="col">Current A</th><th scope="col">Voltage V</th><th scope="col">Power W</th><th scope="col">Housing °C</th><th scope="col">Vibration g</th><th scope="col">Flagged as anomalous</th></tr></thead>
                 <tbody>{r.steps.map((s) => (<tr key={s.step}><td className="tq-num">{s.step + 1}</td><td className="tq-num">{fmtRpm(s.target_rpm)}</td><td className="tq-num">{fmtRpm(s.mean_rpm_settled)}</td>
                   <td className="tq-num">{s.tracking_error_rpm === null ? '—' : Math.abs(s.tracking_error_rpm) < 0.5 ? '0' : `${s.tracking_error_rpm > 0 ? '+' : '−'}${fmt(Math.abs(s.tracking_error_rpm), 0)}`}</td><td className="tq-num">{fmt(s.mean_current, 3)}</td><td className="tq-num">{fmt(s.mean_voltage, 2)}</td>
                   <td className="tq-num">{fmt(s.mean_power, 1)}</td><td className="tq-num">{fmt(s.housing_start, 1)} → {fmt(s.housing_end, 1)}</td><td className="tq-num">{fmt(s.mean_vib_rms, 4)}</td>
@@ -146,7 +146,7 @@ export function SequenceResult({ run, onAddTest }) {
         <div className="tq-seg" role="group" aria-label="Signal to chart">{SIGNALS.map(([k, n]) => <button key={k} type="button" className="tq-btn" aria-pressed={sig === k} onClick={() => setSig(k)}>{n.split(' (')[0]}</button>)}</div></div>
       {run.series.length < 2 ? <Empty>No windows were recorded.</Empty> : (
         <div role="img" aria-label={`${def[1]} during the test sequence`} className="tq-chart"><TrendLines data={run.series} lines={def[4]} height={240} digits={def[3]} unit={def[2]} /></div>)}
-      <p className="tq-chart-note">Every point is one simulated 1 s window recorded during the run (simulation time on the axis). Target speed is dashed; observed speed is solid.</p>
+      <p className="tq-chart-note">Target speed dashed, observed solid; simulation time.</p>
     </Card>
   );
 }
@@ -216,7 +216,7 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale, go }) {
   const limits = plan?.limits;
   const suff = plan?.sufficiency;
   const add = (type) => setSeq((q) => [...q, type === 'profile' ? { type, steps: (quick.length > 1 ? quick.slice(0, 3) : [s.device?.setpoint_rpm || '']).map((rpm) => ({ rpm: String(rpm), hold_s: '60' })) } : { type }]);
-  useEffect(() => {                                          // "Configure in Diagnostic Tests" from C1 pre-adds the recommended test once
+  useEffect(() => {                                          // "Configure in Diagnostic Investigation" from C1 pre-adds the recommended test once
     if (wb?.prefill && plan) { add(wb.prefill); setWb((x) => ({ ...x, prefill: null })); setTab('available'); }
   }, [wb?.prefill, plan]); // eslint-disable-line react-hooks/exhaustive-deps
   const { errs, total } = useMemo(() => validateSequence(seq, limits), [seq, limits]);
@@ -239,19 +239,19 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale, go }) {
   const lastA = lastRun ? (ASSESSMENT[lastRun.assessment.category] || ['info', title(lastRun.assessment.category)]) : null;
   return (
     <>
-      <PageHead title="Diagnostic Tests (C4)" sub="Tests that separate competing fault hypotheses: choose one, run it on a copy of the simulated motor and read how the ranking changed."
+      <PageHead title="Diagnostic Investigation" sub="Run tests that tell the likely faults apart."
         right={<><ProvBadge kind="SIMULATED" />{rec?.worth_running && <Pill tone="info">{`recommended: ${rec.test}`}</Pill>}</>} />
       <div className="tq-an-page">
-        <p className="tq-callout info" role="note"><Info size={14} aria-hidden="true" /> Tests run on a copy of the live simulated motor (same state and injected fault). The live run, its incident and its commands are not changed, and no device is involved.</p>
+        <p className="tq-callout info" role="note"><Info size={14} aria-hidden="true" /> Tests run on a copy of the simulated motor; the live run is not changed.</p>
         {planErr && planErr !== 'unavailable' && hasSim && <p className="tq-callout warn">The workbench plan could not be loaded: {planErr}</p>}
 
-        <StatGrid label="C4 summary">
+        <StatGrid label="Diagnostic Investigation summary">
           <StatTile icon={ListChecks} tone={suff ? (SUFF[suff.status]?.[0] || 'off') : 'off'} label="Evidence now" value={suff ? (SUFF[suff.status]?.[1] || suff.status).toLowerCase().replace(/^\w/, (x) => x.toUpperCase()) : '—'}
             sub={suff ? suff.reason : hasSim ? 'waiting for the workbench plan' : 'no simulation running'} />
           <StatTile icon={Compass} tone={rec?.worth_running ? 'info' : 'off'} label="Recommended next test" value={rec ? (rec.worth_running ? rec.test : 'None worth running') : '—'}
             sub={rec ? `${rec.worth_running ? 'expected' : 'best'} gain ${fmt(rec.expected_info_gain_nats, 2)} nats (needs ≥ ${fmt(rec.gate_min_info_gain_nats, 2)})` : 'needs a hypothesis ranking'} />
           <StatTile icon={FlaskConical} tone={lastA ? lastA[0] : 'off'} label="Latest sequence result" value={lastA ? lastA[1].split(' — ')[0] : 'No run yet'}
-            sub={lastRun ? `${lastRun.id} · ${lastRun.results.length} test(s)` : 'run a sequence or an adaptive investigation'} />
+            sub={lastRun ? `${lastRun.id} · ${lastRun.results.length} test(s)` : 'run a sequence or a guided investigation'} />
           <StatTile icon={Gauge} tone={blockers.length ? 'warn' : 'info'} label="Run conditions" value={blockers.length ? 'Blocked' : 'No blocker seen'}
             sub={blockers.length ? blockers[0] : 'the backend re-checks every step before it runs'} />
         </StatGrid>
@@ -263,7 +263,7 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale, go }) {
 
         {tab === 'available' && (
           <TabPanel tab="available" idBase="c4-tab">
-            <Card title="Available tests" id="c-catalog" icon={FlaskConical} sub="Purpose, prerequisites, parameters and duration of each test; add them to a sequence below" right={<ProvBadge kind="SIMULATED" />}>
+            <Card title="Available tests" id="c-catalog" icon={FlaskConical} sub="Add tests to a sequence below" right={<ProvBadge kind="SIMULATED" />}>
               <div className="tq-catalog" data-testid="test-catalog">
                 {cards.map(([k, x]) => {
                   const info = testsInfo[k]; const si = suffInfo[k];
@@ -288,7 +288,7 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale, go }) {
               </div>
             </Card>
 
-            <Card title="Sequence" id="c-seq" className="tq-mt" icon={ListChecks} sub="Review the order, speeds and dwell times, then run it on a simulator copy" right={<span className="tq-muted tq-small tq-num">{seq.length} test(s) · {total} simulated s</span>}>
+            <Card title="Sequence" id="c-seq" className="tq-mt" icon={ListChecks} sub="Check the order and speeds, then run" right={<span className="tq-muted tq-small tq-num">{seq.length} test(s) · {total} simulated s</span>}>
               {!seq.length ? <Empty>Add one or more tests above. They run in order; a later test is skipped if an earlier one is aborted, invalid or leaves the motor stopped.</Empty> : (
                 <ol className="tq-seq" data-testid="sequence">
                   {seq.map((x, k) => (
@@ -318,14 +318,14 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale, go }) {
         {tab === 'results' && (
           <TabPanel tab="results" idBase="c4-tab">
             {lastRun ? <SequenceResult run={lastRun} onAddTest={(t) => { setSeq([{ type: t }]); setTab('available'); }} />
-              : <Card title="Test results" id="c-run-none"><Empty>No sequence has been run on a simulator copy in this session. Build one under Available Tests; adaptive investigation results appear in its panel above.</Empty></Card>}
+              : <Card title="Test results" id="c-run-none"><Empty>No sequence has been run on a simulator copy in this session. Build one under Available Tests; guided investigation results appear in its panel above.</Empty></Card>}
           </TabPanel>)}
 
         {tab === 'history' && (
           <TabPanel tab="history" idBase="c4-tab"><TestHistory d={d} run={lastRun} go={go} /></TabPanel>)}
 
         <div className="tq-an-below">
-          <Disclosure summary="Inspect tests run by the pipeline itself" meta="tests the decision gate proposed, their latest result and the C4 calibration status" testid="c4-pipeline">
+          <Disclosure summary="Tests run by the pipeline (advanced)" meta="proposed tests, latest result and calibration status" testid="c4-pipeline">
             <TestsPage d={d} c2c4={c2c4} head={false} />
           </Disclosure>
         </div>

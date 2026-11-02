@@ -23,8 +23,8 @@ const TRIP_PART = {
 
 // "View details" for each component: the page that shows its data. Readings -> the device's Live Monitor; the controller and the motor driver (its
 // output stage and drive state) -> the Device page; parts observed through the sensors -> Live Monitor.
-const LINKS = { hall: ['live', 'Live Monitor'], temp: ['live', 'Live Monitor'], ina: ['live', 'Live Monitor'], accel: ['live', 'Live Monitor'], driver: ['device', 'Device'],
-  controller: ['device', 'Device'], motor: ['live', 'Live Monitor'], shaft: ['live', 'Live Monitor'], base: ['live', 'Live Monitor'], psu: ['live', 'Live Monitor'], harness: ['device', 'Device'] };
+const LINKS = { hall: ['live', 'Live Monitor'], temp: ['live', 'Live Monitor'], ina: ['live', 'Live Monitor'], accel: ['live', 'Live Monitor'], driver: ['device', 'Device & Safety'],
+  controller: ['device', 'Device & Safety'], motor: ['live', 'Live Monitor'], shaft: ['live', 'Live Monitor'], base: ['live', 'Live Monitor'], psu: ['live', 'Live Monitor'], harness: ['device', 'Device & Safety'] };
 
 /** Pure mapping, exported for tests. */
 export function physTwin(snap, { unreachable = false } = {}) {
@@ -102,7 +102,7 @@ export function physTwin(snap, { unreachable = false } = {}) {
     ...groups.map((g) => ({ tone: ['ACTIVE', 'AVAILABLE', 'READY', 'VERIFIED'].includes(g.status) ? 'ok' : 'off', label: `${g.keys.join(', ')}: ${title(g.status)}`, detail: g.reason })),
     { tone: (snap.control_blockers || []).length ? 'stop' : 'info', label: (snap.control_blockers || []).length ? `Motion locked: ${snap.control_blockers[0]}` : 'No motion blocker reported', detail: 'Read-only here; the Safety Supervisor decides.' },
   ];
-  if (!handshake) findings.push({ tone: 'info', label: 'Connect a board', detail: 'Connection is managed on the Device page.', go: ['device', 'Device'] });
+  if (!handshake) findings.push({ tone: 'info', label: 'Connect a board', detail: 'Connection is managed on Device & Safety.', go: ['device', 'Device & Safety'] });
   const facts = [
     ['Origin', physical ? 'Physical device measurements (USB serial)' : handshake ? 'Board in firmware simulation mode' : 'None: no board connected'],
     ['Connection', snap.state_label || snap.connection || 'unknown'],

@@ -27,8 +27,7 @@ export function TraceLink({ go, setWb, stages = [], testid }) {
   const open = () => { setWb?.((x) => ({ ...x, traceFocus: stages })); go?.('interventions'); };
   return (
     <p className="tq-small tq-mt" data-testid={testid}>
-      <span className="tq-muted">The investigation trace (every record of this incident, from observation to outcome) is kept with the audit records on Interventions.</span>{' '}
-      <button type="button" className="tq-linkbtn" onClick={open} disabled={!go}>Open the trace at {stages.map((x) => META[x]?.[0] || x).join(' and ')}</button>
+      <button type="button" className="tq-linkbtn" onClick={open} disabled={!go}>Open the investigation history at {stages.map((x) => META[x]?.[0] || x).join(' and ')}</button>
     </p>
   );
 }
@@ -50,7 +49,7 @@ export function InvestigationTrace({ d, focus = [] }) {
   }, [n, inc, hasSim]);
   const st = tr?.stages?.find((s) => s.stage === stage);
   return (
-    <Card title="Investigation trace" id="c-trace" icon={Route} sub="Every record of one incident, from observation to outcome; select a stage, then an event" right={<>{tr?.incident && <Pill tone={tr.open ? 'wait' : 'off'}>{tr.open ? `${tr.incident} open` : tr.incident}</Pill>}<ProvBadge kind="SIMULATED" /></>}>
+    <Card title="Investigation history" id="c-trace" icon={Route} sub="Every record of the incident, from observation to outcome" right={<>{tr?.incident && <Pill tone={tr.open ? 'wait' : 'off'}>{tr.open ? `${tr.incident} open` : tr.incident}</Pill>}<ProvBadge kind="SIMULATED" /></>}>
       {!hasSim ? <Empty>No simulation is running.</Empty> : err ? <p className="tq-muted">The trace could not be loaded: {err}</p> : !tr ? <Empty loading>Loading the trace…</Empty> : !tr.incident ? <Empty>{tr.note}</Empty> : (
         <>
           {tr.incidents.length > 1 && <label className="tq-inline">Incident <select value={tr.incident} onChange={(e) => { setInc(e.target.value); setOpen(null); }}>{tr.incidents.map((x) => <option key={x}>{x}</option>)}</select></label>}
@@ -77,7 +76,7 @@ export function InvestigationTrace({ d, focus = [] }) {
                     <dl className="tq-kv tq-ev-kv" data-testid="trace-detail">
                       <dt>Source</dt><dd>{src(e.source)}</dd>
                       {Object.entries(e.data || {}).filter(([k]) => !['t', 'incident'].includes(k)).map(([k, v]) => (
-                        k === 'window' && v ? <React.Fragment key={k}><dt>Window at that time</dt><dd>{`${fmt(v.rpm, 0)} rpm · ${fmt(v.current, 2)} A · ${fmt(v.housing, 1)} °C · ${fmt(v.vib_rms, 3)} g · C1 ${v.c1_score_over_threshold === null ? title(v.c1_status) : `${fmt(v.c1_score_over_threshold, 2)} × threshold`} · ${v.valid ? 'valid' : 'invalid'} (SIM)`}</dd></React.Fragment>
+                        k === 'window' && v ? <React.Fragment key={k}><dt>Window at that time</dt><dd>{`${fmt(v.rpm, 0)} rpm · ${fmt(v.current, 2)} A · ${fmt(v.housing, 1)} °C · ${fmt(v.vib_rms, 3)} g · anomaly severity ${v.c1_score_over_threshold === null ? title(v.c1_status) : `${fmt(v.c1_score_over_threshold, 2)} × threshold`} · ${v.valid ? 'valid' : 'invalid'} (SIM)`}</dd></React.Fragment>
                           : <React.Fragment key={k}><dt>{title(k)}</dt><dd><Value v={v} /></dd></React.Fragment>))}
                     </dl>)}
                 </li>))}

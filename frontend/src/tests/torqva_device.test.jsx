@@ -53,7 +53,11 @@ async function open(page, opts = {}) {
   setToken('t');
   render(<TorqvaApp pollMs={100000} wsFactory={wsFactory} />);
   await screen.findByText(/tester · /);
-  fireEvent.click(screen.getByRole('button', { name: page === 'Device' ? /^Device$/ : new RegExp(`^${page}`) }));
+  // Device and Safety & Commissioning are sections of the one Device & Safety page.
+  const merged = page === 'Device' || page === 'Safety & Commissioning';
+  fireEvent.click(screen.getByRole('button', { name: merged ? /^Device & Safety$/ : new RegExp(`^${page}`) }));
+  if (page === 'Safety & Commissioning') fireEvent.click(screen.getByRole('tab', { name: /Safety & Commissioning/ }));
+  if (page === 'Device') fireEvent.click(screen.getByRole('tab', { name: /Connection & Readiness/ }));
   return calls;
 }
 
@@ -150,7 +154,7 @@ describe('device pages', () => {
     await open('Safety & Commissioning', { mode: 'PHYSICAL', snap: { ...SNAP, interlocks }, commands: [] });
     const conn = await screen.findByTestId('ilk-connect');
     expect(conn).toHaveTextContent('Device connection'); expect(conn).toHaveTextContent('1 of 2 passed');
-    expect(within(conn).getByRole('button', { name: /Device page/ })).toBeInTheDocument();
+    expect(within(conn).getByRole('button', { name: /Check the connection/ })).toBeInTheDocument();
     expect(screen.getByTestId('ilk-estop')).toHaveTextContent('0 of 1 passed');
     expect(within(screen.getByTestId('ilk-estop')).getByRole('button', { name: /commissioning record/ })).toBeInTheDocument();
     expect(screen.getByTestId('ilk-other')).toHaveTextContent('A future check');
@@ -174,7 +178,8 @@ describe('device pages', () => {
     vi.stubGlobal('fetch', vi.fn(async (url, o) => (String(url).endsWith('/device/commissioning') ? ok(withLimits) : f(url, o))));
     window.localStorage.setItem('torqva.mode', 'PHYSICAL');
     setToken('t'); render(<TorqvaApp pollMs={100000} wsFactory={wsFactory} />);
-    fireEvent.click(await screen.findByRole('button', { name: /^Safety & Commissioning/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Device & Safety$/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /Safety & Commissioning/ }));
     expect(await screen.findByTestId('limits-approved')).toHaveTextContent('Version 2, approved by adam');
     expect(screen.getByTestId('limits-history')).toHaveTextContent('Max current (A): 3 → 2.5');
     expect(screen.getByText(/Type APPROVE THESE LIMITS to confirm/)).toBeInTheDocument();

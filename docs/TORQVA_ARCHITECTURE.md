@@ -93,7 +93,7 @@ Persistence: SQLite (existing `data_storage.py` kept for legacy telemetry); new 
 6. Learning cannot modify limits, envelopes or supervisor rules.
 
 ## 5. Phase 9 — trusted healthy-session attestation (experimental adaptive C1; simulation only)
-Code: `backend/torqva/attestation.py` (logic), routes in `backend/torqva/api.py` (`/api/torqva/attestation/*`), UI `frontend/src/torqva/simulation/attestation.jsx` (tab "Attestation"), store primitives in `store.py` (`put_audited`, immutable `ref_versions`).
+Code: `backend/torqva/attestation.py` (logic), routes in `backend/torqva/api.py` (`/api/torqva/attestation/*`), UI `frontend/src/torqva/simulation/attestation.jsx` (on the Continuous Intelligence page), store primitives in `store.py` (`put_audited`, immutable `ref_versions`).
 
 **What it is.** An operator-authorised, auditable way to approve a *recorded* warm-up of the running simulation as the source of a per-session reference for the opt-in adaptive C1 detector. Attestation records a named operator's judgment about recorded evidence. It is **not** proof that the motor is fault-free; the API, the stored records and the UI all say so, and a session never becomes trusted merely because it looks statistically normal. The shipped detector stays the default; the deterministic Safety Supervisor, the dispatcher and every command path are untouched (the module has no command path; a test asserts it does not reference them).
 
@@ -164,3 +164,7 @@ Code: `backend/torqva/c2_robust.py` (C2 candidate, support status, specification
 * `prediction.py`: additive `StateSummary.trend`. `c2_robust.py`: `_q_at_horizons` hook and `method_name`. `c2_conditional.py`: class-conditional / trend / regime-gated predictors, opt-in through `build_models(c2_variant)`.
 * `c2cov_study.py`, `c4cal_study.py`: seed-partitioned, pre-registered studies. `/evaluation/c2c4` gains a `phase11` block; the Evaluation view shows it.
 * Unchanged: Safety Supervisor, dispatcher, authorization, C1, attestation, firmware and watchdogs. No new component holds a command path.
+
+## Frontend presentation (2 Nov 2026)
+
+The interface names the layers by product name only: Anomaly Detection (C1), Failure Prediction (C2), Action Recommendations (C3), Diagnostic Investigation (C4), Recovery Verification (C5), Continuous Intelligence (C6). Backend identifiers, routes and records keep the C-codes. Backend prose (reasons, notes, limitations) reaches the screen through `frontend/src/torqva/shared/plain.js`, applied in `api.js` and to the device WebSocket: a string containing a space has its C-codes replaced by the product names; bare values such as `'C1'`, object keys and decision summaries (digest-signed, exported as JSON) are passed through unchanged. The motor condition shown on each Overview and as a badge in every page head uses five words (Normal, Investigation Required, Action Verification, Critical, Unavailable), derived only from records the app has (`simHealth` in `simulation/overview.jsx`, `physHealth` in `physical/physical.jsx`); physical mode is never Normal until physical anomaly analysis exists.

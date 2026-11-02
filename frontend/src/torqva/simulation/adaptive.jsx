@@ -37,11 +37,11 @@ export function AdaptivePanel({ plan, role, stale, d, onDone }) {
     try { const r = await api.wbAdaptive(budget); setRun(r); onDone?.(); } catch (e) { setErr(e); } finally { inFlight.current = false; setBusy(false); }
   };
   return (
-    <Card title="Adaptive investigation" id="c-adaptive" icon={Compass} sub="Recommended route: TORQVA picks and runs the most informative eligible test on a simulator copy, then decides again" right={<>{s && <SufficiencyBadge s={s} />}<ProvBadge kind="SIMULATED" /></>}>
+    <Card title="Guided investigation" id="c-adaptive" icon={Compass} sub="TORQVA runs the most informative test, then decides again" right={<>{s && <SufficiencyBadge s={s} />}<ProvBadge kind="SIMULATED" /></>}>
       {!s ? <Empty>{hasSim ? 'Waiting for the workbench plan.' : 'No simulation is running.'}</Empty> : (
         <>
           <p data-testid="suff-reason"><strong>Evidence now:</strong> {s.reason}.</p>
-          <p className="tq-muted tq-small">{s.rule}. C1 baseline for the current speed: {s.c1_baseline_for_current_speed ? 'learned' : `not available (${title(s.c1_window_status) || 'no window'})`}.</p>
+          <p className="tq-muted tq-small">{s.rule}. Healthy baseline for the current speed: {s.c1_baseline_for_current_speed ? 'learned' : `not available (${title(s.c1_window_status) || 'no window'})`}.</p>
           <div className="tq-table-wrap"><table className="tq-table" data-testid="suff-tests"><caption className="tq-sr">Test prerequisites</caption>
             <thead><tr><th scope="col">Test</th><th scope="col">Distinguishes</th><th scope="col">Prerequisites</th><th scope="col">Expected gain</th></tr></thead>
             <tbody>{s.tests.map((t) => (
@@ -51,7 +51,7 @@ export function AdaptivePanel({ plan, role, stale, d, onDone }) {
           <div className="tq-row tq-mt">
             <label className="tq-inline">Test budget <select value={budget} onChange={(e) => setBudget(Number(e.target.value))} disabled={busy}>{[1, 2, 3].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
             <button type="button" className="tq-btn tq-primary" disabled={busy || !ctl || stale || !hasSim} onClick={go} data-testid="run-adaptive">
-              <Compass size={14} aria-hidden="true" /> {busy ? 'Investigating on the simulator copy…' : 'Run adaptive investigation'}</button>
+              <Compass size={14} aria-hidden="true" /> {busy ? 'Investigating on the simulator copy…' : 'Run guided investigation'}</button>
             {!ctl && <span className="tq-muted tq-small">Requires role operator or admin.</span>}
           </div>
           <p className="tq-muted tq-small">Each step picks the eligible test with the largest expected information gain, runs it on a copy of the simulated motor, updates the ranking and decides again. It stops when the gate's confidence rule is met, nothing worth running remains (less than {fmt(s.min_info_gain_nats, 2)} nats), an input fails, an outcome is unlike any learned signature, or the budget is used.</p>
@@ -83,7 +83,7 @@ export function AdaptiveResult({ run }) {
             </li>))}
         </ol>)}
       {run.series?.length > 1 && (
-        <div role="img" aria-label="Speed during the adaptive investigation" className="tq-chart">
+        <div role="img" aria-label="Speed during the guided investigation" className="tq-chart">
           <TrendLines data={run.series} lines={[{ key: 'rpm', name: 'observed rpm', color: 'var(--tq-chart-ink)' }, { key: 'setpoint', name: 'target (setpoint)', color: 'var(--tq-chart-1)', dash: '4 3' }]} height={200} digits={0} unit="rpm" />
         </div>)}
       <p className="tq-chart-note">Recorded simulated windows of the copy (simulation time). Scenario ground truth: {run.scenario_truth ? title(run.scenario_truth) : 'no active fault'} — not a TORQVA diagnosis.</p>

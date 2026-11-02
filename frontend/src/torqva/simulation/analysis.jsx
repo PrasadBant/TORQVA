@@ -20,9 +20,9 @@ export function C1ScoreCard({ d }) {
   const { data } = c1Records(d);
   const above = data.filter((x) => x.score != null && x.score > 1).length;
   return (
-    <Card title="Anomaly score ÷ learned threshold (log scale)" id="c-score" right={<ProvBadge kind="DERIVED" />}>
+    <Card title="Anomaly severity (× learned threshold, log scale)" id="c-score" right={<ProvBadge kind="DERIVED" />}>
       {!data.length ? <Empty>No telemetry yet.</Empty> : (
-        <div role="img" aria-label="Anomaly score over time" className="tq-chart"><ScoreChart data={data} height={240} /></div>)}
+        <div role="img" aria-label="Anomaly severity over time" className="tq-chart"><ScoreChart data={data} height={240} /></div>)}
       <p className="tq-chart-note">1 = the threshold learned for this speed range. Gaps = windows excluded (speed changing) or operating point not learned. {above} of {data.length} windows above threshold.</p>
     </Card>);
 }
@@ -65,7 +65,7 @@ export function DiagnosticsPage({ d, isPhys: isPhysProp, head = true }) {
   }
   return (
     <>
-      <PageHead title="AI Diagnostics (C1)" sub="Anomaly detection and fault hypotheses with the evidence behind them." right={<ProvBadge kind={provKind} />} />
+      <PageHead title="Anomaly Detection" sub="Anomaly detection and fault hypotheses with the evidence behind them." right={<ProvBadge kind={provKind} />} />
       <div className="tq-split">
         <div className="tq-stack"><C1ScoreCard d={d} /><C1TimelineCard d={d} /></div>
         <div className="tq-stack">
@@ -105,7 +105,7 @@ export function PredictionsPage({ d, go, head = true }) {
   })] : [];
   return (
     <>
-      {head && <PageHead title="Counterfactual Predictions (C2)" sub="Expected outcome of each candidate action under matched simulated conditions."
+      {head && <PageHead title="Failure Prediction" sub="Expected outcome of each candidate action under matched simulated conditions."
         right={<><ProvBadge kind="PREDICTED" />{p && <StatusPill status={p.status} />}</>} />}
       {head && <p className="tq-callout warn" role="note"><strong>{s.models?.c2_label || 'Intervention Outcome Prediction (unvalidated)'}</strong> — not validated against physical experiments. A prediction is never evidence of recovery, and an unsupported prediction never authorises an action.
         {s.models?.c2_variant && s.models.c2_variant !== 'control' ? ` Experimental variant in use (opt-in): ${s.models.c2_variant}.` : ' The shipped predictor is in use; experimental variants are opt-in.'}</p>}
@@ -117,7 +117,7 @@ export function PredictionsPage({ d, go, head = true }) {
               <div className="tq-stack" role="group" aria-label="Select intervention">
                 {preds.map((x) => (
                   <button type="button" key={x.action} className="tq-select-card" aria-pressed={p?.action === x.action} onClick={() => setSel(x.action)}>
-                    <div className="tq-option-title"><strong>{title(x.action)}</strong><span className="tq-row">{chosen === x.action && <Pill tone="info">C2 lowest risk</Pill>}<StatusPill status={x.status} /></span></div>
+                    <div className="tq-option-title"><strong>{title(x.action)}</strong><span className="tq-row">{chosen === x.action && <Pill tone="info">Lowest predicted risk</Pill>}<StatusPill status={x.status} /></span></div>
                     <div className="tq-option-meta">risk of crossing a limit {fmt(x.risk * 100, 0)}% · speed @120 s <span className="tq-num">{fmt(x.mean_at_30_60_120?.rpm?.[2], 0)} rpm</span></div>
                     {x.status_reasons?.length > 0 && <div className="tq-option-meta">{x.status_reasons.map(title).join(', ')}</div>}
                   </button>))}
@@ -148,7 +148,7 @@ export function PredictionsPage({ d, go, head = true }) {
                 <dl className="tq-kv">
                   <dt>Interval method</dt><dd>{p.interval_method || '—'}</dd><dt>Validated by experiments</dt><dd>{p.validated_by_experiments ? 'yes' : 'no'}</dd></dl>)}
               <p className="tq-muted">A prediction never commands the motor. Actions are proposed by the decision gate and checked by the Safety Supervisor.</p>
-              {go && <CardLink onClick={() => go('interventions')}>Open Interventions</CardLink>}
+              {go && <CardLink onClick={() => go('interventions')}>Open Action Recommendations</CardLink>}
             </Card>
             <PredictionChecks checks={d.predictionChecks || []} />
           </div>
@@ -167,7 +167,7 @@ export function TestsPage({ d, c2c4, head = true }) {
   const real = c2c4?.c4_realistic_v2 || c2c4?.c4_realistic_v1;
   return (
     <>
-      {head && <PageHead title="Diagnostic Tests (C4)" sub="Tests that separate competing fault hypotheses. Run only through the safety supervisor." right={<ProvBadge kind="SIMULATED" />} />}
+      {head && <PageHead title="Diagnostic Investigation" sub="Tests that separate competing fault hypotheses. Run only through the safety supervisor." right={<ProvBadge kind="SIMULATED" />} />}
       <div className="tq-split">
         <div className="tq-stack">
           <Card title="Available tests" id="c-avail">
@@ -188,17 +188,17 @@ export function TestsPage({ d, c2c4, head = true }) {
             <p className="tq-muted">{spec.target}</p>
             <div className="tq-subpanel"><span className="tq-subpanel-title">How the test works</span><p>{spec.method}</p></div>
             <p className="tq-small"><span className="tq-muted">Observed signals: </span><strong>{spec.signals.join(' · ')}</strong></p>
-            <p className="tq-muted">Expected diagnostic value is not shown per test because the backend does not publish a per-test value; measured value is in Evaluation.</p>
+            <p className="tq-muted">Expected diagnostic value is not shown per test because the backend does not publish a per-test value; measured value is in Performance Evaluation.</p>
           </Card>
           <Card title="Latest result and competing hypotheses" id="c-result" right={<ProvBadge kind="SIMULATED" />}>
             {!res ? <Empty>No diagnostic test has been run in this incident.</Empty> : (
               <><p><strong>{res.test}</strong> observation <span className="tq-num">{(res.obs || []).map((x) => fmt(x, 2)).join(', ')}</span></p><PosteriorBars ranked={res.posterior} label="after test" /></>)}
             {inc && <p className="tq-muted">Tests run in incident {inc.id}: <span className="tq-num">{inc.tests_run ?? '—'}</span></p>}
           </Card>
-          <Card title="C4 calibration status" id="c-cal">
+          <Card title="Test calibration status" id="c-cal">
             <p><Pill tone="warn">{phase11 && !phase11.adopted ? 'Phase 11 calibration NOT adopted' : 'calibration status unavailable'}</Pill></p>
-            <p className="tq-muted">The experimental C4 calibration failed its pre-registered validation bar (it regressed on an unseen sensor style), so the shipped C4 behaviour is unchanged. Only a rule that blocks action on uncorroborated evidence ships.</p>
-            {real && <p className="tq-muted">Held-out confidently-wrong rates by regime are in Evaluation.</p>}
+            <p className="tq-muted">The experimental Test calibration failed its pre-registered validation bar (it regressed on an unseen sensor style), so the shipped test model behaviour is unchanged. Only a rule that blocks action on uncorroborated evidence ships.</p>
+            {real && <p className="tq-muted">Held-out confidently-wrong rates by regime are in Performance Evaluation.</p>}
           </Card>
         </div>
       </div>

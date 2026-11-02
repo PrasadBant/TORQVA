@@ -33,8 +33,8 @@ const motorTxt = await page.textContent('main');
 check('physical dashboard: STOP disabled and START locked with the specific blocker, no "disabled by default" banner', await page.isDisabled('[data-testid="btn-stop"]') && await page.isDisabled('[data-testid="btn-start"]') && /DEVICE NOT CONNECTED|PHYSICAL CONTROL DISABLED/.test(await page.textContent('[data-testid="why-disabled"]')) && !/DISABLED BY DEFAULT/.test(motorTxt));
 check('physical dashboard shows measured values as UNAVAILABLE, never simulated numbers', (await page.textContent('[data-testid="phys-kpis"]')).split('UNAVAILABLE').length >= 7);
 await shot('physical-dashboard-disconnected');
-await page.click('nav button:has-text("AI Diagnostics")'); await page.waitForTimeout(500);
-check('AI Diagnostics waits for valid physical telemetry (no fabricated result)', (await page.textContent('[data-testid="layer-C1"]')).includes('WAITING FOR VALID PHYSICAL TELEMETRY'));
+await page.click('nav button:has-text("Anomaly Detection")'); await page.waitForTimeout(500);
+check('Anomaly Detection waits for valid physical telemetry (no fabricated result)', (await page.textContent('[data-testid="layer-C1"]')).includes('WAITING FOR VALID PHYSICAL TELEMETRY'));
 await page.click('nav button:has-text("Live Monitor")'); await page.waitForTimeout(500);
 check('Live Monitor shows no chart data while disconnected', (await page.locator('[data-testid="phys-live-empty"]').count()) === 1);
 await page.waitForTimeout(2500);
@@ -43,38 +43,44 @@ await page.click('button:has-text("Simulation mode (demo)")');
 await page.waitForSelector('[data-testid="sim-banner"]', { timeout: 20000 });
 await page.click('nav button:has-text("Overview")');
 check('simulation banner present', (await page.textContent('[data-testid="sim-banner"]')).includes('SIMULATION'));
-await page.waitForFunction(() => !/UNAVAILABLE/.test(document.querySelector('.tq-kpi-value')?.textContent || 'UNAVAILABLE'), null, { timeout: 30000 }).catch(() => {});
-await page.waitForTimeout(6000);
-const kpi = await page.textContent('.tq-kpis');
-check('overview shows simulated telemetry values', /rpm/.test(kpi) && !/UNAVAILABLE/.test(kpi), kpi.replace(/\s+/g, ' ').slice(0, 90));
-check('telemetry tiles carry the SIM provenance label (speed, current, housing, voltage, vibration)', (await page.locator('.tq-kpis .tq-prov-sim').count()) === 5);
-check('power on the overview is labelled DERIVED, not SIM', (await page.locator('.tq-kpis .tq-prov-derived').count()) === 1);
-check('simulation overview has the status strip and the C1-C6 pipeline', await page.isVisible('[data-testid="sim-status-strip"]') && (await page.locator('[data-testid="pipeline"] > li').count()) === 7);
+await page.waitForSelector('[data-testid="ov-health-status"]', { timeout: 20000 });
+await page.waitForFunction(() => !/UNAVAILABLE/.test(document.querySelector('[data-testid="sim-kpis"]')?.textContent || 'UNAVAILABLE'), null, { timeout: 30000 }).catch(() => {});
+const kpi = await page.textContent('[data-testid="sim-kpis"]');
+check('overview leads with the motor condition and one next step', /^(Normal|Investigation Required|Action Verification|Critical|Unavailable)$/.test((await page.textContent('[data-testid="ov-health-status"]')).trim()));
+check('overview shows the key simulated readings', /rpm/.test(kpi) && !/UNAVAILABLE/.test(kpi), kpi.replace(/\s+/g, ' ').slice(0, 90));
+check('key readings carry the SIM provenance label (speed, current, housing, vibration)', (await page.locator('[data-testid="sim-kpis"] .tq-prov-sim').count()) === 4);
+check('overview has no scenario controls (they live in Scenario Studio)', (await page.locator('main button:has-text("Start new simulation")').count()) === 0);
+check('simulation overview has the status strip and the analysis progress', await page.isVisible('[data-testid="sim-status-strip"]') && (await page.locator('[data-testid="pipeline"] > li').count()) === 7);
 check('simulation status strip shows no hardware fields', !/firmware|handshake|commission/i.test(await page.textContent('[data-testid="sim-status-strip"]')));
 check('environment is labelled software simulator', (await page.textContent('header.tq-top')).includes('software simulator'));
 await shot('overview-1440');
 
-const pages = [['Live Monitor', 'Latest telemetry'], ['AI Diagnostics', 'Fault hypotheses'], ['Predictions', 'Candidate interventions|Predictions'], ['Diagnostic Tests', 'Available tests'],
-  ['Interventions', 'Decision gate'], ['Recovery', 'Outcomes'], ['Learning', 'Learning dataset'], ['Evaluation', 'Evaluation run'], ['Lab', 'Lab|session|Session'], ['Devices & Settings', 'Devices'], ['Device', 'No device handshake']];
+const pages = [['Live Monitor', 'Latest sensor readings'], ['Diagnostic Workflow', 'Diagnostic Workflow'], ['Anomaly Detection', 'Top hypotheses|Fault hypotheses'], ['Failure Prediction', 'Candidate|Failure Prediction'],
+  ['Action Recommendations', 'Decision gate|decision gate'], ['Diagnostic Investigation', 'Available tests|Available Tests'], ['Recovery Verification', 'Outcomes'], ['Continuous Intelligence', 'Learning dataset'],
+  ['Performance Evaluation', 'versus baselines|Evaluation run'], ['Scenario Studio', 'Scenario'], ['Lab', 'Lab|session|Session'], ['Device & Safety', 'Device inventory']];
 for (const [nav, expect] of pages) {
   await page.click(`nav button:has-text("${nav}")`); await page.waitForTimeout(700);
   const txt = await page.textContent('main');
   check(`page renders: ${nav}`, new RegExp(expect).test(txt) && txt.length > 200);
+  check(`  ${nav}: no internal layer id (C1-C6) on the page`, !/\bC[1-6]\b/.test(txt), (txt.match(/.{0,40}\bC[1-6]\b.{0,30}/) || [''])[0]);
   check(`  ${nav}: no horizontal overflow at 1440px`, (await overflow()) <= 1);
   await shot(nav.replace(/\W+/g, '-').toLowerCase() + '-1440');
 }
-await page.click('nav button:has-text("Device")'); await page.waitForTimeout(600);
+await page.click('nav button:has-text("Device & Safety")'); await page.waitForTimeout(600);
+await page.click('[role=tab]:has-text("Connection & Readiness")'); await page.waitForTimeout(400);
 const devTxt = await page.textContent('main');
-check('Device page: SIMULATION, no physical telemetry, no handshake', devTxt.includes('SIMULATION') && devTxt.includes('No device handshake') && !devTxt.includes('PHYSICAL DEVICE'));
+check('Device & Safety: SIMULATION, no physical telemetry, no handshake', devTxt.includes('SIMULATION') && devTxt.includes('No device handshake') && !devTxt.includes('PHYSICAL DEVICE'));
 check('simulation mode lists no Motor Control and offers no physical START/STOP', await page.locator('nav button:has-text("Motor Control")').count() === 0 && await page.locator('button:has-text("Request START"), button:has-text("Send STOP to device")').count() === 0);
 await page.click('[data-testid=dev-to-scenario]'); await page.waitForTimeout(600);
-check('Device page links the simulator controls to Scenario Studio', await page.locator('#c-scn').count() === 1);
-await page.click('nav button:has-text("Devices & Settings")'); await page.waitForTimeout(400);
+check('Device & Safety links the simulator controls to Scenario Studio', (await page.textContent('main h2')).includes('Scenario Studio'));
+await page.click('nav button:has-text("Device & Safety")'); await page.waitForTimeout(400);
+check('simulation mode has no Safety & Commissioning section', (await page.locator('[role=tab]:has-text("Safety & Commissioning")').count()) === 0);
+await page.getByRole('tab', { name: 'Device', exact: true }).click(); await page.waitForTimeout(400);
 const dev = await page.textContent('main');
 check('physical device shown as not connected, simulated device distinguished', /not connected/.test(dev) && /software simulator/.test(dev));
 
 // simulator controls: start a faulty run, run it, and watch for an incident
-await page.click('nav button:has-text("Overview")');            // scenarios are configured in Scenario Studio on the Overview
+await page.click('nav button:has-text("Scenario Studio")');     // scenarios are configured, started and run only in Scenario Studio
 for (let i = 0; i < 20; i++) {   // the new-scenario form is a disclosure in Scenario Studio; it folds once when the run state first loads
   await page.evaluate(() => document.querySelectorAll('[data-testid=scn-new]').forEach((x) => { x.open = true; }));
   await page.waitForTimeout(300);
@@ -85,7 +91,7 @@ await page.click('button:has-text("Start new simulation")');
 await page.waitForTimeout(800);
 const startedFault = await page.evaluate(() => fetch('/api/torqva/status', { headers: { Authorization: 'Bearer ' + (sessionStorage.getItem('torqva.token') || '') } }).then((r) => r.json()).then((j) => j.scenario?.fault).catch(() => null));
 check('Start new simulation really starts the configured scenario', startedFault === 'looseness', String(startedFault));
-await page.click('button:has-text("Run")');
+await page.getByRole('button', { name: 'Run', exact: true }).click();
 let sawIncident = false;
 for (let i = 0; i < 40 && !sawIncident; i++) { await page.waitForTimeout(1500); sawIncident = /Incident INC|incident/i.test(await page.textContent('header.tq-top') + await page.evaluate(() => fetch('/api/torqva/status', { headers: { Authorization: 'Bearer ' + (sessionStorage.getItem('torqva.token') || '') } }).then((r) => r.text()))); }
 check('simulator controls start and run a scenario', true);
@@ -107,7 +113,7 @@ const navClick = async (name) => {
 };
 for (const w of [1440, 1024, 768, 390]) {
   await page.setViewportSize({ width: w, height: 900 });
-  for (const nav of ['Overview', 'Live Monitor', 'Predictions', 'Evaluation']) {
+  for (const nav of ['Overview', 'Live Monitor', 'Failure Prediction', 'Performance Evaluation', 'Device & Safety']) {
     await navClick(nav); await page.waitForTimeout(400);
     check(`no horizontal overflow at ${w}px: ${nav}`, (await overflow()) <= 1, `(${await overflow()}px)`);
   }

@@ -13,6 +13,13 @@ It selects simulation mode itself (the app opens in physical mode) and checks 30
 "Run/STOP disabled before any simulation" check fails by design. The device WebSocket is refused from a port the backend's CORS list does
 not include, which shows up only as a console message.
 
+**Run all eight (2 Nov, 304 checks, all passing):**
+
+1. `npm run dev:sim`, then `torqva-app` (86), `torqva-twin` (44), `torqva-workbench` (47) and `torqva-workflow` (30) against `http://localhost:5173/` (automatic dev sign-in).
+2. Stop it and start a fresh software-only backend whose `TORQVA_TOKENS` also holds an operator and a viewer token, plus `npx vite --host 127.0.0.1 --port 5173` started without `VITE_TORQVA_DEV_TOKEN` (no automatic sign-in). Then `torqva.e2e.mjs` first (30; it needs the fresh backend), followed by `torqva-lab` (12), `torqva-c2c4` (23) and `torqva-attestation` (32) with `TORQVA_TOKEN=<operator>` and `TORQVA_VIEWER_TOKEN=<viewer>`.
+
+Every script starts and runs scenarios from **Scenario Studio**, the one place with simulator controls; Live Monitor and Overview have none. Pages are reached by their product names (Anomaly Detection, Failure Prediction, Action Recommendations, Diagnostic Investigation, Recovery Verification, Continuous Intelligence, Performance Evaluation, Device & Safety). On Windows with Node 24 the Vite dev server has twice exited silently mid-run; if a script fails with `ERR_CONNECTION_REFUSED`, restart Vite and rerun it.
+
 Not wired into `npm test`: Playwright is not a project dependency (adding it needs sign-off).
 
 `torqva-attestation.e2e.mjs` (Phase 9) drives the Attestation tab: candidate capture, eligibility failures, confirmation gating, attest / activate / roll back, rejection, stale-decision handling, 1024/768/390 px layouts and the read-only viewer. It needs an operator and a viewer token:
@@ -25,7 +32,7 @@ Start the frontend with `npm run dev -- --host 127.0.0.1` (the scripts use 127.0
 
     TORQVA_TOKEN=<operator token> node e2e/torqva-c2c4.e2e.mjs
 
-`torqva-twin.e2e.mjs` drives the Digital Twin: physical mode with no board (everything UNAVAILABLE, nothing animated, no writes), then a simulation started from the Live Monitor: the shaft animates only while simulation time advances, selection by click and keyboard, the trend chart, the light theme and 1024/768/390 px layouts. For the 3D viewport (WebGL 2) it checks that the canvas really draws, renders only on demand, orbit, Ctrl + scroll zoom (plain scrolling still scrolls the page), the view presets and orthographic projection, picking a part in the scene, isolate, explode, section, recovery from a lost graphics context, the switch to the 2D drawing, no WebGL context or GPU geometry leak over six remounts, and no Three.js warnings (44 checks). Run it against `npm run dev:sim`, then `node e2e/torqva-twin.e2e.mjs`. `playwright-core` is not a project dependency: install it with `npm install --no-save playwright-core` (a later plain `npm install` removes it again).
+`torqva-twin.e2e.mjs` drives the Digital Twin: physical mode with no board (everything UNAVAILABLE, nothing animated, no writes), then a simulation started from Scenario Studio: the shaft animates only while simulation time advances, selection by click and keyboard, the trend chart, the light theme and 1024/768/390 px layouts. For the 3D viewport (WebGL 2) it checks that the canvas really draws, renders only on demand, orbit, Ctrl + scroll zoom (plain scrolling still scrolls the page), the view presets and orthographic projection, picking a part in the scene, isolate, explode, section, recovery from a lost graphics context, the switch to the 2D drawing, no WebGL context or GPU geometry leak over six remounts, and no Three.js warnings (44 checks). Run it against `npm run dev:sim`, then `node e2e/torqva-twin.e2e.mjs`. `playwright-core` is not a project dependency: install it with `npm install --no-save playwright-core` (a later plain `npm install` removes it again).
 
 The app opens in physical mode, so `torqva-lab`, `torqva-c2c4` and `torqva-attestation` set the remembered mode to simulation before loading the page.
 

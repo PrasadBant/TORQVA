@@ -28,7 +28,7 @@ export function conditionOf(d, plan, stale) {
   if (c1 && c1.score_over_threshold === null) return ['info', 'Uncertain: this window was not scored', SCORE_STATUS[c1.status] || title(c1.status)];
   if (c1?.anomalous) return ['warn', 'Anomaly suspected', `Above the learned threshold for ${c1.anomalous_run} consecutive window(s); an incident opens after ${c1.confirm_windows}.`];
   if (c1) return ['ok', 'Consistent with the learned baseline at this speed', `Score ${fmt(c1.score_over_threshold, 2)} × threshold (${SCORE_STATUS[c1.status] || title(c1.status)}).`];
-  return ['info', 'Reading the C1 state…', ''];
+  return ['info', 'Reading the Anomaly Detection state…', ''];
 }
 
 function explain(plan) {
@@ -64,7 +64,6 @@ function HypothesisRow({ h, top, compact, rank }) {
             <div><span className="tq-section-title">Best separating test</span>
               {h.best_separating_test ? <p>{h.best_separating_test.test} against {title(h.best_separating_test.versus)} <span className="tq-muted">(signature separation {fmt(h.best_separating_test.separation, 1)} σ)</span></p> : <p className="tq-muted">none learned</p>}</div>
           </div>
-          <p className="tq-chart-note">From the hypothesis model's own per-feature log-likelihood over the evidence windows. Signatures are learned in simulation.</p>
         </details>)}
     </li>
   );
@@ -93,9 +92,9 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
   const configure = () => { setWb?.((x) => ({ ...x, prefill: rec?.worth_running ? rec.test : 'profile' })); go('tests'); };
 
   const recommendation = (
-    <Card title="Recommendation" id="c-next-test" icon={Compass} sub="The next investigation step, chosen by expected information gain" right={<ProvBadge kind="DERIVED" />}>
+    <Card title="Recommendation" id="c-next-test" icon={Compass} sub="The most informative next test" right={<ProvBadge kind="DERIVED" />}>
       {!post ? <Empty>No hypothesis ranking yet, so no test can be chosen. Hypotheses appear after an anomaly has persisted for {plan?.min_evidence_windows ?? 8} windows. Until then, keep monitoring.</Empty>
-        : !rec ? <Empty>No test is currently allowed for this run (see the Safety Supervisor reasons on Diagnostic Tests).</Empty>
+        : !rec ? <Empty>No test is currently allowed for this run (see the Safety Supervisor reasons on Diagnostic Investigation).</Empty>
           : !rec.worth_running ? (
             <p data-testid="next-none">No test is expected to remove at least {fmt(rec.gate_min_info_gain_nats, 2)} nats of uncertainty: the best, {rec.test}, would remove {fmt(rec.expected_info_gain_nats, 2)} nats. {post.label === 'confident' ? 'The ranking is already confident.' : 'Observing longer is the gate\'s alternative.'}</p>
           ) : (
@@ -108,24 +107,23 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
       {plan?.gate && <p className="tq-small"><span className="tq-muted">Latest gate verdict: </span><Pill tone={plan.gate.verdict === 'ACT' ? 'ok' : plan.gate.verdict === 'SAFE_STOP' ? 'stop' : 'warn'}>{title(plan.gate.verdict)}</Pill> <span className="tq-muted">{plan.gate.reason}</span></p>}
       <div className="tq-row tq-mt tq-an-actions">
         <button type="button" className="tq-btn tq-primary" onClick={configure} disabled={!hasSim}>
-          <FlaskConical size={14} aria-hidden="true" /> Configure in Diagnostic Tests <ArrowRight size={14} aria-hidden="true" />
+          <FlaskConical size={14} aria-hidden="true" /> Configure in Diagnostic Investigation <ArrowRight size={14} aria-hidden="true" />
         </button>
         <LinkButton onClick={() => go('workflow')}>Open the guided Diagnostic Workflow</LinkButton>
       </div>
-      <p className="tq-muted tq-small">Nothing starts from this page. Tests are configured and started on Diagnostic Tests or in the Diagnostic Workflow.</p>
     </Card>);
 
   return (
     <>
-      <PageHead title="AI Diagnostics (C1)" sub="Is the motor behaving normally, which faults could explain it, what evidence supports that, and what to check next."
+      <PageHead title="Anomaly Detection" sub="Unusual behaviour, its likely causes and the evidence."
         right={<><ProvBadge kind="SIMULATED" /><Pill tone={tone}>{head}</Pill></>} />
       <div className="tq-an-page">
         <AlertPanel tone={tone} title={head} testid="c1-condition">{detail || null}</AlertPanel>
         {error && error !== 'unavailable' && hasSim && <p className="tq-callout warn">The workbench plan could not be loaded: {error}</p>}
 
-        <StatGrid label="C1 summary">
+        <StatGrid label="Anomaly Detection summary">
           <StatTile icon={Gauge} tone={status[0]} label="Current status" value={status[1]} sub={status[2]} testid="c1-tile-status" />
-          <StatTile icon={Activity} tone={!c1 || score === null ? 'off' : score > 1 ? 'warn' : 'ok'} label="Anomaly score" value={c1 && score !== null ? fmt(score, 2) : '—'} unit={c1 && score !== null ? '× threshold' : undefined}
+          <StatTile icon={Activity} tone={!c1 || score === null ? 'off' : score > 1 ? 'warn' : 'ok'} label="Anomaly severity" value={c1 && score !== null ? fmt(score, 2) : '—'} unit={c1 && score !== null ? '× threshold' : undefined}
             sub={c1 ? `threshold = 1 · incident after ${c1.confirm_windows} windows in a row` : 'distance from the learned healthy baseline'} />
           <StatTile icon={Microscope} tone={post ? postTone(post) : 'off'} label="Top hypothesis (AI interpretation)" value={post ? title(post.top) : 'None yet'} unit={post ? pct(post.top_p, 0) : undefined}
             sub={post ? `${post.label}${post.ood ? ', unlike any learned signature' : ''} · not a confirmed fault` : 'ranked only after an anomaly persists'} />
@@ -133,7 +131,7 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
             sub={post ? `${post.n_windows} evidence window(s)` : hasSim ? `${plan?.evidence_windows ?? 0} anomalous window(s) so far` : 'no simulation running'} />
         </StatGrid>
 
-        <Tabs label="AI Diagnostics views" idBase="c1-tab" value={tab} onChange={setTab}
+        <Tabs label="Anomaly Detection views" idBase="c1-tab" value={tab} onChange={setTab}
           tabs={[{ key: 'overview', label: 'Overview' }, { key: 'hypotheses', label: 'Hypotheses', count: ranked.length || undefined }, { key: 'evidence', label: 'Evidence' }, { key: 'explain', label: 'Explainability' }]} />
 
         {tab === 'overview' && (
@@ -147,14 +145,14 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
                     <div key={l}><dt>{l}</dt><dd className="tq-num">{val(v) == null ? 'UNAVAILABLE' : `${fmt(v, dg)} ${u}`}</dd><ProvBadge kind="SIMULATED" /></div>))}
                   {hasSim && <div><dt>Setpoint</dt><dd className="tq-num">{fmt(s.device?.setpoint_rpm, 0)} rpm</dd></div>}
                 </dl>
-                <p className="tq-muted tq-small">Data quality: {!w ? 'no window yet' : w.valid === false ? 'the latest window is invalid' : 'the latest window is valid'}. The score is a distance from the learned healthy baseline, not a probability of a fault.</p>
+                <p className="tq-muted tq-small">Data quality: {!w ? 'no window yet' : w.valid === false ? 'the latest window is invalid' : 'the latest window is valid'}. Severity is a distance from the healthy baseline, not a fault probability.</p>
               </Card>
               <Card title="Top hypotheses" id="c-hyps" icon={Microscope} sub="AI interpretation, not proof"
                 right={<span className="tq-an-right">{post && <Pill tone={postTone(post)}>{post.label}{post.ood ? ' · unlike any learned signature' : ''}</Pill>}<ProvBadge kind="DERIVED" /></span>}
                 foot={ranked.length > 0 ? <LinkButton onClick={() => setTab('hypotheses')}>All hypotheses and their evidence</LinkButton> : null}>
                 {!ranked.length ? <Empty>No ranking yet. The hypothesis model ranks faults only from anomalous windows; healthy windows are not evidence for any fault.</Empty> : (
                   <ol className="tq-hyps" aria-label="Top fault hypotheses">{ranked.slice(0, 4).map((h, i) => <HypothesisRow key={h.hypothesis} h={h} top={i === 0} rank={i + 1} compact />)}</ol>)}
-                <p className="tq-muted tq-small">Probabilities as the backend reports them. A ranking is not a confirmed fault.{post ? ` Ranked from ${post.n_windows} evidence window(s).` : ''}</p>
+                <p className="tq-muted tq-small">A ranking, not a confirmed fault.{post ? ` Ranked from ${post.n_windows} evidence window(s).` : ''}</p>
               </Card>
               <Card title="Evidence summary" id="c-ev-sum" icon={ListChecks} right={suff ? <SufficiencyBadge s={suff} /> : null}>
                 <h4 className="tq-an-h">Measured deviations <SourceTag kind="DERIVED" /></h4>
@@ -173,11 +171,11 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
 
         {tab === 'hypotheses' && (
           <TabPanel tab="hypotheses" idBase="c1-tab">
-            <Card title="Fault hypotheses" id="c-hyps-all" icon={Microscope} sub="AI interpretation, ranked by the hypothesis model; each with the evidence for and against it"
+            <Card title="Fault hypotheses" id="c-hyps-all" icon={Microscope} sub="Each with the evidence for and against it"
               right={<span className="tq-an-right">{post && <Pill tone={postTone(post)}>{post.label}{post.ood ? ' · unlike any learned signature' : ''}</Pill>}<ProvBadge kind="DERIVED" /></span>}>
               {!ranked.length ? <Empty>No ranking yet. The hypothesis model ranks faults only from anomalous windows; healthy windows are not evidence for any fault.</Empty> : (
                 <ol className="tq-hyps" aria-label="Ranked fault hypotheses">{ranked.map((h, i) => <HypothesisRow key={h.hypothesis} h={h} top={i === 0} rank={i + 1} />)}</ol>)}
-              <p className="tq-muted">A ranking is not a confirmed fault. Bearing faults are not diagnosable with this sensor set.{post ? ` Ranked from ${post.n_windows} evidence window(s); margin ${fmt(post.margin, 2)} between the top two.` : ''}</p>
+              <p className="tq-muted">Bearing faults cannot be diagnosed with this sensor set.{post ? ` Ranked from ${post.n_windows} evidence window(s); margin ${fmt(post.margin, 2)} between the top two.` : ''}</p>
             </Card>
           </TabPanel>)}
 
@@ -187,7 +185,7 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
             <div className="tq-an-grid tq-mt">
               <Card title="Operating condition" id="c-cond" right={<ProvBadge kind="SIMULATED" />}>
                 <dl className="tq-kv">
-                  <dt>C1 window status</dt><dd>{c1 ? <Pill tone={c1.score_over_threshold === null ? 'info' : c1.anomalous ? 'warn' : 'ok'}>{title(c1.status)}</Pill> : '—'}</dd>
+                  <dt>Anomaly window status</dt><dd>{c1 ? <Pill tone={c1.score_over_threshold === null ? 'info' : c1.anomalous ? 'warn' : 'ok'}>{title(c1.status)}</Pill> : '—'}</dd>
                   <dt>Score ÷ learned threshold</dt><dd className="tq-num">{c1 ? fmt(c1.score_over_threshold, 2) : '—'}</dd>
                   <dt>Anomalous windows in a row</dt><dd className="tq-num">{c1 ? `${c1.anomalous_run} (incident at ${c1.confirm_windows})` : '—'}</dd>
                   <dt>Incident</dt><dd>{s.incident ? <Pill tone={stateTone(s.incident.state)}>{`${s.incident.id}: ${title(s.incident.state)}`}</Pill> : 'none open'}</dd>
@@ -195,12 +193,12 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
                 </dl>
                 <CardLink onClick={() => go('live')}>See the readings as trends on Live Monitor</CardLink>
               </Card>
-              <Card title="Evidence sufficiency and what is still unknown" id="c-unknown" right={suff ? <SufficiencyBadge s={suff} /> : null}>
+              <Card title="Evidence quality and what is still unknown" id="c-unknown" right={suff ? <SufficiencyBadge s={suff} /> : null}>
                 {!suff ? <Empty>{hasSim ? 'Waiting for the workbench plan.' : 'No simulation running.'}</Empty> : (
                   <>
                     <p>{suff.reason}.</p>
                     <ul className="tq-list tq-small">
-                      {!suff.c1_baseline_for_current_speed && <li>No healthy C1 baseline is learned for the current speed ({title(suff.c1_window_status) || 'no window'}): this speed cannot be judged against a baseline.</li>}
+                      {!suff.c1_baseline_for_current_speed && <li>No healthy baseline is learned for the current speed ({title(suff.c1_window_status) || 'no window'}): this speed cannot be judged against a baseline.</li>}
                       {suff.tests.filter((t) => !t.eligible).map((t) => <li key={t.test}>{t.test} cannot run now: {t.prerequisites.filter((p) => !p.ok).map((p) => p.detail || p.check).join('; ')}.</li>)}
                       <li>Bearing faults are not diagnosable with this sensor set; torque is not measured.</li>
                     </ul>
@@ -211,7 +209,7 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
 
         {tab === 'explain' && (
           <TabPanel tab="explain" idBase="c1-tab">
-            <Card title="How C1 reaches this reading" id="c-how" icon={Workflow}>
+            <Card title="How Anomaly Detection reaches this reading" id="c-how" icon={Workflow}>
               <ol className="tq-list tq-small">
                 <li>Each 1 s simulated window is turned into features (vibration orders, current per rpm, thermal residual …) and compared with the healthy baseline learned for its speed range. The score ÷ threshold is that distance; 1 is the learned threshold.</li>
                 <li>{c1 ? `An incident opens after ${c1.confirm_windows} consecutive windows above the threshold.` : 'An incident opens after several consecutive windows above the threshold.'} Windows taken while speed changes, or at an unlearned speed, are not scored.</li>
