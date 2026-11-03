@@ -55,6 +55,42 @@ def test_open_errors_are_classified_from_the_real_error_text(exc, code):
     assert classify_open_error(exc)[0] == code
 
 
+# The Windows error code decides when it is known, whatever the message language. Python maps ERROR_GEN_FAILURE (31) onto PermissionError,
+# which used to be reported as ACCESS_DENIED ("another program may hold the port") for a device that is not functioning.
+@pytest.mark.parametrize("exc,code", [
+    (OSError(22, "A device attached to the system is not functioning.", None, 31), "DEVICE_ERROR"),
+    (Exception("could not open port 'COM7': PermissionError(13, 'A device attached to the system is not functioning.', None, 31)"), "DEVICE_ERROR"),
+    (OSError(13, "Zugriff verweigert", None, 5), "ACCESS_DENIED"),                                   # localized messages: only the code is reliable
+    (OSError(2, "Das System kann die angegebene Datei nicht finden.", None, 2), "PORT_NOT_FOUND"),
+    (OSError(22, "Ein an das System angeschlossenes Gerät funktioniert nicht.", None, 31), "DEVICE_ERROR"),
+    (Exception("[WinError 31] Ein an das System angeschlossenes Gerät funktioniert nicht"), "DEVICE_ERROR"),
+    (Exception("[WinError 5] Zugriff verweigert"), "ACCESS_DENIED"),
+    (Exception("[WinError 2] Datei nicht gefunden"), "PORT_NOT_FOUND"),
+    (Exception("[WinError 121] Zeitlimit der Semaphore erreicht"), "OPEN_TIMEOUT"),
+])
+def test_windows_error_codes_classify_regardless_of_language_or_exception_class(exc, code):
+    c, detail = classify_open_error(exc)
+    assert c == code
+    assert str(exc) in detail                                                             # the original text is always kept for diagnostics
+
+
+@pytest.mark.parametrize("text", [
+    "[WinError 50] The request is not supported.",            # not 5
+    "[WinError 21] The device is not ready.",                 # not 2
+    "[WinError 310] something",                               # not 31
+    "[WinError 1210] something",                              # not 121
+    "[WinError 1167] The device is not connected.",            # a real code with no known meaning here: never guessed
+])
+def test_an_unknown_windows_code_is_never_classified_as_a_known_cause(text):
+    assert classify_open_error(Exception(text))[0] == "OPEN_FAILED"
+
+
+def test_the_classifier_patterns_hold_no_control_characters():
+    import inspect
+    src = inspect.getsource(sb.classify_open_error) + inspect.getsource(sb._winerror_code)
+    assert not any(ord(ch) < 32 and ch not in "\n\t" for ch in src)                       # a literal backspace once stood in for a word boundary
+
+
 def test_access_denied_is_never_reported_as_port_in_use():
     code, detail = classify_open_error(Exception(REAL_COM7))
     summary = sb.ERROR_HELP[code][0].lower()

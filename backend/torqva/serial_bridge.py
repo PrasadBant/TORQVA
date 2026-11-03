@@ -414,17 +414,36 @@ ERROR_HELP: Dict[str, Any] = {
 }
 
 
+# Windows error codes whose meaning does not depend on the message language. Python maps some of them onto a misleading exception class
+# (ERROR_GEN_FAILURE 31, "a device attached to the system is not functioning", becomes PermissionError), so the code is read first.
+_WINERROR_CODES = {5: "ACCESS_DENIED", 2: "PORT_NOT_FOUND", 31: "DEVICE_ERROR"}
+
+
+def _winerror_code(exc: BaseException, low: str) -> Optional[int]:
+    """The Windows error code of `exc`: its own winerror attribute, else the code pyserial embeds in its message, either as
+    repr(WinError) ("PermissionError(13, 'Access is denied.', None, 5)") or as str(WinError) ("[WinError 5] Access is denied")."""
+    w = getattr(exc, "winerror", None)
+    if isinstance(w, int):
+        return w
+    m = re.search(r"\(\s*\d+\s*,.*,\s*none\s*,\s*(\d+)\s*\)", low) or re.search(r"\[winerror (\d+)\]", low)
+    return int(m.group(1)) if m else None
+
+
 def classify_open_error(exc: BaseException) -> "tuple[str, str]":
-    """(code, detail) from the exact exception text. pyserial wraps the Windows error in a SerialException whose message embeds repr(WinError)."""
+    """(code, detail) from the exact exception text. pyserial wraps the Windows error in a SerialException whose message embeds repr(WinError).
+    An error that matches no known pattern is OPEN_FAILED: a cause is never guessed. `detail` is always the full original text."""
     t = f"{type(exc).__name__}: {exc}"
     low = t.lower()
-    if isinstance(exc, PermissionError) or "permissionerror(13" in low or "access is denied" in low or re.search(r"winerror 5", low) or ", 5)" in low and "permissionerror" in low:
+    code = _WINERROR_CODES.get(_winerror_code(exc, low))
+    if code:
+        return code, t
+    if isinstance(exc, PermissionError) or "permissionerror(13" in low or "access is denied" in low or re.search(r"winerror 5\b", low) or ", 5)" in low and "permissionerror" in low:
         return "ACCESS_DENIED", t
-    if isinstance(exc, FileNotFoundError) or "filenotfounderror(2" in low or "cannot find the file specified" in low or re.search(r"winerror 2", low) or "no such file" in low:
+    if isinstance(exc, FileNotFoundError) or "filenotfounderror(2" in low or "cannot find the file specified" in low or re.search(r"winerror 2\b", low) or "no such file" in low:
         return "PORT_NOT_FOUND", t
-    if "not functioning" in low or re.search(r"winerror 31", low) or "oserror(22" in low:
+    if "not functioning" in low or re.search(r"winerror 31\b", low) or "oserror(22" in low:
         return "DEVICE_ERROR", t
-    if "semaphore timeout" in low or re.search(r"winerror 121", low) or "timed out" in low:
+    if "semaphore timeout" in low or re.search(r"winerror 121\b", low) or "timed out" in low:
         return "OPEN_TIMEOUT", t
     return "OPEN_FAILED", t
 
