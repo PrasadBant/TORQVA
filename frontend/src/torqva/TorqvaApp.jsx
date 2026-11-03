@@ -68,6 +68,23 @@ const WorkflowPage = lazy(() => import('./workflow/workflow.jsx').then((m) => ({
 const pageFallback = <Empty loading>Loading…</Empty>;
 
 const NAV = NAV_GROUPS.flatMap((g) => g.items);
+
+// URL routing (hash, no dependency): #/<page> or #/device/<tab>. A route only chooses what is SHOWN: every page keeps its own role,
+// interlock and mode checks, the mode is never taken from the URL (a link cannot switch Physical to Simulation), and nothing is started,
+// resumed or sent because a URL was opened. An unknown route opens Overview.
+const PAGE_IDS = new Set(NAV.map((n) => n[0]));
+const DEVICE_TABS = new Set(['system', 'connection', 'safety']);
+export function parseRoute(hash) {
+  const m = /^#\/([a-z]+)(?:\/([a-z]+))?$/.exec(hash || '');
+  if (!m) return null;
+  const [, p, t] = m;
+  if (ALIASES[p] && !t) return { view: ALIASES[p][0], tab: ALIASES[p][1] };
+  if (!PAGE_IDS.has(p)) return null;
+  if (p === 'device') return t === undefined || DEVICE_TABS.has(t) ? { view: 'device', tab: t || 'system' } : null;
+  return t === undefined ? { view: p, tab: null } : null;
+}
+export const routeHash = (view, tab) => (view === 'device' ? `#/device/${tab || 'system'}` : `#/${view}`);
+const readRoute = () => { try { return parseRoute(window.location.hash); } catch { return null; } };
 // Simulation pages that show the investigation progress bar (Monitor → Investigate → Understand → Act → Verify).
 const JOURNEY_VIEWS = new Set(['live', 'diagnostics', 'tests', 'predictions', 'interventions', 'recovery']);
 
@@ -176,7 +193,7 @@ function SecondsAgo({ since }) {
 export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory }) {
   const [user, setUser] = useState(null);
   const [loginError, setLoginError] = useState('');
-  const [rawView, setView] = useState('overview');
+  const [rawView, setView] = useState(() => readRoute()?.view || 'overview');
   const [appMode, setAppMode] = useState(readMode);
   const [theme, setTheme] = useState(readTheme);
   const toggleTheme = () => {
@@ -190,7 +207,14 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const toggleCollapsed = () => setCollapsed((c) => { const n = !c; try { window.localStorage.setItem(NAV_KEY, n ? 'collapsed' : 'open'); } catch { /* storage unavailable */ } return n; });
   const navRef = useRef(null);
-  const [devTab, setDevTab] = useState('system');
+  const [devTab, setDevTab] = useState(() => readRoute()?.tab || 'system');
+  // Browser Back / Forward and a hand-edited URL: show the route's page. An unknown route falls back to Overview.
+  useEffect(() => {
+    const onRoute = () => { const r = readRoute(); setView(r?.view || 'overview'); if (r?.tab) setDevTab(r.tab); setNavOpen(false); };
+    window.addEventListener('popstate', onRoute);
+    window.addEventListener('hashchange', onRoute);
+    return () => { window.removeEventListener('popstate', onRoute); window.removeEventListener('hashchange', onRoute); };
+  }, []);
   const go = useCallback((k) => { const a = ALIASES[k]; if (a) setDevTab(a[1]); else if (k === 'device') setDevTab('system'); setView(a ? a[0] : k); setNavOpen(false); scrollTop(); }, []);
   const [folded, setFolded] = useState(readFolded);
   const toggleGroup = (h) => setFolded((f) => { const n = f.includes(h) ? f.filter((x) => x !== h) : [...f, h]; try { window.localStorage.setItem(GROUPS_KEY, JSON.stringify(n)); } catch { /* storage unavailable */ } return n; });
@@ -213,6 +237,16 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const view = ALIASES[rawView]?.[0] || rawView;
   // Safety & Commissioning is the physical device's interlock record, so that section exists only in physical mode.
   const deviceTab = !physicalMode && devTab === 'safety' ? 'system' : devTab;
+  // Keep the URL on the page shown. A new page adds a history entry; a tab change or a correction (an unknown route, Safety & Commissioning
+  // opened in simulation mode) replaces the current one, so Back always returns to the previous page.
+  useEffect(() => {
+    try {
+      const want = routeHash(view, deviceTab);
+      if (window.location.hash === want) return;
+      const same = readRoute()?.view === view;
+      window.history[same || !window.location.hash ? 'replaceState' : 'pushState'](null, '', want);
+    } catch { /* history unavailable: navigation still works in-app */ }
+  }, [view, deviceTab, rawView, devTab]);           // the raw values too: a hand-edited URL that is corrected leaves the shown page unchanged
   // Analyst workbench state (simulation): the selected action, the last test run and a test to pre-add. Never carried across modes or runs.
   const [wb, setWb] = useState({ selection: null, run: null, prefill: null, lastRequest: null });
   const changeMode = (m) => { setAppMode(m); storeMode(m); setRunning(false); setWb({ selection: null, run: null, prefill: null, lastRequest: null }); };
