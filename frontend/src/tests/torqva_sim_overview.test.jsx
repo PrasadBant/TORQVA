@@ -4,7 +4,7 @@ import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { lifecycle, pipelineStages } from '../torqva/simulation/pipeline.js';
-import { ScenarioStudio } from '../torqva/simulation/scenario.jsx';
+import { ScenarioStudio, ScenarioPage } from '../torqva/simulation/scenario.jsx';
 import { SimOverview } from '../torqva/simulation/overview.jsx';
 import { IncidentStory } from '../torqva/simulation/story.jsx';
 
@@ -170,5 +170,24 @@ describe('incident story', () => {
   it('says so when no incident exists', () => {
     render(<IncidentStory d={base()} />);
     expect(screen.getByText(/No incident in this run's log yet/)).toBeInTheDocument();
+  });
+});
+
+describe('Scenario Studio run results', () => {
+  it('answers what happened from the pipeline records, with no second set of trend charts', () => {
+    render(<ScenarioPage d={base({ log: LOG, status: { ...STATUS, incident: { id: 'INC-1', state: 'ACTION_EVALUATION', open: true } } })} role="operator" actions={actions()} running={false} setRunning={noop} busy={false} go={noop} />);
+    const res = screen.getByTestId('scn-results');
+    expect(within(res).getByTestId('scn-readings')).toHaveTextContent('1799');
+    const out = within(res).getByTestId('scn-outcome');
+    expect(out).toHaveTextContent('Detected anomaly');
+    expect(out).toHaveTextContent(/imbalance 82%/i);                     // the hypothesis log entry, not the scenario's ground truth
+    expect(out).toHaveTextContent(/lowest risk: Reduce Speed/i);
+    expect(out).toHaveTextContent('After the action');
+    expect(screen.queryByTestId('scn-telemetry')).toBeNull();            // trends live on Live Monitor
+  });
+  it('shows an invalid simulated window as UNAVAILABLE, never as numbers', () => {
+    render(<ScenarioPage d={base({ status: { ...STATUS, last_window: { ...W, valid: false } } })} role="viewer" actions={actions()} running={false} setRunning={noop} busy={false} go={noop} />);
+    expect(screen.getByTestId('scn-readings')).toHaveTextContent('UNAVAILABLE');
+    expect(screen.getByTestId('scn-readings')).not.toHaveTextContent('1799');
   });
 });

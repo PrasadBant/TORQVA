@@ -288,7 +288,7 @@ function Overview({ model, items, onSelect }) {
   const structure = items.filter((i) => !i.sensor);
   return (
     <div className="tq-tw-detail" data-testid="twin-overview">
-      <p className="tq-muted tq-tw-hint">Select a part on the model, in this list or in the menu above to see what it is, its readings and provenance, and the evidence linked to it.</p>
+      <p className="tq-muted tq-tw-hint">Select a part to see its readings and the evidence linked to it.</p>
       <span className="tq-tw-eyebrow">Sensors and electronics</span>
       <ul className="tq-tw-partlist" aria-label="Sensors and electronics">
         {model.parts.map((p) => {
@@ -414,7 +414,7 @@ function Stage({ model, items, selected, setSelected }) {
         ))}
       </div>
       <p className="tq-tw-caption" data-testid="twin-motion-note">
-        <strong>Illustrative model, not CAD-accurate.</strong> {view === '3d' ? 'Geometry follows the typical RS-775 and breakout-board sizes and the build notes; positions, internals and wiring are not measured on the rig.' : 'Proportions, sensor positions and wiring are drawn for readability and are not verified.'} {model.motion.note}
+        <strong>Illustrative model, not CAD-accurate.</strong> {view === '3d' ? 'Positions, internals and wiring are typical, not measured on the rig.' : 'Proportions, positions and wiring are drawn for readability, not verified.'} {model.motion.note}
         {model.motion.spinning && (view === '3d' && reducedMotion() ? ' The shaft animation is off because your system asks for reduced motion.' : ` The shaft animation turns at 1/${SPIN_SCALE} of the reported speed so it stays readable; it is presentation only.`)}
       </p>
     </section>
@@ -429,7 +429,7 @@ export function DigitalTwin({ model, renderTrend, go, aside }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [selected]);
-  const head = <PageHead title="Digital Twin" sub="Interactive model of the motor rig: where each sensor sits, what it reports now and the evidence linked to each part."
+  const head = <PageHead title="Digital Twin" sub="Where each sensor sits and what it reports now."
     right={<Pill tone="info">{model.source === 'SIMULATION' ? 'SIMULATION MODE' : 'PHYSICAL MODE'}</Pill>} />;
   if (model.loading) return <>{head}<Empty loading>Loading the current state…</Empty></>;
   const items = twinItems(model);
@@ -443,7 +443,7 @@ export function DigitalTwin({ model, renderTrend, go, aside }) {
         <ComponentInfo model={model} items={items} selected={selected} setSelected={setSelected} renderTrend={renderTrend} go={go} />
       </div>
       <div className="tq-grid tq-tw-support">
-        <Card title="Findings" id="tw-findings" sub="What the pipeline and the source report, with the page that has the details.">
+        <Card title="Findings" id="tw-findings" sub="Evidence linked to the rig, with the page that has the details.">
           {!model.findings.length ? <Empty>No findings to report.</Empty> : (
             <ul className="tq-tw-findings" data-testid="twin-findings">
               {model.findings.map((f) => (

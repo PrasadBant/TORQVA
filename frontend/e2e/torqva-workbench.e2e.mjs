@@ -49,8 +49,10 @@ check('the scenario reaches a held action', !!st?.pending_approval, st?.pending_
 
 // C1
 await nav('Anomaly Detection');
+await page.click('[role=tab]:has-text("Hypotheses")');   // the ranking lives on its own tab
 await page.waitForSelector('[data-testid^=hyp-]', { timeout: 15000 }).catch(() => {});
 check('C1 shows the operating condition and the ranked hypotheses', /Anomaly|Consistent|Uncertain/.test(await page.textContent('[data-testid=c1-condition]')) && (await page.locator('[data-testid^=hyp-]').count()) >= 2);
+await page.click('[role=tab]:has-text("Overview")');   // readings and the next-test card are on the Overview tab
 check('C1 tiles carry SIM provenance', (await page.locator('[data-testid=c1-kpis] .tq-prov-sim').count()) === 5);
 check('C1 offers no way to start a test from a hypothesis', (await page.locator('main button:has-text("Run")').count()) === 0);
 await shot('c1');
@@ -80,6 +82,7 @@ await shot('c4');
 
 // C4 adaptive investigation on the simulator copy
 const preAd = await api('/status');
+await page.click('[data-testid=c4-guided] > summary');   // guided investigation sits in its own disclosure
 check('C4 shows an evidence-sufficiency status', /SUFFICIENT EVIDENCE|MORE EVIDENCE REQUIRED|INVALID INPUT|TEST NOT SUPPORTED|INCONCLUSIVE/.test(await page.textContent('section[aria-labelledby=c-adaptive]')));
 await page.click('[data-testid=run-adaptive]');
 await page.waitForSelector('[data-testid=adaptive-result]', { timeout: 60000 });

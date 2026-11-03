@@ -55,7 +55,7 @@ check('simulation status strip shows no hardware fields', !/firmware|handshake|c
 check('environment is labelled software simulator', (await page.textContent('header.tq-top')).includes('software simulator'));
 await shot('overview-1440');
 
-const pages = [['Live Monitor', 'Latest sensor readings'], ['Diagnostic Workflow', 'Diagnostic Workflow'], ['Anomaly Detection', 'Top hypotheses|Fault hypotheses'], ['Failure Prediction', 'Candidate|Failure Prediction'],
+const pages = [['Live Monitor', 'Current readings'], ['Diagnostic Workflow', 'Diagnostic Workflow'], ['Anomaly Detection', 'Anomaly severity'], ['Failure Prediction', 'Candidate|Failure Prediction'],
   ['Action Recommendations', 'Decision gate|decision gate'], ['Diagnostic Investigation', 'Available tests|Available Tests'], ['Recovery Verification', 'Outcomes'], ['Continuous Intelligence', 'Learning dataset'],
   ['Performance Evaluation', 'versus baselines|Evaluation run'], ['Scenario Studio', 'Scenario'], ['Lab', 'Lab|session|Session'], ['Device & Safety', 'Device inventory']];
 for (const [nav, expect] of pages) {

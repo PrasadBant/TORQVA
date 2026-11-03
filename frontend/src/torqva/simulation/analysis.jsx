@@ -196,7 +196,7 @@ export function TestsPage({ d, c2c4, head = true }) {
             {inc && <p className="tq-muted">Tests run in incident {inc.id}: <span className="tq-num">{inc.tests_run ?? '—'}</span></p>}
           </Card>
           <Card title="Test calibration status" id="c-cal">
-            <p><Pill tone="warn">{phase11 && !phase11.adopted ? 'Phase 11 calibration NOT adopted' : 'calibration status unavailable'}</Pill></p>
+            <p><Pill tone="warn">{phase11 && !phase11.adopted ? 'Test calibration NOT adopted' : 'calibration status unavailable'}</Pill></p>
             <p className="tq-muted">The experimental Test calibration failed its pre-registered validation bar (it regressed on an unseen sensor style), so the shipped test model behaviour is unchanged. Only a rule that blocks action on uncorroborated evidence ships.</p>
             {real && <p className="tq-muted">Held-out confidently-wrong rates by regime are in Performance Evaluation.</p>}
           </Card>

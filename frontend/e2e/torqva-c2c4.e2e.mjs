@@ -82,7 +82,7 @@ const evTxt = await page.textContent('main');
 check('evaluation run card shows an eval_sim_run file (not another study artifact)', /eval_sim_run\d/.test(evTxt));
 check('validation card has the hardware caveat', evTxt.includes('unvalidated against hardware'));
 check('validation card has coverage tables for both variants', (await page.locator(`${section('c-c2c4')} table`).count()) === 3 && evTxt.includes('noise-aware predictor (opt-in)'));
-check('Phase 11 card labels the conditional variant opt-in and C4 calibration as not adopted', evTxt.includes('Phase 11 (opt-in, not adopted by default)') && evTxt.includes('NOT adopted'));
+check('validation card labels the class-conditional variant opt-in and the test calibration as not adopted', evTxt.includes('Opt-in, not adopted by default: class-conditional') && evTxt.includes('NOT adopted'));
 check('limitations listed', /variant is validated by Intervention Outcome Experiments on hardware/.test(evTxt));
 await shot('42-c2c4-evaluation');
 

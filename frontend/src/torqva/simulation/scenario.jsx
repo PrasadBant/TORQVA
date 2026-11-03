@@ -5,9 +5,8 @@
 // Monitor) and `ScenarioPage` (the guided page: select, configure, parameters, review, run, inspect).
 import React, { useEffect, useRef, useState } from 'react';
 import { Play, Pause, StopCircle, RotateCcw, StepForward, Clock, FlaskConical, Activity, Workflow, Box, ListChecks, Gauge } from 'lucide-react';
-import { Card, Empty, ErrorBox, ProvBadge, fmt, canControl, PageHead, StepTracker, SourceTag, ChartPanel, Tabs, TabPanel, LinkButton, Pill, Disclosure } from '../shared/components.jsx';
-import { TrendLines } from '../shared/lazyCharts.jsx';
-import { lifecycle, scenarioText, hasSimOf, title } from './pipeline.js';
+import { Card, Empty, ErrorBox, ProvBadge, fmt, canControl, PageHead, StepTracker, SourceTag, LinkButton, Pill, Disclosure, MetricList } from '../shared/components.jsx';
+import { lifecycle, scenarioText, hasSimOf, title, pipelineStages, STAGE_TONE, STAGE_WORD } from './pipeline.js';
 
 // The faults the backend accepts (schemas.Hypothesis; POST /simulation/start rejects anything else).
 export const FAULTS = ['imbalance', 'looseness', 'overload', 'cooling_failure', 'supply_voltage', 'sensor_fault'];
@@ -239,43 +238,32 @@ export function ScenarioStudio({ d, role, actions, running, setRunning, busy, er
 
 // ------------------------------------------------------------------------------------------------ Scenario Studio page (guided workflow)
 
-// Telemetry preview signals: one unit per chart, from the simulator's own telemetry samples.
-const SIGNALS = [
-  { key: 'speed', label: 'Speed', unit: 'rpm', digits: 0, lines: [['rpm', 'Speed (rpm)', 'var(--tq-sig-rpm)'], ['setpoint', 'Setpoint (rpm)', 'var(--tq-chart-ink)', '4 3']] },
-  { key: 'temp', label: 'Temperature', unit: '°C', digits: 1, lines: [['housing', 'Housing (°C)', 'var(--tq-sig-temp)']] },
-  { key: 'current', label: 'Current', unit: 'A', digits: 2, lines: [['current', 'Current (A)', 'var(--tq-sig-current)']] },
-  { key: 'vib', label: 'Vibration', unit: 'g', digits: 3, lines: [['vib_rms', 'Vibration RMS (g)', 'var(--tq-sig-vib)']] },
-];
-const PREVIEW_N = 120;
 const cap = (x) => (x ? x[0].toUpperCase() + x.slice(1) : x);
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+// The run's result in the order an analyst asks about it, each line the pipeline's own stage summary (pipelineStages); trends live in Live Monitor.
+const RESULT_ROWS = [['c1', 'Detected anomaly'], ['hyp', 'Likely cause'], ['c2', 'Predicted outcome'], ['c3', 'Recommended action'], ['c5', 'After the action']];
 
-/** Simulated telemetry preview: the last simulated seconds of the run, one signal at a time, with the scenario's injection time marked. */
-function TelemetryPreview({ d }) {
-  const [sig, setSig] = useState('speed');
-  const S = SIGNALS.find((x) => x.key === sig);
-  const samples = (d.telemetry?.samples || []).slice(-PREVIEW_N);
-  const data = samples.map((x) => ({ t: x.t, ...Object.fromEntries(S.lines.map(([k]) => [k, finite(x[k]) ? x[k] : null])) }));
-  const lead = S.lines[0][0];
-  const lastVal = [...data].reverse().find((x) => finite(x[lead]))?.[lead];
-  const sc = d.status?.scenario || {};
-  // The injection time is the scenario's own setting (ground truth of the simulation); drawn on the nearest sample inside the window.
-  const inj = sc.fault && finite(sc.inject_after_s) && data.length > 1 && sc.inject_after_s >= data[0].t && sc.inject_after_s <= data[data.length - 1].t
-    ? data.reduce((b, x) => (Math.abs(x.t - sc.inject_after_s) < Math.abs(b.t - sc.inject_after_s) ? x : b), data[0]) : null;
-  const marks = inj ? [{ t: sc.inject_after_s, at: inj.t, n: 1, label: 'fault injected (scenario)' }] : [];
+/** What happened in this run: latest simulated readings, then detection → cause → prediction → recommendation → outcome. */
+function RunResults({ d, stale, go }) {
+  const s = d.status || {}; const w = s.last_window;
+  const ok = hasSimOf(s) && w && w.valid !== false && !stale;
+  const v = (x, dg) => (ok && finite(x) ? fmt(x, dg) : null);
+  const { stages } = pipelineStages(d);
+  const by = Object.fromEntries(stages.map((x) => [x.key, x]));
   return (
-    <ChartPanel title="Simulated telemetry (preview)" id="scn-tele-h" testid="scn-telemetry" value={data.length ? (finite(lastVal) ? fmt(lastVal, S.digits) : null) : undefined}
-      unit={S.unit} prov="SIMULATED" status="UNAVAILABLE"
-      foot={data.length > 1 ? `Last ${data.length} simulated seconds, simulation time on the x axis. SIMULATED data from the backend's simulator.` : null}>
-      <Tabs tabs={SIGNALS.map(({ key, label }) => ({ key, label }))} value={sig} onChange={setSig} label="Signal" idBase="scn-sig" />
-      <TabPanel tab={sig} idBase="scn-sig">
-        {data.length < 2 ? <Empty>No simulated telemetry yet. Start a scenario, then press Run or Step to advance simulation time.</Empty> : (
-          <div role="img" aria-label={`${S.label} over simulation time`} className="tq-chart">
-            <TrendLines data={data} lines={S.lines.map(([key, name, color, dash]) => ({ key, name, color, dash }))} height={220} digits={S.digits} unit={S.unit} marks={marks} />
-          </div>)}
-        {marks.length > 0 && <p className="tq-chart-note" data-testid="scn-marks">1 = fault injected at t = {sc.inject_after_s} s (the scenario&apos;s setting, shown because this is a simulation; not a detection).</p>}
-      </TabPanel>
-    </ChartPanel>
+    <Card title="Run results" id="scn-res-h" icon={ListChecks} testid="scn-results" right={<ProvBadge kind="SIMULATED" />}
+      foot={go ? <LinkButton onClick={() => go('live')} testid="scn-go-live">Trends in Live Monitor</LinkButton> : null}>
+      <MetricList label="Latest simulated readings" testid="scn-readings" items={[
+        { key: 'rpm', label: 'Speed', value: v(w?.rpm, 0), unit: 'rpm' },
+        { key: 'cur', label: 'Current', value: v(w?.current, 2), unit: 'A' },
+        { key: 'hous', label: 'Housing temperature', value: v(w?.housing, 1), unit: '°C' },
+        { key: 'vib', label: 'Vibration RMS', value: v(w?.vib_rms, 3), unit: 'g' },
+      ].map((m) => ({ ...m, prov: 'SIMULATED', missingText: 'UNAVAILABLE' }))} />
+      <dl className="tq-scn-review tq-mt" data-testid="scn-outcome">
+        {RESULT_ROWS.map(([k, label]) => by[k] && (
+          <div key={k}><dt>{label}</dt><dd><Pill tone={STAGE_TONE[by[k].state]}>{STAGE_WORD[by[k].state]}</Pill> {by[k].summary}</dd></div>))}
+      </dl>
+    </Card>
   );
 }
 
@@ -296,7 +284,6 @@ function RunDescription({ d, go }) {
       </ul>
       {go && (
         <div className="tq-scn-links">
-          <LinkButton onClick={() => go('live')} testid="scn-go-live">Watch it in Live Monitor</LinkButton>
           <LinkButton onClick={() => go('workflow')} testid="scn-go-workflow">Follow it in the Diagnostic Workflow</LinkButton>
           <LinkButton onClick={() => go('twin')} testid="scn-go-twin">See it on the Digital Twin</LinkButton>
         </div>)}
@@ -331,9 +318,9 @@ export function ScenarioPage({ d, role, actions, running, setRunning, busy, erro
     : f.healthy ? 'A healthy run at the chosen setpoint with no injected fault.' : `${title(f.form.fault)}: ${FAULT_INFO[f.form.fault]}`;
   return (
     <div className="tq-scn-page" data-testid="scenario-page">
-      <PageHead title="Scenario Studio" sub="Configure, run and review simulated fault scenarios. Nothing here reaches hardware."
+      <PageHead title="Scenario Studio" sub="Configure, run and review simulated fault scenarios."
         right={<SourceTag kind="SIMULATED" />} />
-      <p className="tq-scn-simnote" role="note"><FlaskConical size={15} aria-hidden="true" /><span><strong>SIMULATED.</strong> Every control on this page uses the backend&apos;s simulator routes (start, step, stop) and every value comes from the software simulator. No physical motor is connected or commanded.</span></p>
+      <p className="tq-scn-simnote" role="note"><FlaskConical size={15} aria-hidden="true" /><span><strong>SIMULATED.</strong> Every control and value here belongs to the software simulator. No physical motor is connected or commanded.</span></p>
       <StepTracker steps={steps} label="Scenario workflow" onSelect={jump} testid="scn-steps" />
       <div className="tq-scn-layout">
         <Card title="Scenario configuration" id="scn-cfg-h" icon={ListChecks} className="tq-scn-config" sub={hasSim ? 'Starting a new scenario replaces the current run.' : 'No simulation is running yet.'}>
@@ -381,7 +368,7 @@ export function ScenarioPage({ d, role, actions, running, setRunning, busy, erro
             <SimState d={d} life={life} />
             <RunControls d={d} role={role} actions={actions} running={running} setRunning={setRunning} busy={busy} stale={stale} stepSeconds={stepSeconds} life={life} />
           </Card>
-          <TelemetryPreview d={d} />
+          <RunResults d={d} stale={stale} go={go} />
           <Card title="Scenario description" id="scn-desc-h" icon={Activity}>
             <RunDescription d={d} go={go} />
           </Card>

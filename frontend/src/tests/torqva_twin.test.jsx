@@ -137,9 +137,10 @@ describe('physical twin mapping', () => {
     }
   });
 
-  it('identical AI-layer statuses are listed once', () => {
+  it('identical AI-layer statuses are listed once, by product name (no C1–C6)', () => {
     const labels = physTwin(CONNECTED).findings.map((f) => f.label);
-    expect(labels.filter((l) => l.includes('NOT AVAILABLE'))).toEqual(['C1, C2: NOT AVAILABLE']);
+    expect(labels.filter((l) => l.includes('NOT AVAILABLE'))).toEqual(['Anomaly Detection, Failure Prediction: NOT AVAILABLE']);
+    for (const l of [...labels, ...physTwin(DISCONNECTED).findings.map((f) => f.label)]) expect(l).not.toMatch(/\b[Cc][1-6]\b/);
   });
 });
 

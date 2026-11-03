@@ -143,7 +143,7 @@ describe('application shell behaviour (audit)', () => {
   });
 
   it('no page shows an internal layer identifier (C1–C6) in text, labels or tooltips', async () => {
-    const ID = /C[1-6]/;
+    const ID = /\b[Cc][1-6]\b/;   // either case: evaluation files key detectors as c1
     for (const mode of ['SIMULATION', 'PHYSICAL']) {
       window.localStorage.setItem('torqva.mode', mode);
       server(); setToken('t');

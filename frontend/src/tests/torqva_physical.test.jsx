@@ -327,7 +327,7 @@ describe('physical-device-first application', () => {
       expect(speedStatus).toHaveTextContent('SPEED UNAVAILABLE');
       expect(speedStatus).toHaveTextContent('UNAVAILABLE');
       expect(speedStatus).not.toHaveTextContent('CRITICAL');
-      expect(speedStatus).not.toHaveTextContent(/0rpm|0 rpm/);
+      expect(speedStatus).not.toHaveTextContent(/\b0rpm|\b0 rpm/);
     });
   });
 });

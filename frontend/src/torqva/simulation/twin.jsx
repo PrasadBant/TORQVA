@@ -149,5 +149,5 @@ export function SimTwinPage({ d, running, stale, go }) {
   const model = simTwin(d, { running, stale });
   const samples = d?.telemetry?.samples || [];
   return <DigitalTwin model={model} go={go} renderTrend={(part, reading) => <SimTrend samples={samples} reading={reading} />}
-    aside={<p className="tq-muted tq-tw-aside">This page only reads. Scenarios, fault injection and stepping are in <button type="button" className="tq-linkbtn" onClick={() => go('scenario')}>Scenario Studio</button>; recorded sessions and experiments are in the <button type="button" className="tq-linkbtn" onClick={() => go('lab')}>Lab</button>.</p>} />;
+    aside={<p className="tq-muted tq-tw-aside">Read-only. Runs are controlled in <button type="button" className="tq-linkbtn" onClick={() => go('scenario')}>Scenario Studio</button>.</p>} />;
 }

@@ -309,7 +309,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const mode = physicalMode ? 'PHYSICAL' : (d.status?.mode || 'SIMULATION');
   const ctx = { d, role: user.role, user, actions, running, setRunning, busy, error, stale, go, wb, setWb, ctl: canStart(user.role), device, physicalMode, isPhys, deviceCard: <DeviceCard stream={device} go={go} />, deviceLive: <DeviceLive stream={device} /> };
   // Evaluation is the same page in both modes (it only ever shows simulator evidence); physical mode adds a note saying so.
-  const evaluationPage = (note) => (<><PageHead title="Performance Evaluation" sub="How well detection, prediction and recovery verification performed in the committed simulation evaluation, against simple baselines." />{note}
+  const evaluationPage = (note) => (<><PageHead title="Performance Evaluation" sub="How detection, prediction and recovery verification performed against simple baselines." />{note}
     <Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} /></>);
   // Device & Safety: connection and readiness, the physical interlocks and commissioning record (physical mode only), and the device
   // inventory, session and audit log. One page with sections, so device information is not repeated across pages.
@@ -328,8 +328,8 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     workflow: <Suspense fallback={pageFallback}><WorkflowPage mode="SIMULATION" d={d} role={user.role} stale={stale} go={go} /></Suspense>,
     recovery: <RecoveryPage {...ctx} />, learning: <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>,
     evaluation: evaluationPage(null),
-    device: deviceSafety(<DevicePage stream={device} role={user.role} go={go} simMode embedded />, null, <DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} embedded />),
-    lab: (<><PageHead title="Lab" sub="Reproducible recording sessions, fault-injection records and matched experiments on the software simulator." /><Lab role={user.role} isPhys={physicalMode} /></>),
+    device: deviceSafety(<DevicePage stream={device} role={user.role} go={go} simMode embedded />, null, <DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />),
+    lab: (<><PageHead title="Lab" sub="Recording sessions and matched experiments." /><Lab role={user.role} isPhys={physicalMode} /></>),
     scenario: <ScenarioPage {...ctx} stepSeconds={stepSeconds} />,
   };
   // Simulation-only tools in physical mode: say so, and offer the explicit mode switch (changing mode never commands a motor).
@@ -363,7 +363,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     learning: phys('C6', <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>),
     evaluation: evaluationPage(<AlertPanel tone="info" icon={FlaskConical} title="SIMULATION EVIDENCE" testid="eval-sim-note">These are results from the software simulator. They say nothing about this physical device and are not hardware validation.</AlertPanel>),
     device: deviceSafety(<DevicePage stream={device} role={user.role} go={go} embedded />, <PhysicalSafetyPage stream={device} role={user.role} go={go} embedded />,
-      <DevicesPage {...ctx} isPhys rows={audit.rows} auditError={audit.error} embedded />),
+      <DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />),
     lab: simOnly('Lab', 'lab-sim-note'),
     scenario: simOnly('Scenario Studio', 'scenario-sim-note'),
   };

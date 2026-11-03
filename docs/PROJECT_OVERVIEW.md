@@ -1,7 +1,7 @@
 # TORQVA — Project Overview (context brief)
 
 > Written so the whole project can be understood from this one file, for example by pasting it into an AI assistant before discussing or planning work.
-> State as of 2 Nov 2026, branch `torqva/phase-0-audit` (item 17 of section 9 committed on top of `42a4ce6`) (GitHub `PrasadBant/TORQVA`; not merged to `main`; the last commits are not pushed). Facts below come from the code and tests in the repository.
+> State as of 3 Nov 2026, branch `torqva/phase-0-audit` at `09ee47e` (item 17 of section 9), pushed to GitHub `PrasadBant/TORQVA`; not merged to `main`. Facts below come from the code and tests in the repository.
 
 ---
 
@@ -106,15 +106,15 @@ frontend/
   scripts/dev.mjs              starts backend + website together; says which half stopped and why, and ends the whole process tree
   src/torqva/TorqvaApp.jsx     app shell: sign-in, mode switch, navigation, polling
   src/torqva/api.js            REST client (reads time out after 20 s; commands never do)
-  src/torqva/torqva.css        design system (tokens, light/dark)
-  src/torqva/shared/           UI primitives, the shared Disclosure (progressive disclosure) and the text helpers title / pct / fmtRpm / canControl (components.jsx), diagnostic vocabulary (diagnostics.js), charts (charts.jsx via lazyCharts.jsx), Digital Twin workspace (twin.jsx), component metadata (twinParts.js), 3D viewport (twin3d/: assembly, engine, quality governor, viewport, overlay layout) and the 2D fallback drawing (twinModel.jsx)
+  src/torqva/torqva.css, styles/   design system (tokens, light/dark), split into system, monitoring, analysis, assurance and twin-sim sheets
+  src/torqva/shared/           plain.js (rewrites internal layer ids in backend prose), alerts.jsx, the motor-condition badge and banner (components.jsx), UI primitives, the shared Disclosure (progressive disclosure) and the text helpers title / pct / fmtRpm / canControl (components.jsx), diagnostic vocabulary (diagnostics.js), charts (charts.jsx via lazyCharts.jsx), Digital Twin workspace (twin.jsx), component metadata (twinParts.js), 3D viewport (twin3d/: assembly, engine, quality governor, viewport, overlay layout) and the 2D fallback drawing (twinModel.jsx)
   src/torqva/physical/         pages fed by the USB device stream: physical.jsx (dashboard), device.jsx (connection, motor control, commissioning), twin.jsx (Digital Twin data, read-only)
   src/torqva/simulation/       pages fed by the simulator API: overview.jsx (Simulation Overview), scenario.jsx (Scenario Studio), pipeline.js, events.jsx, story.jsx,
                                analyst workspaces diagnose.jsx (C1), tests.jsx (C4), predict.jsx (C2), intervene.jsx (C3) and workbench.js (their plan loader),
                                pages.jsx (pipeline records and C5/C6 pages), c2c4.jsx, evaluation.jsx, lab.jsx, attestation.jsx, twin.jsx (Digital Twin data),
                                adaptive.jsx, counterfactual.jsx, receipts.jsx, trace.jsx (investigation tools)
   src/torqva/workflow/         workflow.jsx: the Diagnostic Workflow page, one component for both modes
-  src/tests/                   Vitest suites (227 tests in 16 files), incl. a layout guard; fixtures/ holds responses recorded from the real backend
+  src/tests/                   Vitest suites (233 tests in 20 files), incl. a layout guard and a no-C1–C6 guard over every page; fixtures/ holds responses recorded from the real backend
   e2e/                         browser E2E scripts (app, twin, workflow, workbench, lab, c2c4, attestation, and the original torqva.e2e.mjs); not part of npm test
 esp32/torqva_fw/               supported firmware (platformio.ini, src/main.cpp, lib/torqva_core, tests)
 docs/
@@ -140,7 +140,7 @@ npm run dev         # with hardware: connects when exactly one board is plugged 
 # website: http://localhost:5173 (signs in automatically in development as local-dev / admin)
 # backend: http://127.0.0.1:8000/api/torqva   (API docs: http://127.0.0.1:8000/docs)
 
-npx vitest run      # frontend tests (230)
+npx vitest run      # frontend tests (233)
 npm run build       # production build (initial JavaScript ≈ 368 kB; the 3D twin chunk, ≈ 648 kB, the analyst workspaces and the workflow page, ≈ 34 kB, load only when opened)
 node e2e/torqva-app.e2e.mjs        # browser E2E against `npm run dev:sim` (86 checks, incl. no C1–C6 on any page)
 node e2e/torqva-workflow.e2e.mjs   # one-click Diagnostic Workflow: pattern → diagnosis → speed recommendation → authorize → recovery verified; physical blocked (30 checks)
@@ -193,9 +193,9 @@ Every page leads with its main result or decision; advanced detail (traces, raw 
 
 ---
 
-## 9. What was done recently (Oct 2026)
+## 9. What was done recently (Oct–Nov 2026)
 
-Items 1–13 are committed and pushed to `torqva/phase-0-audit`; item 14 is in the working tree only (not committed).
+Items 1–17 are committed and pushed to `torqva/phase-0-audit` (latest `09ee47e`, pushed 2 Nov).
 
 1. **UI/UX redesign** (`7459daf`): new design system with refined light and dark themes, new shell/navigation (collapsible, mobile drawer), dashboards, charts, sign-in page.
 2. **Engineering pass** (`0473df3`): removed fabricated behaviour introduced by earlier commits:
@@ -228,7 +228,13 @@ Items 1–13 are committed and pushed to `torqva/phase-0-audit`; item 14 is in t
 
 17. **Analyst-first navigation, wording and content** (2 Nov): sidebar regrouped as in section 7 with product names; Device, Safety & Commissioning and Devices & Settings merged into Device & Safety (tabs Device; Connection & Readiness; Safety & Commissioning, physical mode only; the old `control` / `devices` ids open the matching tab); no C1–C6 in any label, heading or backend message (`shared/plain.js`, a unit guard over every page in both modes, the `torqva-app` E2E per page, and `frontend/scripts/check-layer-ids.mjs` against live backend responses); terms renamed (Investigation History, Evidence Quality, What-if Analysis, Decision Summary, Guided Investigation, Anomaly Severity, Analysis progress). One motor-condition vocabulary (Normal, Investigation Required, Action Verification, Critical, Unavailable): a banner with one next step on both Overviews and a compact badge in every other page head; the page head no longer repeats the sidebar group, and the top bar no longer shows the simulated-device pill. Simulation Overview leads with the condition, then key readings, predicted risk, analysis progress, the active incident and recent activity (its embedded Scenario Studio and sparkline tiles removed). Physical Overview gained the same banner (Unavailable unless the board latched a trip, which is Critical) and keeps its controls. Live Monitor shows the event timeline instead of a second set of run controls: Scenario Studio is the one place to configure, run, step and stop the simulator. The investigation bar runs Monitor → Investigate → Test → Understand → Act → Verify. About 90 page and card subtitles, notes and paragraphs were shortened or removed (algorithm explanations, restated headings, HTTP and implementation detail); notes that prevent a misreading (simulation is not hardware evidence, a prediction is not a measurement, an acknowledgement is not recovery) and every safety, interlock and commissioning text were kept. No backend, safety or API change. Frontend 230/230, build passes; browser E2E all eight suites pass (304 checks, see section 6), after updating their selectors to the current pages (several had been stale since `42a4ce6`).
 
-Test status (19 Oct, after item 15): frontend 209/209; build passes (initial JavaScript ≈ 368 kB; the workflow page is a chunk loaded on demand); browser E2E all seven suites pass: workflow 30/30, workbench 47/47, app 66/66, twin 44/44 against the software-only backend (re-run after the last change), and lab 12/12 (second attempt; Vite crashed in the first), c2c4 23/23 (noise-aware C2), attestation 32/32 (fresh backend) against a token backend (operator / viewer / admin, no device access) with Vite on 127.0.0.1:5173; the original torqva.e2e.mjs was 30/30 after item 13 and not re-run for item 14; no horizontal overflow at 1440 px (light) and 390 px (dark, every disclosure open) on the item-14 pages in both modes; backend 702 passed / 5 failed / 1 skipped (the same 5 firmware source checks; 22 of the passes are the workflow tests, 1 the force-unlock regression test); firmware host tests 105 passed / 25 failed (see section 10, item 2); store integrity check on an API-populated store: clean. Identical to the baseline taken before the cleanup.
+18. **Content audit and simplification** (3 Nov, working tree, not committed): page-by-page audit of all 14 pages in both modes, recorded in `docs/TORQVA_UI_CONTENT_AUDIT.md`. Scenario Studio's telemetry chart (a copy of Live Monitor) replaced by a *Run results* card (readings, then detected anomaly → likely cause → predicted outcome → recommended action → after the action, from the pipeline's own stage records); Live Monitor's raw windows table moved into a disclosure; Anomaly Detection lost its duplicated Top hypotheses card, the gate-verdict line and the algorithm walkthrough (Explainability tab is now Details); Diagnostic Investigation's Guided investigation is a disclosure; Performance Evaluation names its detectors (it showed `c1`, `global`, `legacy`) and drops "Phase 10/11/12", with run hashes behind *Run details and history*; Device tab dropped Application information and shows audit details as text, not JSON; shorter subtitles and notes on Digital Twin, Diagnostic Workflow, Failure Prediction, Recovery, Continuous Intelligence and Lab. Dead code removed: `SimControls`, `TelemetryPreview`, `DevicesPage`'s unused standalone tabs. Defects fixed: the committed unit C1–C6 guard and one physical "0 rpm" check contained literal backspace bytes instead of `\b` and could never fail (both fixed, guard now also catches lowercase); the physical Digital Twin listed "C1, C2, C4, C5: …" (now product names). No backend, firmware, safety or API change.
+
+Test status (3 Nov, after item 18): frontend 233/233 in 20 files; build passes; browser E2E all eight suites pass (304 checks: app 86, twin 44, workbench 47, workflow 30, torqva 30, lab 12, c2c4 23, attestation 32); `check-layer-ids` passes; a 270-view sweep (every page and tab, both modes, light and dark, 390/768/1440 px) found no horizontal overflow and no C1–C6. Backend and firmware not re-run (unchanged).
+
+Test status (3 Nov, after item 17): frontend 230/230 in 20 files; build passes; browser E2E 304 checks across all eight suites (2 Nov); `check-layer-ids` passes; `npm run dev:sim` starts cleanly (website on 5173, API on 8000). Backend and firmware were not re-run for item 17 (no backend or firmware change).
+
+Earlier test status (19 Oct, after item 15): frontend 209/209; build passes (initial JavaScript ≈ 368 kB; the workflow page is a chunk loaded on demand); browser E2E all seven suites pass: workflow 30/30, workbench 47/47, app 66/66, twin 44/44 against the software-only backend (re-run after the last change), and lab 12/12 (second attempt; Vite crashed in the first), c2c4 23/23 (noise-aware C2), attestation 32/32 (fresh backend) against a token backend (operator / viewer / admin, no device access) with Vite on 127.0.0.1:5173; the original torqva.e2e.mjs was 30/30 after item 13 and not re-run for item 14; no horizontal overflow at 1440 px (light) and 390 px (dark, every disclosure open) on the item-14 pages in both modes; backend 702 passed / 5 failed / 1 skipped (the same 5 firmware source checks; 22 of the passes are the workflow tests, 1 the force-unlock regression test); firmware host tests 105 passed / 25 failed (see section 10, item 2); store integrity check on an API-populated store: clean. Identical to the baseline taken before the cleanup.
 
 ---
 
@@ -243,7 +249,7 @@ Test status (19 Oct, after item 15): frontend 209/209; build passes (initial Jav
 7. Legacy data kept on purpose: `backend/data/motor_monitor.db` (untracked, ignored) is the retired prototype's SQLite file: 696 telemetry rows (including `live` hardware readings), 465 alerts and 58 baselines, integrity OK, no exact duplicates. No current code opens it; deleting or archiving it needs an explicit decision because it holds historical measurements. (The empty `assets/` placeholder was removed, `torqva.e2e.mjs` was repaired, and the package is now `torqva-frontend`.)
 8. The website has no URL routing: pages are switched in app state, so a page cannot be bookmarked or reloaded in place.
 9. The simulator's in-memory history (`orch.buf`, `orch.scores`, `orch.log`) grows by one entry per simulated second without a limit. It is not capped yet because other records point into it by position (a running test's start index, the trace's and Decision Receipts' log entry numbers); a cap needs those references re-based first.
-10. The branch `torqva/phase-0-audit` is pushed but not merged into `main` (no pull request yet).
+10. The branch `torqva/phase-0-audit` is pushed (up to `09ee47e`) but not merged into `main` (no pull request yet).
 11. The 3D twin is illustrative: no CAD model or measurement of the real rig exists, so sensor positions, the disc size, wiring routes and the motor internals are typical, not this unit's. The rotation direction depends on unverified motor polarity. The twin shows no C2 prediction overlay because predictions are system-level, not tied to a component. Performance was measured in headless Chrome only; real-display frame rate and GPU time are unmeasured, and the first selection of a mechanical part still costs one ~12 ms frame.
 12. The analyst workflow's limits: C2 interval widths are calibrated per action, not per target speed; the outcome signatures and the predictor are learned in simulation; a test sequence runs on a copy, so a fault the scenario schedules for later is not applied in it (the result says so); an analyst can only execute when the scenario requires human approval and the pipeline holds an action. Physical diagnostics stay locked (no vibration RMS or harmonics from the firmware, no torque sensor).
 13. The Diagnostic Workflow's limits: its test runs on a copy of the live simulated motor, so the live decision gate (evaluated on the live run's ranking) can disagree with the test-informed recommendation, and execution is then blocked with that reason; a run on the copy takes about 0.03 s, so the page shows real stage timestamps rather than progress inside a test; workflow records are held in memory for the backend process; C2 risk is often 0.00 for every reduction target in the test scenarios, so targets A, B and C usually differ only in their predicted values and the pipeline's own 70 % target is kept.
@@ -251,13 +257,16 @@ Test status (19 Oct, after item 15): frontend 209/209; build passes (initial Jav
 15. **Resolved (19 Oct):** Physical Overview's START / speed / STOP controls now have their own tests (two-step START, exact rejection reasons, a single SET_SPEED, STOP-only for operators and viewers).
 16. `torqva_twin3d_engine.test.js` is timing-sensitive: it failed twice in full runs while the machine was busy and passes alone and in every other full run.
 17. Claude Code may stop a long-running `npm run dev:sim` when the machine is low on memory; restart it with `npm run dev:sim` from `frontend/` when needed.
-18. If the process that started `npm run dev:sim` is killed from outside (for example a terminal or tool that ends only the npm wrapper), the launcher and its two servers keep running and hold ports 8000/5173; stop them before starting another. Separately, the Vite dev server crashes natively (Windows exit code 0xC0000409 / 3221226505) during browser E2E runs, repeatedly on 19 Oct (running the backend and Vite as separate processes let the suites finish); the launcher now reports it, the trigger is not identified (rapid screenshot writes into the watched folder did not reproduce it).
+18. If the process that started `npm run dev:sim` is killed from outside (for example a terminal or tool that ends only the npm wrapper), the launcher and its two servers keep running and hold ports 8000/5173; stop them before starting another. Separately, the Vite dev server crashes natively (Windows exit code 0xC0000409 / 3221226505) during browser E2E runs, repeatedly on 19 Oct (running the backend and Vite as separate processes let the suites finish); the launcher now reports it, the trigger is not identified (rapid screenshot writes into the watched folder did not reproduce it). It happened again four times on 2 Nov under Node 24.15.0; trying Node 22 LTS is a suggested, untested fix.
+19. Most pages' tables and charts were restyled and, in item 18, checked for duplicates and precision, but not redesigned.
+20. `backend/torqva/serial_bridge.py` lines 421–427: the Windows serial-error patterns (`winerror 5`, `2`, `31`, `121`) end in a literal backspace byte instead of `\b`, so those regexes never match; the plain-text checks next to them still classify most errors. Wording of connection errors only, no interlock effect; needs a backend fix and test.
 
 ## 11. Likely next steps
 
 - Decide on item 2 (restore the firmware protections so the 25 firmware and 5 backend safety tests pass).
 - Open a pull request from `torqva/phase-0-audit` into `main`.
-- Continue the redesign on Digital Twin, Learning, Evaluation, Device and Devices & Settings.
+- Continue the redesign on Digital Twin, Learning, Evaluation and Device & Safety, and the tables and charts of the remaining pages.
+- Decide whether to drop the `feature-removal (2 Nov)` stash (item 17 replaced it).
 - Decide what happens to `backend/data/motor_monitor.db` (keep, archive or delete; it holds historical live readings).
 - Hardware bring-up following `docs/TORQVA_HARDWARE_BRINGUP_CHECKLIST.md`: confirm wiring, install and verify the E-stop, commission limits, authenticated session.
 - Physical data path for AI: compute vibration RMS / harmonics in firmware, record labelled physical sessions, fit and evaluate C1 on real data, then C2/C4 matched-condition experiments.

@@ -215,7 +215,7 @@ export function WorkflowPage({ mode = 'SIMULATION', d, role, stale, go }) {
         <section className="tq-card tq-an-flow" id="wf-flow" aria-labelledby="wf-flow-h" data-testid="wf-flow">
           <header>
             <div className="tq-card-title"><div><h3 id="wf-flow-h">{wf ? `Workflow ${wf.id}` : 'Workflow progress'}</h3>
-              <p className="tq-card-sub">{wf ? `${wf.pattern?.name || 'Test'} · ${title(wf.execution_policy)} · requested by ${wf.requested_by} (${wf.role})` : 'Steps fill in from the backend record once a workflow runs. Select a step to jump to it.'}</p></div></div>
+              <p className="tq-card-sub">{wf ? `${wf.pattern?.name || 'Test'} · ${title(wf.execution_policy)} · requested by ${wf.requested_by} (${wf.role})` : 'No workflow has run yet.'}</p></div></div>
             {wf && <span className="tq-row"><Pill tone={STATUS_TONE[wf.status] || 'info'}>{title(wf.status)}</Pill></span>}
           </header>
           <StepTracker steps={steps} label="Diagnostic workflow steps" onSelect={(k) => reveal(secOf[k], k === 'decision' ? 'wf-sec-rec' : 'wf-sec-report')} testid="wf-tracker" />
@@ -276,7 +276,7 @@ function Configuration({ physical, ctx, patterns, chosen, setSel, policy, setPol
   const why = [!ctl && `Running a workflow requires the operator or admin role (you are ${role || 'signed in without a role'}).`, stale && 'The backend is not answering, so the motor state is not current.'].filter(Boolean);
   return (
     <Card title={hasRecord ? 'Start another workflow' : 'Motor status and test selection'} id="wf-config" icon={FlaskConical}
-      sub={hasRecord ? 'Steps 1–2 for a new run. The record above stays until the new run answers.' : 'Steps 1–2: confirm the motor can be tested, then choose what to investigate.'}
+      sub={hasRecord ? 'Steps 1–2 for a new run. The record above stays until the new run answers.' : 'Confirm the motor can be tested, then choose a test pattern.'}
       right={<button type="button" className="tq-btn" onClick={onRefresh} aria-label="Refresh prerequisites"><RefreshCw size={14} aria-hidden="true" /></button>}>
       <AgainFold folded={hasRecord}>
       {error &&<p className="tq-callout crit" role="alert">Patterns unavailable: {error}</p>}

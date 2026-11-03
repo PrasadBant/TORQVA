@@ -54,7 +54,7 @@ export function AdaptivePanel({ plan, role, stale, d, onDone }) {
               <Compass size={14} aria-hidden="true" /> {busy ? 'Investigating on the simulator copy…' : 'Run guided investigation'}</button>
             {!ctl && <span className="tq-muted tq-small">Requires role operator or admin.</span>}
           </div>
-          <p className="tq-muted tq-small">Each step picks the eligible test with the largest expected information gain, runs it on a copy of the simulated motor, updates the ranking and decides again. It stops when the gate's confidence rule is met, nothing worth running remains (less than {fmt(s.min_info_gain_nats, 2)} nats), an input fails, an outcome is unlike any learned signature, or the budget is used.</p>
+          <p className="tq-muted tq-small">Stops when the evidence is sufficient, no test is worth running (gain below {fmt(s.min_info_gain_nats, 2)} nats), an input fails, an outcome is unlike any learned signature, or the budget is used.</p>
         </>)}
       <ErrorBox error={err} />
       {run && <AdaptiveResult run={run} />}

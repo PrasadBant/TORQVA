@@ -16,6 +16,7 @@ Start with the repository [`README.md`](../README.md) for running, testing and t
 | [`TORQVA_ARCHITECTURE.md`](TORQVA_ARCHITECTURE.md) | Architecture: firmware, backend layers C1–C6, API, UI |
 | [`software.md`](software.md) | Software overview and firmware build guide |
 | [`TORQVA_EVAL_SIM.md`](TORQVA_EVAL_SIM.md) | Simulation evaluation method and results (simulation only, not hardware evidence) |
+| [`TORQVA_UI_CONTENT_AUDIT.md`](TORQVA_UI_CONTENT_AUDIT.md) | Page-by-page UI content audit: what was removed, consolidated and kept, and why |
 | [`eval/`](eval) | Committed evaluation artifacts. **Read at runtime** by `backend/torqva/api.py` and written by the `*_study.py` modules, so the folder must stay at `docs/eval/` |
 
 ## Hardware

@@ -6,6 +6,7 @@ import { api } from '../api.js';
 import { DigitalTwin } from '../shared/twin.jsx';
 import { HistoryChart } from '../shared/lazyCharts.jsx';
 import { Empty, ErrorBox, fmt, title } from '../shared/components.jsx';
+import { plainText } from '../shared/plain.js';
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 const ago = (unix) => (unix ? `${fmt(Math.max(0, Date.now() / 1000 - unix), 1)} s ago` : 'never');
@@ -92,14 +93,14 @@ export function physTwin(snap, { unreachable = false } = {}) {
     : { tone: snap.safety_state === 'OK' ? 'ok' : 'warn', label: `DRIVE ${title(snap.drive) || 'UNKNOWN'}`, detail: `Drive state as reported by the firmware (not measured motion); safety state ${title(snap.safety_state) || 'unknown'}` };
 
   const layers = snap.analysis?.layers || {};
-  // AI layers that report the same status and reason are listed once ("C1, C2, C4, C5: WAITING ...").
+  // AI layers that report the same status and reason are listed once, by product name ("Anomaly Detection, Failure Prediction, …: Waiting …").
   const groups = [];
   Object.entries(layers).filter(([k]) => ['C1', 'C2', 'C4', 'C5'].includes(k)).forEach(([k, l]) => {
     const g = groups.find((x) => x.status === l.status && x.reason === l.reason);
     if (g) g.keys.push(k); else groups.push({ keys: [k], status: l.status, reason: l.reason });
   });
   const findings = [
-    ...groups.map((g) => ({ tone: ['ACTIVE', 'AVAILABLE', 'READY', 'VERIFIED'].includes(g.status) ? 'ok' : 'off', label: `${g.keys.join(', ')}: ${title(g.status)}`, detail: g.reason })),
+    ...groups.map((g) => ({ tone: ['ACTIVE', 'AVAILABLE', 'READY', 'VERIFIED'].includes(g.status) ? 'ok' : 'off', label: plainText(`${g.keys.join(', ')}: ${title(g.status)}`), detail: g.reason })),
     { tone: (snap.control_blockers || []).length ? 'stop' : 'info', label: (snap.control_blockers || []).length ? `Motion locked: ${snap.control_blockers[0]}` : 'No motion blocker reported', detail: 'Read-only here; the Safety Supervisor decides.' },
   ];
   if (!handshake) findings.push({ tone: 'info', label: 'Connect a board', detail: 'Connection is managed on Device & Safety.', go: ['device', 'Device & Safety'] });

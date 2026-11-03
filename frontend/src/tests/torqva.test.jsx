@@ -168,6 +168,14 @@ describe('TORQVA workspace', () => {
     expect(screen.getByText('no')).toBeInTheDocument();           // C2 validated: no
   });
 
+  it('evaluation names the detectors and hides run hashes behind Run details', async () => {
+    await signedIn();
+    fireEvent.click(screen.getByRole('button', { name: /^Performance Evaluation/ }));
+    expect(await screen.findByText('TORQVA detector')).toBeInTheDocument();      // the run file's key is c1
+    expect(within(document.getElementById('c-ev-c1').closest('section')).getByText('0.26%')).toBeInTheDocument();   // two decimals, not three
+    expect(screen.getByTestId('eval-runs').open).toBe(false);                   // git commit and config hash are advanced detail
+  });
+
   it('audit log is restricted to admins', async () => {
     await signedIn({ role: 'operator' });
     fireEvent.click(screen.getByRole('button', { name: /^Device & Safety/ }));

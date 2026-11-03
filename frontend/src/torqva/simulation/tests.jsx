@@ -256,7 +256,9 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale, go }) {
             sub={blockers.length ? blockers[0] : 'the backend re-checks every step before it runs'} />
         </StatGrid>
 
-        <AdaptivePanel plan={plan} role={role} stale={stale} d={d} onDone={reload} />
+        <Disclosure summary="Guided investigation" meta="TORQVA picks and runs the most informative test, then decides again" testid="c4-guided">
+          <AdaptivePanel plan={plan} role={role} stale={stale} d={d} onDone={reload} />
+        </Disclosure>
 
         <Tabs label="Diagnostic test views" idBase="c4-tab" value={tab} onChange={setTab}
           tabs={[{ key: 'available', label: 'Available Tests' }, { key: 'results', label: 'Test Results', count: lastRun ? 1 : undefined }, { key: 'history', label: 'Test History' }]} />
@@ -318,7 +320,7 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale, go }) {
         {tab === 'results' && (
           <TabPanel tab="results" idBase="c4-tab">
             {lastRun ? <SequenceResult run={lastRun} onAddTest={(t) => { setSeq([{ type: t }]); setTab('available'); }} />
-              : <Card title="Test results" id="c-run-none"><Empty>No sequence has been run on a simulator copy in this session. Build one under Available Tests; guided investigation results appear in its panel above.</Empty></Card>}
+              : <Card title="Test results" id="c-run-none"><Empty>No sequence has been run on a simulator copy in this session. Build one under Available Tests; guided investigation results appear in its own section above.</Empty></Card>}
           </TabPanel>)}
 
         {tab === 'history' && (

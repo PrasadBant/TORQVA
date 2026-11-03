@@ -9,6 +9,9 @@ const pct = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v) ? 'u
 const get = (o, path) => path.split('.').reduce((a, k) => (a === null || a === undefined ? undefined : a[k]), o);
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 const label = (k) => String(k).replaceAll('_', ' ');
+// Detector keys in the run file are internal ids; show what each one is.
+const DET_LABEL = { c1: 'TORQVA detector', global: 'Single global threshold', legacy: 'Legacy prototype rule' };
+const detName = (k) => DET_LABEL[k] || label(k);
 
 /** Headline metrics of the run, each with what it means. A metric the run does not contain reads "unavailable" (older runs predate some sections). */
 function Headline({ r }) {
@@ -51,12 +54,12 @@ function Comparisons({ r }) {
         {!healthy.length ? <Empty>This run has no Anomaly Detection healthy-window comparison.</Empty> : (
           <div className="tq-table-wrap"><table className="tq-table"><caption className="tq-sr">Anomaly Detection false alarms on healthy windows</caption>
             <thead><tr><th scope="col">Detector</th><th scope="col" className="tq-th-num">False alarms</th><th scope="col" className="tq-th-num">False incidents</th><th scope="col" className="tq-th-num">Windows</th></tr></thead>
-            <tbody>{healthy.map(([k, v]) => (<tr key={k} className={k === 'c1' ? 'tq-as-active-row' : undefined}><th scope="row">{k}{k === 'c1' && <> <Pill tone="info">shipped</Pill></>}</th>
-              <td className="tq-num tq-td-num">{pct(num(v?.window_false_alarm_rate), 3)}</td><td className="tq-num tq-td-num">{v?.confirmed_false_incidents ?? 'unavailable'}</td><td className="tq-num tq-td-num">{v?.windows ?? 'unavailable'}</td></tr>))}</tbody></table></div>)}
+            <tbody>{healthy.map(([k, v]) => (<tr key={k} className={k === 'c1' ? 'tq-as-active-row' : undefined}><th scope="row">{detName(k)}{k === 'c1' && <> <Pill tone="info">in use</Pill></>}</th>
+              <td className="tq-num tq-td-num">{pct(num(v?.window_false_alarm_rate), 2)}</td><td className="tq-num tq-td-num">{v?.confirmed_false_incidents ?? 'unavailable'}</td><td className="tq-num tq-td-num">{v?.windows ?? 'unavailable'}</td></tr>))}</tbody></table></div>)}
         {det.length > 0 && (
           <Disclosure summary="Detection by fault and severity" meta={`${det.length} fault × severity cells`} testid="eval-detection" className="tq-mt">
             <div className="tq-table-wrap"><table className="tq-table"><caption className="tq-sr">Detected fraction and median delay by fault and severity</caption>
-              <thead><tr><th scope="col">Fault @ severity</th>{detNames.map((n) => <th key={n} scope="col" className="tq-th-num">{n}: detected · delay</th>)}</tr></thead>
+              <thead><tr><th scope="col">Fault @ severity</th>{detNames.map((n) => <th key={n} scope="col" className="tq-th-num">{detName(n)}: detected · delay</th>)}</tr></thead>
               <tbody>{det.map(([cell, v]) => (<tr key={cell}><th scope="row">{label(cell)}</th>{detNames.map((n) => (
                 <td key={n} className="tq-num tq-td-num">{pct(num(v?.[n]?.detected_fraction), 0)} · {num(v?.[n]?.median_delay_s) === undefined ? '—' : `${fmt(v[n].median_delay_s, 0)} s`}</td>))}</tr>))}</tbody></table></div>
           </Disclosure>)}
@@ -67,7 +70,7 @@ function Comparisons({ r }) {
           <div className="tq-table-wrap"><table className="tq-table"><caption className="tq-sr">Failure Prediction mean absolute error, model versus persistence baseline</caption>
             <thead><tr><th scope="col">Action / signal</th><th scope="col" className="tq-th-num">Prediction model</th><th scope="col" className="tq-th-num">Persistence</th><th scope="col">Lower error</th></tr></thead>
             <tbody>{mae.map(([k, v]) => { const m = num(v?.model); const p = num(v?.persistence); const tie = m !== undefined && p !== undefined && Math.abs(m - p) <= 1e-9 * Math.max(1, Math.abs(p)); return (
-              <tr key={k}><th scope="row">{label(k).replace('/', ' · ')}</th><td className="tq-num tq-td-num">{m === undefined ? 'unavailable' : fmt(m, 3)}</td><td className="tq-num tq-td-num">{p === undefined ? 'unavailable' : fmt(p, 3)}</td>
+              <tr key={k}><th scope="row">{label(k).replace('/', ' · ')}</th><td className="tq-num tq-td-num">{m === undefined ? 'unavailable' : fmt(m, 2)}</td><td className="tq-num tq-td-num">{p === undefined ? 'unavailable' : fmt(p, 2)}</td>
                 <td>{m === undefined || p === undefined ? '—' : tie ? 'equal' : m < p ? 'model' : 'persistence'}</td></tr>); })}</tbody></table></div>)}
       </Card>
 
@@ -99,25 +102,25 @@ function Limitations({ r }) {
       <ul className="tq-as-bullets">
         <li>Measured hardware data: <strong>{get(r, 'measured.status') ?? 'unavailable'}</strong></li>
         {r.test_protocol && <li>Test protocol: {r.test_protocol}.</li>}
-        <li>This run measured the conformal quantile only. The Phase 10 table (Prediction and diagnostic-test validation) measures the intervals the predictor actually returns, which cover less.</li>
+        <li>This run measured the conformal quantile only. The Prediction and diagnostic-test validation tab measures the intervals the predictor actually returns, which cover less.</li>
       </ul>
     </Card>
   );
 }
 
-const V_LABEL = { shipped: 'shipped predictor', phase10_noise_aware: 'Phase 10 noise-aware', class_conditional: 'class-conditional (Phase 11, opt-in)', 'regime_gated(trend+class, fallback=phase10)': 'regime-gated (opt-in)' };
-const C4_LABEL = { shipped: 'shipped test model', style_aware: 'style-aware (Phase 10)', 'style_aware+guard(Phase10)': 'conflict-guarded (Phase 10)' };
+const V_LABEL = { shipped: 'shipped predictor', phase10_noise_aware: 'noise-aware (opt-in)', class_conditional: 'class-conditional (opt-in)', 'regime_gated(trend+class, fallback=phase10)': 'regime-gated (opt-in)' };
+const C4_LABEL = { shipped: 'shipped test model', style_aware: 'style-aware (opt-in)', 'style_aware+guard(Phase10)': 'conflict-guarded (opt-in)' };
 
 /** Phase 12 fresh-seed confirmation of the frozen Phase 11 decisions. Shows worst subgroups and abstention, not just averages. */
 function Phase12Card({ p }) {
-  if (!p) return <Card title="Phase 12 generalization check (fresh seeds)" id="c-p12" right={<ProvBadge kind="SIMULATED" />}><Empty>The prediction and diagnostic-test study file has no Phase 12 result.</Empty></Card>;
+  if (!p) return <Card title="Generalization check (fresh seeds)" id="c-p12" right={<ProvBadge kind="SIMULATED" />}><Empty>The prediction and diagnostic-test study file has no generalization result.</Empty></Card>;
   const regs = Object.keys(p.c2.shipped?.by_regime || {});
   const c2v = Object.keys(V_LABEL).filter((k) => p.c2[k]);
   const c4n = Object.keys(p.c4);
   return (
-    <Card title="Phase 12 generalization check (fresh seeds)" id="c-p12" icon={Layers} right={<ProvBadge kind="SIMULATED" />}>
+    <Card title="Generalization check (fresh seeds)" id="c-p12" icon={Layers} right={<ProvBadge kind="SIMULATED" />}>
       <p className="tq-warnbox" role="note">{p.WARNING}</p>
-      <MetricList label="Phase 12 summary" items={[
+      <MetricList label="Generalization summary" items={[
         { key: 'adopt', label: 'Test calibration adopted', value: p.c4_adopt ? 'yes' : 'no' },
         { key: 'n2', label: 'prediction cases', value: p.n_c2_cases },
         { key: 'n4', label: 'test sessions', value: p.n_c4_sessions },
@@ -125,7 +128,7 @@ function Phase12Card({ p }) {
       <p className="tq-muted">No variant satisfies the pre-registered bar, including the shipped one on the decision-worse criterion.</p>
       <Disclosure summary="View per-regime results" meta={`${p.n_c2_cases} prediction cases · ${p.n_c4_sessions} test sessions`} testid="eval-p12-tables">
       <h4>Failure Prediction: coverage and abstention by regime ({p.n_c2_cases} cases; 90 % target)</h4>
-      <div className="tq-table-wrap"><table className="tq-table"><caption className="tq-sr">Phase 12 Failure Prediction coverage by regime</caption>
+      <div className="tq-table-wrap"><table className="tq-table"><caption className="tq-sr">Generalization check: Failure Prediction coverage by regime</caption>
         <thead><tr><th scope="col">Regime</th>{c2v.map((k) => <th scope="col" key={k}>{V_LABEL[k]}</th>)}</tr></thead>
         <tbody>{regs.map((rg) => (<tr key={rg}><td>{rg.replaceAll('_', ' ')}</td>{c2v.map((k) => { const e = p.c2[k].by_regime[rg]; return (
           <td key={k} className="tq-num">{pct(e.coverage)} <span className="tq-muted">n={e.n_cases} · abstains {pct(e.abstention, 0)}</span></td>); })}</tr>))}
@@ -133,10 +136,10 @@ function Phase12Card({ p }) {
             <td key={k} className="tq-num">{pct(w.coverage)} <span className="tq-muted">{String(w.fault || '').replaceAll('_', ' ')} / {String(w.regime || '').replaceAll('_', ' ')}</span></td>); })}</tr></tbody></table></div>
       <p className="tq-muted">Abstention = share of cases whose prediction is not trusted (it cannot authorise an action). Intervals were not widened to hide shortfalls.</p>
       <h4>Diagnostic Investigation: diagnostic test outcomes ({p.n_c4_sessions} sessions in all regimes; pooled over flagged looseness / sensor-fault sessions)</h4>
-      <div className="tq-table-wrap"><table className="tq-table"><caption className="tq-sr">Phase 12 Diagnostic Investigation pooled results</caption>
+      <div className="tq-table-wrap"><table className="tq-table"><caption className="tq-sr">Generalization check: Diagnostic Investigation pooled results</caption>
         <thead><tr><th scope="col">Model</th><th scope="col">n</th><th scope="col">Accuracy after test</th><th scope="col">Confidently wrong</th><th scope="col">Inconclusive</th><th scope="col">Decision worse than prior</th><th scope="col">Meets acceptance bar</th></tr></thead>
         <tbody>{c4n.map((k) => { const v = p.c4[k]; return (
-          <tr key={k}><td>{C4_LABEL[k] || 'Phase 11 calibration candidate (NOT adopted)'}</td><td className="tq-num">{v.n}</td><td className="tq-num">{pct(v.accuracy_after)}</td>
+          <tr key={k}><td>{C4_LABEL[k] || 'calibration candidate (NOT adopted)'}</td><td className="tq-num">{v.n}</td><td className="tq-num">{pct(v.accuracy_after)}</td>
             <td className="tq-num">{pct(v.confident_wrong)} <span className="tq-muted">[{pct(v.confident_wrong_ci95?.[0])}–{pct(v.confident_wrong_ci95?.[1])}]</span></td>
             <td className="tq-num">{pct(v.inconclusive)}</td><td className="tq-num">{pct(v.decision_worse_than_prior)}</td>
             <td>{v.meets_acceptance_bar ? <Pill tone="ok">yes</Pill> : <Pill tone="warn">no (worst regime {v.worst_regime}: {pct(v.worst_regime_confident_wrong)})</Pill>}</td></tr>); })}</tbody></table></div>
@@ -153,17 +156,16 @@ function Provenance({ evalRun }) {
   const mv = r.model_versions ? Object.entries(r.model_versions).map(([k, v]) => `${label(k)} v${v}`).join(' · ') : null;
   return (
     <Card title="Runs and provenance" id="c-ev-prov" icon={FileText} className="tq-mt" right={<ProvBadge kind="SIMULATED" />}>
-      <MetricList label="Run provenance" items={[
-        { key: 'file', label: 'Run file', value: evalRun.file },
-        { key: 'git', label: 'git commit', value: r.git_sha ?? 'unknown' },
-        { key: 'cfg', label: 'Configuration hash', value: r.config_hash ?? 'unknown' },
-        { key: 'rt', label: 'Runtime', value: num(r.runtime_s) === undefined ? null : `${r.runtime_s} s`, missingText: 'unavailable' },
-        { key: 'mv', label: 'Model versions', value: mv, missingText: 'unavailable' },
-      ]} />
-      <Disclosure summary="Run history" meta={`${runs.length} committed run(s)`} testid="eval-runs" className="tq-mt">
-        <p className="tq-muted">Shown: {evalRun.selection || 'the newest run'}.</p>
+      <p className="tq-muted">Shown: {evalRun.file} ({evalRun.selection || 'the newest run'}).</p>
+      <Disclosure summary="Run details and history" meta={`${runs.length} committed run(s)`} testid="eval-runs" className="tq-mt">
+        <MetricList label="Run provenance" items={[
+          { key: 'git', label: 'git commit', value: r.git_sha ?? 'unknown' },
+          { key: 'cfg', label: 'Configuration hash', value: r.config_hash ?? 'unknown' },
+          { key: 'rt', label: 'Runtime', value: num(r.runtime_s) === undefined ? null : `${r.runtime_s} s`, missingText: 'unavailable' },
+          { key: 'mv', label: 'Model versions', value: mv, missingText: 'unavailable' },
+        ]} />
         {runs.length > 0 && (
-          <div className="tq-table-wrap"><table className="tq-table"><caption className="tq-sr">Available evaluation runs</caption>
+          <div className="tq-table-wrap tq-mt"><table className="tq-table"><caption className="tq-sr">Available evaluation runs</caption>
             <thead><tr><th scope="col">File</th><th scope="col">git</th><th scope="col">Config</th><th scope="col">Runtime</th><th scope="col">Regime sections</th></tr></thead>
             <tbody>{runs.map((x) => (<tr key={x.file}><td>{x.file}{x.file === evalRun.file && <> <Pill tone="info">shown</Pill></>}</td><td>{x.git_sha ?? '—'}</td><td>{x.config_hash ?? '—'}</td>
               <td className="tq-num">{x.runtime_s != null ? `${x.runtime_s} s` : '—'}</td><td>{x.has_regimes ? 'yes' : 'no'}</td></tr>))}</tbody></table></div>)}

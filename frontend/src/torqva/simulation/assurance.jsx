@@ -224,7 +224,7 @@ export function RecoveryPage({ d, isPhys: isPhysProp, go }) {
       <AlertPanel tone={st.tone} title={st.head} testid="rec-status" action={st.to && go ? <LinkButton onClick={() => go(st.to[0])}>{st.to[1]}</LinkButton> : null}>
         <p>{st.text}</p>
       </AlertPanel>
-      <p className="tq-muted tq-small tq-as-note" role="note">Recovery is declared only from fresh readings after the device acknowledged the action.{isPhys ? '' : ' Simulator observations, not hardware evidence.'}</p>
+      {!isPhys && <p className="tq-muted tq-small tq-as-note" role="note">Simulator observations, not hardware evidence.</p>}
       <div className="tq-split tq-as-rec">
         <Card title="Verification criteria" id="c-ver" icon={ListChecks} sub={last ? `Latest recovery verdict · ${last.incident}` : 'Shown once Recovery Verification has assessed an acknowledged action'}
           right={last ? <Pill tone={last.outcome === 'RECOVERED' ? 'ok' : last.outcome === 'UNRESOLVED' ? 'crit' : 'warn'}>{title(last.outcome)}</Pill> : null}>
@@ -274,7 +274,6 @@ export function LearningPage({ d, children, isPhys: isPhysProp }) {
             { key: 'exec', label: 'Executed', render: (c) => String(c.executed) },
             { key: 'prov', label: 'Source', render: () => <ProvBadge kind={provKind} /> },
           ]} />
-        <p className="tq-muted tq-small tq-mt">Model training and rollback are not operator actions; the reference lifecycle above is the only model management.</p>
       </Card>
     </>
   );

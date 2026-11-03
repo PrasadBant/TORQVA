@@ -1,5 +1,5 @@
-// AI Diagnostics (C1), simulation mode: the analyst's investigation workspace. Overview (current status, top hypotheses, evidence summary,
-// recommended next step) → Hypotheses → Evidence → Explainability. Everything shown comes from the simulator's records or the workbench plan;
+// AI Diagnostics (C1), simulation mode: the analyst's investigation workspace. Overview (current status, evidence summary,
+// recommended next step) → Hypotheses → Evidence → Details. Everything shown comes from the simulator's records or the workbench plan;
 // a hypothesis is a ranking (an AI interpretation), never a confirmed fault, and the scenario's injected fault is shown apart as ground truth.
 import React, { useState } from 'react';
 import { FlaskConical, ArrowRight, Activity, Gauge, Microscope, ListChecks, Compass, Workflow } from 'lucide-react';
@@ -7,7 +7,7 @@ import {
   Card, Empty, Pill, ProvBadge, fmt, stateTone, PageHead, CardLink, AlertPanel, StatTile, StatGrid, Tabs, TabPanel, LinkButton, SourceTag, CheckList,
 } from '../shared/components.jsx';
 import { TEST_SPECS, TEST_OUTCOMES, FEATURE_LABEL, SCORE_STATUS } from '../shared/diagnostics.js';
-import { C1ScoreCard, C1GateCard, C1TimelineCard } from './analysis.jsx';
+import { C1ScoreCard, C1TimelineCard } from './analysis.jsx';
 import { usePlan, title, pct } from './workbench.js';
 import { TraceLink } from './trace.jsx';
 import { SufficiencyBadge, SUFF } from './adaptive.jsx';
@@ -104,7 +104,6 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
               <p className="tq-small"><span className="tq-muted">Signals examined: </span>{spec?.signals.join(' · ')}</p>
               <ul className="tq-list tq-small">{(TEST_OUTCOMES[rec.test] || []).map((x) => <li key={x}>{x}</li>)}</ul>
             </div>)}
-      {plan?.gate && <p className="tq-small"><span className="tq-muted">Latest gate verdict: </span><Pill tone={plan.gate.verdict === 'ACT' ? 'ok' : plan.gate.verdict === 'SAFE_STOP' ? 'stop' : 'warn'}>{title(plan.gate.verdict)}</Pill> <span className="tq-muted">{plan.gate.reason}</span></p>}
       <div className="tq-row tq-mt tq-an-actions">
         <button type="button" className="tq-btn tq-primary" onClick={configure} disabled={!hasSim}>
           <FlaskConical size={14} aria-hidden="true" /> Configure in Diagnostic Investigation <ArrowRight size={14} aria-hidden="true" />
@@ -132,11 +131,11 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
         </StatGrid>
 
         <Tabs label="Anomaly Detection views" idBase="c1-tab" value={tab} onChange={setTab}
-          tabs={[{ key: 'overview', label: 'Overview' }, { key: 'hypotheses', label: 'Hypotheses', count: ranked.length || undefined }, { key: 'evidence', label: 'Evidence' }, { key: 'explain', label: 'Explainability' }]} />
+          tabs={[{ key: 'overview', label: 'Overview' }, { key: 'hypotheses', label: 'Hypotheses', count: ranked.length || undefined }, { key: 'evidence', label: 'Evidence' }, { key: 'explain', label: 'Details' }]} />
 
         {tab === 'overview' && (
           <TabPanel tab="overview" idBase="c1-tab">
-            <div className="tq-an-grid tq-an-grid-3">
+            <div className="tq-an-grid">
               <Card title="Current status" id="c-assess" icon={Gauge} right={<SourceTag kind="SIMULATED" />}>
                 {!c1 ? <Empty>{hasSim ? 'Waiting for the first scored window.' : 'No simulation running.'}</Empty> : <p data-testid="c1-explain">{explain(plan)}</p>}
                 {/* One compact list of the current readings (trends live on Live Monitor); a missing value reads UNAVAILABLE, never 0. */}
@@ -146,13 +145,6 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
                   {hasSim && <div><dt>Setpoint</dt><dd className="tq-num">{fmt(s.device?.setpoint_rpm, 0)} rpm</dd></div>}
                 </dl>
                 <p className="tq-muted tq-small">Data quality: {!w ? 'no window yet' : w.valid === false ? 'the latest window is invalid' : 'the latest window is valid'}. Severity is a distance from the healthy baseline, not a fault probability.</p>
-              </Card>
-              <Card title="Top hypotheses" id="c-hyps" icon={Microscope} sub="AI interpretation, not proof"
-                right={<span className="tq-an-right">{post && <Pill tone={postTone(post)}>{post.label}{post.ood ? ' · unlike any learned signature' : ''}</Pill>}<ProvBadge kind="DERIVED" /></span>}
-                foot={ranked.length > 0 ? <LinkButton onClick={() => setTab('hypotheses')}>All hypotheses and their evidence</LinkButton> : null}>
-                {!ranked.length ? <Empty>No ranking yet. The hypothesis model ranks faults only from anomalous windows; healthy windows are not evidence for any fault.</Empty> : (
-                  <ol className="tq-hyps" aria-label="Top fault hypotheses">{ranked.slice(0, 4).map((h, i) => <HypothesisRow key={h.hypothesis} h={h} top={i === 0} rank={i + 1} compact />)}</ol>)}
-                <p className="tq-muted tq-small">A ranking, not a confirmed fault.{post ? ` Ranked from ${post.n_windows} evidence window(s).` : ''}</p>
               </Card>
               <Card title="Evidence summary" id="c-ev-sum" icon={ListChecks} right={suff ? <SufficiencyBadge s={suff} /> : null}>
                 <h4 className="tq-an-h">Measured deviations <SourceTag kind="DERIVED" /></h4>
@@ -209,19 +201,13 @@ export function SimDiagnosticsPage({ d, go, stale, setWb }) {
 
         {tab === 'explain' && (
           <TabPanel tab="explain" idBase="c1-tab">
-            <Card title="How Anomaly Detection reaches this reading" id="c-how" icon={Workflow}>
-              <ol className="tq-list tq-small">
-                <li>Each 1 s simulated window is turned into features (vibration orders, current per rpm, thermal residual …) and compared with the healthy baseline learned for its speed range. The score ÷ threshold is that distance; 1 is the learned threshold.</li>
-                <li>{c1 ? `An incident opens after ${c1.confirm_windows} consecutive windows above the threshold.` : 'An incident opens after several consecutive windows above the threshold.'} Windows taken while speed changes, or at an unlearned speed, are not scored.</li>
-                <li>Only the anomalous windows are passed to the hypothesis model, which ranks fault classes by their learned signatures (z-scores per feature). The ranking is labelled confident, ambiguous or unfamiliar by the backend.</li>
-                <li>The decision gate uses the ranking, the prediction trust and the evidence count to choose: act, test, wait for data or escalate. Its inputs are listed below.</li>
-              </ol>
-              {plan?.top_features?.length > 0 && (
-                <div className="tq-table-wrap"><table className="tq-table tq-small"><caption>Features furthest from the healthy baseline (mean over the evidence windows)</caption>
-                  <thead><tr><th scope="col">Feature</th><th scope="col">Mean z</th></tr></thead>
+            <Card title="Features furthest from the healthy baseline" id="c-how" icon={Workflow} sub="Mean over the anomalous evidence windows" right={<ProvBadge kind="DERIVED" />}>
+              {!plan?.top_features?.length ? <Empty>{hasSim ? 'No anomalous evidence windows yet.' : 'No simulation running.'}</Empty> : (
+                <div className="tq-table-wrap"><table className="tq-table tq-small"><caption className="tq-sr">Features furthest from the healthy baseline</caption>
+                  <thead><tr><th scope="col">Feature</th><th scope="col" className="tq-th-num">Deviation</th></tr></thead>
                   <tbody>{plan.top_features.map((f) => <tr key={f.feature}><th scope="row">{FEATURE_LABEL[f.feature] || f.feature}</th><td className="tq-num">{z(f.mean_z)}</td></tr>)}</tbody></table></div>)}
             </Card>
-            <div className="tq-split tq-mt"><C1GateCard d={d} /><C1TimelineCard d={d} /></div>
+            <div className="tq-mt"><C1TimelineCard d={d} /></div>
           </TabPanel>)}
 
         <TraceLink go={go} setWb={setWb} stages={['observation', 'hypothesis']} testid="c1-trace" />

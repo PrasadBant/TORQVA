@@ -132,7 +132,7 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
       <div className="tq-an-page">
         <div className="tq-alertpanel tq-warn" role="note" data-testid="c2-model-warning">
           <span className="tq-alertpanel-icon" aria-hidden="true"><AlertTriangle size={20} /></span>
-          <div className="tq-alertpanel-body"><strong>{label}</strong><div className="tq-alertpanel-text"><p>Not validated against physical experiments. Values marked PRED are model estimates, never evidence of recovery, and an unsupported prediction never authorises an action.{s.models?.c2_variant && s.models.c2_variant !== 'control' ? ` Experimental variant in use (opt-in): ${s.models.c2_variant}.` : ' The shipped predictor is in use; experimental variants are opt-in.'}</p></div></div>
+          <div className="tq-alertpanel-body"><strong>{label}</strong><div className="tq-alertpanel-text"><p>PRED values are model estimates, never measurements and never evidence of recovery; they are not validated on hardware. An unsupported prediction never authorises an action.{s.models?.c2_variant && s.models.c2_variant !== 'control' ? ` Experimental variant in use (opt-in): ${s.models.c2_variant}.` : ''}</p></div></div>
         </div>
 
         <StatGrid label="Failure Prediction summary">
