@@ -3,8 +3,7 @@
 // simulated window, tagged DERIVED and used for display only. The page sends no command; scenarios are started in Scenario Studio.
 import React from 'react';
 import { DigitalTwin } from '../shared/twin.jsx';
-import { TrendLines } from '../shared/lazyCharts.jsx';
-import { Empty, fmt, stateTone, title } from '../shared/components.jsx';
+import { fmt, stateTone, title } from '../shared/components.jsx';
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 // The simulated device's e-stop reasons (simdevice._check_safety) and the sensor whose simulated reading tripped it.
@@ -127,27 +126,8 @@ function noData(label, detail) {
     motion: { spinning: false, rpm: null, note: 'The shaft is still because there is no data.' }, parts: [], findings: [], facts: [], kpis: [], alerts: [], hypotheses: [], links: {} };
 }
 
-const SERIES = { rpm: [['rpm', 'Speed (rpm)', 'var(--tq-chart-1)'], ['setpoint', 'Setpoint (rpm)', 'var(--tq-chart-ink)', '4 3']],
-  housing: [['housing', 'Housing (°C)', 'var(--tq-chart-2)']], voltage: [['voltage', 'Voltage (V)', 'var(--tq-chart-3)']], current: [['current', 'Current (A)', 'var(--tq-chart-4)']],
-  power: [['power', 'Power, V × I (W)', 'var(--tq-chart-1)']], vib_rms: [['vib_rms', 'Vibration RMS, simulated (g)', 'var(--tq-chart-2)']], duty: [['duty', 'Duty (%)', 'var(--tq-chart-3)']] };
-
-/** Trend of one reading over the telemetry window the app already holds (no extra request). */
-function SimTrend({ samples, reading }) {
-  const series = SERIES[reading.key];
-  if (!series) return <Empty>No history is kept for this value.</Empty>;
-  const data = samples.map((s) => ({ t: s.t, ...Object.fromEntries(series.map(([k]) => [k, k === 'power' ? (finite(s.voltage) && finite(s.current) ? s.voltage * s.current : null) : (finite(s[k]) ? s[k] : null)])) }));
-  if (data.length < 2) return <Empty>Not enough simulated history yet. History appears as the simulation advances.</Empty>;
-  return (
-    <div role="img" aria-label={`${reading.label} over simulation time`} className="tq-chart">
-      <TrendLines data={data} lines={series.map(([key, name, color, dash]) => ({ key, name, color, dash }))} height={190} digits={reading.digits} unit={reading.unit} />
-      <p className="tq-chart-note">Simulation time in seconds; last {data.length} simulated seconds. SIMULATED data.</p>
-    </div>
-  );
-}
-
 export function SimTwinPage({ d, running, stale, go }) {
   const model = simTwin(d, { running, stale });
-  const samples = d?.telemetry?.samples || [];
-  return <DigitalTwin model={model} go={go} renderTrend={(part, reading) => <SimTrend samples={samples} reading={reading} />}
+  return <DigitalTwin model={model} go={go}
     aside={<p className="tq-muted tq-tw-aside">Read-only. Runs are controlled in <button type="button" className="tq-linkbtn" onClick={() => go('scenario')}>Scenario Studio</button>.</p>} />;
 }

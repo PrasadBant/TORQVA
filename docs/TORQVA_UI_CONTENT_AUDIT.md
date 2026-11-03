@@ -51,6 +51,16 @@ Every chart in the app is drawn by `shared/charts.jsx` (the only module that imp
 
 The tables already share one `DataTable` (sorting where a column declares it, phone-width stacking, wide tables scroll inside their card). No search, filter or pagination was added: no table holds more than about 30 rows by default (commands 20, Supervisor 12, audit 30).
 
+## 1b. Digital Twin (3 Nov, second pass: "Improve digital twin inspection experience")
+
+- **Component panel:** shows only the component's name and function, its readings (value, unit, provenance, freshness, status), notes, the linked evidence and links. Removed:
+  - the selected-reading trend chart (a second copy of a Live Monitor trend, now a "Trends in Live Monitor" link);
+  - the identity block (internal component id, and the "placement" sentence). The page caption already says the model is illustrative and not CAD-accurate.
+- **Physical mode:** with the trend gone, `physical/twin.jsx` no longer imports the API module at all. The twin renders the device stream it is given and makes no request (it used to poll `/device/history` every 2 s while a part was selected). Analysis statuses use product names (first pass).
+- **Simulation mode:** unchanged: SIMULATED provenance, scenario ground truth labelled as such, hypotheses as rankings.
+- **Controls:** every toolbar control was checked and is functional and covered by the engine and twin tests (reset, fit, focus, four view presets, orthographic, markers, labels, readouts, edges, isolate, explode, section, evidence). "Reset" and the "Iso" preset frame the same view; both stay because the brief asks for a reset and the four standard views.
+- **Rendering:** render-on-demand, one shared renderer and context-loss recovery are unchanged. The twin E2E now also checks that no Three.js or viewport module is requested on other pages, and that the same detector does see them when the twin opens.
+
 ## 2. Navigation
 
 Unchanged from item 17: Monitor (Overview, Live Monitor, Digital Twin) · Diagnose (Diagnostic Workflow, Anomaly Detection, Failure Prediction, Action Recommendations, Diagnostic Investigation) · Intelligence (Recovery Verification, Continuous Intelligence, Performance Evaluation) · Engineering (Scenario Studio, Lab) · Device & Safety. Groups fold and the active group never does; old ids `control`, `devices`, `connection` open the matching Device & Safety tab.

@@ -1,11 +1,9 @@
 // Digital Twin, physical mode: maps the device stream (useDeviceStream: /device/status + the read-only WebSocket) onto the shared twin workspace.
 // Read-only by construction: this module imports no command API and renders no control. A reading is shown only as the device reported it; a missing,
 // invalid or stale reading stays marked as such. The shaft is animated only from a fresh, valid, physically measured speed.
-import React, { useCallback, useEffect, useState } from 'react';
-import { api } from '../api.js';
+import React from 'react';
 import { DigitalTwin } from '../shared/twin.jsx';
-import { HistoryChart } from '../shared/lazyCharts.jsx';
-import { Empty, ErrorBox, fmt, title } from '../shared/components.jsx';
+import { fmt, title } from '../shared/components.jsx';
 import { plainText } from '../shared/plain.js';
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -133,25 +131,8 @@ export function physTwin(snap, { unreachable = false } = {}) {
   };
 }
 
-/** Device history for one signal (GET /device/history, read-only), refreshed while the trend is on screen. */
-function PhysTrend({ reading }) {
-  const [points, setPoints] = useState(null);
-  const [err, setErr] = useState(null);
-  const load = useCallback(() => api.deviceHistory(reading.key, 120).then((r) => { setPoints(Array.isArray(r?.points) ? r.points : []); setErr(null); }).catch(setErr), [reading.key]);
-  useEffect(() => { setPoints(null); load(); const id = setInterval(load, 2000); return () => clearInterval(id); }, [load]);
-  if (err) return <ErrorBox error={err} />;
-  if (points === null) return <Empty loading>Loading device history…</Empty>;
-  if (!points.length) return <Empty>No device history for the last 2 minutes. History exists only while a board is sending telemetry.</Empty>;
-  return (
-    <div role="img" aria-label={`${reading.label} history`} className="tq-chart">
-      <HistoryChart data={points.map(([t, v]) => ({ t, v }))} name={`${reading.label} (${reading.unit})`} height={190} />
-      <p className="tq-chart-note">Wall-clock time, last 2 minutes. Gaps mean invalid readings or a disconnect; they are never drawn as zero.</p>
-    </div>
-  );
-}
-
 export function PhysTwinPage({ stream, go }) {
   const model = physTwin(stream.snap, { unreachable: stream.unreachable });
-  return <DigitalTwin model={model} go={go} renderTrend={(part, reading) => <PhysTrend reading={reading} />}
+  return <DigitalTwin model={model} go={go}
     aside={<p className="tq-muted tq-tw-aside">This page is read-only. It sends no command to the device.</p>} />;
 }

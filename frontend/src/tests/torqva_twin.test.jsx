@@ -194,43 +194,33 @@ describe('twin pages', () => {
     expect(screen.getByTestId('twin-kpi-rpm')).not.toHaveTextContent('1210');
   });
 
-  it('a failing history request shows the error in the trend, not an empty or invented chart', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500, json: async () => ({ detail: 'history store unavailable' }) })));
-    render(<PhysTwinPage stream={{ snap: CONNECTED, unreachable: false }} go={() => {}} />);
+  it('a selected part shows its readings and links its trend to Live Monitor; the twin itself makes no history request', async () => {
+    const calls = record();
+    const go = vi.fn();
+    const { unmount } = render(<PhysTwinPage stream={{ snap: CONNECTED, unreachable: false }} go={go} />);
     fireEvent.click(screen.getByTestId('twin-hot-hall'));
-    const trend = await screen.findByTestId('twin-trend');
-    await waitFor(() => expect(within(trend).getByRole('alert')).toBeInTheDocument());
-    expect(trend.querySelector('.tq-chart')).toBeNull();
+    const d = screen.getByTestId('twin-detail');
+    expect(within(d).getByTestId('twin-reading-rpm')).toBeInTheDocument();
+    expect(screen.queryByTestId('twin-trend')).toBeNull();                         // no second copy of the Live Monitor trend
+    expect(screen.queryByTestId('twin-ident')).toBeNull();                         // no internal id or placement metadata
+    fireEvent.click(within(d).getByTestId('twin-to-live'));
+    expect(go).toHaveBeenCalledWith('live');
+    fireEvent.click(screen.getByTestId('twin-close'));
+    fireEvent.click(screen.getByTestId('twin-hot-temp'));
+    await new Promise((r) => { setTimeout(r, 50); });
+    unmount();
+    expect(calls.filter(([, u]) => u.includes('/device/history'))).toEqual([]);
   });
 
-  it('the device-history poll runs only while a trend is shown and stops on deselection and unmount', async () => {
-    const calls = record();
-    const hist = () => calls.filter(([, u]) => u.includes('/device/history')).length;
-    const { unmount } = render(<PhysTwinPage stream={{ snap: CONNECTED, unreachable: false }} go={() => {}} />);
-    expect(hist()).toBe(0);                                                       // nothing selected: no history request
-    fireEvent.click(screen.getByTestId('twin-hot-hall'));
-    await waitFor(() => expect(hist()).toBe(1));
-    fireEvent.click(screen.getByTestId('twin-close'));
-    const afterClose = hist();
-    await new Promise((r) => { setTimeout(r, 2300); });
-    expect(hist()).toBe(afterClose);                                              // deselected: the 2 s poll stopped
-    fireEvent.click(screen.getByTestId('twin-hot-temp'));
-    await waitFor(() => expect(hist()).toBe(afterClose + 1));
-    unmount();
-    const afterUnmount = hist();
-    await new Promise((r) => { setTimeout(r, 2300); });
-    expect(hist()).toBe(afterUnmount);                                            // unmounted: no timer left behind
-  }, 10000);
-
-  it('exploring every part in both modes only ever reads from the backend', async () => {
+  it('exploring every part in both modes sends nothing to the backend (no command, and no request at all)', async () => {
     const calls = record();
     const { unmount } = render(<PhysTwinPage stream={{ snap: CONNECTED, unreachable: false }} go={() => {}} />);
     for (const id of ['hall', 'temp', 'ina', 'accel', 'driver', 'controller']) { fireEvent.click(screen.getByTestId(`twin-hot-${id}`)); await screen.findByTestId('twin-detail'); }
-    await waitFor(() => expect(calls.some(([, u]) => u.includes('/device/history'))).toBe(true));
     unmount();
     render(<SimTwinPage d={D} running stale={false} go={() => {}} />);
     for (const id of ['hall', 'temp', 'ina', 'accel', 'driver', 'controller']) { fireEvent.click(screen.getByTestId(`twin-hot-${id}`)); await screen.findByTestId('twin-detail'); }
     expect(calls.filter(([m]) => m !== 'GET')).toEqual([]);
+    expect(calls).toEqual([]);                                                    // the twin renders the stream it is given; it fetches nothing itself
   });
 
   it('the twin modules reference no command, start, step or commissioning API', () => {

@@ -27,12 +27,17 @@ const t3 = () => page.evaluate(() => ({ ...(document.querySelector('[data-testid
 const cam = async () => (await t3()).camera.split(',').map(Number);              // [azimuth, polar, distance, zoom]
 const settle = () => page.waitForTimeout(900);
 
+const modules3d = []; page.on('request', (r) => { if (/\/twin3d\/|\/three(\.module)?[.-]|\/deps\/three|OrbitControls/.test(r.url())) modules3d.push(r.url()); });
 await page.goto(URL);
 await page.waitForSelector('nav button:has-text("Digital Twin")', { timeout: 20000 });
+for (const l of ['Live Monitor', 'Anomaly Detection', 'Device & Safety', 'Overview']) await nav(l);
+check('the 3D code is not loaded on other pages', modules3d.length === 0, modules3d.slice(0, 2).join(' '));
 
 // ---- physical mode, no board
 await nav('Digital Twin');
 await page.waitForSelector('[data-testid=twin-page][data-source=PHYSICAL]', { timeout: 15000 });
+await page.waitForSelector('[data-testid=twin-model]', { timeout: 15000 });
+check('the 3D code loads when the twin opens (the detector above sees it)', modules3d.length > 0, `${modules3d.length} module request(s)`);
 check('physical twin says HARDWARE NOT CONNECTED (real backend, no board)', (await page.textContent('[data-testid=twin-state]')).includes('HARDWARE NOT CONNECTED'));
 check('physical twin does not animate the shaft without hardware', (await spinning()) === 'no');
 const kpis = await page.locator('[data-testid=twin-kpis] .tq-tw-kpi-value').allTextContents();
@@ -80,8 +85,7 @@ await page.click('[data-testid=twin-hot-hall]');
 await page.waitForSelector('[data-testid=twin-detail]');
 check('selecting the Hall hotspot opens the speed sensor', (await page.textContent('[data-testid=twin-detail]')).includes('Speed sensor'));
 check('the drawing highlights the selected part', (await page.getAttribute('[data-testid=twin-model]', 'data-selected')) === 'hall');
-await page.waitForSelector('[data-testid=twin-trend] .recharts-line-curve', { timeout: 15000 }).catch(() => {});
-check('a real trend chart is drawn from the simulated history', (await page.locator('[data-testid=twin-trend] .recharts-line-curve').count()) >= 1);
+check('the part panel links its trend to Live Monitor instead of repeating it', (await page.locator('[data-testid=twin-trend]').count()) === 0 && (await page.locator('[data-testid=twin-to-live]').count()) === 1);
 await page.keyboard.press('Escape');
 await page.waitForSelector('[data-testid=twin-overview]');
 check('Escape returns to the full motor view', true);

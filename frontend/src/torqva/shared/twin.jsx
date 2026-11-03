@@ -111,10 +111,10 @@ function Kpis({ model, onSelect, selected }) {
   );
 }
 
-function ReadingRow({ r, source, active, onTrend }) {
+function ReadingRow({ r, source }) {
   const ok = hasValue(r);
   return (
-    <div className={`tq-tw-reading${active ? ' is-active' : ''}`} data-testid={`twin-reading-${r.key}`}>
+    <div className="tq-tw-reading" data-testid={`twin-reading-${r.key}`}>
       <div className="tq-tw-reading-head">
         <span>{r.label}</span>
         {ok && <span className="tq-tw-reading-tags"><ProvBadge kind={r.prov} /><span className={`tq-tw-tag tq-tw-tag-${r.status}`}>{statusText(r, source)}</span></span>}
@@ -122,23 +122,9 @@ function ReadingRow({ r, source, active, onTrend }) {
       <div className={`tq-tw-reading-value tq-num${ok ? '' : ' is-na'}`}>{ok ? fmt(r.value, r.digits) : STATUS_TEXT[r.status]}{ok && r.unit && <small>{r.unit}</small>}</div>
       <div className="tq-tw-reading-foot">
         <span>{r.observed}</span>
-        {r.trend && <button type="button" className="tq-linkbtn" onClick={() => onTrend(r.key)} aria-pressed={active}>{active ? 'Trend shown' : 'Show trend'}</button>}
       </div>
       {r.note && <p className="tq-tw-note">{r.note}</p>}
     </div>
-  );
-}
-
-/** Identity of a component from the static metadata: id, type and where the model places it (and how reliable that is). */
-function ComponentFacts({ id }) {
-  const c = COMPONENT[id];
-  if (!c) return null;
-  return (
-    <dl className="tq-tw-ident" data-testid="twin-ident">
-      <div><dt>Component</dt><dd><code>{c.id}</code> · {KIND_LABEL[c.kind]}</dd></div>
-      <div><dt>Part</dt><dd>{c.part}</dd></div>
-      <div><dt>Placement</dt><dd>{c.placement}</dd></div>
-    </dl>
   );
 }
 
@@ -206,22 +192,20 @@ function DetailHead({ eyebrow, name, sub, tone, model, onClose }) {
   );
 }
 
-function DetailFoot({ id, model, go, onClose }) {
+function DetailFoot({ id, model, go, onClose, trends = false }) {
   const link = model.links?.[id];
   return (
     <div className="tq-tw-detail-foot">
       {link && go && <LinkButton onClick={() => go(link[0])} testid="twin-view-details">View details in {link[1]}</LinkButton>}
+      {trends && go && <LinkButton onClick={() => go('live')} testid="twin-to-live">Trends in Live Monitor</LinkButton>}
       <button type="button" className="tq-btn tq-btn-sm tq-tw-back" onClick={onClose}><Maximize2 size={14} aria-hidden="true" />Full motor view</button>
     </div>
   );
 }
 
-/** A sensor, the motor driver or the controller: what it is, its readings (with provenance), notes, trend and linked evidence. */
-function SensorDetail({ part, model, onClose, renderTrend, go }) {
-  const trendable = part.readings.filter((r) => r.trend);
-  const [trendKey, setTrendKey] = useState(trendable[0]?.key || null);
-  useEffect(() => { setTrendKey(trendable[0]?.key || null); }, [part.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const reading = part.readings.find((r) => r.key === trendKey);
+/** A sensor, the motor driver or the controller: what it is, its readings (value, unit, provenance, freshness, status), notes and linked
+ *  evidence. Trends are not repeated here: Live Monitor is their one home. */
+function SensorDetail({ part, model, onClose, go }) {
   const c = COMPONENT[part.id];
   return (
     <div className="tq-tw-detail" data-testid="twin-detail" aria-live="polite">
@@ -230,20 +214,13 @@ function SensorDetail({ part, model, onClose, renderTrend, go }) {
       <section className="tq-tw-sec" aria-labelledby={`tw-rd-${part.id}`}>
         <h4 id={`tw-rd-${part.id}`}>{part.readings.length ? 'Readings from this component' : 'Readings'}</h4>
         <div className="tq-tw-readings">
-          {part.readings.length ? part.readings.map((r) => <ReadingRow key={r.key} r={r} source={model.source} active={r.key === trendKey} onTrend={setTrendKey} />)
+          {part.readings.length ? part.readings.map((r) => <ReadingRow key={r.key} r={r} source={model.source} />)
             : <Empty>This part reports no reading of its own.</Empty>}
         </div>
         {part.notes?.length > 0 && <ul className="tq-tw-notes">{part.notes.map((n) => <li key={n}><Info size={13} aria-hidden="true" />{n}</li>)}</ul>}
       </section>
-      {reading && (
-        <div className="tq-tw-trend" data-testid="twin-trend">
-          <h4>{reading.label} trend</h4>
-          {renderTrend(part, reading)}
-        </div>
-      )}
       <EvidenceSection id={part.id} model={model} go={go} />
-      <ComponentFacts id={part.id} />
-      <DetailFoot id={part.id} model={model} go={go} onClose={onClose} />
+      <DetailFoot id={part.id} model={model} go={go} onClose={onClose} trends={part.readings.some((r) => r.trend)} />
     </div>
   );
 }
@@ -278,7 +255,6 @@ function StructureDetail({ id, model, onClose, onSelect, go }) {
         )}
       </section>
       <EvidenceSection id={id} model={model} go={go} />
-      <ComponentFacts id={id} />
       <DetailFoot id={id} model={model} go={go} onClose={onClose} />
     </div>
   );
@@ -324,7 +300,7 @@ function Overview({ model, items, onSelect }) {
 }
 
 /** The Component Info panel: a component picker, then the overview list or the selected component's details. */
-function ComponentInfo({ model, items, selected, setSelected, renderTrend, go }) {
+function ComponentInfo({ model, items, selected, setSelected, go }) {
   const part = model.parts.find((p) => p.id === selected);
   const sensors = items.filter((i) => i.sensor), structure = items.filter((i) => !i.sensor);
   return (
@@ -340,7 +316,7 @@ function ComponentInfo({ model, items, selected, setSelected, renderTrend, go })
           </select>
         </label>
       </header>
-      {part ? <SensorDetail part={part} model={model} onClose={() => setSelected(null)} renderTrend={renderTrend} go={go} />
+      {part ? <SensorDetail part={part} model={model} onClose={() => setSelected(null)} go={go} />
         : selected && COMPONENT[selected] ? <StructureDetail id={selected} model={model} onClose={() => setSelected(null)} onSelect={setSelected} go={go} />
           : <Overview model={model} items={items} onSelect={setSelected} />}
     </aside>
@@ -421,7 +397,7 @@ function Stage({ model, items, selected, setSelected }) {
   );
 }
 
-export function DigitalTwin({ model, renderTrend, go, aside }) {
+export function DigitalTwin({ model, go, aside }) {
   const [selected, setSelected] = useState(null);
   useEffect(() => {
     if (!selected) return undefined;
@@ -440,7 +416,7 @@ export function DigitalTwin({ model, renderTrend, go, aside }) {
       <Kpis model={model} onSelect={setSelected} selected={selected} />
       <div className="tq-tw-work">
         <Stage model={model} items={items} selected={selected} setSelected={setSelected} />
-        <ComponentInfo model={model} items={items} selected={selected} setSelected={setSelected} renderTrend={renderTrend} go={go} />
+        <ComponentInfo model={model} items={items} selected={selected} setSelected={setSelected} go={go} />
       </div>
       <div className="tq-grid tq-tw-support">
         <Card title="Findings" id="tw-findings" sub="Evidence linked to the rig, with the page that has the details.">

@@ -270,7 +270,7 @@ describe('twin page without WebGL 2 (jsdom)', () => {
     const d = screen.getByTestId('twin-detail');
     expect(within(d).getByText('DC motor')).toBeInTheDocument();
     expect(d).toHaveTextContent(/no reading for this part/);
-    expect(within(d).getByTestId('twin-ident')).toHaveTextContent('motor');
+    expect(within(d).queryByTestId('twin-ident')).toBeNull();                       // identity metadata (internal id, placement) is not shown
     fireEvent.click(within(d).getByRole('button', { name: /Speed sensor/ }));
     expect(screen.getByTestId('twin-reading-rpm')).toHaveTextContent('UNAVAILABLE');
   });
