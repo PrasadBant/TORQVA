@@ -656,7 +656,7 @@ class DeviceBridge:
         self._next_id = int.from_bytes(os.urandom(2), "big") + 1          # unique ids, never reused within a run; the device keeps a short duplicate cache
         self._next_seq = int(time.time() * 10) & 0x7FFFFFFF
         self._supervisor = SafetySupervisor(SupervisorLimits())
-        self.command_key = os.environ.get("TORQVA_FW_COMMAND_KEY", "authenticated-session-only")
+        self.command_key = os.environ.get("TORQVA_FW_COMMAND_KEY", "")      # the firmware's shared key; never in the repository; absent = non-STOP commands carry no key
         self._stale_reported = False
         self._connect_lock = threading.Lock()                  # serialises connect/disconnect: no overlapping opens, no leaked handles
         self._connecting = False
@@ -1176,13 +1176,13 @@ class DeviceBridge:
         V, B, N, U = "VERIFIED", "BLOCKED", "NOT VERIFIED", "UNAVAILABLE"
         sens = snap["sensor_status"]
         es = int((m.status or {}).get("es", 0))
-        core = [sens.get(k, "unavailable") for k in ("current", "housing", "rpm")]
+        core = [sens.get(k, "unavailable") for k in ("current", "voltage", "housing", "rpm")]
         if not hs:
             sensors = (U, "no device handshake")
         elif all(x == "valid" for x in core):
-            sensors = (V, "current, housing temperature and rpm are valid and fresh")
+            sensors = (V, "current, voltage, housing temperature and rpm are valid and fresh")
         else:
-            sensors = (B, ", ".join(f"{k}: {sens.get(k, 'unavailable')}" for k in ("current", "housing", "rpm") if sens.get(k) != "valid"))
+            sensors = (B, ", ".join(f"{k}: {sens.get(k, 'unavailable')}" for k in ("current", "voltage", "housing", "rpm") if sens.get(k) != "valid"))
         fault_ok = hs and st.get("state") != "EMERGENCY_STOP" and not st.get("fm")
         rows = [
             ("identity", "Device identity verified", (U, "no device handshake") if not hs else (B, "identity mismatch") if m.identity == "mismatch" else (V, "device id matches the expected id") if m.identity == "verified" else (N, f"device id {st.get('dev')!r} is not provisioned/checked against an expected id")),
@@ -1208,15 +1208,14 @@ class DeviceBridge:
         st = m.status or {}
         now = self._clock()
         fr = m.freshness(now)
-        v = {k: (m.values.get(k) or {}).get("value") for k in ("housing", "current")}
-        v["voltage"] = 24.0
-        valid_all = all((m.values.get(k) or {}).get("valid") for k in ("rpm", "current", "housing"))
+        v = {k: (m.values.get(k) or {}).get("value") for k in ("housing", "current", "voltage")}      # measured values only: a missing voltage is None, never a fixed 24 V
+        valid_all = all((m.values.get(k) or {}).get("valid") for k in ("rpm", "current", "voltage", "housing"))
         # hardware_control_enabled is derived, never a literal: it is True only when the HUMAN commissioning record is complete and enabled (every checklist item attested, limits approved,
         # typed confirmation) AND a handshaken PHYSICAL device is connected. Everything else (firmware interlocks, authenticated session, supply, latched faults) is enforced separately.
         return SupervisorContext(mode=Mode.HARDWARE, hardware_control_enabled=self._hardware_control_enabled(), connection=Connection.CONNECTED if m.conn == Conn.CONNECTED else Connection.DISCONNECTED,
                                  device_state=DeviceSafetyState.EMERGENCY_STOP if st.get("state") == "EMERGENCY_STOP" else (DeviceSafetyState.OK if st else DeviceSafetyState.UNKNOWN),
                                  telemetry_age_s=fr["age_s"] if fr["age_s"] is not None else 1e9, sensors_valid=valid_all, motor_running=bool((m.values.get("duty") or {}).get("value", 0) or 0),
-                                 current_setpoint_rpm=float((m.values.get("setpoint") or {}).get("value") or 0.0), housing_c=v["housing"], current_a=v["current"], voltage_v=24.0)
+                                 current_setpoint_rpm=float((m.values.get("setpoint") or {}).get("value") or 0.0), housing_c=v["housing"], current_a=v["current"], voltage_v=v["voltage"])
 
     def _record(self, action: str, params: Dict[str, Any], user: str, role: Role) -> CommandRecord:
         with self._lock:
@@ -1282,8 +1281,7 @@ class DeviceBridge:
             seq = self._next_seq
             self._next_seq += 1
         p1 = round(p1) if ty == "SET_SPEED" else round(p1, 3)         # values the firmware reproduces exactly when it rebuilds the MAC input (%.3f)
-        cmd_key = self.command_key or "authenticated-session-only"
-        msg = {"id": rec.id, "type": ty, "p": p1, "p2": 0, "p3": 0, "ttl": 5000, "age": 0, "seq": seq, "k": cmd_key if ty != "STOP" else ""}
+        msg = {"id": rec.id, "type": ty, "p": p1, "p2": 0, "p3": 0, "ttl": 5000, "age": 0, "seq": seq, "k": self.command_key if ty != "STOP" else ""}
         a = self._auth
         if a.get("state") == "active" and self._clock() < a["expires"] and a.get("sk"):       # authenticated session: bind the command to it with a MAC (the plaintext key is not used)
             sid = a["sid"]

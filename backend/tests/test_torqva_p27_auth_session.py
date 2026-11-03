@@ -85,10 +85,13 @@ def test_python_and_the_firmware_core_agree_on_proofs_session_id_and_command_mac
         tr._io(text)                                                                      # the bridge's own heartbeats may interleave: select the acknowledgement of THIS command
         return [a for a in (json.loads(x) for x in list(tr._lines) if x.startswith('{"t":"ack"')) if a["id"] == cid]
 
-    good = acks_after(line(5001, 900001, 20.0))
+    # A fresh counter is one above everything the bridge has sent (its heartbeats count too; the bridge seeds its counter from the clock, so a
+    # fixed number such as 900001 is already old on the device and is refused as REPLAY, which is the protection working, not a MAC problem).
+    fresh = b._next_seq + 100000
+    good = acks_after(line(5001, fresh, 20.0))
     assert good and good[0]["reason"] not in ("BAD_MAC", "NO_SECURE_SESSION", "WRONG_SESSION", "REPLAY"), good        # authentic: the interlocks decide, never the MAC
-    assert acks_after(line(5002, 900002, 25.0, mac_p=20.0))[0]["reason"] == "BAD_MAC"                                  # tampered parameter
-    assert acks_after(line(5003, 900001, 20.0))[0]["reason"] == "REPLAY"                                                # an old counter with a valid MAC
+    assert acks_after(line(5002, fresh + 1, 25.0, mac_p=20.0))[0]["reason"] == "BAD_MAC"                               # tampered parameter
+    assert acks_after(line(5003, fresh, 20.0))[0]["reason"] == "REPLAY"                                                 # an old counter with a valid MAC
     rec = b.request_command("STOP", {}, "vera", Role.VIEWER)                                                           # the bridge's own STOP carries sid + m
     assert pump(b, tr, lambda: rec.state == CmdState.EXECUTED), (rec.state, rec.reasons)
     b.disconnect(); tr.close()

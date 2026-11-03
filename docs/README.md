@@ -17,6 +17,7 @@ Start with the repository [`README.md`](../README.md) for running, testing and t
 | [`software.md`](software.md) | Software overview and firmware build guide |
 | [`TORQVA_EVAL_SIM.md`](TORQVA_EVAL_SIM.md) | Simulation evaluation method and results (simulation only, not hardware evidence) |
 | [`TORQVA_UI_CONTENT_AUDIT.md`](TORQVA_UI_CONTENT_AUDIT.md) | Page-by-page UI content audit: what was removed, consolidated and kept, and why |
+| [`TORQVA_FIRMWARE_SAFETY_RESTORATION.md`](TORQVA_FIRMWARE_SAFETY_RESTORATION.md) | Firmware safety protections restored from the `319fb7b` relaxation: evidence, tests, and why physical operation is still blocked |
 | [`eval/`](eval) | Committed evaluation artifacts. **Read at runtime** by `backend/torqva/api.py` and written by the `*_study.py` modules, so the folder must stay at `docs/eval/` |
 
 ## Hardware
