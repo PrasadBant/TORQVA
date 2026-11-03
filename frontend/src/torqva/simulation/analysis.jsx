@@ -124,7 +124,7 @@ export function PredictionsPage({ d, go, head = true }) {
               </div>
             </Card>
             <Card title="Predicted response" id="c-resp" right={<label className="tq-inline">Signal <select value={signal} onChange={(e) => setSignal(e.target.value)}><option value="housing">Housing °C</option><option value="rpm">Speed rpm</option><option value="vib_rms">Vibration g</option></select></label>}>
-              <div role="img" aria-label="Predicted response with 90 percent interval" className="tq-chart"><ResponseChart data={chart} height={240} /></div>
+              <div role="img" aria-label="Predicted response with 90 percent interval" className="tq-chart"><ResponseChart data={chart} height={240} digits={signal === 'rpm' ? 0 : dg} unit={signal === 'rpm' ? 'rpm' : signal === 'vib_rms' ? 'g' : signal === 'current' ? 'A' : '°C'} /></div>
               <p className="tq-chart-note">The interval covers a single future 1 s simulated measurement. It is not a guarantee and not a measurement.</p>
             </Card>
           </div>

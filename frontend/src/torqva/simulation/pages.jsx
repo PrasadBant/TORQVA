@@ -6,6 +6,7 @@ import { C2C4Validation } from './c2c4.jsx';
 import { FAULTS, canControl } from './scenario.jsx';
 import { TEST_SPECS } from '../shared/diagnostics.js';
 import { isPhysOf, samplesOf } from './simdata.js';
+import { plainLabel } from '../shared/plain.js';
 import { EventTimeline } from './events.jsx';
 
 export { TEST_SPECS };
@@ -165,7 +166,7 @@ export function LivePage({ d, role, actions, running, setRunning, busy, error, s
 
 /* ------------------------------------------------------------------ 10. Device tab of Device & Safety: inventory, session, audit */
 // An audit entry's detail as short plain text (key: value), not raw JSON.
-const auditText = (x) => (x && typeof x === 'object' ? Object.entries(x).map(([k, v]) => `${title(k)}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ') : String(x ?? '')).slice(0, 140);
+const auditText = (x) => (x && typeof x === 'object' ? Object.entries(x).map(([k, v]) => `${plainLabel(k)}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ') : String(x ?? '')).slice(0, 140);
 export function DevicesPage({ d, user, role, rows, auditError, device, go, running, physicalMode }) {
   const snap = device?.snap;
   const conn = snap?.connection; const port = snap?.port;
@@ -203,7 +204,7 @@ export function DevicesPage({ d, user, role, rows, auditError, device, go, runni
           {!admin ? <Empty>The audit log is visible to admins only.</Empty> : (<>
             <ErrorBox error={auditError} />
             <DataTable testid="audit-trail" caption="Audit history" rows={(rows || []).slice(-30).reverse()} rowKey={(r) => r.n} empty="No audit events yet."
-              columns={[{ key: 'n', label: '#', align: 'num' }, { key: 'kind', label: 'Event', render: (r) => title(r.kind) }, { key: 'actor', label: 'By' },
+              columns={[{ key: 'n', label: '#', align: 'num' }, { key: 'kind', label: 'Event', render: (r) => plainLabel(r.kind) }, { key: 'actor', label: 'By' },
                 { key: 'detail', label: 'Detail', render: (r) => <span className="tq-muted">{auditText(r.detail)}</span> }]} />
           </>)}
         </Card>

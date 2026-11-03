@@ -328,7 +328,7 @@ export function DeviceLive({ stream }) {
                 right={x !== null && v.stale ? <SourceTag kind="STALE" /> : null}
                 foot={`${note} · last ${rangeName(seconds)}${pts.length ? ` · ${pts.length} points` : ''}${x === null && v && !v.valid && v.origin !== 'unavailable' ? ' · invalid sensor reading' : ''}`}>
                 {data.length ? (
-                  <div role="img" aria-label={`${name} history, last ${rangeName(seconds)}`} className="tq-chart"><HistoryChart data={data} name={`${name} (${unit})`} height={150} color={color} /></div>
+                  <div role="img" aria-label={`${name} history, last ${rangeName(seconds)}`} className="tq-chart"><HistoryChart data={data} name={`${name} (${unit})`} height={150} color={color} digits={d} unit={unit} /></div>
                 ) : <p className="tq-mon-nochart">No device history in this window. History exists only while a device is sending telemetry.</p>}
               </ChartPanel>);
           })}

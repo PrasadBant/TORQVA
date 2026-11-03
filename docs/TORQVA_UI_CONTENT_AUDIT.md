@@ -24,6 +24,33 @@ Method: every page and tab was opened in both modes in a real browser against `n
 | Device & Safety — Device | **Application information** card (operating mode, API base URL, predictor variant key, "limits cannot be changed here"); raw JSON in the audit Detail column | — | Device inventory, current session (user, role, what the role may do, token storage), audit history (admin only, now plain `key: value` text) | No editable settings exist; mode and predictor are shown where they matter |
 | Device & Safety — Connection & Readiness / Safety & Commissioning | — | — | Every readiness blocker, interlock, limit, checklist, enable state and their forms | Safety content kept as it is (brief section 10) |
 
+## 1a. Charts and tables (3 Nov, second pass: "Refine industrial charts and data tables")
+
+Every chart in the app is drawn by `shared/charts.jsx` (the only module that imports Recharts), so the shared rules were fixed there once and apply on every page in both themes:
+
+- **Precision:** axis ticks and tooltips use the chart's own number of decimals. The value axis used to force at least two decimals below 100, so speed read `50.00` and temperature `24.50`; large axis values carry none.
+- **Units:** the unit sits at the top of the value axis (rpm, °C, g, A, × threshold) on every trend, history, severity and prediction chart.
+- **Tooltips:** values at the chart's precision with their unit, an interval as `low–high`, and a missing or non-finite value as `—`. Before, Recharts printed raw floats and the interval as an unformatted pair.
+- **Gaps:** every line has `connectNulls={false}`, so a missing reading stays a gap and is never bridged into a value that looks measured.
+- **Predictions:** the response chart's x axis reads `now, +30 s, +60 s, +120 s`, the tooltip names `now (current simulated value)` and `+N s (predicted)`, and the legend says `Predicted (model estimate)` and `90 % interval`. The line was already dashed with a shaded band.
+- **Terminology:** the severity chart's legend and the test-sequence chart now say "Anomaly severity" (was "score ratio").
+
+| Page | Chart / table | Question it answers | Change |
+|---|---|---|---|
+| Overview (physical) | KPI tile sparklines | — (repeated Live Monitor's trends) | **Removed**, with the 3-second `/device/history` poll that fed only them; the simulation Overview dropped its sparklines in item 17 |
+| Live Monitor (both) | four trend charts | What is each signal doing now and recently? | Units on axes, chart precision, formatted tooltips (the primary home for live trends) |
+| Live Monitor (physical) | device history charts | Same, from the board | Precision and units passed through (`HistoryChart` gained `digits` / `unit`) |
+| Anomaly Detection | severity chart (log scale) | How far from the healthy baseline, and when? | Axis unit `× threshold`, tooltip, legend wording |
+| Failure Prediction | per-candidate and selected response charts | What is predicted to happen, with what uncertainty? | Signal precision and unit, `now` / `+N s` horizon, prediction-labelled legend and tooltip |
+| Diagnostic Investigation | sequence result chart, guided-investigation chart | What did the test on the copy show? | Shared rules; legend wording |
+| Diagnostic Workflow | four test-series charts (advanced) | Raw test windows | Shared rules |
+| Digital Twin | selected-part trend | — | Removed in Workstream B (duplicate of Live Monitor) |
+| Recovery, Continuous Intelligence, Performance Evaluation, Lab | tables only | — | Reviewed: precision and plain detector names were fixed in the first pass; no chart repeats telemetry |
+| Action Recommendations | commands, Supervisor decisions, gate inputs | What was sent, decided and acknowledged? | Reviewed, unchanged: `#` and incident ids are traceability, statuses are visible, the commands table already sorts by id; gate inputs keep full precision because they are the audit record |
+| Device & Safety | inventory, audit, frame counters | — | Changed in the first pass (audit detail as text); unchanged here |
+
+The tables already share one `DataTable` (sorting where a column declares it, phone-width stacking, wide tables scroll inside their card). No search, filter or pagination was added: no table holds more than about 30 rows by default (commands 20, Supervisor 12, audit 30).
+
 ## 2. Navigation
 
 Unchanged from item 17: Monitor (Overview, Live Monitor, Digital Twin) · Diagnose (Diagnostic Workflow, Anomaly Detection, Failure Prediction, Action Recommendations, Diagnostic Investigation) · Intelligence (Recovery Verification, Continuous Intelligence, Performance Evaluation) · Engineering (Scenario Studio, Lab) · Device & Safety. Groups fold and the active group never does; old ids `control`, `devices`, `connection` open the matching Device & Safety tab.
@@ -38,7 +65,8 @@ Unchanged from item 17: Monitor (Overview, Live Monitor, Digital Twin) · Diagno
 
 1. **The unit C1–C6 guard could not fail.** In `src/tests/torqva_app.test.jsx` the regex was `/␈C[1-6]␈/` with literal backspace bytes (0x08) where `\b` was meant, so it matched nothing; the same corruption made `torqva_physical.test.jsx`'s "not 0 rpm" check ineffective. Both are fixed, and the guard (unit and the `torqva-app` E2E) now also catches lowercase `c1`–`c6`.
 2. **Physical Digital Twin showed layer ids.** Its findings list grouped analysis statuses as "C1, C2, C4, C5: Waiting …" (built in `physical/twin.jsx` from the device's layer keys, so the backend-wording layer never saw it, and the guards only walked simulation pages or physical pages without a layer list). The label now goes through `plainText` ("Anomaly Detection, Failure Prediction, …"), with a unit test for both connected and disconnected snapshots.
-3. **Not fixed (backend, outside this frontend task):** `backend/torqva/serial_bridge.py` lines 421–427 have the same backspace bytes in the Windows serial-error patterns (`winerror 5`, `2`, `31`, `121`), so those regexes never match; the plain-text checks beside them still classify most errors. It affects only the wording of a connection error, not any interlock, but it needs its own fix and test.
+2a. **Correction (3 Nov, second pass).** Item 1 said the `torqva-app` E2E guard also caught lowercase ids; that edit had not applied, and the E2E still matched uppercase only. It now does both, on the rendered text (`innerText`): `textContent` glued the candidate label "Action C" to a target of "1,263 rpm" into "C1,263", a false positive whenever a target starts with 1–6. Catching lowercase then found a real leak: the Device tab's audit history showed the event kind `c2_ranking` as "c2 ranking" (the first pass had turned the raw kind into words). Audit event kinds and detail keys now go through `plainLabel` ("Failure Prediction ranking"); the stored kind is unchanged.
+3. **Fixed later (3 Nov, `bd60dbc`), originally out of scope:** `backend/torqva/serial_bridge.py` lines 421–427 have the same backspace bytes in the Windows serial-error patterns (`winerror 5`, `2`, `31`, `121`), so those regexes never match; the plain-text checks beside them still classify most errors. It affects only the wording of a connection error, not any interlock, but it needs its own fix and test.
 
 ## 5. Preserved
 

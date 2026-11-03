@@ -28,6 +28,14 @@ export function plainText(s) {
   return out.replace(ID, (_, n) => NAMES[n]);
 }
 
+/** An identifier shown as a label (an audit event kind such as "c2_ranking"): words, first letter capitalised, any layer id written as its
+ *  product name ("Failure Prediction ranking"). Use only for display; the identifier itself is never changed. */
+export function plainLabel(k) {
+  const words = String(k ?? '').replaceAll('_', ' ').trim().replace(/\b[cC]([1-6])\b/g, 'C$1');
+  const out = plainText(`${words} `).trim();
+  return out ? out[0].toUpperCase() + out.slice(1) : out;
+}
+
 /** A parsed API response with every prose string rewritten by plainText. Arrays and objects are copied; keys are kept. */
 export function plainify(v) {
   if (typeof v === 'string') return plainText(v);

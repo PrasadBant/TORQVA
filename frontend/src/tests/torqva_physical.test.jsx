@@ -73,6 +73,14 @@ describe('physical-device-first application', () => {
     expect(screen.queryByText(/NORMAL/)).toBeNull();
   });
 
+  it('the physical Overview shows current values only: no trend sparklines and no history polling (trends live on Live Monitor)', async () => {
+    const calls = await open(CONNECTED);
+    await screen.findByTestId('phys-kpis');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls.filter((c) => c === '/device/history')).toEqual([]);
+    expect(document.querySelector('[data-testid="phys-kpis"] .tq-kpi-spark')).toBeNull();
+  });
+
   it('shows real readings with units and freshness, marks the invalid sensor, and explains why commands are blocked', async () => {
     await open(CONNECTED);
     await screen.findByTestId('motor-state');

@@ -62,7 +62,9 @@ for (const [nav, expect] of pages) {
   await page.click(`nav button:has-text("${nav}")`); await page.waitForTimeout(700);
   const txt = await page.textContent('main');
   check(`page renders: ${nav}`, new RegExp(expect).test(txt) && txt.length > 200);
-  check(`  ${nav}: no internal layer id (C1-C6) on the page`, !/\bC[1-6]\b/.test(txt), (txt.match(/.{0,40}\bC[1-6]\b.{0,30}/) || [''])[0]);
+  // Rendered text (innerText keeps element boundaries: textContent glues "Action C" and "1,263 rpm" into "C1,263"); either case (files key detectors as c1)
+  const shown = await page.innerText('main');
+  check(`  ${nav}: no internal layer id (C1-C6) on the page`, !/\b[Cc][1-6]\b/.test(shown), (shown.match(/.{0,40}\b[Cc][1-6]\b.{0,30}/) || [''])[0]);
   check(`  ${nav}: no horizontal overflow at 1440px`, (await overflow()) <= 1);
   await shot(nav.replace(/\W+/g, '-').toLowerCase() + '-1440');
 }

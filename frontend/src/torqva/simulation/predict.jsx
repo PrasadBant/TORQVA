@@ -63,7 +63,7 @@ export function explainPrediction(p, cont, cur) {
 
 function MiniResponse({ p, signal, cur, domain }) {
   const data = [{ h: 0, mean: cur?.[signal] ?? null }, ...[30, 60, 120].map((h, i) => ({ h, mean: at(p, signal, i) ?? null, band: band(p, signal, i) }))];
-  return <div role="img" aria-label={`Predicted ${SIG[signal][0]} with 90 percent interval`} className="tq-chart"><ResponseChart data={data} height={170} yDomain={domain} /></div>;
+  return <div role="img" aria-label={`Predicted ${SIG[signal][0]} with 90 percent interval`} className="tq-chart"><ResponseChart data={data} height={170} yDomain={domain} digits={SIG[signal][2]} unit={SIG[signal][1]} /></div>;
 }
 
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { plainText, plainify } from '../torqva/shared/plain.js';
+import { plainText, plainify, plainLabel } from '../torqva/shared/plain.js';
 
 describe('product wording for backend text', () => {
   it('replaces internal layer ids in prose with the product names', () => {
@@ -16,5 +16,16 @@ describe('product wording for backend text', () => {
     expect(v.layer).toBe('C2');
     expect(v.n).toBe(3);
     expect(v.layers.C1.reason).toBe('Anomaly Detection needs vibration RMS');
+  });
+});
+
+describe('identifiers shown as labels', () => {
+  it('turns audit event kinds into words with product names, in either case', () => {
+    expect(plainLabel('c2_ranking')).toBe('Failure Prediction ranking');
+    expect(plainLabel('C5_verdict')).toBe('Recovery verdict');
+    expect(plainLabel('c1')).toBe('Anomaly Detection');
+    expect(plainLabel('commissioning_enabled')).toBe('Commissioning enabled');
+    expect(plainLabel('rc1_x')).toBe('Rc1 x');                 // not a layer id: unchanged apart from the spacing
+    expect(plainLabel(null)).toBe('');
   });
 });

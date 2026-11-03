@@ -97,7 +97,7 @@ const SIGNALS = [
   ['power', 'Power', 'W', 1, [{ key: 'power', name: 'power W (simulator)', color: 'var(--tq-chart-1)' }]],
   ['housing', 'Housing temperature', '°C', 2, [{ key: 'housing', name: 'housing °C', color: 'var(--tq-chart-2)' }]],
   ['vib', 'Vibration RMS (simulator model)', 'g', 4, [{ key: 'vib_rms', name: 'vibration g', color: 'var(--tq-chart-3)' }]],
-  ['score', 'Anomaly severity (× threshold)', '', 2, [{ key: 'score', name: 'score ratio', color: 'var(--tq-crit)' }]],
+  ['score', 'Anomaly severity (× threshold)', '', 2, [{ key: 'score', name: 'Anomaly severity', color: 'var(--tq-crit)' }]],
 ];
 
 export function SequenceResult({ run, onAddTest }) {

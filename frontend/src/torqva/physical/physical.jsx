@@ -2,8 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Usb, Octagon, Play, ShieldCheck, ShieldAlert, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, Lock, HeartPulse, SlidersHorizontal, History, ClipboardCheck, Info } from 'lucide-react';
 import { api } from '../api.js';
 import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, useNavContext, PageHead, StatTile, StatGrid, AlertPanel, BlockedReason, LinkButton, CheckList, StepTracker, DataTable, SourceTag, ConditionBanner } from '../shared/components.jsx';
-import { DeviceLive, CommissioningCard, canOperate, STATE_TONE, ReadinessCard, InterlocksCard, interlockGroups, groupStatus, toComm, toIlk, useDeviceHistories, readingOf, ago, clock } from './device.jsx';
-import { Sparkline } from '../shared/lazyCharts.jsx';
+import { DeviceLive, CommissioningCard, canOperate, STATE_TONE, ReadinessCard, InterlocksCard, interlockGroups, groupStatus, toComm, toIlk, readingOf, ago, clock } from './device.jsx';
 import { TEST_SPECS } from '../shared/diagnostics.js';
 
 const WAITING = 'WAITING FOR VALID PHYSICAL TELEMETRY';
@@ -271,11 +270,10 @@ const TILES = [
   ['power', 'Motor Power', 'W', 1],
   ['acceleration', 'Total acceleration (incl. gravity)', 'g', 3],
 ];
-const TILE_SIGNALS = TILES.map((t) => t[0]);
 const TILE_ICON = { rpm: Gauge, current: Zap, housing: Thermometer, ambient: Thermometer, voltage: Plug, power: Zap, acceleration: Move3d };
 const TILE_COLOR = { rpm: 'var(--tq-sig-rpm)', current: 'var(--tq-sig-current)', housing: 'var(--tq-sig-temp)', ambient: 'var(--tq-sig-temp)', voltage: 'var(--tq-sig-voltage)', power: 'var(--tq-sig-power)', acceleration: 'var(--tq-sig-vib)' };
 
-function Tile({ label, unit, d, v, sensorKey, points }) {
+function Tile({ label, unit, d, v, sensorKey }) {
   const I = TILE_ICON[sensorKey] || Activity;
   const color = TILE_COLOR[sensorKey] || 'var(--tq-chart-1)';
   const has = v && v.valid && v.value != null;
@@ -289,7 +287,6 @@ function Tile({ label, unit, d, v, sensorKey, points }) {
     : v.stale
     ? 'STALE'
     : 'UNAVAILABLE';
-  const data = (points || []).map(([t, y]) => ({ t, v: y }));
 
   return (
     <div className={`tq-kpi tq-mon-tele ${has ? '' : 'tq-unavailable'}`} data-testid={`tile-${label}`} style={{ '--tq-mon-sig': color }}>
@@ -301,7 +298,6 @@ function Tile({ label, unit, d, v, sensorKey, points }) {
         {has ? `${fmt(v.value, d)} ` : faultLabel}
         {has && <span className="tq-kpi-unit">{unit}</span>}
       </div>
-      {has && data.length > 1 && <div className="tq-kpi-spark" aria-hidden="true"><Sparkline data={data} dataKey="v" color={color} height={34} /></div>}
       <div className="tq-kpi-freshness">
         {!has ? (
           <span
@@ -538,7 +534,6 @@ export function PhysicalOverview({ stream, go, role }) {
   const { snap, commands, events } = stream;
   const [alarmMuted, setAlarmMuted] = useState(false);
   const live = isLive(snap);
-  const { series } = useDeviceHistories(TILE_SIGNALS, 120, live, 3000);
   if (!snap) return <><PageHead title="Overview" /><Empty loading>Loading device state…</Empty></>;
   const vals = snap.values || {};
   const rpm = live ? readingOf(vals.rpm) : null;   // an invalid reading is unknown, never 0
@@ -567,7 +562,7 @@ export function PhysicalOverview({ stream, go, role }) {
           foot={<><LinkButton onClick={() => go('live')}>Open live charts</LinkButton><LinkButton onClick={() => go('twin')}>See the sensors on the Digital Twin</LinkButton></>}>
           <div className="tq-kpis tq-mon-tiles" data-testid="phys-kpis">
             {TILES.map(([k, l, u, d]) => (
-              <Tile key={k} sensorKey={k} label={l} unit={u} d={d} v={live ? vals[k] : null} points={series[k]} />
+              <Tile key={k} sensorKey={k} label={l} unit={u} d={d} v={live ? vals[k] : null} />
             ))}
             {/* Ambient sensor — not charted, but always visible with its status when the device reports it */}
             {live && vals.ambient && <Tile sensorKey="ambient" label="Ambient temperature" unit="°C" d={1} v={vals.ambient} />}
