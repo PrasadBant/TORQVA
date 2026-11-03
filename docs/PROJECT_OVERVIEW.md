@@ -1,7 +1,7 @@
 # TORQVA — Project Overview (context brief)
 
 > Written so the whole project can be understood from this one file, for example by pasting it into an AI assistant before discussing or planning work.
-> State as of 3 Nov 2026, branch `torqva/phase-0-audit` at `09ee47e` (item 17 of section 9), pushed to GitHub `PrasadBant/TORQVA`; not merged to `main`. Facts below come from the code and tests in the repository.
+> State as of 3 Nov 2026, branch `torqva/phase-0-audit` (GitHub `PrasadBant/TORQVA`): items 1–17 pushed (`09ee47e`); items 18–21 committed locally, not pushed; not merged to `main`. Facts below come from the code and tests in the repository.
 
 ---
 
@@ -140,8 +140,8 @@ npm run dev         # with hardware: connects when exactly one board is plugged 
 # website: http://localhost:5173 (signs in automatically in development as local-dev / admin)
 # backend: http://127.0.0.1:8000/api/torqva   (API docs: http://127.0.0.1:8000/docs)
 
-npx vitest run      # frontend tests (233)
-npm run build       # production build (initial JavaScript ≈ 368 kB; the 3D twin chunk, ≈ 648 kB, the analyst workspaces and the workflow page, ≈ 34 kB, load only when opened)
+npx vitest run      # frontend tests (244)
+npm run build       # production build (initial JavaScript ≈ 430 kB, measured 3 Nov; the 3D twin chunk, ≈ 648 kB, the analyst workspaces and the workflow page, ≈ 34 kB, load only when opened)
 node e2e/torqva-app.e2e.mjs        # browser E2E against `npm run dev:sim` (86 checks, incl. no C1–C6 on any page)
 node e2e/torqva-workflow.e2e.mjs   # one-click Diagnostic Workflow: pattern → diagnosis → speed recommendation → authorize → recovery verified; physical blocked (30 checks)
 node e2e/torqva-workbench.e2e.mjs  # analyst workspaces: Anomaly Detection → Diagnostic Investigation → Failure Prediction → Action Recommendations, against `npm run dev:sim` (47 checks)
@@ -152,10 +152,10 @@ node scripts/check-layer-ids.mjs   # no C1–C6 left in backend prose after the 
 
 cd ../backend
 pip install -r requirements.txt
-python -m pytest -q                # backend tests (707: 701 pass, 5 fail as described in section 10 item 2, 1 skipped)
+python -m pytest -q                # backend tests (726 pass, 1 skipped, 3 Nov)
 
 cd ../esp32/torqva_fw
-python -m platformio test -e native      # firmware host tests (uploading is always a deliberate manual step)
+python -m platformio test -e native      # firmware host tests (130, all pass on 3 Nov; host tests are not hardware validation; uploading is always a deliberate manual step)
 ```
 
 E2E scripts need `playwright-core` and Google Chrome. Never set `TORQVA_FORCE_UNLOCK` when running anything.
@@ -196,7 +196,7 @@ Every page leads with its main result or decision; advanced detail (traces, raw 
 
 ## 9. What was done recently (Oct–Nov 2026)
 
-Items 1–17 are committed and pushed to `torqva/phase-0-audit` (latest `09ee47e`, pushed 2 Nov).
+Items 1–17 are committed and pushed to `torqva/phase-0-audit` (`09ee47e`, pushed 2 Nov). Items 18–21 are committed locally on the same branch (3 Nov) and **not pushed**.
 
 1. **UI/UX redesign** (`7459daf`): new design system with refined light and dark themes, new shell/navigation (collapsible, mobile drawer), dashboards, charts, sign-in page.
 2. **Engineering pass** (`0473df3`): removed fabricated behaviour introduced by earlier commits:
@@ -234,6 +234,10 @@ Items 1–17 are committed and pushed to `torqva/phase-0-audit` (latest `09ee47e
 19. **Serial error classification and firmware safety restoration** (3 Nov, two commits). `bd60dbc`: the serial open-error classifier (section 10 item 20). Then the eight firmware files changed by `319fb7b` were restored to their reviewed, tested parent version (detail and evidence per protection in `docs/TORQVA_FIRMWARE_SAFETY_RESTORATION.md`), and three backend leftovers of that commit were fixed: the Safety Supervisor received a fixed 24 V instead of the measured voltage, the sensor interlock ignored voltage, and a build sentinel was sent as the plaintext command key. The firmware-in-the-loop binary was rebuilt from the restored source. One test (`test_python_and_the_firmware_core_agree_on_proofs_session_id_and_command_macs`) took a counter above the bridge's own instead of a fixed 900001 that the clock-seeded counter had already passed; its assertions are unchanged. Nothing was flashed and no board was connected. Firmware host tests 130/130 (were 105/130), backend 726 passed, 0 failed, 1 skipped (were 5 failed).
 
 20. **URL routing and refresh** (3 Nov): `TorqvaApp.jsx` reads the page from the URL hash at load and on Back / Forward / a hand-edited URL, and writes it on navigation (a new page adds a history entry; a tab change or a correction replaces it). Unknown routes open Overview; the old `control` / `devices` / `connection` ids still open their Device & Safety tab. Unit tests reset the URL before each test. New: `src/tests/torqva_routing.test.jsx` (8) and `e2e/torqva-routing.e2e.mjs` (15). The browser suite found one bug before commit: a hand-edited URL to Safety & Commissioning in simulation mode showed the right tab but left the URL uncorrected.
+
+21. **Charts, tables and Digital Twin** (3 Nov, two commits, details in `docs/TORQVA_UI_CONTENT_AUDIT.md` sections 1a and 1b): shared chart rules (chart precision on axes and tooltips, units on the value axis, formatted intervals, missing values as gaps, prediction charts labelled as model estimates with a `now / +N s` horizon); the physical Overview's sparklines and their history poll removed; audit event kinds in product terms (the audit history showed "c2 ranking"); the `torqva-app` E2E id check reads rendered text in either case. Digital Twin: the component panel shows name, function, readings, evidence and a Live Monitor link; its trend chart and identity metadata are gone, and the twin makes no request of its own.
+
+Test status (3 Nov, after item 21; every number below was produced by a run on the final commit): frontend 244/244 in 22 files; build passes (initial JavaScript ≈ 430 kB; the older ≈ 368 kB figure in section 6 dates from an earlier build); browser E2E nine suites, 321 checks: app 86, twin 46, workbench 47, workflow 30, routing 15 against `npm run dev:sim`, and torqva 30, lab 12, c2c4 23, attestation 32 against a fresh token backend; `check-layer-ids` passes; 270-view sweep (every page and tab, both modes, light and dark, 390/768/1440 px): no horizontal overflow, no C1–C6; backend 726 passed, 0 failed, 1 skipped; firmware host tests 130/130. Physical operation remains blocked (section 10 item 2).
 
 Test status (3 Nov, after item 18): frontend 233/233 in 20 files; build passes; browser E2E all eight suites pass (304 checks: app 86, twin 44, workbench 47, workflow 30, torqva 30, lab 12, c2c4 23, attestation 32); `check-layer-ids` passes; a 270-view sweep (every page and tab, both modes, light and dark, 390/768/1440 px) found no horizontal overflow and no C1–C6. Backend and firmware not re-run (unchanged).
 
