@@ -20,7 +20,7 @@ page.on('pageerror', (e) => consoleMsgs.push('pageerror: ' + e.message));
 page.on('request', (r) => { if (r.method() !== 'GET' && /\/api\//.test(r.url())) writes.push(`${r.method()} ${r.url().replace(/^.*\/api\/torqva/, '')}`); });
 const shot = (n) => page.screenshot({ path: `${OUT}/${n}.png`, fullPage: true });
 const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-const nav = async (label) => { await page.click(`nav button:has-text("${label}")`); await page.waitForTimeout(300); };
+const nav = async (label) => { await page.click(`nav button.tq-nav:has-text("${label}")`); await page.waitForTimeout(300); };
 const spinning = () => page.getAttribute('[data-testid=twin-model]', 'data-spinning');
 const updated = () => page.textContent('[data-testid=twin-updated]');
 const t3 = () => page.evaluate(() => ({ ...(document.querySelector('[data-testid=twin-model]')?.dataset || {}) }));
@@ -29,7 +29,7 @@ const settle = () => page.waitForTimeout(900);
 
 const modules3d = []; page.on('request', (r) => { if (/\/twin3d\/|\/three(\.module)?[.-]|\/deps\/three|OrbitControls/.test(r.url())) modules3d.push(r.url()); });
 await page.goto(URL);
-await page.waitForSelector('nav button:has-text("Digital Twin")', { timeout: 20000 });
+await page.waitForSelector('nav button.tq-nav:has-text("Digital Twin")', { timeout: 20000 });
 for (const l of ['Live Monitor', 'Anomaly Detection', 'Device & Safety', 'Overview']) await nav(l);
 check('the 3D code is not loaded on other pages', modules3d.length === 0, modules3d.slice(0, 2).join(' '));
 

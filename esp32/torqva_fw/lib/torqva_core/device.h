@@ -13,6 +13,7 @@
 #include "interlock.h"
 #include "auth.h"
 #include "runtime_config.h"
+#include "ota.h"
 
 namespace torqva {
 
@@ -38,6 +39,10 @@ struct DeviceConfig {
     uint32_t auth_max_ttl_ms;    // 0 = 600000
     // Called after a runtime configuration was authenticated, validated and applied (the target stores it for audit; it is NEVER trusted on its own after a reboot). May be null.
     void (*persist_cfg)(const RuntimeLimits&);
+    // Over-the-air update (ota.h). ota_capable is decided by the platform at boot (OTA partitions, signing key compiled in, Wi-Fi / base URL / CA provisioned);
+    // ota_why says why not. Zero-initialised = not capable: every "ota" request is refused with OTA_NOT_CONFIGURED.
+    bool ota_capable;
+    const char* ota_why;
 };
 
 // Sensor / input snapshot supplied by the platform (real HAL or SimPlant).
@@ -106,6 +111,24 @@ public:
     // Only for host-side simulation/commissioning code, not reachable over the wire.
     void set_limits(const Limits& l);
 
+    // ---- over-the-air update (ota.h). The Device authorises a request and refuses motion while it runs; the platform's OTA task does the transfer.
+    // Why an update may not start now (static string), nullptr = eligible. Never relaxes anything: a latched trip, any drive demand, an unverified or turning
+    // shaft, an unverified or present motor supply all refuse (an unavailable reading is never taken as zero).
+    const char* ota_block_reason(uint32_t now_ms) const;
+    // The OTA task takes the authorised request (once). False when there is none.
+    bool take_ota_request(OtaRequest* out);
+    // Progress reported by the OTA task; queued as an "ota" line. A terminal FAILED ends the update and lifts the motion refusal.
+    void ota_progress(const OtaProgress& p);
+    bool ota_active() const { return ota_active_; }
+    // Facts the first-boot self-test reads (the commanded outputs are the only thing apply() writes, so they are the state of the driver pins).
+    bool outputs_off() const { return !last_out_.driver_enable && last_out_.duty_pct == 0.0f && !last_out_.relay_on; }
+    bool watchdog_active() const { return watchdog_active_; }
+    uint8_t estop_state() const { return have_in_ ? last_in_.estop_state : (uint8_t)3; }
+    // Facts about this boot, set once by the platform (reported in "ota_info").
+    void set_ota_boot(const char* running, uint32_t inactive_size, bool pending_verify, const char* last_result, const char* last_ver);
+    // The first-boot self-test outcome (pending_verify cleared on CONFIRMED).
+    void ota_boot_result(OtaState s, const char* why);
+
 private:
     void queue_line(const char* s, size_t len);
     void queue_ack(const Ack& a);
@@ -123,6 +146,11 @@ private:
     SessionAuth auth_;
     bool cfg_runtime_valid_; uint16_t cfg_ver_;
     void handle_cfg(const char* line, uint32_t now_ms);
+    void handle_ota(const char* line, uint32_t now_ms);
+    bool ota_active_, ota_has_req_, ota_pending_verify_;
+    OtaRequest ota_req_;
+    const char* ota_running_; uint32_t ota_psz_; const char* ota_last_; const char* ota_last_ver_;
+    uint32_t last_ota_info_ms_;
 
     HalIn last_in_; bool have_in_; bool watchdog_active_; bool session_active_; char session_sid_[33];
     uint32_t last_step_ms_; bool stepped_;

@@ -48,7 +48,7 @@ describe('URL routing in the app', () => {
   it('opens the page named in the URL (a refresh keeps the page) and keeps its group expanded', async () => {
     await open('#/predictions');
     await waitFor(() => expect(active()).toMatch(/^Failure Prediction/));
-    expect(screen.getByRole('button', { name: /^Diagnose/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Show or hide Diagnose' })).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('writes the page to the URL on navigation and follows Back', async () => {

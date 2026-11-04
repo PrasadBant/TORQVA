@@ -24,7 +24,7 @@ const api = (path) => page.evaluate((p) => fetch(`/api/torqva${p}`, { headers: {
 const nav = async (name) => {
   const t = page.locator('[data-testid="nav-toggle"]');
   if (await t.isVisible() && (await t.getAttribute('aria-expanded')) !== 'true') await t.click();
-  await page.click(`nav button:has-text("${name}")`); await page.waitForTimeout(500);
+  await page.click(`nav button.tq-nav:has-text("${name}")`); await page.waitForTimeout(500);
 };
 const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 const status = () => page.getAttribute('[data-testid=wf-record]', 'data-status');
@@ -33,7 +33,7 @@ await page.goto(URL);
 await page.waitForSelector('[data-testid=sim-status-strip]', { timeout: 30000 });
 
 // a faulty run whose pipeline holds its action for a human decision (configured in Scenario Studio)
-await page.click('nav button:has-text("Scenario Studio")');
+await page.click('nav button.tq-nav:has-text("Scenario Studio")');
 for (let i = 0; i < 20; i++) {   // the new-scenario form is a disclosure in Scenario Studio; it folds once when the run state first loads
   await page.evaluate(() => document.querySelectorAll('[data-testid=scn-new]').forEach((x) => { x.open = true; }));
   await page.waitForTimeout(300);

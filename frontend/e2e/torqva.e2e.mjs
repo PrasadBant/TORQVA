@@ -23,13 +23,13 @@ const runBtn = () => page.getByRole('button', { name: 'Run', exact: true });   /
 const navTo = async (name) => {
   const t = page.locator('[data-testid="nav-toggle"]');
   if (await t.isVisible() && (await t.getAttribute('aria-expanded')) !== 'true') await t.click();
-  await page.click(`nav button:has-text("${name}")`);
+  await page.click(`nav button.tq-nav:has-text("${name}")`);
 };
 
 await page.goto(BASE + '/#/torqva');
 await page.fill('input[type=password]', TOKEN);
 await page.click('button:has-text("Sign in")');
-await page.click('nav button:has-text("Scenario Studio")');     // scenarios are configured, started and run only in Scenario Studio
+await page.click('nav button.tq-nav:has-text("Scenario Studio")');     // scenarios are configured, started and run only in Scenario Studio
 for (let i = 0; i < 20; i++) {   // the new-scenario form is a disclosure in Scenario Studio; it folds once when the run state first loads
   await page.evaluate(() => document.querySelectorAll('[data-testid=scn-new]').forEach((x) => { x.open = true; }));
   await page.waitForTimeout(300);
@@ -46,7 +46,7 @@ await page.waitForFunction(() => [...document.querySelectorAll('button')].some((
 check('Run enabled right after start (sim time 0)', await runBtn().isEnabled());
 check('STOP enabled right after start', await page.isEnabled('button[aria-label="Stop motor (coast) in the simulator"]'));
 await runBtn().click();
-await page.click('nav button:has-text("Action Recommendations")');
+await page.click('nav button.tq-nav:has-text("Action Recommendations")');
 await page.waitForSelector('button:has-text("Approve"):not([disabled])', { timeout: 120000 });
 await shot('10-awaiting-approval');
 check('approval pending shown, REDUCE_SPEED not yet sent',
@@ -58,23 +58,23 @@ check('after approve: the action lifecycle shows the simulated device acknowledg
 const reqTxt = await page.textContent('[data-testid=life-requested]');
 check('the requested action names its command id (not history length)', /command #\d+/.test(reqTxt), reqTxt.slice(0, 80));
 await shot('11-after-approve');
-await page.click('nav button:has-text("Live")');
+await page.click('nav button.tq-nav:has-text("Live")');
 await page.waitForTimeout(1500);
 await shot('12-live');
 check('chart has legend', (await page.locator('.recharts-legend-item').count()) >= 3);
 
 // wait for recovery
-await page.click('nav button:has-text("Recovery Verification")');
+await page.click('nav button.tq-nav:has-text("Recovery Verification")');
 await page.waitForSelector('text=RECOVERED', { timeout: 150000 });
 await shot('13-recovered');
 check('Recovery shows RECOVERED with SIM badge', (await page.textContent('main')).includes('SIM'));
 await page.click('button:has-text("Pause")').catch(() => {});
 
 // ---- keyboard navigation
-await page.focus('nav button:has-text("Overview")');
+await page.focus('nav button.tq-nav:has-text("Overview")');
 await page.keyboard.press('Tab'); await page.keyboard.press('Enter');
 await page.waitForTimeout(500);
-check('keyboard: Tab+Enter moves to next section', await page.getAttribute('nav button:has-text("Live")', 'aria-current') === 'page');
+check('keyboard: Tab+Enter moves to next section', await page.getAttribute('nav button.tq-nav:has-text("Live")', 'aria-current') === 'page');
 const ring = await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle);
 check('focus is visible (outline)', ring !== 'none', `outline=${ring}`);
 
@@ -91,7 +91,7 @@ for (const w of [1024, 768, 390]) {
 await page.setViewportSize({ width: 1440, height: 900 });
 
 // ---- error state: stop backend, UI must show an error and not crash
-await page.click('nav button:has-text("Scenario Studio")');      // STOP for the simulator lives in Scenario Studio
+await page.click('nav button.tq-nav:has-text("Scenario Studio")');      // STOP for the simulator lives in Scenario Studio
 await page.route('**/api/torqva/**', (r) => r.abort());
 await page.click('button[aria-label="Stop motor (coast) in the simulator"]');
 await page.waitForTimeout(2500);

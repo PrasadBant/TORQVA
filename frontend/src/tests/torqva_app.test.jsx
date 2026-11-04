@@ -115,7 +115,7 @@ describe('redesigned application shell', () => {
 
 describe('application shell behaviour (audit)', () => {
   // The full sidebar, in order: one entry per page in both modes (Device & Safety holds the device, safety and audit sections).
-  const NAV_SIM = ['Overview', 'Live Monitor', 'Digital Twin', 'Diagnostic Workflow', 'Anomaly Detection', 'Failure Prediction', 'Action Recommendations', 'Diagnostic Investigation', 'Recovery Verification', 'Continuous Intelligence', 'Performance Evaluation', 'Scenario Studio', 'Lab', 'Device & Safety'];
+  const NAV_SIM = ['Overview', 'Live Monitor', 'Digital Twin', 'Diagnostic Workflow', 'Anomaly Detection', 'Failure Prediction', 'Action Recommendations', 'Diagnostic Investigation', 'Recovery Verification', 'Continuous Intelligence', 'Performance Evaluation', 'Scenario Studio', 'Lab', 'Device & Safety', 'Firmware Manager'];
   const navButton = (n) => screen.getByRole('button', { name: new RegExp(`^${n}$`) });
   const simCalls = () => fetch.mock.calls.map(([u]) => String(u)).filter((u) => /\/api\/torqva\/(status|telemetry|simulation)/.test(u)).length;
 

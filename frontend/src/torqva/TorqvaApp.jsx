@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { Activity, Box, Gauge, ListChecks, Microscope, Workflow, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap, Usb, SlidersHorizontal, Sun, Moon, ClipboardCheck, Menu, KeyRound, PanelLeftClose, PanelLeftOpen, Cpu, Brain, ChevronDown, ShieldAlert, Server } from 'lucide-react';
+import { Activity, Box, Gauge, ListChecks, Microscope, Workflow, ShieldCheck, LogOut, FlaskConical, Beaker, LineChart, TestTube2, Settings, WifiOff, GraduationCap, Usb, SlidersHorizontal, Sun, Moon, ClipboardCheck, Menu, KeyRound, PanelLeftClose, PanelLeftOpen, Cpu, Brain, ChevronDown, ShieldAlert, Server, HardDrive } from 'lucide-react';
 import { api, setToken, getToken, ApiError } from './api.js';
 import { SimulationBanner, Pill, Logo, NavContext, PageHead, Empty, AlertPanel, Tabs, TabPanel } from './shared/components.jsx';
 import { prefetchCharts } from './shared/lazyCharts.jsx';
@@ -47,6 +47,7 @@ const NAV_GROUPS = [
   ] },
   { heading: 'Device & Safety', items: [
     ['device', 'Device & Safety', Cpu],
+    ['firmware', 'Firmware Manager', HardDrive],
   ] },
 ];
 // Former page ids that are now sections of Device & Safety: links and stored selections keep working and open the right section.
@@ -66,6 +67,8 @@ const SimInterventionsPage = lazy(() => import('./simulation/intervene.jsx').the
 // The unified workflow: one component for both modes (the backend's mode-specific adapter decides what can run).
 const WorkflowPage = lazy(() => import('./workflow/workflow.jsx').then((m) => ({ default: m.WorkflowPage })));
 const pageFallback = <Empty loading>Loading…</Empty>;
+// Firmware Manager (physical device only): fetched when first opened.
+const FirmwarePage = lazy(() => import('./physical/firmware.jsx').then((m) => ({ default: m.FirmwarePage })));
 
 const NAV = NAV_GROUPS.flatMap((g) => g.items);
 
@@ -365,6 +368,11 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     device: deviceSafety(<DevicePage stream={device} role={user.role} go={go} simMode embedded />, null, <DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />),
     lab: (<><PageHead title="Lab" sub="Recording sessions and matched experiments." /><Lab role={user.role} isPhys={physicalMode} /></>),
     scenario: <ScenarioPage {...ctx} stepSeconds={stepSeconds} />,
+    // Firmware belongs to the physical board: simulation mode has nothing to update and never reaches the firmware routes.
+    firmware: (<><PageHead title="Firmware Manager" sub="Firmware updates apply to the physical ESP32-S3 device." />
+      <AlertPanel tone="info" icon={HardDrive} title="PHYSICAL DEVICE ONLY" testid="fw-sim-note"
+        action={<button type="button" className="tq-btn" onClick={() => changeMode('PHYSICAL')}><Usb size={14} aria-hidden="true" />Switch to Physical mode</button>}>
+        The software simulator has no firmware. Switch to Physical mode to manage the board's firmware.</AlertPanel></>),
   };
   // Simulation-only tools in physical mode: say so, and offer the explicit mode switch (changing mode never commands a motor).
   const simOnly = (t, testid) => (<><PageHead title={t} sub="This tool runs the software simulator only." />
@@ -400,6 +408,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
       <DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />),
     lab: simOnly('Lab', 'lab-sim-note'),
     scenario: simOnly('Scenario Studio', 'scenario-sim-note'),
+    firmware: <Suspense fallback={pageFallback}><FirmwarePage role={user.role} go={go} /></Suspense>,
   };
   const pages = physicalMode ? physPages : simPages;
   const navItem = (k) => {
@@ -434,7 +443,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
             return (
               <div className="tq-navgroup" key={grp.heading}>
                 {single ? <p className="tq-navgroup-label" id={`tq-ng-${gi}`}>{grp.heading}</p>
-                  : <button type="button" className="tq-navgroup-label tq-navgroup-btn" id={`tq-ng-${gi}`} aria-expanded={!shut} onClick={() => toggleGroup(grp.heading)}>
+                  : <button type="button" className="tq-navgroup-label tq-navgroup-btn" id={`tq-ng-${gi}`} aria-expanded={!shut} aria-label={`Show or hide ${grp.heading}`} onClick={() => toggleGroup(grp.heading)}>
                     <span>{grp.heading}</span><ChevronDown size={13} aria-hidden="true" className="tq-navgroup-chev" /></button>}
                 {!shut && <ul aria-labelledby={`tq-ng-${gi}`}>{grp.items.map(([k]) => { const { label, Icon } = navItem(k); return (
                   <li key={k}><button className={`tq-nav ${view === k ? 'active' : ''}`} aria-current={view === k ? 'page' : undefined} onClick={() => go(k)} title={collapsed && !compact ? label : undefined}>

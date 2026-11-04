@@ -52,3 +52,8 @@ graphify-out/
 esp32/torqva_fw/.pio/
 backend/data/commissioning.json
 backend/data/device_keys.json
+
+# OTA: the generated release-signing PUBLIC key header (per deployment) and any signing material
+esp32/torqva_fw/src/ota_pubkey.h
+*.pem
+backend/data/firmware/

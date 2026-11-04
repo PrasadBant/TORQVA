@@ -5,5 +5,6 @@ websockets>=12.0
 pytest>=8.0.0
 httpx>=0.27.0
 numpy>=1.26.0
-cryptography>=42.0.0  # tests only: ephemeral TEST-ONLY certificates for the secure-transport tests (the transport itself uses the stdlib ssl module)
+cryptography>=42.0.0  # firmware release signature verification (ECDSA P-256, torqva/firmware.py); also the test-only certificates of the secure-transport tests
+python-multipart>=0.0.9  # firmware upload (multipart/form-data)
 pyserial>=3.5  # USB serial bridge (opened only on an explicit admin connect request)

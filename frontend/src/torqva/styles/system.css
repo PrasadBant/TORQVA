@@ -325,3 +325,13 @@ button.tq-step-btn { cursor: pointer; } button.tq-step-btn:hover { background: v
 
 /* Compact motor-condition badge in page heads. */
 .tq-cond-badge { display: inline-flex; }
+
+/* ---- Firmware Manager (physical/firmware.jsx) */
+.tq-fw-drop { border: 1.5px dashed var(--tq-border); border-radius: var(--tq-r-l); background: var(--tq-s2); padding: 18px 16px; text-align: center; color: var(--tq-text-2); }
+.tq-fw-drop p { margin: 4px 0; }
+.tq-fw-drop.is-over { border-color: var(--tq-accent); color: var(--tq-text); }
+.tq-fw-form { display: grid; gap: 10px; margin-top: 12px; }
+.tq-fw-form label { display: grid; gap: 4px; font-size: 13px; color: var(--tq-text-2); }
+.tq-fw-form textarea, .tq-fw-form input:not([type=file]) { width: 100%; box-sizing: border-box; font-family: var(--tq-font); }
+.tq-fw-progress { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.tq-fw-progress progress { flex: 1 1 200px; min-width: 0; height: 8px; accent-color: var(--tq-accent); }

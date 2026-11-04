@@ -40,6 +40,7 @@ MAX_LINE = 512
 ERROR_EVENT_INTERVAL_S = 2.0                # repeated protocol errors are aggregated into one event per code per interval
 HANDSHAKE_TIMEOUT_S = 5.0                   # port open but no valid status frame for this long -> HANDSHAKE_TIMEOUT diagnostic (no disconnect, no retry loop)
 WIRE_PROTOCOL = 1
+OTA_STATES = {"IDLE", "REFUSED", "AUTHORIZED", "PREPARING", "WIFI", "MANIFEST", "DOWNLOADING", "VERIFYING", "READY", "REBOOTING", "SELF_TEST", "CONFIRMED", "ROLLBACK", "FAILED"}
 Q_BITS = {"current": 1, "voltage": 2, "housing": 4, "ambient": 8, "rpm": 16, "vibration": 32}
 HISTORY_SAMPLES = 3600                       # 10 Hz -> 6 minutes; bounded memory
 STALE_AFTER_S = 2.0                          # no fast frame for this long -> telemetry is stale (never presented as live)
@@ -162,6 +163,17 @@ def parse_frame(line: "bytes | str") -> Dict[str, Any]:
         return {"t": t, "sid": _hex(o, "sid", 16), "ttl": _uint(o, "ttl", 600000)}
     if t == "auth_err":
         return {"t": t, "reason": _str(o, "reason", 24)}
+    if t == "ota":                                               # over-the-air update progress (additive to protocol 1; lib/torqva_core/ota.h)
+        st = _str(o, "st", 16)
+        if st not in OTA_STATES:
+            raise FrameError("BAD_FIELD", "st")
+        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "id": _uint(o, "id"), "st": st, "rel": _str(o, "rel", 12), "ver": _str(o, "ver", 23), "b": _uint(o, "b"), "n": _uint(o, "n"), "why": _str(o, "why", 32)}
+    if t == "ota_info":                                          # this boot's OTA capability and the device's own eligibility verdict
+        cap, pend, busy = o.get("cap"), o.get("pend"), o.get("busy")
+        if any(v not in (0, 1) or isinstance(v, bool) for v in (cap, pend, busy)):
+            raise FrameError("BAD_FIELD", "cap")
+        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "cap": cap, "why": _str(o, "why", 32), "run": _str(o, "run", 8), "psz": _uint(o, "psz"), "pend": pend, "last": _str(o, "last", 16),
+                "lver": _str(o, "lver", 23), "blk": _str(o, "blk", 32), "busy": busy}
     raise FrameError("UNKNOWN_TYPE", str(t)[:16])
 
 
@@ -642,6 +654,9 @@ class DeviceBridge:
         self._hb_ids: "collections.deque[int]" = collections.deque(maxlen=64)       # ids of the periodic authenticated heartbeats (their acknowledgements are not command results)
         self._hb_last = 0.0
         self._cfg: Dict[str, Any] = {}                             # runtime-limit push state: {sent_ver, sent_at, ack_ok, ack_reason}
+        self.ota_info: Optional[Dict[str, Any]] = None             # the latest "ota_info" frame (+ _at); None until the device reports one
+        self.ota_last: Optional[Dict[str, Any]] = None             # the latest "ota" progress frame
+        self.ota_listener: Optional[Callable[[Dict[str, Any]], None]] = None   # the Firmware Manager (firmware.py)
         self._auth_next = 0.0
         self.commissioning = None                                  # optional human commissioning record (torqva.commissioning); None = nothing is attested
         self.policy = policy or PhysicalControlPolicy()
@@ -724,6 +739,7 @@ class DeviceBridge:
             tr.close()                                                                             # release the port
         if was:
             self.hub.publish("device_disconnected", {"reason": reason})
+            self._ota_link(False, reason)
 
     # ---- reader loop (bounded, no busy loop: blocking read with a timeout)
     def _reader(self) -> None:
@@ -793,6 +809,8 @@ class DeviceBridge:
             return
         if "restart" in events:
             self._on_device_restart()
+        if f["t"] in ("ota", "ota_info") and "duplicate" not in events:      # counted in the shared sequence like every frame, then handed to the Firmware Manager
+            self._on_ota_frame(f, now)
         if f["t"] == "fast":
             self.hub.publish("telemetry", self.model.snapshot(now))
         elif f["t"] == "status":
@@ -837,6 +855,7 @@ class DeviceBridge:
                     rec.state, rec.reasons = CmdState.UNKNOWN_OUTCOME, ["device restarted"]            # a restart never resumes or replays a previous command
                     self.hub.publish("command_unknown_outcome", rec.public())
         self.hub.publish("device_restarted", {})
+        self._ota_link(False, "device restarted")
 
     def _housekeeping(self, now: float) -> None:
         self._flush_protocol_errors(now)
@@ -1299,6 +1318,49 @@ class DeviceBridge:
         self.hub.publish("command_sent", rec.public())
         return rec
 
+    # ---- over-the-air update coordination. The serial link carries only the authenticated request and the device's own status reports; the image itself is
+    # downloaded by the device over HTTPS (firmware.py). Nothing here starts, stops or changes the motor.
+    def _on_ota_frame(self, f: Dict[str, Any], now: float) -> None:
+        with self._lock:
+            if f["t"] == "ota_info":
+                self.ota_info = {**f, "_at": now}
+            else:
+                self.ota_last = {**f, "_at": now}
+        self.hub.publish("ota_status" if f["t"] == "ota" else "ota_info", {k: v for k, v in f.items() if k != "t"})
+        if self.ota_listener is not None:
+            try:
+                self.ota_listener(f)
+            except Exception:                                          # noqa: BLE001 - a listener failure must never break the serial reader
+                log.exception("ota listener failed")
+
+    def _ota_link(self, connected: bool, reason: str) -> None:
+        if self.ota_listener is not None:
+            try:
+                self.ota_listener({"t": "link", "connected": connected, "reason": reason})
+            except Exception:                                          # noqa: BLE001
+                log.exception("ota listener failed")
+
+    def request_ota(self, rel: str, ver: str, tok: str) -> "tuple[bool, str]":
+        """Sends the authenticated update request (MAC over ota|id|seq|sid|rel|ver|tok with the live session key, exactly like a runtime configuration).
+        Returns (sent, reason). Sending is not acceptance: the device answers with its own AUTHORIZED or REFUSED report."""
+        if not re.fullmatch(r"[0-9a-f]{12}", rel or "") or not re.fullmatch(r"[0-9a-f]{32}", tok or "") or not re.fullmatch(r"\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?", ver or ""):
+            return False, "invalid request"
+        with self._lock:
+            if self._transport is None or self.model.conn != Conn.CONNECTED:
+                return False, "device not connected"
+            if not self.session_active():
+                return False, "no authenticated session"
+            a = self._auth
+            seq = self._next_seq
+            self._next_seq += 1
+            cid = self._next_id
+            self._next_id = (self._next_id + 1) & UINT32 or 1
+            canon = f"ota|{cid}|{seq}|{a['sid']}|{rel}|{ver}|{tok}"
+            mac = hmac.new(a["sk"], canon.encode(), hashlib.sha256).hexdigest()[:32]
+        if not self._send_line({"t": "ota", "id": cid, "rel": rel, "ver": ver, "tok": tok, "seq": seq, "sid": a["sid"], "m": mac}):
+            return False, "the serial link refused the write"
+        return True, ""
+
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
             s = self.model.snapshot(self._clock())
@@ -1309,6 +1371,7 @@ class DeviceBridge:
                            "approved_version": c.limits["version"] if c is not None and c.limits else None, "device_version": self.device_cfg_version(), "confirmed": self.limits_confirmed(),
                            "last_push": {k: self._cfg.get(k) for k in ("sent_ver", "ack_ok", "ack_reason")} if self._cfg else None}
             s["analysis"] = analysis_status(s)
+            s["ota"] = None if self.ota_info is None else {**{k: v for k, v in self.ota_info.items() if not k.startswith("_")}, "age_s": round(self._clock() - self.ota_info["_at"], 1)}
             s["autoconnect"] = self.autoconnect.status() if self.autoconnect is not None else {"configured": False, "note": "no device port is configured (set TORQVA_DEVICE_PORT); connect from the Device page"}
             s["session"] = {"state": self._auth.get("state"), "active": self.session_active(), "error": self._auth.get("error"), "key_provisioned": self._device_key() is not None}
             s["physical_control_enabled"] = self.policy.physical_control_enabled

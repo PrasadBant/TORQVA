@@ -55,7 +55,13 @@ ROLE = {
     ("POST", "/device/disconnect"): "admin", ("POST", "/device/commands"): "viewer", ("GET", "/device/commands"): "viewer",
     ("GET", "/device/commissioning"): "viewer", ("POST", "/device/commissioning/items/{item_id}"): "admin",
     ("PUT", "/device/commissioning/limits"): "admin", ("POST", "/device/commissioning/enable"): "admin",
+    ("GET", "/firmware/status"): "viewer", ("GET", "/firmware/releases"): "viewer", ("GET", "/firmware/releases/{rid}"): "viewer",
+    ("POST", "/firmware/releases"): "admin", ("POST", "/firmware/deployments"): "admin", ("GET", "/firmware/deployments"): "viewer",
+    ("GET", "/firmware/deployments/{dep_id}"): "viewer",
 }
+# Device-facing OTA downloads: the ESP32 cannot hold a bearer token, so these take a single-use deployment token in the
+# query string instead and refuse anything else with 403. They are listed here deliberately, never in ROLE.
+DEVICE_TOKEN_ROUTES = {("GET", "/firmware/ota/{rid}/manifest"), ("GET", "/firmware/ota/{rid}/image")}
 RANK = {"viewer": 0, "operator": 1, "admin": 2}
 LIMITS = {"max_current_a": 2.5, "min_voltage_v": 18.0, "max_voltage_v": 24.0, "max_temp_c": 60.0, "max_rpm": 3000.0, "max_duty_pct": 30.0}
 
@@ -86,7 +92,7 @@ def http_routes(app):
 
 
 def call(c, method, path, token=None):
-    url = P + path.replace("{sid}", "L-0000").replace("{cid}", "C-0000").replace("{version}", "1").replace("{item_id}", "estop")
+    url = P + path.replace("{sid}", "L-0000").replace("{cid}", "C-0000").replace("{version}", "1").replace("{item_id}", "estop").replace("{rid}", "R-000000000000").replace("{dep_id}", "D-0000")
     return c.request(method, url, headers=H(token) if token else {}, json=None if method == "GET" else {})
 
 
@@ -102,14 +108,26 @@ def test_the_test_session_never_scans_or_opens_a_serial_port(ctx):
 def test_every_http_route_is_listed_with_an_intended_role(ctx):
     _, app, _ = ctx
     routes = set(http_routes(app))
-    assert routes == set(ROLE), {"unlisted": sorted(routes - set(ROLE)), "missing": sorted(set(ROLE) - routes)}
+    listed = set(ROLE) | DEVICE_TOKEN_ROUTES
+    assert routes == listed, {"unlisted": sorted(routes - listed), "missing": sorted(listed - routes)}
 
 
 def test_every_http_route_refuses_a_missing_or_wrong_token(ctx):
     _, app, c = ctx
     for method, path in http_routes(app):
+        if (method, path) in DEVICE_TOKEN_ROUTES:
+            continue
         assert call(c, method, path).status_code == 401, (method, path)
         assert call(c, method, path, "not-a-token").status_code == 401, (method, path)
+
+
+def test_device_ota_downloads_refuse_a_missing_or_wrong_deployment_token_and_ignore_bearer_tokens(ctx):
+    _, _, c = ctx
+    for method, path in DEVICE_TOKEN_ROUTES:
+        for token in (None, "not-a-token", "v-tok", "a-tok"):
+            assert call(c, method, path, token).status_code == 403, (method, path, token)
+        url = P + path.replace("{rid}", "R-000000000000") + "?t=" + "0" * 32
+        assert c.request(method, url, headers=H("a-tok")).status_code == 403, (method, path)
 
 
 def test_viewer_and_operator_are_refused_every_route_above_their_role_and_the_refusal_is_audited(ctx):

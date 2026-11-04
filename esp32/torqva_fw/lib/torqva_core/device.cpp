@@ -18,6 +18,7 @@ Device::Device(const Limits& l, const DeviceConfig& c)
       last_state_(SafetyState::OK), last_reason_(TripReason::NONE),
       test_cmd_id_(0), test_cmd_valid_(false), reset_cmd_id_(0), reset_pending_(false),
       reset_deadline_ms_(0), last_out_(), last_dt_s_(0.01f),
+      ota_active_(false), ota_has_req_(false), ota_pending_verify_(false), ota_req_(), ota_running_("?"), ota_psz_(0), ota_last_(""), ota_last_ver_(""), last_ota_info_ms_(0),
       q_head_(0), q_tail_(0), q_count_(0), dropped_(0) {
     memset(q_, 0, sizeof(q_));
     AuthConfig ac = {}; ac.enabled = c.auth_enabled && c.rand32 != nullptr; memcpy(ac.key, c.auth_key, 32); ac.device_id = c.device_id; ac.rand32 = c.rand32;
@@ -94,6 +95,7 @@ void Device::handle_cfg(const char* line, uint32_t now_ms) {
 
 void Device::on_line(const char* line, uint32_t now_ms) {
     if (is_cfg_line(line)) { handle_cfg(line, now_ms); return; }
+    if (is_ota_line(line)) { handle_ota(line, now_ms); return; }
     {   // authenticated-session handshake lines (hello / auth) never reach the command parser
         char out[kLine], sid[33];
         const int r = auth_.handle(line, now_ms, out, sizeof(out), sid);
@@ -194,6 +196,10 @@ const char* Device::start_blocked_reason(uint32_t now_ms) const {
 }
 
 const char* Device::execute(const Command& c, uint32_t now_ms) {
+    // An update in progress refuses every motion command in every build (relaxed simulation included), and is reported first. STOP and the rest are never blocked here.
+    if (ota_active_ && (c.type == CmdType::START || c.type == CmdType::SET_SPEED || c.type == CmdType::RUN_TEST)) return "OTA_IN_PROGRESS";
+    // A new image that has not passed its first-boot self-test never drives the motor.
+    if (ota_pending_verify_ && (c.type == CmdType::START || c.type == CmdType::SET_SPEED || c.type == CmdType::RUN_TEST)) return "OTA_PENDING_VERIFY";
     // Motor-energising commands need every interlock verified. STOP, HEARTBEAT, ABORT_TEST and RESET_ESTOP are never blocked here.
     if (!cfg_.relaxed_interlocks &&
         (c.type == CmdType::START || c.type == CmdType::SET_SPEED || c.type == CmdType::RUN_TEST)) {
@@ -297,10 +303,11 @@ HalOut Device::step(const HalIn& in) {
         }
     }
 
-    DriveOutput d = drive_.update(dt, in.rpm, so.drive_allowed);
+    if (ota_active_ && drive_.mode() != DriveMode::IDLE) drive_.stop();          // never reachable through a command (refused above); kept so no path can drive during an update
+    DriveOutput d = drive_.update(dt, in.rpm, so.drive_allowed && !ota_active_);
 
     HalOut out;
-    out.driver_enable = so.drive_allowed && d.driver_enable;
+    out.driver_enable = so.drive_allowed && !ota_active_ && d.driver_enable;
     out.duty_pct = out.driver_enable ? d.duty_pct : 0.0f;
     out.relay_on = so.drive_allowed && drive_.mode() != DriveMode::IDLE;
     last_out_ = out;
@@ -350,6 +357,72 @@ void Device::emit_frames(const HalIn& in) {
                          cfg_version(), last_in_.estop_state};
         queue_line(b, encode_status(b, sizeof(b), f));
     }
+    if ((uint32_t)(in.now_ms - last_ota_info_ms_) >= kStatusPeriodMs) {
+        last_ota_info_ms_ = in.now_ms;
+        const char* blk = ota_block_reason(in.now_ms);
+        OtaInfo oi = {cfg_.ota_capable, cfg_.ota_capable ? "" : (cfg_.ota_why ? cfg_.ota_why : "OTA_NOT_CONFIGURED"), ota_running_, ota_psz_, ota_pending_verify_,
+                      ota_last_, ota_last_ver_, blk ? blk : "", ota_active_};
+        queue_line(b, encode_ota_info(b, sizeof(b), oi, seq_++, in.now_ms));
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------- over-the-air update
+const char* Device::ota_block_reason(uint32_t now_ms) const {
+    if (!cfg_.ota_capable) return "OTA_NOT_CONFIGURED";
+    if (ota_active_) return "OTA_BUSY";
+    if (ota_pending_verify_) return "PENDING_VERIFY";                                  // this image is not confirmed yet: no second update on top of it
+    if (!have_in_ || (uint32_t)(now_ms - last_in_.now_ms) > kFreshMs) return "TELEMETRY_STALE";
+    if (safety_.state() == SafetyState::EMERGENCY_STOP) return "SAFETY_TRIP_LATCHED";  // a restart must never be the way a latched trip is cleared
+    if (tests_.active()) return "TEST_ACTIVE";
+    if (drive_.mode() != DriveMode::IDLE || drive_.duty() > 0.0f || last_out_.driver_enable || last_out_.relay_on) return "MOTOR_NOT_STOPPED";
+    if (!last_in_.rpm_valid || !finite_f(last_in_.rpm)) return "SPEED_UNVERIFIED";     // an unavailable speed is never taken as zero
+    if (last_in_.pulse_recent || last_in_.rpm > 0.0f) return "MOTOR_TURNING";
+    if (!last_in_.voltage_valid || !finite_f(last_in_.voltage_v)) return "SUPPLY_UNVERIFIED";
+    if (last_in_.voltage_v >= kSupplyPresentV) return "MOTOR_POWER_CONNECTED";         // bench updates need the motor power stage disconnected
+    return nullptr;
+}
+
+void Device::handle_ota(const char* line, uint32_t now_ms) {
+    char b[kLine];
+    OtaRequest r;
+    const char* why = parse_ota(line, &r);
+    if (!why) {
+        char canon[200];
+        ota_canonical(r, canon, sizeof(canon));
+        why = auth_.enabled() ? auth_.verify_message(canon, r.sid, r.seq, r.mac, now_ms) : "NO_SECURE_SESSION";     // only the authenticated backend may request an update
+        if (!why && (!session_active_ || (session_sid_[0] && strcmp(r.sid, session_sid_) != 0))) why = "WRONG_SESSION";
+        if (!why) why = ota_block_reason(now_ms);
+    }
+    OtaProgress p = {why ? OtaState::REFUSED : OtaState::AUTHORIZED, why ? why : "", 0, 0};
+    if (!why) {
+        drive_.stop(); tests_.abort("OTA");                                             // already idle (checked above); explicit so the update starts from a stopped drive
+        ota_req_ = r; ota_has_req_ = true; ota_active_ = true;
+    }
+    queue_line(b, encode_ota_status(b, sizeof(b), p, r.rel, r.ver, r.id, seq_++, now_ms));
+}
+
+bool Device::take_ota_request(OtaRequest* out) {
+    if (!ota_has_req_ || !out) return false;
+    *out = ota_req_; ota_has_req_ = false;
+    return true;
+}
+
+void Device::ota_progress(const OtaProgress& p) {
+    char b[kLine];
+    queue_line(b, encode_ota_status(b, sizeof(b), p, ota_req_.rel, ota_req_.ver, ota_req_.id, seq_++, have_in_ ? last_in_.now_ms : last_step_ms_));
+    if (p.state == OtaState::FAILED) { ota_active_ = false; ota_last_ = "FAILED"; ota_last_ver_ = ota_req_.ver; }   // the running image stays; motion stays refused only by the usual interlocks
+}
+
+void Device::set_ota_boot(const char* running, uint32_t inactive_size, bool pending_verify, const char* last_result, const char* last_ver) {
+    ota_running_ = running ? running : "?"; ota_psz_ = inactive_size; ota_pending_verify_ = pending_verify;
+    ota_last_ = last_result ? last_result : ""; ota_last_ver_ = last_ver ? last_ver : "";
+}
+
+void Device::ota_boot_result(OtaState s, const char* why) {
+    char b[kLine];
+    OtaProgress p = {s, why ? why : "", 0, 0};
+    queue_line(b, encode_ota_status(b, sizeof(b), p, "", cfg_.fw_version, 0, seq_++, have_in_ ? last_in_.now_ms : last_step_ms_));
+    if (s == OtaState::CONFIRMED) { ota_pending_verify_ = false; ota_last_ = "CONFIRMED"; ota_last_ver_ = cfg_.fw_version; }
 }
 
 }  // namespace torqva

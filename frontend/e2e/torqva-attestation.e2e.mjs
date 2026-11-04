@@ -5,7 +5,7 @@ import { chromium } from 'playwright-core';
 import fs from 'fs';
 const OP = process.env.TORQVA_TOKEN, VW = process.env.TORQVA_VIEWER_TOKEN;
 if (!OP || !VW) { console.error('Set TORQVA_TOKEN (operator) and TORQVA_VIEWER_TOKEN (viewer)'); process.exit(2); }
-const API = 'http://127.0.0.1:8000/api/torqva';
+const API = process.env.API_URL || 'http://127.0.0.1:8000/api/torqva';
 const OUT = process.env.SHOTS_DIR || './e2e-shots'; fs.mkdirSync(OUT, { recursive: true });
 const api = async (path, tok, method = 'GET', body) => {
   const r = await fetch(API + path, { method, headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -24,13 +24,13 @@ const shot = (n) => page.screenshot({ path: `${OUT}/${n}.png`, fullPage: true })
 const REASON = 'Reviewed the telemetry summary and checks; motor steady and quiet.';
 
 async function login(tok) {
-  await page.goto('http://127.0.0.1:5173/#/torqva');
+  await page.goto((process.env.BASE_URL || 'http://127.0.0.1:5173') + '/#/torqva');
   await page.evaluate(() => sessionStorage.clear());
   await page.reload();
   await page.fill('input[type=password]', tok);
   await page.click('button:has-text("Sign in")');
-  await page.waitForSelector('nav button:has-text("Continuous Intelligence")');
-  await page.click('nav button:has-text("Continuous Intelligence")');
+  await page.waitForSelector('nav button.tq-nav:has-text("Continuous Intelligence")');
+  await page.click('nav button.tq-nav:has-text("Continuous Intelligence")');
   await page.waitForSelector('text=Candidate warm-up sessions');
 }
 const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

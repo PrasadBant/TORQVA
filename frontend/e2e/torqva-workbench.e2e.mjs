@@ -22,7 +22,7 @@ const api = (path) => page.evaluate((p) => fetch(`/api/torqva${p}`, { headers: {
 const nav = async (name) => {
   const t = page.locator('[data-testid="nav-toggle"]');
   if (await t.isVisible() && (await t.getAttribute('aria-expanded')) !== 'true') await t.click();
-  await page.click(`nav button:has-text("${name}")`); await page.waitForTimeout(500);
+  await page.click(`nav button.tq-nav:has-text("${name}")`); await page.waitForTimeout(500);
 };
 const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
@@ -30,7 +30,7 @@ await page.goto(URL);
 await page.waitForSelector('[data-testid=sim-status-strip]', { timeout: 30000 });
 
 // a faulty run that holds its action for a human decision (configured in Scenario Studio)
-await page.click('nav button:has-text("Scenario Studio")');
+await page.click('nav button.tq-nav:has-text("Scenario Studio")');
 for (let i = 0; i < 20; i++) {   // the new-scenario form is a disclosure in Scenario Studio; it folds once when the run state first loads
   await page.evaluate(() => document.querySelectorAll('[data-testid=scn-new]').forEach((x) => { x.open = true; }));
   await page.waitForTimeout(300);
@@ -92,7 +92,7 @@ check('the adaptive investigation ends with a stated status and reason, and the 
 await page.click('[data-testid=c4-trace] button');
 await page.waitForSelector('[data-testid=c3-trace]', { timeout: 15000 }).catch(() => {});
 check('the Diagnostic Investigation link opens the investigation history on Action Recommendations', await page.isVisible('[data-testid=c3-trace]') && (await page.getAttribute('[role=tab][aria-selected=true]', 'id') || '').endsWith('-trace')
-  && (await page.getAttribute('nav button:has-text("Action Recommendations")', 'aria-current')) === 'page');
+  && (await page.getAttribute('nav button.tq-nav:has-text("Action Recommendations")', 'aria-current')) === 'page');
 await page.waitForFunction(() => document.querySelector('[data-testid=trace-test]')?.dataset.reached === 'yes', null, { timeout: 10000 }).catch(() => {});
 check('the trace records the diagnostic runs', (await page.getAttribute('[data-testid=trace-test]', 'data-reached')) === 'yes');
 check('the trace opens at the diagnostic-test stage', (await page.getAttribute('[data-testid=trace-test]', 'aria-pressed')) === 'true');

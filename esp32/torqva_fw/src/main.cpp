@@ -23,6 +23,7 @@
 #include "config_pins.h"
 #include "device.h"
 #include "estop.h"
+#include "ota_esp32.h"
 
 using namespace torqva;
 
@@ -67,6 +68,10 @@ using namespace torqva;
 #ifndef TORQVA_KEY
 #define TORQVA_KEY "dev-key-change-me"     // TODO(Phase 4): load from NVS, never commit a real key
 #endif
+
+// Firmware identity embedded in the image, read by the backend's release validation (backend/torqva/firmware.py) so a release version is taken from
+// the binary, never from what an uploader types. Kept by setup() below so the linker cannot drop it.
+extern "C" const char TORQVA_FW_ID[] __attribute__((used)) = "TORQVA_FW_ID:ver=" TORQVA_FW_VERSION ";chip=esp32s3;proto=1;";
 
 // ---------- hardware outputs ----------
 using namespace torqva_pins;
@@ -327,6 +332,7 @@ static void control_task(void*) {
 
 void setup() {
     outputs_off();                                     // FIRST: motor off before anything can fail
+    { const char* volatile keep = TORQVA_FW_ID; (void)keep; }  // takes its address so the linker keeps the identity string in the image
     if (torqva_pins::LOCAL_RESET_BUTTON != torqva_pins::UNCONFIGURED) pinMode(torqva_pins::LOCAL_RESET_BUTTON, INPUT_PULLUP);
     Serial.begin(115200);
 #if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
@@ -387,6 +393,7 @@ void setup() {
     cfg.transport_secured = (TORQVA_TRANSPORT_SECURED != 0);
     cfg.relaxed_interlocks = false;                    // strict: hardware builds never relax the start interlocks
     // max_rpm and vib_rms_stop_g stay 0 (= not commissioned) until a human sets them.
+    ota_platform_capability(cfg);                      // OTA partitions, compiled-in signing key and NVS provisioning decide whether this boot can update at all
     g_dev = new Device(default_limits(), cfg);
     g_mu = xSemaphoreCreateMutex();
     {
@@ -413,6 +420,9 @@ void setup() {
     if (!g_wdt_init_ok) Serial.println("{\"t\":\"warn\",\"msg\":\"task watchdog init failed: motor commands stay refused\"}");
 
     xTaskCreatePinnedToCore(control_task, "control", 6144, nullptr, configMAX_PRIORITIES - 2, nullptr, 1);
+    // Over-the-air update: its own task (Wi-Fi + TLS on the other core, lower priority). It never touches a motor output; the Device refuses motion while it runs
+    // and while a new image is unconfirmed, and the first-boot self-test decides whether the new image is kept.
+    ota_platform_start(g_dev, g_mu, g_ina_ok, g_ds.getDeviceCount() > 0, cfg.auth_enabled && strcmp(TORQVA_DEVICE_ID, "UNPROVISIONED") != 0, outputs_off);
 }
 
 void loop() {

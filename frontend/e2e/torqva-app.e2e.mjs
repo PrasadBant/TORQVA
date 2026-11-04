@@ -21,7 +21,7 @@ const shot = (n) => page.screenshot({ path: `${OUT}/${n}.png`, fullPage: true })
 const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
 await page.goto(URL);
-await page.waitForSelector('nav button:has-text("Overview")', { timeout: 20000 });
+await page.waitForSelector('nav button.tq-nav:has-text("Overview")', { timeout: 20000 });
 check('root route renders the application without sign-in', true);
 // ---- physical-device-first: the default mode, against the live backend with NO board connected (real services, no mocks)
 const simCalls = []; page.on('request', (r) => { if (/\/api\/torqva\/(simulation|status|telemetry|incidents)/.test(r.url())) simCalls.push(r.url()); });
@@ -33,15 +33,15 @@ const motorTxt = await page.textContent('main');
 check('physical dashboard: STOP disabled and START locked with the specific blocker, no "disabled by default" banner', await page.isDisabled('[data-testid="btn-stop"]') && await page.isDisabled('[data-testid="btn-start"]') && /DEVICE NOT CONNECTED|PHYSICAL CONTROL DISABLED/.test(await page.textContent('[data-testid="why-disabled"]')) && !/DISABLED BY DEFAULT/.test(motorTxt));
 check('physical dashboard shows measured values as UNAVAILABLE, never simulated numbers', (await page.textContent('[data-testid="phys-kpis"]')).split('UNAVAILABLE').length >= 7);
 await shot('physical-dashboard-disconnected');
-await page.click('nav button:has-text("Anomaly Detection")'); await page.waitForTimeout(500);
+await page.click('nav button.tq-nav:has-text("Anomaly Detection")'); await page.waitForTimeout(500);
 check('Anomaly Detection waits for valid physical telemetry (no fabricated result)', (await page.textContent('[data-testid="layer-C1"]')).includes('WAITING FOR VALID PHYSICAL TELEMETRY'));
-await page.click('nav button:has-text("Live Monitor")'); await page.waitForTimeout(500);
+await page.click('nav button.tq-nav:has-text("Live Monitor")'); await page.waitForTimeout(500);
 check('Live Monitor shows no chart data while disconnected', (await page.locator('[data-testid="phys-live-empty"]').count()) === 1);
 await page.waitForTimeout(2500);
 check('physical mode never calls the simulator', simCalls.length === 0, simCalls.slice(0, 2).join(' '));
 await page.click('button:has-text("Simulation mode (demo)")');
 await page.waitForSelector('[data-testid="sim-banner"]', { timeout: 20000 });
-await page.click('nav button:has-text("Overview")');
+await page.click('nav button.tq-nav:has-text("Overview")');
 check('simulation banner present', (await page.textContent('[data-testid="sim-banner"]')).includes('SIMULATION'));
 await page.waitForSelector('[data-testid="ov-health-status"]', { timeout: 20000 });
 await page.waitForFunction(() => !/UNAVAILABLE/.test(document.querySelector('[data-testid="sim-kpis"]')?.textContent || 'UNAVAILABLE'), null, { timeout: 30000 }).catch(() => {});
@@ -57,9 +57,9 @@ await shot('overview-1440');
 
 const pages = [['Live Monitor', 'Current readings'], ['Diagnostic Workflow', 'Diagnostic Workflow'], ['Anomaly Detection', 'Anomaly severity'], ['Failure Prediction', 'Candidate|Failure Prediction'],
   ['Action Recommendations', 'Decision gate|decision gate'], ['Diagnostic Investigation', 'Available tests|Available Tests'], ['Recovery Verification', 'Outcomes'], ['Continuous Intelligence', 'Learning dataset'],
-  ['Performance Evaluation', 'versus baselines|Evaluation run'], ['Scenario Studio', 'Scenario'], ['Lab', 'Lab|session|Session'], ['Device & Safety', 'Device inventory']];
+  ['Performance Evaluation', 'versus baselines|Evaluation run'], ['Scenario Studio', 'Scenario'], ['Lab', 'Lab|session|Session'], ['Device & Safety', 'Device inventory'], ['Firmware Manager', 'Firmware']];
 for (const [nav, expect] of pages) {
-  await page.click(`nav button:has-text("${nav}")`); await page.waitForTimeout(700);
+  await page.click(`nav button.tq-nav:has-text("${nav}")`); await page.waitForTimeout(700);
   const txt = await page.textContent('main');
   check(`page renders: ${nav}`, new RegExp(expect).test(txt) && txt.length > 200);
   // Rendered text (innerText keeps element boundaries: textContent glues "Action C" and "1,263 rpm" into "C1,263"); either case (files key detectors as c1)
@@ -68,21 +68,21 @@ for (const [nav, expect] of pages) {
   check(`  ${nav}: no horizontal overflow at 1440px`, (await overflow()) <= 1);
   await shot(nav.replace(/\W+/g, '-').toLowerCase() + '-1440');
 }
-await page.click('nav button:has-text("Device & Safety")'); await page.waitForTimeout(600);
+await page.click('nav button.tq-nav:has-text("Device & Safety")'); await page.waitForTimeout(600);
 await page.click('[role=tab]:has-text("Connection & Readiness")'); await page.waitForTimeout(400);
 const devTxt = await page.textContent('main');
 check('Device & Safety: SIMULATION, no physical telemetry, no handshake', devTxt.includes('SIMULATION') && devTxt.includes('No device handshake') && !devTxt.includes('PHYSICAL DEVICE'));
-check('simulation mode lists no Motor Control and offers no physical START/STOP', await page.locator('nav button:has-text("Motor Control")').count() === 0 && await page.locator('button:has-text("Request START"), button:has-text("Send STOP to device")').count() === 0);
+check('simulation mode lists no Motor Control and offers no physical START/STOP', await page.locator('nav button.tq-nav:has-text("Motor Control")').count() === 0 && await page.locator('button:has-text("Request START"), button:has-text("Send STOP to device")').count() === 0);
 await page.click('[data-testid=dev-to-scenario]'); await page.waitForTimeout(600);
 check('Device & Safety links the simulator controls to Scenario Studio', (await page.textContent('main h2')).includes('Scenario Studio'));
-await page.click('nav button:has-text("Device & Safety")'); await page.waitForTimeout(400);
+await page.click('nav button.tq-nav:has-text("Device & Safety")'); await page.waitForTimeout(400);
 check('simulation mode has no Safety & Commissioning section', (await page.locator('[role=tab]:has-text("Safety & Commissioning")').count()) === 0);
 await page.getByRole('tab', { name: 'Device', exact: true }).click(); await page.waitForTimeout(400);
 const dev = await page.textContent('main');
 check('physical device shown as not connected, simulated device distinguished', /not connected/.test(dev) && /software simulator/.test(dev));
 
 // simulator controls: start a faulty run, run it, and watch for an incident
-await page.click('nav button:has-text("Scenario Studio")');     // scenarios are configured, started and run only in Scenario Studio
+await page.click('nav button.tq-nav:has-text("Scenario Studio")');     // scenarios are configured, started and run only in Scenario Studio
 for (let i = 0; i < 20; i++) {   // the new-scenario form is a disclosure in Scenario Studio; it folds once when the run state first loads
   await page.evaluate(() => document.querySelectorAll('[data-testid=scn-new]').forEach((x) => { x.open = true; }));
   await page.waitForTimeout(300);
@@ -111,7 +111,7 @@ await page.waitForSelector('[data-testid="conn-warning"]', { state: 'detached', 
 const navClick = async (name) => {
   const toggle = page.locator('[data-testid="nav-toggle"]');
   if (await toggle.isVisible() && (await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
-  await page.click(`nav button:has-text("${name}")`);
+  await page.click(`nav button.tq-nav:has-text("${name}")`);
 };
 for (const w of [1440, 1024, 768, 390]) {
   await page.setViewportSize({ width: w, height: 900 });
@@ -123,8 +123,8 @@ for (const w of [1440, 1024, 768, 390]) {
   await shot(`overview-${w}`);
 }
 check('running a simulation never dispatches a physical device command', deviceCommandPosts.length === 0, String(deviceCommandPosts.length));
-await page.reload(); await page.waitForSelector('nav button:has-text("Overview")', { timeout: 20000 });
-check('after a reload simulation mode still lists no Motor Control', await page.locator('nav button:has-text("Motor Control")').count() === 0);
+await page.reload(); await page.waitForSelector('nav button.tq-nav:has-text("Overview")', { timeout: 20000 });
+check('after a reload simulation mode still lists no Motor Control', await page.locator('nav button.tq-nav:has-text("Motor Control")').count() === 0);
 check('after a reload no physical command was sent', deviceCommandPosts.length === 0);
 check('no unexpected HTTP errors', bad.filter((b) => !b.includes('ERR_FAILED')).length === 0, bad.slice(0, 3).join(' | '));
 const ce = consoleMsgs.filter((m) => !/Failed to load resource|net::ERR|ERR_FAILED/.test(m));

@@ -41,14 +41,44 @@ async function req(path, { method = 'GET', body } = {}) {
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
     const d = j.detail;
-    throw new ApiError(res.status, plainText(typeof d === 'string' ? d : d ? JSON.stringify(d) : `HTTP ${res.status}`));
+    throw new ApiError(res.status, plainText(typeof d === 'string' ? d : d && typeof d.message === 'string' ? d.message : d ? JSON.stringify(d) : `HTTP ${res.status}`));
   }
   // Prose from the backend is shown in product language (no internal layer ids). Decision summaries are kept exactly as recorded:
   // they carry a SHA-256 digest and are exported as JSON, so their text must match the record byte for byte.
   return RAW.test(path) ? res.json() : res.json().then(plainify);
 }
 
+/** Firmware upload (multipart) with real upload progress: XMLHttpRequest reports the bytes actually sent, which fetch cannot. Not timed out, like every write. */
+function uploadFirmware(file, fields, onProgress) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', `${BASE}/api/torqva/firmware/releases`);
+    x.setRequestHeader('Authorization', `Bearer ${getToken()}`);
+    if (onProgress && x.upload) x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded, e.total); };
+    x.onerror = () => reject(new Error('The upload did not reach the backend'));
+    x.onload = () => {
+      let j = {};
+      try { j = JSON.parse(x.responseText || '{}'); } catch { /* not JSON */ }
+      if (x.status >= 200 && x.status < 300) { resolve(plainify(j)); return; }
+      const d = j.detail;
+      const e = new ApiError(x.status, plainText(typeof d === 'string' ? d : d && typeof d.message === 'string' ? d.message : `HTTP ${x.status}`));
+      e.code = d && d.code;
+      reject(e);
+    };
+    const f = new FormData();
+    f.append('file', file, file.name);
+    Object.entries(fields || {}).forEach(([k, v]) => f.append(k, v ?? ''));
+    x.send(f);
+  });
+}
+
 export const api = {
+  fwStatus: () => req('/firmware/status'),
+  fwReleases: () => req('/firmware/releases'),
+  fwRelease: (id) => req(`/firmware/releases/${encodeURIComponent(id)}`),
+  fwDeployments: () => req('/firmware/deployments'),
+  fwDeploy: (body) => req('/firmware/deployments', { method: 'POST', body }),
+  fwUpload: uploadFirmware,
   me: () => req('/me'),
   status: () => req('/status'),
   telemetry: (last = 300) => req(`/telemetry?last=${last}`),

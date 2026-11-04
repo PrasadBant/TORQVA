@@ -265,6 +265,8 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
 
     from .device_routes import add_device_routes
     add_device_routes(r, service, need, audit, auth)
+    from .firmware_routes import add_firmware_routes
+    add_firmware_routes(r, service, need, audit)
 
     @r.get("/devices")
     def devices(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:

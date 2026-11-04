@@ -52,6 +52,13 @@ Two separate data paths in the backend:
 1. **Physical path** — `serial_bridge.py` reads the board, keeps a device snapshot, runs interlocks and the command lifecycle; served at `/api/torqva/device/*` and the WebSocket `/api/torqva/ws`.
 2. **Simulation path** — `service.py` runs a deterministic motor simulator (`sim.py`) through the full AI pipeline (`pipeline.py`); served at `/api/torqva/status`, `/telemetry`, `/incidents`, `/predictions`, … Everything here is labelled `SIMULATED`.
 
+A third, physical-only path carries **firmware updates** (item 22, `docs/TORQVA_OTA_FIRMWARE_MANAGER.md`):
+- `firmware.py` validates and stores signed application images and runs deployments;
+- the serial bridge sends one authenticated `ota` request;
+- the ESP32-S3 downloads the image itself over HTTPS into its inactive OTA slot, verifies the ECDSA signature and SHA-256, restarts, and confirms only after first-boot self-tests (otherwise the bootloader rolls back).
+
+The update path never sends a motion command and never enables physical control.
+
 ### The AI layers (C1–C6)
 | Layer | Module | What it does |
 |---|---|---|
@@ -164,7 +171,7 @@ E2E scripts need `playwright-core` and Google Chrome. Never set `TORQVA_FORCE_UN
 
 ## 7. The website
 
-Navigation groups (2 Nov): **Monitor** (Overview, Live Monitor, Digital Twin) · **Diagnose** (Diagnostic Workflow, Anomaly Detection, Failure Prediction, Action Recommendations, Diagnostic Investigation) · **Intelligence** (Recovery Verification, Continuous Intelligence, Performance Evaluation) · **Engineering** (Scenario Studio, Lab) · **Device & Safety** (one page with three tabs: Device (inventory, session, audit log); Connection & Readiness; Safety & Commissioning, physical mode only). Groups fold (a group holding the open page never does). Page ids are unchanged (`diagnostics`, `predictions`, `interventions`, `tests`, `recovery`, `learning`, `evaluation`); the former `control` and `devices` ids open the matching Device & Safety section. Internal layer ids (C1–C6) never appear in the interface: page labels use the product names, and `shared/plain.js` rewrites prose from the backend (reasons, notes, limitations) when it is received; bare ids used as keys and decision summaries (digest-signed) are left exactly as recorded.
+Navigation groups (2 Nov): **Monitor** (Overview, Live Monitor, Digital Twin) · **Diagnose** (Diagnostic Workflow, Anomaly Detection, Failure Prediction, Action Recommendations, Diagnostic Investigation) · **Intelligence** (Recovery Verification, Continuous Intelligence, Performance Evaluation) · **Engineering** (Scenario Studio, Lab) · **Device & Safety** (one page with three tabs: Device (inventory, session, audit log); Connection & Readiness; Safety & Commissioning, physical mode only; plus **Firmware Manager**, the 15th page, `#/firmware`: release upload and validation, deployment and history, admin-only for upload and deploy; in simulation mode it shows a note and deploys nothing). Groups fold (a group holding the open page never does). Page ids are unchanged (`diagnostics`, `predictions`, `interventions`, `tests`, `recovery`, `learning`, `evaluation`); the former `control` and `devices` ids open the matching Device & Safety section. Internal layer ids (C1–C6) never appear in the interface: page labels use the product names, and `shared/plain.js` rewrites prose from the backend (reasons, notes, limitations) when it is received; bare ids used as keys and decision summaries (digest-signed) are left exactly as recorded.
 
 Every page leads with its main result or decision; advanced detail (traces, raw gate inputs, receipts, per-regime tables, audit trails, the pipeline's own records, connection counters) sits in labelled, keyboard-operable disclosures. A disclosure opens by itself when its content becomes relevant (a hold starts, a receipt is written) and never closes by itself. Safety blockers, STOP, approvals and simulation labels are never inside one.
 
@@ -191,12 +198,13 @@ Every page leads with its main result or decision; advanced detail (traces, raw 
 - **Lab:** `/lab/regimes`, `/lab/checklist`, `/lab/sessions…` (create, checklist, run, reveal, reproduce), `/lab/experiments`
 - **Attestation (C6):** `/attestation/candidates…`, `/attestation/references…`, `/attestation/warmup…`
 - **Physical device:** `GET /device/status /device/history /device/ports /device/commands`; `POST /device/connect /device/disconnect /device/commands` (STOP / START / SET_SPEED); commissioning `GET /device/commissioning`, `POST /device/commissioning/items/{id}`, `PUT /device/commissioning/limits`, `POST /device/commissioning/enable`; WebSocket `/ws`
+- **Firmware Manager:** `GET /firmware/status /firmware/releases /firmware/releases/{rid} /firmware/deployments /firmware/deployments/{id}` (viewer); `POST /firmware/releases` (multipart upload) and `POST /firmware/deployments` (admin). Device-facing downloads `GET /firmware/ota/{rid}/manifest` and `/image` take no bearer token: they need the active deployment's one-time token (`?t=`), answer 403 to anything else, and are listed separately in the route audit.
 
 ---
 
 ## 9. What was done recently (Oct–Nov 2026)
 
-Items 1–17 are committed and pushed to `torqva/phase-0-audit` (`09ee47e`, pushed 2 Nov). Items 18–21 are committed locally on the same branch (3 Nov) and **not pushed**.
+Items 1–17 are committed and pushed to `torqva/phase-0-audit` (`09ee47e`, pushed 2 Nov). Items 18–21 are committed locally on the same branch (3 Nov) and **not pushed**. Item 22 is in the working tree (staged, **not committed**).
 
 1. **UI/UX redesign** (`7459daf`): new design system with refined light and dark themes, new shell/navigation (collapsible, mobile drawer), dashboards, charts, sign-in page.
 2. **Engineering pass** (`0473df3`): removed fabricated behaviour introduced by earlier commits:
@@ -237,6 +245,26 @@ Items 1–17 are committed and pushed to `torqva/phase-0-audit` (`09ee47e`, push
 
 21. **Charts, tables and Digital Twin** (3 Nov, two commits, details in `docs/TORQVA_UI_CONTENT_AUDIT.md` sections 1a and 1b): shared chart rules (chart precision on axes and tooltips, units on the value axis, formatted intervals, missing values as gaps, prediction charts labelled as model estimates with a `now / +N s` horizon); the physical Overview's sparklines and their history poll removed; audit event kinds in product terms (the audit history showed "c2 ranking"); the `torqva-app` E2E id check reads rendered text in either case. Digital Twin: the component panel shows name, function, readings, evidence and a Live Monitor link; its trend chart and identity metadata are gone, and the twin makes no request of its own.
 
+22. **Firmware Manager: ESP32-S3 OTA upload, transfer and verification** (3–4 Nov, working tree, details in `docs/TORQVA_OTA_FIRMWARE_MANAGER.md`):
+- **Firmware:** `lib/torqva_core/ota.{h,cpp}` holds the update state machine, manifest and signature checks, self-test and boot outcome. `src/ota_esp32.{h,cpp}` is the platform layer (Wi-Fi and TLS from NVS, `Update` into the inactive slot, mbedTLS ECDSA P-256, `verifyRollbackLater`). `Device` checks the authenticated `ota` request and its own eligibility (stopped, speed measured and valid, no motor supply, no trip, no test). While an update runs, or a new image is unconfirmed, it refuses START / SET_SPEED / RUN_TEST; STOP always works.
+- **Partition table:** `default_8MB.csv` is pinned. It is the board's own default, so the layout does not change.
+- **Backend:** `firmware.py` and `firmware_routes.py`, plus `tools/sign_firmware.py` and `tools/provision_ota.py`. The image is checked for structure, chip, partition fit, SHA-256, ECDSA signature, downgrade and duplicates. Storage is file-based, with a history log. Deployments are admin-only, need typed confirmation and use one-time download tokens. `ota` / `ota_info` frames carry `seq`/`ts` in the shared sequence.
+- **Page:** Firmware Manager, sections A–H.
+- **Route audit:** firmware routes registered with their roles; the two device-download routes are listed as token-protected (403).
+- **Fixed during verification (4 Nov):** a `CONFIRMED` boot report seen before the deployment reached its restart could have been taken as success. It now counts only from `READY` on (regression test added).
+- **Not validated on hardware:** nothing was flashed, and the bench procedure (section 14 of the OTA document) has not been performed.
+
+Test status (4 Nov, after item 22; every number below comes from a run on the final working tree):
+
+| Area | Result |
+|---|---|
+| Backend | 770 passed, 0 failed, 0 skipped (including 42 firmware-manager tests and the 13 route-audit tests) |
+| Firmware host tests | 151/151 |
+| Builds | `esp32s3` (with and without a public key) and `esp32s3_uart` build |
+| Frontend | 257/257 in 23 files; build passes |
+| Browser E2E | ten suites, 342 checks: app 89, twin 46, workbench 47, workflow 30, routing 15 against `npm run dev:sim`; torqva 30, lab 12, c2c4 23, attestation 32, firmware 18 against a fresh token backend |
+| C1–C6 checks | the app suite's and the unit test's checks now include Firmware Manager |
+
 Test status (3 Nov, after item 21; every number below was produced by a run on the final commit): frontend 244/244 in 22 files; build passes (initial JavaScript ≈ 430 kB; the older ≈ 368 kB figure in section 6 dates from an earlier build); browser E2E nine suites, 321 checks: app 86, twin 46, workbench 47, workflow 30, routing 15 against `npm run dev:sim`, and torqva 30, lab 12, c2c4 23, attestation 32 against a fresh token backend; `check-layer-ids` passes; 270-view sweep (every page and tab, both modes, light and dark, 390/768/1440 px): no horizontal overflow, no C1–C6; backend 726 passed, 0 failed, 1 skipped; firmware host tests 130/130. Physical operation remains blocked (section 10 item 2).
 
 Test status (3 Nov, after item 18): frontend 233/233 in 20 files; build passes; browser E2E all eight suites pass (304 checks: app 86, twin 44, workbench 47, workflow 30, torqva 30, lab 12, c2c4 23, attestation 32); `check-layer-ids` passes; a 270-view sweep (every page and tab, both modes, light and dark, 390/768/1440 px) found no horizontal overflow and no C1–C6. Backend and firmware not re-run (unchanged).
@@ -270,7 +298,18 @@ Earlier test status (19 Oct, after item 15): frontend 209/209; build passes (ini
 19. Most pages' tables and charts were restyled and, in item 18, checked for duplicates and precision, but not redesigned.
 20. **Fixed (3 Nov, `bd60dbc`):** the serial open-error classifier's `winerror` patterns held literal backspace bytes, and Windows error 31 (device not functioning) was reported as access denied because Python maps it to `PermissionError`. The Windows error code now decides for codes 5, 2 and 31; unknown codes stay "could not be opened"; regression tests added. Open: error 121 (semaphore timeout) reads as a device error in pyserial's message form and as a timeout in a raw `OSError`; which help text is right is a wording decision.
 
+21. **Firmware Manager / OTA (item 22) is not hardware-validated:**
+    - The ESP32-S3 platform layer (Wi-Fi, TLS, `Update`, mbedTLS signature check, rollback) has only been compiled. The bench procedure in `docs/TORQVA_OTA_FIRMWARE_MANAGER.md` section 14 has not been performed.
+    - Boards running earlier firmware are not OTA-capable until one USB installation.
+    - There is no Secure Boot, flash encryption or eFuse anti-rollback (downgrade protection is software only), and none is enabled automatically.
+    - Device downloads need an HTTPS endpoint the board can reach (`TORQVA_OTA_PUBLIC_BASE_URL`).
+    - `MOTOR_POWER_CONNECTED` assumes the INA219 measures the motor supply bus.
+    - Deployments in progress live in memory, so a backend restart forgets one.
+    - OTA readiness does not change motor-operation readiness (item 2).
+
 ## 11. Likely next steps
+
+- Firmware Manager bench test on a real ESP32-S3 with the motor power stage disconnected (`docs/TORQVA_OTA_FIRMWARE_MANAGER.md` section 14), by a qualified person.
 
 - Hardware bring-up of the restored firmware (section 10 item 2): only by a qualified person, following the checklist; decide the control-loop tuning and Hall filtering first.
 - Open a pull request from `torqva/phase-0-audit` into `main`.
