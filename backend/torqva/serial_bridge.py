@@ -173,7 +173,7 @@ def parse_frame(line: "bytes | str") -> Dict[str, Any]:
         if any(v not in (0, 1) or isinstance(v, bool) for v in (cap, pend, busy)):
             raise FrameError("BAD_FIELD", "cap")
         return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "cap": cap, "why": _str(o, "why", 32), "run": _str(o, "run", 8), "psz": _uint(o, "psz"), "pend": pend, "last": _str(o, "last", 16),
-                "lver": _str(o, "lver", 23), "blk": _str(o, "blk", 32), "busy": busy}
+                "lver": _str(o, "lver", 23), "blk": _str(o, "blk", 32), "busy": busy, "prof": _str(o, "prof", 24) if "prof" in o else ""}   # prof: additive (LED bench firmware only)
     raise FrameError("UNKNOWN_TYPE", str(t)[:16])
 
 
@@ -482,7 +482,20 @@ class Transport:
     def close(self) -> None: raise NotImplementedError
 
 
+ESPRESSIF_USB_VID = 0x303A                     # Espressif's own USB controllers (ESP32-S3 USB-Serial/JTAG = 303A:1001)
+
+
+def _espressif_usb(port: str) -> bool:
+    """True when `port` is an Espressif native USB serial port. Any lookup failure means False: the port then opens exactly as before."""
+    try:
+        from serial.tools import list_ports
+        return any(p.device == port and p.vid == ESPRESSIF_USB_VID for p in list_ports.comports())
+    except Exception:                                                                              # noqa: BLE001 - no port listing: keep the generic open
+        return False
+
+
 class SerialTransport(Transport):
+    kind = "usb"
     """pyserial transport. Bounded line assembly (oversized lines are discarded up to the next newline). Close releases the port."""
 
     def __init__(self, port: str, baud: int = 115200):
@@ -497,8 +510,22 @@ class SerialTransport(Transport):
         except ImportError as e:                                                                   # pragma: no cover
             raise TransportError("pyserial is not installed") from e
         try:
-            self._s = serial.Serial(self.port, self.baud, timeout=0.2, write_timeout=1.0, bytesize=8, parity="N", stopbits=1, exclusive=True) if os.name != "nt" else \
-                serial.Serial(self.port, self.baud, timeout=0.2, write_timeout=1.0, bytesize=8, parity="N", stopbits=1)
+            if _espressif_usb(self.port):
+                # The ESP32-S3's own USB-Serial/JTAG port (USB VID 0x303A) resets the chip when RTS is asserted while DTR is not (esptool's reset). pyserial
+                # applies the two lines while opening, and their order can look like that reset; a reset of an image in PENDING_VERIFY aborts it. So the
+                # lines are fixed BEFORE opening (one DCB on Windows) to DTR on / RTS off: never a reset, and the normal "terminal connected" state.
+                # (DTR off as well was tried on the bench, 5 Nov: no reset, but the host stopped receiving after ~80 s with heavy loss.)
+                s = serial.Serial()
+                s.port, s.baudrate, s.timeout, s.write_timeout, s.bytesize, s.parity, s.stopbits = self.port, self.baud, 0.2, 1.0, 8, "N", 1
+                s.dtr = True
+                s.rts = False
+                if os.name != "nt":
+                    s.exclusive = True
+                s.open()
+                self._s = s
+            else:
+                self._s = serial.Serial(self.port, self.baud, timeout=0.2, write_timeout=1.0, bytesize=8, parity="N", stopbits=1, exclusive=True) if os.name != "nt" else \
+                    serial.Serial(self.port, self.baud, timeout=0.2, write_timeout=1.0, bytesize=8, parity="N", stopbits=1)
         except Exception as e:
             code, detail = classify_open_error(e)
             raise TransportError(f"cannot open {self.port}: {e}", code, detail) from e
@@ -545,6 +572,7 @@ class SerialTransport(Transport):
 
 class MemoryTransport(Transport):
     """In-memory transport for tests (NOT a device)."""
+    kind = "test"
 
     def __init__(self):
         self._q: "collections.deque[Any]" = collections.deque(maxlen=1000)
@@ -649,6 +677,7 @@ class DeviceBridge:
                  clock: Callable[[], float] = time.monotonic, wall: Callable[[], float] = time.time):
         self.hub = hub or EventHub()
         self.autoconnect = None                                    # optional AutoConnector (only when TORQVA_DEVICE_PORT is configured)
+        self.link = None                                           # DeviceLinkManager for Wi-Fi device links (set by device_routes; see device_link.py)
         self.keystore = None                                       # optional KeyStore (per-device authentication keys); None = no authenticated session can ever start
         self._auth: Dict[str, Any] = {"state": "none"}
         self._hb_ids: "collections.deque[int]" = collections.deque(maxlen=64)       # ids of the periodic authenticated heartbeats (their acknowledgements are not command results)
@@ -952,6 +981,10 @@ class DeviceBridge:
             return len(cls._BLOCKER_ORDER)
         return sorted(b, key=rank)
 
+    def device_profile(self) -> str:
+        """The firmware profile the connected device reports in ota_info ("" = production). Kept from the last frame: a stale bench profile only blocks more."""
+        return (self.ota_info or {}).get("prof", "") or ""
+
     def control_blockers(self) -> List[str]:
         """The reasons physical START / speed commands are unavailable RIGHT NOW (only the applicable ones)."""
         m = self.model
@@ -965,6 +998,8 @@ class DeviceBridge:
             b.append("DEVICE IS NOT A PHYSICAL DEVICE (FIRMWARE SIMULATION MODE)")
         if m.status is not None and not m.status.get("ctl"):
             b.append("FIRMWARE BUILD HAS MOTOR CONTROL COMPILED OUT (status ctl=0): the device refuses every motor command")
+        if self.device_profile():
+            b.append("OTA LED BENCH DEVICE: this board runs the LED-only OTA bench firmware, which has no motor control")
         c = self.commissioning
         if c is not None and c.limits is not None and not self.limits_confirmed():
             ack = self._cfg.get("ack_reason")
@@ -1260,6 +1295,8 @@ class DeviceBridge:
             return self._reject(rec, ["UNSUPPORTED_COMMAND"])
         if action != "STOP" and role != Role.ADMIN:
             return self._reject(rec, ["ADMIN_REQUIRED: only an administrator may start the motor or change its speed"])
+        if action != "STOP" and self.device_profile():
+            return self._reject(rec, ["OTA LED BENCH DEVICE: this board runs the LED-only OTA bench firmware, which has no motor control"])   # before anything else: never a motor command
         at = {"STOP": ActionType.STOP, "START": ActionType.START, "SET_SPEED": ActionType.SET_SPEED}[action]
         if action == "START":
             d = params.get("duty_pct")
@@ -1371,9 +1408,14 @@ class DeviceBridge:
                            "approved_version": c.limits["version"] if c is not None and c.limits else None, "device_version": self.device_cfg_version(), "confirmed": self.limits_confirmed(),
                            "last_push": {k: self._cfg.get(k) for k in ("sent_ver", "ack_ok", "ack_reason")} if self._cfg else None}
             s["analysis"] = analysis_status(s)
+            s["device_profile"] = self.device_profile()
             s["ota"] = None if self.ota_info is None else {**{k: v for k, v in self.ota_info.items() if not k.startswith("_")}, "age_s": round(self._clock() - self.ota_info["_at"], 1)}
             s["autoconnect"] = self.autoconnect.status() if self.autoconnect is not None else {"configured": False, "note": "no device port is configured (set TORQVA_DEVICE_PORT); connect from the Device page"}
             s["session"] = {"state": self._auth.get("state"), "active": self.session_active(), "error": self._auth.get("error"), "key_provisioned": self._device_key() is not None}
+            tr = self._transport
+            # The transport the device is reached over RIGHT NOW (None = no link). "wifi" = the device's own WebSocket over TLS (device_link.py).
+            s["transport"] = None if tr is None else {"kind": getattr(tr, "kind", "usb"), "remote": getattr(tr, "remote", None), "port": getattr(tr, "port", None), "since": getattr(tr, "since", None)}
+            s["wifi_link"] = self.link.status() if getattr(self, "link", None) is not None else None
             s["physical_control_enabled"] = self.policy.physical_control_enabled
             s["control_limits"] = {"max_duty_pct": self.policy.max_duty_pct, "max_rpm": self.policy.max_rpm, "direction": "forward only (the firmware never drives LPWM)"}
             s["transport_label"] = ("AUTHENTICATED USB - UNENCRYPTED" if self.session_active() else "USB - NO AUTHENTICATED SESSION")

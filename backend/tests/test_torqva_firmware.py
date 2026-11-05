@@ -26,10 +26,11 @@ from test_torqva_p16_serial import ENTRIES, H, fast, slow, status, wait
 
 
 # ------------------------------------------------------------------------------------------------ synthetic images and keys
-def esp_image(ver="3.1.0", chip=9, hash_appended=True, marker=True, size_hint=4000):
+def esp_image(ver="3.1.0", chip=9, hash_appended=True, marker=True, size_hint=4000, prof=None):
     """A structurally valid ESP application image: header, two segments, checksum byte, optional appended SHA-256, and the TORQVA_FW_ID marker."""
     seg0 = bytes((i * 7) & 0xFF for i in range(size_hint))
-    seg1 = (f"TORQVA_FW_ID:ver={ver};chip=esp32s3;proto=1;".encode() + b"\0" if marker else b"") + bytes(64)
+    ident = f"TORQVA_FW_ID:ver={ver};chip=esp32s3;proto=1;" + ("" if prof is None else f"prof={prof};")
+    seg1 = (ident.encode() + b"\0" if marker else b"") + bytes(64)
     hdr = bytearray(24)
     hdr[0], hdr[1], hdr[2], hdr[3] = 0xE9, 2, 2, 0x4F
     struct.pack_into("<I", hdr, 4, 0x40370000)
@@ -531,3 +532,69 @@ def test_viewers_read_status_releases_and_history_without_upload_or_deploy_right
     assert s["config"]["signature_verification"] == "AVAILABLE" and "never enable motor operation" in s["motor_operation"]
     assert len(c.get("/api/torqva/firmware/releases", headers=H("o")).json()["releases"]) == 1
     assert c.get("/api/torqva/firmware/status").status_code == 401
+
+
+# ------------------------------------------------------------------------------------------------ the OTA LED bench profile (no motor hardware)
+def bench_release(c, keys, ver="3.1.0"):
+    data = esp_image(ver, prof="ota_led_bench")
+    rec = upload(c, data, sign(keys["good"], data)).json()
+    assert rec["deployable"] and rec["profile"] == "ota_led_bench", rec
+    return rec
+
+
+def test_ota_info_parses_the_optional_bench_profile_strictly():
+    assert parse_frame(ota_info(prof="ota_led_bench"))["prof"] == "ota_led_bench"
+    assert parse_frame(ota_info())["prof"] == ""                                               # production frames carry no prof: unchanged
+    for bad in ("x" * 25, 1):
+        with pytest.raises(FrameError):
+            parse_frame(ota_info(prof=bad))
+
+
+def test_an_unknown_firmware_profile_is_refused_at_upload(api, keys):
+    _, c = api
+    data = esp_image("3.1.0", prof="anything_else")
+    r = upload(c, data, sign(keys["good"], data))
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "UNKNOWN_PROFILE"
+
+
+def test_a_bench_release_never_goes_to_a_production_device_nor_the_reverse(api, keys):
+    svc, c = api
+    bench = bench_release(c, keys, "3.1.0")
+    prod, _ = deployable(c, keys, "3.2.0")
+    tr = connect_device(svc)                                                                  # a production device (no prof)
+    r = deploy(c, bench)
+    assert r.status_code == 409 and "profile mismatch" in r.text, r.text
+    assert not written(tr, "ota")
+    svc.bridge.disconnect("swap boards")
+    tr2 = connect_device(svc, info=ota_info(prof="ota_led_bench"))                            # an LED bench device
+    r = deploy(c, prod)
+    assert r.status_code == 409 and "profile mismatch" in r.text, r.text
+    assert not written(tr2, "ota")
+
+
+def test_a_bench_release_deploys_to_a_bench_device_through_the_normal_checks(api, keys):
+    svc, c = api
+    bench = bench_release(c, keys, "3.1.0")
+    tr = connect_device(svc, info=ota_info(prof="ota_led_bench"))
+    st = c.get("/api/torqva/firmware/status", headers=H("v")).json()
+    assert st["device"]["profile"] == "ota_led_bench" and "bench" in st["device"]["profile_label"]
+    r = deploy(c, bench)
+    assert r.status_code == 200, r.text
+    q = written(tr, "ota")
+    assert len(q) == 1 and q[0]["ver"] == "3.1.0"
+    assert not any(o.get("type") in ("START", "SET_SPEED", "RUN_TEST") for o in written(tr))
+
+
+def test_a_bench_device_refuses_every_motor_command_but_stop(api):
+    from torqva.auth import Role
+    svc, _ = api
+    tr = connect_device(svc, info=ota_info(prof="ota_led_bench"))
+    b = svc.bridge
+    assert b.device_profile() == "ota_led_bench"
+    assert any("OTA LED BENCH DEVICE" in x for x in b.control_blockers())
+    for action, params in (("START", {"duty_pct": 10}), ("SET_SPEED", {"rpm": 1000})):
+        rec = b.request_command(action, params, "adam", Role.ADMIN)
+        assert rec.state.value == "REJECTED" and any("OTA LED BENCH DEVICE" in x for x in rec.reasons), (action, rec.reasons)
+    assert not any(o.get("type") in ("START", "SET_SPEED", "RUN_TEST") for o in written(tr))
+    rec = b.request_command("STOP", {}, "vera", Role.VIEWER)
+    assert not any("OTA LED BENCH DEVICE" in x for x in rec.reasons)                          # STOP is never blocked by the bench profile

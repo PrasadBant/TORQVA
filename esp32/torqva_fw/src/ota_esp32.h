@@ -9,3 +9,6 @@ void ota_platform_capability(torqva::DeviceConfig& cfg);
 // After the Device exists: reports this boot's facts, resolves the last attempt (confirmed / rolled back / self-test pending) and starts the OTA task.
 // `ina_ok` / `temp_ok` are the sensor initialisation results the self-test needs; `identity_ok` = a provisioned device id AND authentication key.
 void ota_platform_start(torqva::Device* dev, SemaphoreHandle_t mu, bool ina_ok, bool temp_ok, bool identity_ok, void (*outputs_off)());
+// The provisioned network settings (NVS torqva_ota), for the wireless device link (wifi_link.cpp). False when they are incomplete or the base URL is
+// not an https:// address the device can reach (same rules as the OTA capability check).
+bool ota_net_config(String* ssid, String* pass, String* base, String* ca);

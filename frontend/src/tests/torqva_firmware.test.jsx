@@ -81,6 +81,27 @@ describe('Firmware Manager page', () => {
     expect(within(v).getByText('not deployable')).toBeInTheDocument();
   });
 
+  it('an OTA LED bench device and release are named as such, and nothing is claimed as measured', async () => {
+    const st = status({ info: { ...INFO, prof: 'ota_led_bench' } });
+    st.device = { ...st.device, profile: 'ota_led_bench', profile_label: 'OTA LED bench (no motor control)' };
+    server({ st, releases: [{ ...REL, profile: 'ota_led_bench' }] });
+    render(<FirmwarePage role="admin" go={() => {}} />);
+    const dev = await screen.findByTestId('fw-device');
+    await waitFor(() => expect(dev).toHaveTextContent('OTA LED bench (no motor control)'));
+    fireEvent.click(await screen.findByRole('button', { name: '3.1.0' }));
+    const upd = await screen.findByTestId('fw-update');
+    await waitFor(() => expect(upd).toHaveTextContent('LED bench device: no motor hardware'));
+    expect(upd).not.toHaveTextContent('as measured by the device');
+  });
+
+  it('a production device is named production and keeps the measured-standstill statement', async () => {
+    const st = status(); st.device = { ...st.device, profile: '', profile_label: 'production' };
+    server({ st }); render(<FirmwarePage role="admin" go={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId('fw-device')).toHaveTextContent('production'));
+    fireEvent.click(await screen.findByRole('button', { name: '3.1.0' }));
+    await waitFor(() => expect(screen.getByTestId('fw-update')).toHaveTextContent('as measured by the device'));
+  });
+
   it('deployment needs eligibility, the bench attestation and the exact phrase, then a second confirmation', async () => {
     server(); render(<FirmwarePage role="admin" go={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: '3.1.0' }));

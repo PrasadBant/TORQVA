@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Usb, Octagon, Play, ShieldCheck, ShieldAlert, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, Lock, HeartPulse, SlidersHorizontal, History, ClipboardCheck, Info } from 'lucide-react';
 import { api } from '../api.js';
 import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, useNavContext, PageHead, StatTile, StatGrid, AlertPanel, BlockedReason, LinkButton, CheckList, StepTracker, DataTable, SourceTag, ConditionBanner } from '../shared/components.jsx';
-import { DeviceLive, CommissioningCard, canOperate, STATE_TONE, ReadinessCard, InterlocksCard, interlockGroups, groupStatus, toComm, toIlk, readingOf, ago, clock } from './device.jsx';
+import { DeviceLive, CommissioningCard, canOperate, STATE_TONE, ReadinessCard, InterlocksCard, interlockGroups, groupStatus, toComm, toIlk, readingOf, ago, clock, transportOf } from './device.jsx';
 import { TEST_SPECS } from '../shared/diagnostics.js';
 
 const WAITING = 'WAITING FOR VALID PHYSICAL TELEMETRY';
@@ -136,7 +136,7 @@ export function ModeSwitch({ mode, onChange }) {
 export function PhysicalBanner({ snap }) {
   const live = isLive(snap);
   const label = live
-    ? (snap.telemetry_fresh ? 'PHYSICAL DEVICE CONNECTED' : 'PHYSICAL DEVICE - TELEMETRY STALE')
+    ? (snap.telemetry_fresh ? `PHYSICAL DEVICE CONNECTED${transportOf(snap) ? ` · ${transportOf(snap).toUpperCase()}` : ''}` : 'PHYSICAL DEVICE - TELEMETRY STALE')
     : snap?.handshake
     ? 'DEVICE (FIRMWARE SIMULATION MODE)'
     : (!snap || snap.connection === 'DISCONNECTED')
@@ -201,7 +201,8 @@ export function StatusStrip({ snap, go }) {
     : ['warn', snap.safety_state || 'unknown'];
 
   const connTone = live ? (snap.telemetry_fresh ? 'ok' : 'warn') : snap?.connection === 'ERROR' ? 'crit' : snap?.handshake ? 'warn' : 'off';
-  const connWord = live ? (snap.telemetry_fresh ? 'Connected' : 'Telemetry stale') : snap?.handshake ? 'Firmware simulation' : snap?.connection === 'CONNECTING' ? 'Connecting' : snap?.connection === 'ERROR' ? 'Connection error' : 'Disconnected';
+  const via = transportOf(snap);
+  const connWord = live ? (snap.telemetry_fresh ? (via ? `Connected — ${via}` : 'Connected') : 'Telemetry stale') : snap?.handshake ? 'Firmware simulation' : snap?.connection === 'CONNECTING' ? 'Connecting' : snap?.connection === 'ERROR' ? 'Connection error' : 'Disconnected';
   const rpmV = snap?.values?.rpm;
   const rpm = live ? readingOf(rpmV) : null;            // an invalid reading is unknown, never 0
   const zone = classifyRpm(rpm, isRunningOf(snap, rpm));

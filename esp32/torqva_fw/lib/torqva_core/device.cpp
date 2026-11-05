@@ -361,7 +361,7 @@ void Device::emit_frames(const HalIn& in) {
         last_ota_info_ms_ = in.now_ms;
         const char* blk = ota_block_reason(in.now_ms);
         OtaInfo oi = {cfg_.ota_capable, cfg_.ota_capable ? "" : (cfg_.ota_why ? cfg_.ota_why : "OTA_NOT_CONFIGURED"), ota_running_, ota_psz_, ota_pending_verify_,
-                      ota_last_, ota_last_ver_, blk ? blk : "", ota_active_};
+                      ota_last_, ota_last_ver_, blk ? blk : "", ota_active_, cfg_.ota_led_bench ? "ota_led_bench" : ""};
         queue_line(b, encode_ota_info(b, sizeof(b), oi, seq_++, in.now_ms));
     }
 }
@@ -371,10 +371,14 @@ const char* Device::ota_block_reason(uint32_t now_ms) const {
     if (!cfg_.ota_capable) return "OTA_NOT_CONFIGURED";
     if (ota_active_) return "OTA_BUSY";
     if (ota_pending_verify_) return "PENDING_VERIFY";                                  // this image is not confirmed yet: no second update on top of it
+    if (cfg_.ota_led_bench && cfg_.control_enabled) return "BENCH_PROFILE_INVALID";     // a bench profile with motor control is a build error, never an update path
     if (!have_in_ || (uint32_t)(now_ms - last_in_.now_ms) > kFreshMs) return "TELEMETRY_STALE";
     if (safety_.state() == SafetyState::EMERGENCY_STOP) return "SAFETY_TRIP_LATCHED";  // a restart must never be the way a latched trip is cleared
     if (tests_.active()) return "TEST_ACTIVE";
     if (drive_.mode() != DriveMode::IDLE || drive_.duty() > 0.0f || last_out_.driver_enable || last_out_.relay_on) return "MOTOR_NOT_STOPPED";
+    // LED bench profile: no motor, no Hall sensor, no motor supply exist and motion is compiled out, so standstill is a property of the build, not a
+    // measurement. Nothing is read or assumed here: the speed and supply checks below do not apply, and no sensor value is invented for them.
+    if (cfg_.ota_led_bench) return nullptr;
     if (!last_in_.rpm_valid || !finite_f(last_in_.rpm)) return "SPEED_UNVERIFIED";     // an unavailable speed is never taken as zero
     if (last_in_.pulse_recent || last_in_.rpm > 0.0f) return "MOTOR_TURNING";
     if (!last_in_.voltage_valid || !finite_f(last_in_.voltage_v)) return "SUPPLY_UNVERIFIED";

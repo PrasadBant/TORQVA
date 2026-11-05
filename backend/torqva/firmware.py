@@ -36,6 +36,9 @@ MARKER = b"TORQVA_FW_ID:"
 TOKEN_TTL_S = 30 * 60
 REBOOT_GRACE_S = 15 * 60                     # after REBOOTING, how long the device has to come back and report before the outcome is "verification pending"
 DEPLOY_MIN_INTERVAL_S = 60.0
+# Firmware profiles: "" = the production motor-controller firmware; "ota_led_bench" = the LED-only OTA bench firmware (motor control compiled out,
+# esp32/torqva_fw platformio env:esp32s3_ota_led_*). A release is only ever deployed to a device running the SAME profile.
+PROFILES = {"": "production", "ota_led_bench": "OTA LED bench (no motor control)"}
 UPLOAD_LIMIT_PER_MIN = 10
 
 
@@ -313,7 +316,10 @@ class FirmwareManager:
             checks["signature"] = {"status": "VERIFIED", "detail": f"ECDSA P-256, key {self.verifier.fingerprint}"}
         else:
             checks["signature"] = {"status": "FAILED", "detail": "the signature does not match this image and version for the configured release key"}
-        rec = {"id": sha[:12], "sha256": sha, "version": ver, "size": len(data), "chip": "esp32s3" if chip_ok else f"chip {info['chip_id']}", "proto": ident.get("proto", ""),
+        prof = ident.get("prof", "")
+        if prof not in PROFILES:
+            raise FirmwareError("UNKNOWN_PROFILE", f"the image declares an unknown firmware profile {prof!r}")
+        rec = {"id": sha[:12], "sha256": sha, "version": ver, "size": len(data), "chip": "esp32s3" if chip_ok else f"chip {info['chip_id']}", "proto": ident.get("proto", ""), "profile": prof,
                "build": info["app"], "signature": signature.strip() if signature else "", "canonical": msg}
         return rec, checks
 
@@ -361,7 +367,8 @@ class FirmwareManager:
         return {"connected": snap.get("connection") == "CONNECTED", "connection": snap.get("connection"), "handshake": bool(snap.get("handshake")),
                 "device_id": snap.get("device_id"), "firmware": snap.get("firmware"), "chip": "ESP32-S3" if snap.get("handshake") else None,
                 "session_active": bool((snap.get("session") or {}).get("active")), "safety_state": snap.get("safety_state"), "drive": snap.get("drive"),
-                "ota": None if not info else {k: v for k, v in info.items() if not k.startswith("_")}, "ota_age_s": info_age}
+                "ota": None if not info else {k: v for k, v in info.items() if not k.startswith("_")}, "ota_age_s": info_age,
+                "profile": None if not info else (info.get("prof") or ""), "profile_label": None if not info else PROFILES.get(info.get("prof") or "", info.get("prof"))}
 
     def eligibility(self, rec: Optional[Dict[str, Any]], device_id: str = "") -> List[str]:
         """Every reason the release cannot be deployed to the connected device now (empty = eligible). Device-side checks are repeated by the firmware."""
@@ -395,6 +402,9 @@ class FirmwareManager:
         if rec is not None:
             if not rec.get("deployable"):
                 why.append("the release did not pass every validation check")
+            if o is not None and rec.get("profile", "") != o.get("prof", ""):
+                why.append(f"profile mismatch: the release is {PROFILES.get(rec.get('profile', ''), rec.get('profile'))} firmware but the device runs "
+                           f"{PROFILES.get(o.get('prof', ''), o.get('prof'))} firmware (a bench image never goes to a motor controller, nor the reverse)")
             if o is not None and o.get("psz") and rec["size"] > o["psz"]:
                 why.append(f"the image ({rec['size']} bytes) does not fit the device's inactive partition ({o['psz']} bytes)")
             installed = d["firmware"] or ""

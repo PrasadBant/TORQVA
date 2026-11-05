@@ -321,3 +321,41 @@ def test_second_connect_request_while_one_is_open_is_a_409_not_a_second_open(api
     tr = MemoryTransport(); svc.bridge.connect(tr)
     r = c.post("/api/torqva/device/connect", headers=H("a"), json={"port": "COM7"})
     assert r.status_code == 409 and tr.is_open
+
+
+# ------------------------------------------------------------------------------------------------ Espressif native USB: no reset while opening
+class _RecordingSerial:
+    """Stands in for serial.Serial and records the DTR/RTS state at the moment the port is opened."""
+    opened = []
+
+    def __init__(self, *a, **k):
+        self.args, self.kwargs, self.dtr, self.rts, self.is_open = a, k, True, True, bool(a)
+        if a:                                                    # the generic path opens in the constructor (pyserial asserts DTR/RTS)
+            _RecordingSerial.opened.append(("ctor", self.dtr, self.rts))
+
+    def open(self):
+        _RecordingSerial.opened.append(("open", self.dtr, self.rts)); self.is_open = True
+
+
+def _fake_serial_with_ports(monkeypatch, vid):
+    import types
+    mod = types.ModuleType("serial"); mod.Serial = _RecordingSerial; mod.SerialException = Exception
+    tools = types.ModuleType("serial.tools"); lp = types.ModuleType("serial.tools.list_ports")
+    lp.comports = lambda: [types.SimpleNamespace(device="COM10", vid=vid)]
+    tools.list_ports = lp; mod.tools = tools
+    for name, m in (("serial", mod), ("serial.tools", tools), ("serial.tools.list_ports", lp)):
+        monkeypatch.setitem(sys.modules, name, m)
+    _RecordingSerial.opened = []
+
+
+def test_an_espressif_usb_port_is_opened_with_dtr_on_and_rts_off_before_opening(monkeypatch):
+    _fake_serial_with_ports(monkeypatch, 0x303A)
+    SerialTransport("COM10").open()
+    assert _RecordingSerial.opened == [("open", True, False)]                   # RTS never asserted (no reset); DTR on: the host keeps reading
+
+
+def test_other_serial_devices_open_exactly_as_before(monkeypatch):
+    _fake_serial_with_ports(monkeypatch, 0x1A86)                                # a CH343 / CH340 USB-UART bridge
+    SerialTransport("COM10").open()
+    assert _RecordingSerial.opened == [("ctor", True, True)]
+

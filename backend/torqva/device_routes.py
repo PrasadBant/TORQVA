@@ -166,6 +166,81 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
     def device_commands(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         return {"commands": bridge.command_list()}
 
+    # ---- device link: the ESP32's own WebSocket over TLS (reached only through backend/tools/ota_https_gateway.py; this backend listens on 127.0.0.1).
+    # No bearer token: a device has none. Authentication is the device protocol's own mutual challenge-response with the per-device key, run by the bridge
+    # exactly as on USB; a link that does not complete it within dl.LINK_AUTH_TIMEOUT_S is closed. See torqva/device_link.py.
+    from . import device_link as dl
+    from .device_link import DeviceLinkManager, WsTransport, link_enabled
+    if getattr(bridge, "link", None) is None:
+        bridge.link = DeviceLinkManager(bridge)
+    links: DeviceLinkManager = bridge.link
+
+    @r.websocket("/device/link")
+    async def device_link(websocket: WebSocket):
+        if not link_enabled():
+            await websocket.close(code=4404)                       # Wi-Fi device links are off (TORQVA_DEVICE_LINK=1 enables them; never in dev:sim)
+            return
+        peer = websocket.client.host if websocket.client else "?"
+        fwd = websocket.headers.get("x-forwarded-for", "")
+        remote = fwd.split(",")[0].strip() if peer in ("127.0.0.1", "::1") and fwd else peer   # the gateway is the only local peer that forwards
+        await websocket.accept()
+        ok, why = await asyncio.to_thread(links.admit, remote)
+        if not ok:
+            await websocket.close(code=4409, reason=why[:120])
+            return
+        tr = WsTransport(asyncio.get_running_loop(), remote)
+        try:
+            await asyncio.to_thread(bridge.connect, tr)
+        except (RuntimeError, TransportError) as e:
+            await websocket.close(code=4409, reason=str(e)[:120])
+            return
+        links.attached(tr)
+        reason = "closed by the device"
+
+        async def sender():
+            while True:
+                item = await tr.out.get()
+                if item is None:
+                    return
+                await websocket.send_text(item)
+
+        async def watchdog():
+            t0 = asyncio.get_running_loop().time()
+            while True:
+                await asyncio.sleep(1.0)
+                current = getattr(bridge, "_transport", None) is tr
+                if not current:
+                    return "replaced or disconnected by the backend"
+                if asyncio.get_running_loop().time() - t0 > dl.LINK_AUTH_TIMEOUT_S and not await asyncio.to_thread(bridge.session_active):
+                    return "no authenticated session (device key handshake did not complete)"
+
+        async def receiver():
+            while True:
+                text = await websocket.receive_text()
+                if len(text) > dl.LINK_MAX_MSG:
+                    return "message too large"
+                tr.feed(text)
+
+        tasks = [asyncio.create_task(c) for c in (sender(), watchdog(), receiver())]
+        try:
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for t in done:
+                try:
+                    reason = t.result() or reason
+                except WebSocketDisconnect:
+                    reason = "closed by the device"
+                except Exception as e:                             # noqa: BLE001 - any socket error ends this link only
+                    reason = f"link error: {type(e).__name__}"
+        finally:
+            for t in tasks:
+                t.cancel()
+            tr.gone(reason)
+            links.detached(tr, reason)
+            try:
+                await websocket.close(code=1000)
+            except RuntimeError:
+                pass
+
     # ---- read-only WebSocket (authentication by first message: browsers cannot set headers on a WebSocket)
     @r.websocket("/ws")
     async def ws(websocket: WebSocket):

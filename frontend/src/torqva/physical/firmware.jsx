@@ -62,6 +62,7 @@ function DeviceStatus({ s }) {
         { key: 'dev', label: 'Device', value: d.device_id || null, missingText: 'not connected' },
         { key: 'chip', label: 'Chip', value: d.chip || null, missingText: 'UNAVAILABLE' },
         { key: 'fw', label: 'Installed firmware', value: d.firmware || null, missingText: 'UNAVAILABLE' },
+        { key: 'prof', label: 'Firmware profile', value: d.profile_label || null, missingText: 'UNAVAILABLE' },
         { key: 'cap', label: 'Update capability', value: !d.connected ? null : capable ? 'OTA capable' : `not configured: ${o?.why || 'the device reports no OTA support'}`, missingText: 'UNAVAILABLE' },
         { key: 'slot', label: 'OTA partitions', value: capable ? `running ${o.run}; inactive slot ${kb(o.psz)}` : null, missingText: 'UNAVAILABLE' },
         { key: 'health', label: 'Firmware health', value: !o ? null : o.pend ? 'new image not yet confirmed (self-test pending)' : 'confirmed image', missingText: 'UNAVAILABLE' },
@@ -194,8 +195,9 @@ function UpdateDevice({ rec, detail, s, admin, onDeployed }) {
         <MetricList label="Update" items={[
           { key: 'cur', label: 'Current version', value: d.firmware || null, missingText: 'UNAVAILABLE' },
           { key: 'tgt', label: 'Target version', value: rec.version },
+          { key: 'tprof', label: 'Release profile', value: rec.profile === 'ota_led_bench' ? 'OTA LED bench (no motor control)' : 'production' },
           { key: 'el', label: 'Update eligibility', value: why.length ? 'not eligible' : 'eligible' },
-          { key: 'sf', label: 'Safety eligibility', value: d.ota?.blk ? `refused by the device: ${d.ota.blk}` : d.ota ? 'motor stopped and motor power absent, as measured by the device' : null, missingText: 'UNAVAILABLE' },
+          { key: 'sf', label: 'Safety eligibility', value: d.ota?.blk ? `refused by the device: ${d.ota.blk}` : d.ota ? (d.profile === 'ota_led_bench' ? 'LED bench device: no motor hardware and motor control compiled out (no speed or supply is measured)' : 'motor stopped and motor power absent, as measured by the device') : null, missingText: 'UNAVAILABLE' },
           { key: 'rs', label: 'Expected restart', value: 'yes: the device restarts into the new image and must reconnect' },
         ]} />
         {why.length > 0 && <ul className="tq-callout warn tq-list" data-testid="fw-blockers">{why.map((w) => <li key={w}>{w}</li>)}</ul>}

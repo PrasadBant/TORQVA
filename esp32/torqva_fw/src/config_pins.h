@@ -5,7 +5,9 @@
 #include "pinmap.h"
 
 #define TORQVA_WIRING_ID   "W1-LEGACYMAP-UNVERIFIED"
+#ifndef TORQVA_FW_VERSION                 // a build profile may set it (the LED bench profiles in platformio.ini do); otherwise this value
 #define TORQVA_FW_VERSION  "3.0.1-dev"
+#endif
 
 // Sensor scaling. INA219 library calibrates for a 0.1 ohm shunt; after the shunt swap set this to 0.05.
 #ifndef TORQVA_SHUNT_OHM

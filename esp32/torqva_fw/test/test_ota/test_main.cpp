@@ -215,7 +215,7 @@ void test_flash_failures_abort_and_keep_the_running_image() {
 
 // ------------------------------------------------------------------------------------------------ first boot: confirm or roll back
 void test_the_new_image_is_confirmed_only_when_every_self_test_passes() {
-    SelfTestInputs ok = {true, true, true, true, true, true, true, true, true};
+    SelfTestInputs ok = {true, true, true, true, true, true, true, true, true, false};
     TEST_ASSERT_NULL(ota_selftest(ok));
     struct { bool SelfTestInputs::*f; const char* why; } cases[] = {
         {&SelfTestInputs::device_initialised, "DEVICE_INIT"}, {&SelfTestInputs::outputs_disabled, "OUTPUTS_NOT_DISABLED"},
@@ -244,15 +244,20 @@ static std::string hmachex(const uint8_t* key, const std::string& msg, size_t by
 
 struct OtaRig {
     Device dev; uint8_t key[32]; uint8_t sk[32]; std::string sid; uint32_t now; uint32_t seq;
-    static DeviceConfig cfg(uint8_t* key, bool capable) {
+    static DeviceConfig cfg(uint8_t* key, bool capable, bool bench = false) {
         DeviceConfig c = {};
         c.fw_version = "3.0.1"; c.wiring_id = "W"; c.mode = "HW"; c.control_enabled = true; c.kp = 0.01f; c.ki = 0.03f;
         c.limits_approved = true; c.estop_input_wired = true; c.transport_secured = true; c.relaxed_interlocks = false;
         c.device_id = "RIG-1"; c.auth_enabled = true; c.rand32 = rnd; c.ota_capable = capable; c.ota_why = capable ? "" : "NO_OTA_PARTITIONS";
         for (int i = 0; i < 32; i++) key[i] = c.auth_key[i] = (uint8_t)(i * 3 + 2);
+        if (bench) { c.ota_led_bench = true; c.control_enabled = false; c.limits_approved = false; c.estop_input_wired = false; }   // the LED bench build
         return c;
     }
+    static DeviceConfig bench_cfg(uint8_t* key, bool control) { DeviceConfig c = cfg(key, true, true); c.control_enabled = control; return c; }
     OtaRig(uint8_t* k, bool capable = true) : dev(default_limits(), cfg(k, capable)), now(1000), seq(0) { memcpy(key, k, 32); dev.set_watchdog_active(true); }
+    OtaRig(uint8_t* k, const DeviceConfig& c) : dev(default_limits(), c), now(1000), seq(0) { memcpy(key, k, 32); dev.set_watchdog_active(true); }
+    // The LED bench board: no sensor exists, so every reading is invalid (nothing invented); the E-stop input is not wired.
+    HalIn nothing() { HalIn in = {}; in.now_ms = now; in.estop_state = 0; return in; }
     // A bench snapshot: shaft still and measured (Hall valid, 0 rpm, no recent pulse), motor supply measured as absent.
     HalIn bench(float rpm = 0, bool rpm_valid = true, bool pulse = false, float volts = 0.05f, bool v_valid = true) {
         HalIn in = {}; in.now_ms = now;
@@ -369,6 +374,60 @@ void test_ota_info_reports_capability_partition_and_the_current_blocker() {
     TEST_ASSERT_TRUE(s.find("\"cap\":1,\"why\":\"\",\"run\":\"ota_0\",\"psz\":3342336,\"pend\":0,\"last\":\"ROLLED_BACK\",\"lver\":\"3.1.0\",\"blk\":\"MOTOR_POWER_CONNECTED\",\"busy\":0}") != std::string::npos);
 }
 
+
+// ---------------------------------------------------------------------------------------------------- LED bench profile (no motor hardware)
+void test_the_led_bench_profile_is_eligible_without_inventing_any_sensor_reading() {
+    uint8_t k[32]; OtaRig r(k, OtaRig::bench_cfg(k, false)); r.step(r.nothing()); drain(r.dev);
+    TEST_ASSERT_TRUE(r.login());
+    const std::string out = r.ota();
+    TEST_ASSERT_TRUE(out.find("\"st\":\"AUTHORIZED\"") != std::string::npos);
+}
+
+void test_production_with_the_same_missing_readings_is_still_refused() {
+    uint8_t k[32]; OtaRig r(k); r.step(r.nothing()); drain(r.dev);
+    TEST_ASSERT_TRUE(r.login());
+    TEST_ASSERT_TRUE(refused(r.ota(), "SPEED_UNVERIFIED"));                             // an unavailable speed is never zero in production
+    OtaRig r2(k); r2.step(r2.bench(0, true, false, 0.05f, false)); drain(r2.dev);
+    TEST_ASSERT_TRUE(r2.login());
+    TEST_ASSERT_TRUE(refused(r2.ota(), "SUPPLY_UNVERIFIED"));
+}
+
+void test_a_bench_profile_with_motor_control_is_refused() {
+    uint8_t k[32]; OtaRig r(k, OtaRig::bench_cfg(k, true)); r.step(r.nothing()); drain(r.dev);
+    TEST_ASSERT_TRUE(r.login());
+    TEST_ASSERT_TRUE(refused(r.ota(), "BENCH_PROFILE_INVALID"));
+}
+
+void test_the_bench_profile_still_needs_the_authenticated_session_and_refuses_motion() {
+    uint8_t k[32]; OtaRig r(k, OtaRig::bench_cfg(k, false)); r.step(r.nothing()); drain(r.dev);
+    TEST_ASSERT_TRUE(refused(r.ota(), "NO_SECURE_SESSION"));                            // the bench profile relaxes no authentication
+    TEST_ASSERT_TRUE(r.login());
+    for (const char* c : {"START", "SET_SPEED", "RUN_TEST"}) TEST_ASSERT_TRUE(r.cmd(c, 1000).find("REJECTED") != std::string::npos);
+    TEST_ASSERT_TRUE(r.cmd("STOP", 0).find("ACCEPTED") != std::string::npos);
+}
+
+void test_ota_info_names_the_bench_profile_and_production_frames_are_unchanged() {
+    uint8_t k[32];
+    OtaRig b(k, OtaRig::bench_cfg(k, false)); b.now = 2000; b.step(b.nothing()); b.now = 2001; b.step(b.nothing());
+    std::string sb = drain(b.dev);
+    TEST_ASSERT_TRUE(sb.find("\"t\":\"ota_info\"") != std::string::npos && sb.find(",\"busy\":0,\"prof\":\"ota_led_bench\"}") != std::string::npos);
+    OtaRig p(k); p.now = 2000; p.step(p.bench()); p.now = 2001; p.step(p.bench());
+    std::string sp = drain(p.dev);
+    TEST_ASSERT_TRUE(sp.find("\"t\":\"ota_info\"") != std::string::npos && sp.find("prof") == std::string::npos && sp.find(",\"busy\":0}") != std::string::npos);
+}
+
+void test_the_bench_self_test_needs_motion_unavailable_but_no_sensors() {
+    SelfTestInputs ok = {true, false, true, true, true, false, true, true, true, true};   // sensors and E-stop absent, motion unavailable
+    TEST_ASSERT_NULL(ota_selftest_bench(ok));
+    TEST_ASSERT_EQUAL_STRING("ESTOP_INPUT", ota_selftest(ok));                              // the production self-test is unchanged:
+    { SelfTestInputs e = ok; e.estop_input_read = true; TEST_ASSERT_EQUAL_STRING("SENSORS", ota_selftest(e)); }   // it still needs the E-stop input and the sensors
+    struct { bool SelfTestInputs::*f; const char* why; } cases[] = {
+        {&SelfTestInputs::device_initialised, "DEVICE_INIT"}, {&SelfTestInputs::outputs_disabled, "OUTPUTS_NOT_DISABLED"}, {&SelfTestInputs::motion_unavailable, "MOTION_AVAILABLE"},
+        {&SelfTestInputs::safety_initialised, "SAFETY_INIT"}, {&SelfTestInputs::watchdog_active, "WATCHDOG"}, {&SelfTestInputs::identity_and_key, "IDENTITY"},
+        {&SelfTestInputs::ota_healthy, "OTA_CONFIG"}, {&SelfTestInputs::host_link, "HOST_LINK"}};
+    for (auto& c : cases) { SelfTestInputs s = ok; s.*(c.f) = false; TEST_ASSERT_EQUAL_STRING(c.why, ota_selftest_bench(s)); }
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_ota_request_parses_strictly_and_canonicalises);
@@ -392,5 +451,11 @@ int main(int, char**) {
     RUN_TEST(test_an_authorised_update_refuses_motion_keeps_stop_and_outputs_off_until_it_ends);
     RUN_TEST(test_an_unconfirmed_image_refuses_another_update_until_confirmed);
     RUN_TEST(test_ota_info_reports_capability_partition_and_the_current_blocker);
+    RUN_TEST(test_the_led_bench_profile_is_eligible_without_inventing_any_sensor_reading);
+    RUN_TEST(test_production_with_the_same_missing_readings_is_still_refused);
+    RUN_TEST(test_a_bench_profile_with_motor_control_is_refused);
+    RUN_TEST(test_the_bench_profile_still_needs_the_authenticated_session_and_refuses_motion);
+    RUN_TEST(test_ota_info_names_the_bench_profile_and_production_frames_are_unchanged);
+    RUN_TEST(test_the_bench_self_test_needs_motion_unavailable_but_no_sensors);
     return UNITY_END();
 }

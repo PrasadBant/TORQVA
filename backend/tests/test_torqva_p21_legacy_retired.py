@@ -122,8 +122,9 @@ def test_current_docs_state_the_supported_firmware_the_retirement_and_that_hardw
 
 # ====================================================================================== supported PlatformIO environments
 def test_supported_platformio_environments_remain_and_are_not_merged():
-    assert re.findall(r"^\[env:(\w+)\]", INI, re.M) == ["native", "fitl", "esp32s3", "esp32s3_uart"]
-    uart = re.search(r"\[env:esp32s3_uart\](.*?)(?:\n\[|\Z)", INI, re.S).group(1)
+    # the two OTA LED bench profiles are additional, separately named environments (checked in test_torqva_p18_firmware_bringup.py); the production ones are unchanged
+    assert re.findall(r"^\[env:(\w+)\]", INI, re.M) == ["native", "fitl", "esp32s3", "esp32s3_uart", "esp32s3_ota_led_v100", "esp32s3_ota_led_v110", "esp32s3_ota_led_v111"]
+    uart =re.search(r"\[env:esp32s3_uart\](.*?)(?:\n\[|\Z)", INI, re.S).group(1)
     usb = re.search(r"\[env:esp32s3\](.*?)(?:\n\[|\Z)", INI, re.S).group(1)
     assert "ARDUINO_USB_CDC_ON_BOOT=1" in usb and "ARDUINO_USB_CDC_ON_BOOT=0" in uart and "extends = env:esp32s3" in uart
     for e in (usb, uart):

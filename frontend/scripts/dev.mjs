@@ -47,7 +47,7 @@ process.on('SIGINT', () => shutdown(0)); process.on('SIGTERM', () => shutdown(0)
 let backendEnv;
 if (simOnly) {
   // Remove anything inherited from the shell that could open a port or relax an interlock.
-  const { TORQVA_DEVICE_PORT, TORQVA_FORCE_UNLOCK, ...rest } = process.env;
+  const { TORQVA_DEVICE_PORT, TORQVA_FORCE_UNLOCK, TORQVA_DEVICE_LINK, ...rest } = process.env;   // no USB port and no Wi-Fi device link
   backendEnv = { ...rest, TORQVA_TOKENS: tokens, TORQVA_AUTOCONNECT: '0' };
   console.log('TORQVA (software only): backend on http://127.0.0.1:8000 with no device access, app on http://localhost:5173');
 } else {

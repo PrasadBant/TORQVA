@@ -90,8 +90,11 @@ struct SelfTestInputs {
     bool outputs_disabled;        // driver enables and PWM read back as off
     bool watchdog_active;         // control task registered with the task watchdog
     bool ota_healthy;             // OTA configuration still valid in this image (partitions, key, provisioning)
+    bool motion_unavailable;      // LED bench profile only: motor control compiled out and the motor outputs read back as off
 };
 const char* ota_selftest(const SelfTestInputs& s);
+// The LED bench profile's first-boot check: everything above except the sensors and the E-stop input (that board has neither), plus motion_unavailable.
+const char* ota_selftest_bench(const SelfTestInputs& s);
 
 // What the last recorded attempt became, decided at boot from facts the platform reads (no guess):
 //   NONE         no attempt recorded
@@ -112,6 +115,7 @@ struct OtaInfo {
     const char* last_ver;                   // version of the last attempt ("" none)
     const char* block;                      // why an update would be refused right now ("" = eligible)
     bool busy;
+    const char* profile;                    // "" production; "ota_led_bench" for the LED bench profile (then sent as "prof"; production frames are unchanged)
 };
 size_t encode_ota_info(char* buf, size_t n, const OtaInfo& i, uint32_t seq, uint32_t ts_ms);
 

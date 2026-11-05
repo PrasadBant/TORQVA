@@ -244,6 +244,18 @@ const char* ota_selftest(const SelfTestInputs& s) {
     return nullptr;
 }
 
+const char* ota_selftest_bench(const SelfTestInputs& s) {
+    if (!s.device_initialised) return "DEVICE_INIT";
+    if (!s.outputs_disabled) return "OUTPUTS_NOT_DISABLED";
+    if (!s.motion_unavailable) return "MOTION_AVAILABLE";
+    if (!s.safety_initialised) return "SAFETY_INIT";
+    if (!s.watchdog_active) return "WATCHDOG";
+    if (!s.identity_and_key) return "IDENTITY";
+    if (!s.ota_healthy) return "OTA_CONFIG";
+    if (!s.host_link) return "HOST_LINK";
+    return nullptr;
+}
+
 BootOutcome ota_boot_outcome(bool attempt_recorded, const char* attempt_ver, const char* running_ver, bool pending_verify) {
     if (!attempt_recorded || !attempt_ver || !attempt_ver[0] || !running_ver) return BootOutcome::NONE;
     if (strcmp(attempt_ver, running_ver) != 0) return BootOutcome::ROLLED_BACK;
@@ -260,7 +272,10 @@ size_t encode_ota_info(char* buf, size_t n, const OtaInfo& i, uint32_t seq, uint
     const int w = snprintf(buf, n, "{\"t\":\"ota_info\",\"seq\":%lu,\"ts\":%lu,\"cap\":%u,\"why\":\"%s\",\"run\":\"%s\",\"psz\":%lu,\"pend\":%u,\"last\":\"%s\",\"lver\":\"%s\",\"blk\":\"%s\",\"busy\":%u}",
                            (unsigned long)seq, (unsigned long)ts_ms, i.capable ? 1u : 0u, i.why ? i.why : "", i.running ? i.running : "?", (unsigned long)i.inactive_size, i.pending_verify ? 1u : 0u,
                            i.last_result ? i.last_result : "", i.last_ver ? i.last_ver : "", i.block ? i.block : "", i.busy ? 1u : 0u);
-    return (w > 0 && (size_t)w < n) ? (size_t)w : 0;
+    if (w <= 0 || (size_t)w >= n) return 0;
+    if (!i.profile || !i.profile[0]) return (size_t)w;                    // production: the frame is exactly as before
+    const int x = snprintf(buf + w - 1, n - (size_t)w + 1, ",\"prof\":\"%s\"}", i.profile);   // additive field, replaces the closing brace
+    return (x > 0 && (size_t)(w - 1 + x) < n) ? (size_t)(w - 1 + x) : 0;
 }
 
 }  // namespace torqva

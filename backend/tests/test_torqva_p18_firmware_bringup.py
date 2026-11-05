@@ -71,7 +71,17 @@ def test_platformio_environments_match_the_bringup_procedure():
     for e in (usb, uart):
         for forbidden in ("TORQVA_LIMITS_APPROVED", "TORQVA_ESTOP_INPUT_WIRED", "upload_", "-t upload"):
             assert forbidden not in e, forbidden
-    assert re.findall(r"^\[env:(\w+)\]", INI, re.M) == ["native", "fitl", "esp32s3", "esp32s3_uart"]
+    assert re.findall(r"^\[env:(\w+)\]", INI, re.M) == ["native", "fitl", "esp32s3", "esp32s3_uart", "esp32s3_ota_led_v100", "esp32s3_ota_led_v110", "esp32s3_ota_led_v111"]
+    # OTA LED bench profiles: native USB like esp32s3, motor control never enabled, OLED off (GPIO 5 is the LED), no interlock relaxed, never an upload setting
+    for name in ("esp32s3_ota_led_v100", "esp32s3_ota_led_v110", "esp32s3_ota_led_v111"):
+        b = env(name)
+        assert "extends = env:esp32s3" in b and "ARDUINO_USB_CDC_ON_BOOT=1" in b and "TORQVA_OTA_LED_BENCH=1" in b and "TORQVA_OLED=0" in b and "TORQVA_BENCH_BLINK_MS=" in b, name
+        for forbidden in ("TORQVA_CONTROL_ENABLED", "TORQVA_KEY", "TORQVA_LIMITS_APPROVED", "TORQVA_ESTOP_INPUT_WIRED", "upload_", "-t upload"):
+            assert forbidden not in b, (name, forbidden)
+    # the Wi-Fi device link exists only in a bench profile; production profiles never carry it
+    for name in ("esp32s3", "esp32s3_uart"):
+        assert "TORQVA_WIFI_LINK" not in env(name), name
+    assert "TORQVA_WIFI_LINK=1" in env("esp32s3_ota_led_v111")
 
 
 @pytest.mark.skipif(not (FW / ".pio" / "build" / "esp32s3_uart" / "firmware.elf").exists(), reason="esp32s3_uart not built")

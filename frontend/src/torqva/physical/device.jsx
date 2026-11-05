@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Usb, Unplug, Cpu, HeartPulse, Gauge, Zap, Thermometer, Plug, Move3d, Activity, Waves, SlidersHorizontal, Radio } from 'lucide-react';
+import { Usb, Unplug, Cpu, HeartPulse, Gauge, Zap, Thermometer, Plug, Move3d, Activity, Waves, SlidersHorizontal, Radio, Wifi } from 'lucide-react';
 import { plainify } from '../shared/plain.js';
 import { api, getToken, ApiError } from '../api.js';
 import { Card, Empty, ErrorBox, Pill, fmt, title, PageHead, CardLink, Disclosure, AlertPanel, LinkButton, MetricList, ChartPanel, DataTable, SourceTag } from '../shared/components.jsx';
@@ -97,6 +97,16 @@ export const ago = (unix) => (unix ? `${fmt(Math.max(0, Date.now() / 1000 - unix
 /** Wall-clock time of a unix timestamp (seconds), or '—'. */
 export const clock = (unix) => (Number.isFinite(unix) && unix > 0 ? new Date(unix * 1000).toLocaleTimeString() : '—');
 
+/** How the device is reached right now, from the backend's own record of the active transport (null = no link). A Wi-Fi link is "authenticating"
+ *  until the device handshake (per-device key) has completed: an open socket alone is never shown as a working device link. */
+export function transportOf(snap) {
+  const t = snap?.transport?.kind;
+  if (!t || !snap?.connection || snap.connection === 'DISCONNECTED' || snap.connection === 'ERROR') return null;
+  if (t === 'wifi') return snap?.session?.active ? 'Wi-Fi' : 'Wi-Fi (authenticating)';
+  if (t === 'usb') return 'USB';
+  return null;
+}
+
 function ConnPill({ snap }) {
   const c = snap?.connection || 'DISCONNECTED';
   const tone = c === 'CONNECTED' ? 'ok' : c === 'STALE' || c === 'CONNECTING' ? 'warn' : c === 'ERROR' ? 'crit' : 'off';
@@ -126,7 +136,10 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
   const bl = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
   const c = snap?.counters || {};
   const headTone = snap?.connection === 'ERROR' ? 'crit' : !connected ? 'off' : o.physical ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'warn';
-  const headWord = snap?.connection === 'ERROR' ? 'Connection error' : !connected ? 'Disconnected' : snap?.connection === 'CONNECTING' ? 'Connecting' : !snap.handshake ? 'No handshake' : !o.physical ? 'Connected (firmware simulation)' : snap.telemetry_fresh ? 'Connected' : 'Connected · telemetry stale';
+  const via = transportOf(snap);
+  const baseWord = snap?.connection === 'ERROR' ? 'Connection error' : !connected ? 'Disconnected' : snap?.connection === 'CONNECTING' ? 'Connecting' : !snap.handshake ? 'No handshake' : !o.physical ? 'Connected (firmware simulation)' : snap.telemetry_fresh ? 'Connected' : 'Connected · telemetry stale';
+  const headWord = via && connected ? `${baseWord} — ${via}` : baseWord;
+  const wl = snap?.wifi_link;
   const sensors = Object.entries(snap?.sensor_status || {});
   return (
     <>
@@ -142,17 +155,31 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
       <div className="tq-mon-devgrid">
         <Card title="Device connection" id="c-devconn" icon={Usb} testid="dev-conn">
           <div className={`tq-mon-connhead tq-${headTone}`}>
-            <span className="tq-mon-connicon" aria-hidden="true">{connected ? <Usb size={20} /> : <Unplug size={20} />}</span>
+            <span className="tq-mon-connicon" aria-hidden="true">{!connected ? <Unplug size={20} /> : snap?.transport?.kind === 'wifi' ? <Wifi size={20} /> : <Usb size={20} />}</span>
             <div>
-              <strong>{headWord}</strong>
-              <span>{snap?.port ? `Port ${snap.port}` : 'No port open'}{snap?.firmware ? ` · firmware ${snap.firmware}` : ''}</span>
+              <strong data-testid="conn-head">{headWord}</strong>
+              <span>{snap?.transport?.kind === 'wifi' ? `Wi-Fi link from ${snap.transport.remote}` : snap?.port ? `Port ${snap.port}` : 'No port open'}{snap?.firmware ? ` · firmware ${snap.firmware}` : ''}{snap?.device_profile ? ` · profile ${snap.device_profile}` : ''}</span>
             </div>
           </div>
           <dl className="tq-kv">
             <dt>State</dt><dd data-testid="state-label"><strong>{snap?.state_label || 'DISCONNECTED'}</strong></dd>
-            <dt>USB state</dt><dd><ConnPill snap={snap} /></dd>
+            <dt>Connection method</dt><dd data-testid="conn-method">{via || 'none'}</dd>
+            <dt>Link state</dt><dd><ConnPill snap={snap} /></dd>
+            <dt>Device authenticated (per-device key)</dt><dd data-testid="conn-auth">{snap?.session?.active ? <Pill tone="ok">yes</Pill> : <Pill tone="off">no</Pill>}</dd>
+            <dt>Last device frame</dt><dd>{connected && snap?.last_rx_unix ? ago(snap.last_rx_unix) : 'none'}</dd>
             <dt>Live updates (WebSocket only; says nothing about USB)</dt><dd>{ws === 'open' ? <Pill tone="ok">connected</Pill> : <Pill tone="warn">{ws === 'idle' ? 'off' : ws}</Pill>}</dd>
           </dl>
+          {wl && (wl.enabled || wl.events?.length > 0) && (
+            <details className="tq-disclosure" data-testid="wifi-link-details">
+              <summary>Advanced details: Wi-Fi device link</summary>
+              <dl className="tq-kv">
+                <dt>Wi-Fi device links</dt><dd>{wl.enabled ? 'accepted by this backend' : 'off (TORQVA_DEVICE_LINK is not set)'}</dd>
+                <dt>Active link</dt><dd>{wl.active ? `from ${wl.remote}, since ${clock(wl.since)}` : 'none'}</dd>
+                <dt>Connection attempts</dt><dd className="tq-num">{wl.attempts}</dd>
+                {wl.usb_autoconnect_paused && <><dt>USB auto-connect</dt><dd>paused while the Wi-Fi link lasts</dd></>}
+              </dl>
+              {wl.events?.length > 0 && <ol className="tq-mon-events">{wl.events.slice().reverse().map((e, i) => <li key={i}>{clock(e.at)} · {e.kind}{e.remote ? ` · ${e.remote}` : ''}{e.reason ? ` · ${e.reason}` : ''}</li>)}</ol>}
+            </details>)}
           {!snap?.handshake && <p className="tq-callout">No device handshake. {simMode ? <>The application is in <strong>SIMULATION</strong>; physical</> : 'Physical'}-device telemetry is unavailable and physical motor controls are disabled.</p>}
           {snap?.connection === 'CONNECTING' && !snap?.error && <p className="tq-callout" data-testid="device-connecting">Port opened, waiting for the device handshake (a valid TORQVA status frame). Until then nothing is shown as a physical device.</p>}
           {snap?.error && (

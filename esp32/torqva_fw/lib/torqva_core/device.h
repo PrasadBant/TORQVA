@@ -43,6 +43,10 @@ struct DeviceConfig {
     // ota_why says why not. Zero-initialised = not capable: every "ota" request is refused with OTA_NOT_CONFIGURED.
     bool ota_capable;
     const char* ota_why;
+    // OTA LED bench profile (platformio env:esp32s3_ota_led_*): a board with NO motor hardware and motor control compiled out. Its update eligibility
+    // replaces the measured-standstill checks (Hall speed, motor supply) with "motion is impossible in this build", and it reports profile
+    // "ota_led_bench" in ota_info. Zero-initialised = false = the production checks. Never set together with control_enabled (refused: BENCH_PROFILE_INVALID).
+    bool ota_led_bench;
 };
 
 // Sensor / input snapshot supplied by the platform (real HAL or SimPlant).

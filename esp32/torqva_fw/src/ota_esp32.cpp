@@ -76,13 +76,21 @@ bool pending_verify() {
 class EspOtaPort : public OtaPort {
 public:
     bool wifi_connect() override {
+#if defined(TORQVA_WIFI_LINK) && TORQVA_WIFI_LINK
+        // The wireless device link owns Wi-Fi in this build (it is already up: the update request itself arrived over it). Only wait for it.
+        { const uint32_t t0 = millis(); while (WiFi.status() != WL_CONNECTED) { if (millis() - t0 > kWifiTimeoutMs) return false; delay(100); } return true; }
+#endif
         WiFi.mode(WIFI_STA);
         WiFi.begin(g_ssid.c_str(), g_pass.c_str());
         const uint32_t t0 = millis();
         while (WiFi.status() != WL_CONNECTED) { if (millis() - t0 > kWifiTimeoutMs) return false; delay(100); }
         return true;
     }
+#if defined(TORQVA_WIFI_LINK) && TORQVA_WIFI_LINK
+    void wifi_disconnect() override { http_.end(); }                                         // Wi-Fi stays on: it carries the device link
+#else
     void wifi_disconnect() override { http_.end(); WiFi.disconnect(true); WiFi.mode(WIFI_OFF); }      // Wi-Fi is on only during an update
+#endif
     bool fetch_manifest(const OtaRequest& r, char* out, size_t cap) override {
         if (!get(r, "manifest")) return false;
         String body = http_.getString(); http_.end();
@@ -200,9 +208,16 @@ void self_test() {
         s.outputs_disabled = g_dev->outputs_off();
         s.watchdog_active = g_dev->watchdog_active();
         s.ota_healthy = g_capable;
+#if defined(TORQVA_OTA_LED_BENCH) && TORQVA_OTA_LED_BENCH && !defined(TORQVA_CONTROL_ENABLED)
+        s.motion_unavailable = s.outputs_disabled;         // motor control is compiled out of this build and the outputs read back as off
+#endif
         xSemaphoreGive(g_mu);
     }
+#if defined(TORQVA_OTA_LED_BENCH) && TORQVA_OTA_LED_BENCH
+    const char* why = ota_selftest_bench(s);              // LED bench board: no sensors or E-stop exist to test (docs/TORQVA_OTA_LED_BENCH_TEST.md)
+#else
     const char* why = ota_selftest(s);
+#endif
     if (!why && esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
         persist_last("CONFIRMED", TORQVA_FW_VERSION, true);
         if (xSemaphoreTake(g_mu, portMAX_DELAY) == pdTRUE) { g_dev->ota_boot_result(OtaState::CONFIRMED, ""); xSemaphoreGive(g_mu); }
@@ -268,4 +283,13 @@ void ota_platform_start(Device* dev, SemaphoreHandle_t mu, bool ina_ok, bool tem
     dev->set_ota_boot(running_name(esp_ota_get_running_partition()), next ? next->size : 0, pend, g_last, g_last_ver);
     // TLS + HTTP need a large stack; lower priority than the control task, on the other core.
     xTaskCreatePinnedToCore(ota_task, "ota", 12288, nullptr, 1, nullptr, 0);
+}
+
+bool ota_net_config(String* ssid, String* pass, String* base, String* ca) {
+    if (g_ssid.length() == 0 || !base_url_ok(g_base) || g_ca.indexOf("-----BEGIN CERTIFICATE-----") < 0) return false;
+    if (ssid) *ssid = g_ssid;
+    if (pass) *pass = g_pass;
+    if (base) *base = g_base;
+    if (ca) *ca = g_ca;
+    return true;
 }

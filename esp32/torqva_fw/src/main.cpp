@@ -23,11 +23,35 @@
 #include "config_pins.h"
 #include "device.h"
 #include "estop.h"
+#include "wifi_link.h"
 #include "ota_esp32.h"
 
 using namespace torqva;
 
 // A build that can drive the motor must not carry the placeholder key below: control needs an explicit -DTORQVA_KEY="...". (Compile-time guard only; no behaviour change otherwise.)
+// OTA LED bench profile (platformio env:esp32s3_ota_led_*): an ESP32-S3 with ONE LED on GPIO 5 and no motor hardware. Motor control is compiled out, the
+// PWM peripheral is never set up, no sensor is initialised (every reading is reported invalid, nothing is invented) and the OLED is off so GPIO 5 is free.
+// See docs/TORQVA_OTA_LED_BENCH_TEST.md. Production builds never define TORQVA_OTA_LED_BENCH and are unchanged.
+#ifndef TORQVA_OTA_LED_BENCH
+#define TORQVA_OTA_LED_BENCH 0
+#endif
+#if TORQVA_OTA_LED_BENCH
+#if defined(TORQVA_CONTROL_ENABLED)
+#error "the OTA LED bench profile must never be built with motor control enabled (TORQVA_CONTROL_ENABLED)"
+#endif
+#if !defined(TORQVA_OLED) || TORQVA_OLED
+#error "the OTA LED bench profile uses GPIO 5 (the OLED clock) for its LED: build it with -DTORQVA_OLED=0"
+#endif
+#if !defined(TORQVA_BENCH_BLINK_MS) || TORQVA_BENCH_BLINK_MS < 50
+#error "the OTA LED bench profile needs -DTORQVA_BENCH_BLINK_MS (LED half-period, >= 50 ms)"
+#endif
+#elif defined(TORQVA_BENCH_BLINK_MS)
+#error "TORQVA_BENCH_BLINK_MS belongs to the OTA LED bench profile only"
+#endif
+// Wireless device link (wifi_link.h): only in the LED bench profile for now; production motor firmware keeps USB as its only command link.
+#if defined(TORQVA_WIFI_LINK) && TORQVA_WIFI_LINK && !TORQVA_OTA_LED_BENCH
+#error "TORQVA_WIFI_LINK is limited to the OTA LED bench profile (production motor firmware is not migrated)"
+#endif
 #if defined(TORQVA_CONTROL_ENABLED) && !defined(TORQVA_KEY)
 #error "TORQVA_CONTROL_ENABLED requires an explicit -DTORQVA_KEY=\"...\": the built-in placeholder key must never be used with motor control enabled"
 #endif
@@ -71,7 +95,11 @@ using namespace torqva;
 
 // Firmware identity embedded in the image, read by the backend's release validation (backend/torqva/firmware.py) so a release version is taken from
 // the binary, never from what an uploader types. Kept by setup() below so the linker cannot drop it.
+#if TORQVA_OTA_LED_BENCH
+extern "C" const char TORQVA_FW_ID[] __attribute__((used)) = "TORQVA_FW_ID:ver=" TORQVA_FW_VERSION ";chip=esp32s3;proto=1;prof=ota_led_bench;";
+#else
 extern "C" const char TORQVA_FW_ID[] __attribute__((used)) = "TORQVA_FW_ID:ver=" TORQVA_FW_VERSION ";chip=esp32s3;proto=1;";
+#endif
 
 // ---------- hardware outputs ----------
 using namespace torqva_pins;
@@ -94,7 +122,9 @@ static void outputs_off() {
 
 // Returns true only if the PWM peripheral was set up for the RPWM pin. LPWM is never driven (unidirectional): it is held LOW as a plain output.
 static bool pwm_begin() {
-#if ESP_ARDUINO_VERSION_MAJOR >= 3
+#if TORQVA_OTA_LED_BENCH
+    return false;                                       // bench: the PWM peripheral is never attached to the driver pin
+#elif ESP_ARDUINO_VERSION_MAJOR >= 3
     return ledcAttach(RPWM, PWM_FREQ_HZ, PWM_RES_BITS);
 #else
     if (ledcSetup(0, PWM_FREQ_HZ, PWM_RES_BITS) == 0) return false;
@@ -104,6 +134,9 @@ static bool pwm_begin() {
 }
 
 static void pwm_write(float duty_pct) {
+#if TORQVA_OTA_LED_BENCH
+    (void)duty_pct; return;                             // bench: no PWM channel exists; RPWM stays a plain LOW output (outputs_off)
+#endif
     if (duty_pct < 0) duty_pct = 0;
     if (duty_pct > 100) duty_pct = 100;
     const uint32_t max = (1u << PWM_RES_BITS) - 1;
@@ -137,6 +170,10 @@ static void indicators(const HalIn& in, const HalOut& o, bool latched) {
     digitalWrite(LED_TEMP, in.housing_valid ? HIGH : LOW);
     digitalWrite(LED_INA, (in.current_valid && in.voltage_valid) ? HIGH : LOW);
     digitalWrite(LED_ACCEL, in.acc_valid ? HIGH : LOW);
+#if TORQVA_OTA_LED_BENCH
+    // The bench LED on GPIO 5 (OLED_SCL in the production map; the OLED is compiled out here) shows which image runs: its half-period is this build's.
+    digitalWrite(torqva_pins::OLED_SCL, ((millis() / (uint32_t)(TORQVA_BENCH_BLINK_MS)) & 1u) ? HIGH : LOW);
+#endif
     static uint32_t last_toggle = 0; static bool beep = false;
     if (latched) {                                          // a latched safety fault beeps (300 ms) until the intentional reset
         if ((uint32_t)(millis() - last_toggle) >= 300) { last_toggle = millis(); beep = !beep; digitalWrite(BUZZER, beep ? HIGH : LOW); }
@@ -161,6 +198,10 @@ static void read_rpm(HalIn& in) {
     noInterrupts(); last = g_last_pulse_us; period = g_period_us; have = g_have_period; interrupts();
     const uint32_t since_ms = (micros() - last) / 1000;
     in.pulse_recent = (last != 0) && since_ms < 1000;
+#if TORQVA_OTA_LED_BENCH
+    in.pulse_recent = false; in.rpm = 0.0f; in.rpm_valid = false;     // bench: there is no Hall sensor, so there is no speed reading (never "0 rpm")
+    (void)have; (void)period; return;
+#endif
     // Sensor is "valid" whenever it is readable; a stopped shaft legitimately reads 0 rpm.
     in.rpm_valid = true;
     in.rpm = (in.pulse_recent && have && period > 0) ? 60.0e6f / (float)period : 0.0f;
@@ -277,13 +318,19 @@ static void read_inputs(HalIn& in) {
     } else {
         in.current_a = 0; in.voltage_v = 0; in.current_valid = false; in.voltage_valid = false;
     }
-    read_temps(in.now_ms);
+#if !TORQVA_OTA_LED_BENCH
+    read_temps(in.now_ms);                             // bench: no DS18B20 bus is started, so nothing is read and the temperatures stay invalid
+#endif
     // Valid only if the LAST read succeeded AND it is recent (wrap-safe): a stuck bus or an unread sensor cannot stay "valid" forever.
     in.housing_c = g_housing;  in.housing_valid = g_housing_ok && (uint32_t)(in.now_ms - g_housing_ms) < TORQVA_TEMP_STALE_MS;
     in.ambient_c = g_ambient;  in.ambient_valid = g_ambient_ok && (uint32_t)(in.now_ms - g_ambient_ms) < TORQVA_TEMP_STALE_MS;
     read_rpm(in);
     in.vib_rms_g = 0; in.vib_valid = false;            // vibration RMS is NOT implemented: the raw acceleration below is a different quantity
+#if TORQVA_OTA_LED_BENCH
+    in.acc_valid = false;                              // bench: no ADXL345
+#else
     read_accel(in);
+#endif
     // No reset button is documented (UNCONFIGURED): it reads as never pressed, so a latched trip cannot be reset by software; only a power cycle clears it.
     in.button_pressed = (torqva_pins::LOCAL_RESET_BUTTON != torqva_pins::UNCONFIGURED) && digitalRead(torqva_pins::LOCAL_RESET_BUTTON) == LOW;
     {   // E-stop monitoring input. An open circuit, a pressed switch or an unread pin is an emergency-stop CONDITION; the state is always reported.
@@ -340,7 +387,11 @@ void setup() {
 #endif
     g_pwm_ok = pwm_begin();
     pwm_write(0);
-
+#if TORQVA_OTA_LED_BENCH
+    // Bench: no sensor bus, no Hall interrupt, no driver. Only the LED pin is configured (starts LOW). g_ina_ok / g_adxl_ok stay false.
+    pinMode(torqva_pins::OLED_SCL, OUTPUT); digitalWrite(torqva_pins::OLED_SCL, LOW);
+    pinMode(torqva_pins::ESTOP_INPUT, INPUT_PULLUP);          // read and reported only (not wired, never latches: TORQVA_ESTOP_INPUT_WIRED=0)
+#else
     Wire1.begin(torqva_pins::INA_SDA, torqva_pins::INA_SCL);          // INA219 bus
     Wire.begin(torqva_pins::ADXL_SDA, torqva_pins::ADXL_SCL);         // ADXL345 bus (separate from the INA219 bus)
     Wire.setTimeOut(20);
@@ -353,6 +404,7 @@ void setup() {
     pinMode(torqva_pins::HALL_INPUT, INPUT_PULLUP);
     pinMode(torqva_pins::ESTOP_INPUT, INPUT_PULLUP);          // NC contact to GND: closed = LOW (healthy); an open circuit floats HIGH = emergency-stop condition
     attachInterrupt(digitalPinToInterrupt(torqva_pins::HALL_INPUT), hall_isr, FALLING);
+#endif
 
     DeviceConfig cfg = {};
     cfg.fw_version = TORQVA_FW_VERSION;
@@ -387,7 +439,12 @@ void setup() {
         Preferences p;
         if (p.begin("torqva", false)) { p.putBytes("cfg", &r, sizeof(r)); p.end(); }
     };
+#if TORQVA_OTA_LED_BENCH
+    cfg.accel_supported = false;                       // bench: no ADXL345, so no accel frames (nothing invented)
+    cfg.ota_led_bench = true;                          // device-core bench eligibility + "prof":"ota_led_bench" in ota_info
+#else
     cfg.accel_supported = true;                        // this build reads the ADXL345 (frames report ok=0 when it is absent or invalid)
+#endif
     cfg.limits_approved = (TORQVA_LIMITS_APPROVED != 0);
     cfg.estop_input_wired = (TORQVA_ESTOP_INPUT_WIRED != 0);
     cfg.transport_secured = (TORQVA_TRANSPORT_SECURED != 0);
@@ -405,7 +462,9 @@ void setup() {
         }
     }
     // A PWM setup failure leaves the driver disabled (apply() never enables it) and latches a visible fault until a power cycle / intentional reset.
+#if !TORQVA_OTA_LED_BENCH
     if (!g_pwm_ok) g_dev->latch_boot_fault(TripReason::OUTPUT_INIT_FAULT);
+#endif                                                 // bench: PWM is absent by design (no driver exists); apply() keeps every output off because g_pwm_ok is false
     // A restart caused by a watchdog, brown-out or panic is a FAULT: latch it so the motor cannot be started again until a person performs the intentional reset
     // (authorised RESET_ESTOP + local button). Ordinary power-on, software, USB and external resets do not latch. The session is never set here: no secured
     // transport is implemented, so Device::set_secure_session() is never called with true and motor commands stay refused (NO_SECURE_SESSION).
@@ -422,7 +481,8 @@ void setup() {
     xTaskCreatePinnedToCore(control_task, "control", 6144, nullptr, configMAX_PRIORITIES - 2, nullptr, 1);
     // Over-the-air update: its own task (Wi-Fi + TLS on the other core, lower priority). It never touches a motor output; the Device refuses motion while it runs
     // and while a new image is unconfirmed, and the first-boot self-test decides whether the new image is kept.
-    ota_platform_start(g_dev, g_mu, g_ina_ok, g_ds.getDeviceCount() > 0, cfg.auth_enabled && strcmp(TORQVA_DEVICE_ID, "UNPROVISIONED") != 0, outputs_off);
+    wifi_link_start(g_dev, g_mu);                      // no-op unless TORQVA_WIFI_LINK (bench) and the network is provisioned; the device connects out only
+    ota_platform_start(g_dev, g_mu, g_ina_ok, TORQVA_OTA_LED_BENCH ? false : g_ds.getDeviceCount() > 0, cfg.auth_enabled && strcmp(TORQVA_DEVICE_ID, "UNPROVISIONED") != 0, outputs_off);
 }
 
 void loop() {
@@ -462,7 +522,8 @@ void loop() {
         got = g_dev->pop_line(out, sizeof(out));
         xSemaphoreGive(g_mu);
         if (!got) break;
-        Serial.println(out);
+        Serial.println(out);                           // USB serial: unchanged (diagnostics, recovery, and the link when no Wi-Fi link exists)
+        wifi_link_send(out);                           // the same line over the Wi-Fi link (no-op in builds without it)
     }
     delay(2);
 }
