@@ -1,8 +1,9 @@
 # TORQVA — OTA LED bench test (ESP32-S3, one LED, no motor hardware)
 
-> **Status (5 Nov 2026):** USB install of 1.0.0 and the OTA update 1.0.0 → 1.1.0 **performed on the real board** (section 9). The wireless device link
-> (section 10, firmware 1.1.1) is implemented and software-tested; its hardware steps are **not performed yet**. This bench demonstrates the update and
-> device-link paths only; it says nothing about motor control, which this firmware cannot perform.
+> **Status (5 Nov 2026):** USB install of 1.0.0 and the OTA update 1.0.0 → 1.1.0 **performed on the real board** (section 9). The OTA update
+> 1.1.0 → 1.1.1 (section 10) is **performed and confirmed** (ota_1). 1.1.1 has a runtime defect: with the USB cable plugged in but COM10 not read, its
+> Wi-Fi link carries no telemetry (section 11). Firmware **1.1.2** fixes it; it is built and host-tested, **not deployed and not hardware-tested**.
+> This bench demonstrates the update and device-link paths only; it says nothing about motor control, which this firmware cannot perform.
 
 ## 1. What the bench device is
 
@@ -74,6 +75,8 @@ Each needs its own explicit approval. Recovery from any state: `esptool write_fl
 Firmware host 157/157 (6 new bench tests: eligibility without sensor readings, production still refused with the same inputs, bench + control refused,
 session still required and motion refused, `prof` only in bench frames, bench self-test). Backend 775/775 (5 new: strict `prof` parsing, unknown profile
 refused, profile mismatch both ways, bench deploy, bench motor-command refusal). Frontend 259/259 (2 new). Builds: both bench profiles, `esp32s3`, `esp32s3_uart`.
+Firmware 1.1.2 (section 11): firmware host **166/166** (9 new in `test_line_out`), backend **757 passed, 29 skipped** (the two tests that pin the
+PlatformIO environment list now include `esp32s3_ota_led_v112`); builds `esp32s3_ota_led_v112`, `esp32s3`, `esp32s3_uart` succeed.
 
 ## 9. Hardware procedure and results
 
@@ -88,7 +91,7 @@ refused, profile mismatch both ways, bench deploy, bench motor-command refusal).
 | 7 | LED five blinks per second; device reports 1.1.0, `run: ota_0`, `pend: 0` | **done** |
 | 8 | Failure cases: wrong-key release, modified image, Wi-Fi off during download, self-test failure → rollback | **not performed** |
 
-## 10. Wireless device link (firmware 1.1.1) — software done, hardware pending
+## 10. Wireless device link (firmware 1.1.1) — deployed; Wi-Fi telemetry defect, see section 11
 
 **What depended on USB (audit, 1.1.0):** every runtime message (status, telemetry, `ota_info`, OTA progress), the authenticated session (and therefore HOST_LINK
 in the first-boot self-test), heartbeats and the OTA request itself. Only the image download used Wi-Fi.
@@ -122,8 +125,84 @@ motor firmware is not migrated.
 
 | # | Hardware step (1.1.1) | Result |
 |---|---|---|
-| 1 | Deploy 1.1.1 (release `403754570efe`) over USB-coordinated OTA (1.1.0 has no Wi-Fi link) into ota_1; 1.1.0 stays in ota_0 | not performed |
-| 2 | First boot over Wi-Fi only (USB auto-connect off): WSS + handshake → HOST_LINK → CONFIRMED | not performed |
-| 3 | LED five blinks per second; page *Connected — Wi-Fi* | not performed |
+| 1 | Deploy 1.1.1 (release `403754570efe`) over USB-coordinated OTA (1.1.0 has no Wi-Fi link) into ota_1; 1.1.0 stays in ota_0 | **done** 5 Nov 19:58:45–19:59:01, deployment `e44f6c88f694`: manifest + 950,512 B image fetched by 10.177.25.41 through the gateway, REBOOTING → SELF_TEST → **CONFIRMED**, `run: ota_1`, `pend: 0`. (A first attempt, `79437b145e18` on 4–5 Nov, failed `SERVER_UNAVAILABLE` with 0 bytes downloaded; its cause was not determined. Before the retry the Windows profile of the hotspot had become Public and was set back to Private by the operator.) |
+| 2 | First boot over Wi-Fi only (USB auto-connect off): WSS + handshake → HOST_LINK → CONFIRMED | **not as planned**: the self-test was confirmed over USB (COM10 still connected); the backend then handed the device over to its Wi-Fi link, which stalled (section 11) |
+| 3 | LED five blinks per second; page *Connected — Wi-Fi* | not performed (Wi-Fi link stalls: section 11) |
 | 4 | Unplug laptop USB, power from a 5 V USB supply on the board's USB connector; link returns | not performed |
 | 5 | Hotspot restart and backend restart: reconnect | not performed |
+
+## 11. Regression: Wi-Fi telemetry stalls while USB is plugged in but not read (1.1.1) — fixed in 1.1.2, hardware verification pending
+
+**Issue.** After the 1.1.0 → 1.1.1 update, RIG-1's Wi-Fi link (WSS through the gateway) connects and completes TLS, but carries no device
+lines: the backend sees no status frame, the key handshake never starts, and its 20 s watchdog closes the link
+("no authenticated session"). The device retries and the cycle repeats. The device does not reboot.
+
+**Exact reproduction condition (1.1.1).** The board's native USB connector is plugged into the laptop (so the USB host keeps sending
+start-of-frame packets), and **no program has COM10 open and reading**: here because the backend's USB → Wi-Fi handover closed COM10.
+Measured on 5 Nov:
+
+| Condition | Evidence |
+|---|---|
+| COM10 closed (USB plugged in) | each 20 s link carried **28 B** device → backend (WebSocket control frames only; per-link byte counters added to the gateway's relay log as temporary bench diagnostics, not committed), backend frame counter flat |
+| COM10 opened read-only for 5 s, then 10 s (DTR on / RTS off, nothing written) | Wi-Fi frames flowed at once (+159 frames in 10 s), handshake completed over Wi-Fi, state CONNECTED; within 3 s of closing COM10: STALE again |
+| Gateway in isolation (same certificate, TLS 1.2 ECDHE-ECDSA-AES256-GCM-SHA384, echo backend) | relays both directions: not the cause |
+| Backend route (`test_torqva_device_link.py`, a device authenticating over the WebSocket) | 9/9 pass: not the cause |
+| Firewall | the board's TCP sessions to 10.177.25.194:8443 were established and logged by the gateway: not the cause |
+
+The backend error shown, `HANDSHAKE_INVALID … 133 invalid frame(s)`, was misleading: that counter is cumulative per backend process (USB boot noise);
+nothing invalid arrived over Wi-Fi. (Backend follow-up, not changed here: reset the counters per connection.)
+
+**Root cause (code).** `loop()` wrote every device line to USB **before** queuing it for Wi-Fi (`Serial.println(out); wifi_link_send(out);`), and
+setup() called `Serial.setTxTimeoutMs(0)` intending "never block". In arduino-esp32 2.0.17, `HWCDC::write` (cores/esp32/HWCDC.cpp) treats the
+USB-Serial/JTAG port as connected while start-of-frame packets arrive (cable plugged in), and when its 256-byte TX ring buffer is full it loops
+until the host drains it. Its give-up counter is initialised to the timeout (`tries = tx_timeout_ms`, i.e. 0) and decremented before the
+`tries == 0` check, so it wraps to 4,294,967,295: the write waits ~forever, one `delay(1)` at a time. `loop()` therefore froze inside
+`Serial.println` and never reached `wifi_link_send`. The control/safety task, the WebSocket client task and the Wi-Fi stack kept running
+(the WebSocket stayed open and answered pings), which is why only telemetry stopped. A second, bounded path: the SDK console mirrors ESP-IDF log
+output to the USB-Serial/JTAG FIFO (`CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=1`) from inside the Wi-Fi / TLS / WebSocket tasks.
+
+**Fix (1.1.2).**
+
+- `lib/torqva_core/line_out.h` (new, host-tested): a line is written whole, CRLF included, in **one** write, only when the port reports room for
+  all of it right now (`availableForWrite()`); otherwise it is dropped and counted. Never waits, never retries, never writes a partial line.
+- `src/usb_out.h/.cpp` (new): the firmware's only USB writer. Native-USB builds: TX buffer 4096 B set **before** `Serial.begin` (the default
+  256 B cannot hold one ~300 B status line, so a fits-entirely check could never pass), TX timeout 2 ms (instead of the wrapping 0; with the
+  check above `HWCDC::write` never reaches its wait loop - the value only bounds writers that bypass usb_out), a mutex taken with a zero wait
+  so "check room, then write" is one step across tasks, and `esp_log_set_vprintf` so ESP-IDF log lines take the same non-blocking path instead
+  of the SDK's USB console mirror. UART builds (`esp32s3_uart`): unchanged `Serial.println` - a UART drains at its baud rate whether or not anyone listens.
+- `src/main.cpp`: `usb_out_begin(115200)` replaces `Serial.begin` + `setTxTimeoutMs(0)`; device lines go to `wifi_link_send` **first**, then
+  `usb_out_line`; the watchdog warning uses `usb_out_line`. USB reads are unchanged (`HWCDC::read` never waits).
+- `platformio.ini`: `[env:esp32s3_ota_led_v112]` = the 1.1.1 flags with `TORQVA_FW_VERSION="1.1.2"` (1.1.1 kept, as earlier versions are). Partition
+  table, NVS, OTA and rollback code unchanged.
+
+**Why this removes the dependency.** No firmware task calls a USB write that can wait: when the host is absent, not reading, or slow, lines for USB
+are dropped (USB is diagnostics and recovery; the backend detects gaps from sequence numbers) and `loop()` goes on to the Wi-Fi queue, which is
+itself non-blocking. The safety supervisor, control task and sensors never touched Serial (static guard below).
+
+**Effect when USB is the only link (no Wi-Fi):** lines are dropped only if the host falls more than 4 KB (~1.4 s of output) behind; a reading host
+drains far faster than the device writes.
+
+**Tests.**
+
+| # | Test | Host / unit (1.1.2) | Physical RIG-1 (1.1.2) |
+|---|---|---|---|
+| A | USB disconnected (5 V supply): boot, connect, telemetry ≥ 20–30 s | n/a on the host (unplugged, `HWCDC` takes its own non-blocking drop path; usb_out drops too when there is no room) | **pending** |
+| B | USB plugged in, COM10 not opened: Wi-Fi telemetry ≥ 30 s | `test_test_B_host_never_reads_every_later_line_is_dropped_immediately` | **pending** (1.1.1 baseline: **fails**, 0 lines) |
+| C | USB plugged in, COM10 read: Wi-Fi telemetry ≥ 30 s | `test_a_line_that_fits_is_written_whole_with_crlf_in_one_write` | **pending** (1.1.1 baseline: works) |
+| D | Open the reader while Wi-Fi is active, close it again: no stall | `test_test_D_E_…_never_tears_a_line` | **pending** (1.1.1 baseline: stalls after closing) |
+| E | Repeated transitions: no reboot, watchdog reset, stall or backend timeout | same test, 50 cycles | **pending** |
+| — | No firmware source writes to Serial / printf / ESP_LOG / log_x except `src/usb_out.cpp` | `test_no_firmware_source_writes_to_serial_except_usb_out` (fails on the 1.1.1 `main.cpp`: checked) | — |
+
+Other host tests: line dropped (not partial) when one byte short, over-long line dropped not truncated, short write and negative room counted as
+dropped, pre-formatted buffer variant. All 157 earlier firmware tests unchanged and passing.
+
+**Remaining limitations.**
+
+- Nothing above is verified on RIG-1 yet; tests A–E are required before 1.1.2 is called fixed on hardware.
+- The fix relies on `HWCDC::availableForWrite()` / `write()` behaving as read in arduino-esp32 **2.0.17** sources; a core upgrade must re-run test B.
+- ROM / panic output (`ets_printf`, `esp_rom_printf`) and Arduino `log_e` (UART0 via `ets_printf`) are outside usb_out; they go to UART0, which drains
+  at its baud rate. If any ROM output is also mirrored to USB-Serial/JTAG it is the SDK's own bounded path (not verified on hardware).
+- ESP-IDF log lines longer than 159 characters are cut (diagnostics only; protocol lines are never cut).
+- While the host is not reading, USB output is lost by design; when a reader opens COM10, up to 4 KB of older lines arrive first (whole lines).
+- The backend still closes COM10 at handover before the Wi-Fi session is verified, and reports cumulative invalid-frame counts (not changed here).
+

@@ -25,6 +25,7 @@
 #include "estop.h"
 #include "wifi_link.h"
 #include "ota_esp32.h"
+#include "usb_out.h"                                   // the only USB serial writer: whole lines or nothing, never waits on the host (1.1.2)
 
 using namespace torqva;
 
@@ -381,10 +382,9 @@ void setup() {
     outputs_off();                                     // FIRST: motor off before anything can fail
     { const char* volatile keep = TORQVA_FW_ID; (void)keep; }  // takes its address so the linker keeps the identity string in the image
     if (torqva_pins::LOCAL_RESET_BUTTON != torqva_pins::UNCONFIGURED) pinMode(torqva_pins::LOCAL_RESET_BUTTON, INPUT_PULLUP);
-    Serial.begin(115200);
-#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
-    Serial.setTxTimeoutMs(0);                          // a stalled or absent USB host must never block the loop that parses STOP: telemetry is dropped instead
-#endif
+    // A stalled or absent USB host must never block anything: usb_out drops lines instead of waiting. (1.1.1 used Serial.setTxTimeoutMs(0) here, which
+    // in arduino-esp32 2.0.17 makes HWCDC::write wait FOREVER while the cable is plugged in and no host reads - see usb_out.cpp.)
+    usb_out_begin(115200);
     g_pwm_ok = pwm_begin();
     pwm_write(0);
 #if TORQVA_OTA_LED_BENCH
@@ -476,7 +476,7 @@ void setup() {
     }
     // Task watchdog (Arduino-ESP32 2.x / IDF 4.4 API). Panic = reset on expiry. The control task registers itself in control_task().
     g_wdt_init_ok = (esp_task_wdt_init(TORQVA_WDT_TIMEOUT_S, true) == ESP_OK);
-    if (!g_wdt_init_ok) Serial.println("{\"t\":\"warn\",\"msg\":\"task watchdog init failed: motor commands stay refused\"}");
+    if (!g_wdt_init_ok) usb_out_line("{\"t\":\"warn\",\"msg\":\"task watchdog init failed: motor commands stay refused\"}");
 
     xTaskCreatePinnedToCore(control_task, "control", 6144, nullptr, configMAX_PRIORITIES - 2, nullptr, 1);
     // Over-the-air update: its own task (Wi-Fi + TLS on the other core, lower priority). It never touches a motor output; the Device refuses motion while it runs
@@ -522,8 +522,8 @@ void loop() {
         got = g_dev->pop_line(out, sizeof(out));
         xSemaphoreGive(g_mu);
         if (!got) break;
-        Serial.println(out);                           // USB serial: unchanged (diagnostics, recovery, and the link when no Wi-Fi link exists)
-        wifi_link_send(out);                           // the same line over the Wi-Fi link (no-op in builds without it)
+        wifi_link_send(out);                           // the Wi-Fi link first (no-op in builds without it; never waits: a full queue drops and counts)
+        usb_out_line(out);                             // USB serial (diagnostics, recovery, and the link when no Wi-Fi link exists): never waits on the host
     }
     delay(2);
 }

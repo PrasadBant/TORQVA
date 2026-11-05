@@ -18,7 +18,7 @@ Start with the repository [`README.md`](../README.md) for running, testing and t
 | [`TORQVA_EVAL_SIM.md`](TORQVA_EVAL_SIM.md) | Simulation evaluation method and results (simulation only, not hardware evidence) |
 | [`TORQVA_UI_CONTENT_AUDIT.md`](TORQVA_UI_CONTENT_AUDIT.md) | Page-by-page UI content audit: what was removed, consolidated and kept, and why |
 | [`TORQVA_OTA_FIRMWARE_MANAGER.md`](TORQVA_OTA_FIRMWARE_MANAGER.md) | Firmware Manager: signed ESP32-S3 OTA updates, partitions, signing, lifecycle, rollback, bench test procedure (not yet performed on hardware) |
-| [`TORQVA_OTA_LED_BENCH_TEST.md`](TORQVA_OTA_LED_BENCH_TEST.md) | LED-only OTA bench test on a real ESP32-S3 (no motor hardware): bench firmware profile, approval gates, results (not yet performed) |
+| [`TORQVA_OTA_LED_BENCH_TEST.md`](TORQVA_OTA_LED_BENCH_TEST.md) | LED-only OTA bench test on a real ESP32-S3 (no motor hardware): bench firmware profile, approval gates, results (1.0.0 → 1.1.0 → 1.1.1 performed), the 1.1.1 USB-serial regression and its 1.1.2 fix (hardware tests pending) |
 | [`TORQVA_FIRMWARE_SAFETY_RESTORATION.md`](TORQVA_FIRMWARE_SAFETY_RESTORATION.md) | Firmware safety protections restored from the `319fb7b` relaxation: evidence, tests, and why physical operation is still blocked |
 | [`eval/`](eval) | Committed evaluation artifacts. **Read at runtime** by `backend/torqva/api.py` and written by the `*_study.py` modules, so the folder must stay at `docs/eval/` |
 
