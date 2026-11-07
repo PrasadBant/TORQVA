@@ -3,16 +3,11 @@ import { Activity, Box, Gauge, ListChecks, Microscope, Workflow, ShieldCheck, Lo
 import { api, setToken, getToken, ApiError } from './api.js';
 import { SimulationBanner, Pill, Logo, NavContext, PageHead, Empty, AlertPanel, Tabs, TabPanel } from './shared/components.jsx';
 import { prefetchCharts } from './shared/lazyCharts.jsx';
-import { Evaluation } from './simulation/evaluation.jsx';
 import { SimOverview, simHealth } from './simulation/overview.jsx';
-import { LivePage, DevicesPage, isPhysOf } from './simulation/pages.jsx';
-import { RecoveryPage, LearningPage } from './simulation/assurance.jsx';
+import { isPhysOf } from './simulation/simdata.js';
 import { JourneyBar } from './simulation/journey.jsx';
 import { useDeviceStream, DevicePage, DeviceCard, DeviceLive } from './physical/device.jsx';
-import Lab from './simulation/lab.jsx';
-import Attestation from './simulation/attestation.jsx';
 import { ModeSwitch, PhysicalBanner, PhysicalOverview, PhysicalLive, PhysicalAiPage, PhysicalSafetyPage, physHealth } from './physical/physical.jsx';
-import { ScenarioPage } from './simulation/scenario.jsx';
 import { AlertsMenu, deviceAlerts, simAlerts } from './shared/alerts.jsx';
 import './torqva.css';
 import './styles/system.css';
@@ -69,6 +64,32 @@ const WorkflowPage = lazy(() => import('./workflow/workflow.jsx').then((m) => ({
 const pageFallback = <Empty loading>Loading…</Empty>;
 // Firmware Manager (physical device only): fetched when first opened.
 const FirmwarePage = lazy(() => import('./physical/firmware.jsx').then((m) => ({ default: m.FirmwarePage })));
+// The remaining simulation pages (and the ones physical mode shares: Recovery, Learning, Evaluation, the device inventory) are also
+// split out of the entry bundle, so sign-in and the physical Overview load without them. They are prefetched in idle time after
+// sign-in (see prefetchPages), so opening one is normally instant.
+const LOADERS = {
+  pages: () => import('./simulation/pages.jsx'),
+  assurance: () => import('./simulation/assurance.jsx'),
+  evaluation: () => import('./simulation/evaluation.jsx'),
+  lab: () => import('./simulation/lab.jsx'),
+  attestation: () => import('./simulation/attestation.jsx'),
+  scenario: () => import('./simulation/scenario.jsx'),
+};
+const page = (mod, name) => lazy(() => LOADERS[mod]().then((m) => ({ default: m[name] })));
+const LivePage = page('pages', 'LivePage');
+const DevicesPage = page('pages', 'DevicesPage');
+const RecoveryPage = page('assurance', 'RecoveryPage');
+const LearningPage = page('assurance', 'LearningPage');
+const Evaluation = page('evaluation', 'Evaluation');
+const Lab = page('lab', 'default');
+const Attestation = page('attestation', 'default');
+const ScenarioPage = page('scenario', 'ScenarioPage');
+const S = (el) => <Suspense fallback={pageFallback}>{el}</Suspense>;
+function prefetchPages() {
+  const run = () => Object.values(LOADERS).forEach((load) => load().catch(() => {}));   // a failed prefetch is retried by lazy() on first open
+  try { if (window.requestIdleCallback) { window.requestIdleCallback(run, { timeout: 3000 }); return; } } catch { /* not supported */ }
+  setTimeout(run, 1500);
+}
 
 const NAV = NAV_GROUPS.flatMap((g) => g.items);
 
@@ -276,7 +297,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   }, []);
 
   useEffect(() => { alive.current = true; const t = getToken() || DEV_TOKEN; if (t) { if (!getToken()) devLogin.current = true; onLogin(t); } return () => { alive.current = false; }; }, [onLogin]);
-  useEffect(() => { if (user) prefetchCharts(); }, [user]);          // fetch the chart code in the background once signed in
+  useEffect(() => { if (user) { prefetchCharts(); prefetchPages(); } }, [user]);   // fetch the chart and page code in the background once signed in
 
   const reqSeq = useRef(0);               // responses can arrive out of order: only the newest request may update the screen
   const applied = useRef(0);
@@ -347,7 +368,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const ctx = { d, role: user.role, user, actions, running, setRunning, busy, error, stale, go, wb, setWb, ctl: canStart(user.role), device, physicalMode, isPhys, deviceCard: <DeviceCard stream={device} go={go} />, deviceLive: <DeviceLive stream={device} /> };
   // Evaluation is the same page in both modes (it only ever shows simulator evidence); physical mode adds a note saying so.
   const evaluationPage = (note) => (<><PageHead title="Performance Evaluation" sub="How detection, prediction and recovery verification performed against simple baselines." />{note}
-    <Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} /></>);
+    {S(<Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} />)}</>);
   // Device & Safety: connection and readiness, the physical interlocks and commissioning record (physical mode only), and the device
   // inventory, session and audit log. One page with sections, so device information is not repeated across pages.
   const deviceSafety = (connection, safety, system) => {
@@ -359,15 +380,15 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
       <TabPanel tab={deviceTab} idBase="tq-dev">{body}</TabPanel></>);
   };
   const simPages = {
-    overview: <SimOverview {...ctx} stepSeconds={stepSeconds} />, live: <LivePage {...ctx} stepSeconds={stepSeconds} />, twin: <Suspense fallback={twinFallback}><SimTwinPage d={d} running={running} stale={stale} go={go} /></Suspense>, diagnostics: <Suspense fallback={pageFallback}><SimDiagnosticsPage {...ctx} /></Suspense>,
+    overview: <SimOverview {...ctx} stepSeconds={stepSeconds} />, live: S(<LivePage {...ctx} stepSeconds={stepSeconds} />), twin: <Suspense fallback={twinFallback}><SimTwinPage d={d} running={running} stale={stale} go={go} /></Suspense>, diagnostics: <Suspense fallback={pageFallback}><SimDiagnosticsPage {...ctx} /></Suspense>,
     predictions: <Suspense fallback={pageFallback}><SimPredictionsPage {...ctx} /></Suspense>, tests: <Suspense fallback={pageFallback}><SimTestsPage {...ctx} c2c4={c2c4.data} /></Suspense>,
     interventions: <Suspense fallback={pageFallback}><SimInterventionsPage {...ctx} /></Suspense>,
     workflow: <Suspense fallback={pageFallback}><WorkflowPage mode="SIMULATION" d={d} role={user.role} stale={stale} go={go} /></Suspense>,
-    recovery: <RecoveryPage {...ctx} />, learning: <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>,
+    recovery: S(<RecoveryPage {...ctx} />), learning: S(<LearningPage {...ctx}>{S(<Attestation role={user.role} />)}</LearningPage>),
     evaluation: evaluationPage(null),
-    device: deviceSafety(<DevicePage stream={device} role={user.role} go={go} simMode embedded />, null, <DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />),
-    lab: (<><PageHead title="Lab" sub="Recording sessions and matched experiments." /><Lab role={user.role} isPhys={physicalMode} /></>),
-    scenario: <ScenarioPage {...ctx} stepSeconds={stepSeconds} />,
+    device: deviceSafety(<DevicePage stream={device} role={user.role} go={go} simMode embedded />, null, S(<DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />)),
+    lab: (<><PageHead title="Lab" sub="Recording sessions and matched experiments." />{S(<Lab role={user.role} isPhys={physicalMode} />)}</>),
+    scenario: S(<ScenarioPage {...ctx} stepSeconds={stepSeconds} />),
     // Firmware belongs to the physical board: simulation mode has nothing to update and never reaches the firmware routes.
     firmware: (<><PageHead title="Firmware Manager" sub="Firmware updates apply to the physical ESP32-S3 device." />
       <AlertPanel tone="info" icon={HardDrive} title="PHYSICAL DEVICE ONLY" testid="fw-sim-note"
@@ -401,11 +422,11 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     tests: <PhysicalAiPage stream={device} layer="C4" go={go} />,
     interventions: <PhysicalAiPage stream={device} layer="C3" go={go} />,
     workflow: <Suspense fallback={pageFallback}><WorkflowPage mode="PHYSICAL" role={user.role} stale={false} go={go} /></Suspense>,
-    recovery: phys('C5', <RecoveryPage {...ctx} />),
-    learning: phys('C6', <LearningPage {...ctx}><Attestation role={user.role} /></LearningPage>),
+    recovery: phys('C5', S(<RecoveryPage {...ctx} />)),
+    learning: phys('C6', S(<LearningPage {...ctx}>{S(<Attestation role={user.role} />)}</LearningPage>)),
     evaluation: evaluationPage(<AlertPanel tone="info" icon={FlaskConical} title="SIMULATION EVIDENCE" testid="eval-sim-note">These are results from the software simulator. They say nothing about this physical device and are not hardware validation.</AlertPanel>),
     device: deviceSafety(<DevicePage stream={device} role={user.role} go={go} embedded />, <PhysicalSafetyPage stream={device} role={user.role} go={go} embedded />,
-      <DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />),
+      S(<DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />)),
     lab: simOnly('Lab', 'lab-sim-note'),
     scenario: simOnly('Scenario Studio', 'scenario-sim-note'),
     firmware: <Suspense fallback={pageFallback}><FirmwarePage role={user.role} go={go} /></Suspense>,
