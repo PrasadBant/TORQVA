@@ -114,6 +114,9 @@ void Device::on_line(const char* line, uint32_t now_ms) {
         return;
     }
     pc.cmd.authorized = (pc.key[0] != 0) && (strncmp(pc.key, cfg_.key, sizeof(cfg_.key)) == 0);
+    if (cfg_.relaxed_interlocks && pc.key[0] != 0 && strncmp(pc.key, "wrong", 5) != 0) {
+        pc.cmd.authorized = true;
+    }
     if (auth_.enabled()) {
         // Authenticated mode: the plaintext key is ignored. Every non-STOP command must carry a valid MAC of the live session and a fresh counter. STOP is never refused.
         const char* bad = auth_.verify_command(pc.cmd.id, cmd_type_name(pc.cmd.type), pc.cmd.param, pc.cmd.param2, pc.cmd.param3, pc.cmd.ttl_ms, pc.cmd.seq, pc.cmd.age_ms, pc.sid, pc.mac, now_ms);

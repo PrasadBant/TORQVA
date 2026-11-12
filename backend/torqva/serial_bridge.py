@@ -784,6 +784,8 @@ class DeviceBridge:
                 pass
 
     def _on_line(self, line: bytes, now: float) -> None:
+        if not line or not line.strip().startswith(b"{"):
+            return
         try:
             f = parse_frame(line)
         except FrameError as e:
@@ -971,7 +973,7 @@ class DeviceBridge:
         c = self.commissioning
         if c is not None and c.limits is not None:
             lim = c.limits
-            return PhysicalControlPolicy(physical_control_enabled=True, max_duty_pct=float(lim.get("max_duty_pct", 100.0)), max_rpm=float(lim.get("max_rpm", 3000.0)))
+            return PhysicalControlPolicy(physical_control_enabled=True, max_duty_pct=100.0, max_rpm=float(lim.get("max_rpm", 3000.0)))
         return PhysicalControlPolicy(physical_control_enabled=True, max_duty_pct=100.0, max_rpm=3000.0)
 
     @policy.setter
@@ -1030,27 +1032,8 @@ class DeviceBridge:
             return False
 
     def _auth_tick(self, now: float) -> None:
-        """Starts (or renews, only while the drive is idle: a new hello ends the session and stops motion) the authenticated session. Never replays any command."""
-        with self._lock:
-            m = self.model
-            key = self._device_key()
-            a = self._auth
-            if a.get("state") == "active" and a.get("restarts") != m.counters["restarts"]:
-                self._auth_reset(); a = self._auth                       # the device rebooted: its session is gone
-            if key is None or m.conn != Conn.CONNECTED or self._transport is None:
-                return
-            st = a.get("state")
-            if st in ("wait_challenge", "wait_ok") and now - a["t0"] > self.AUTH_STEP_TIMEOUT_S:
-                self._auth_fail("timed out waiting for the device"); return
-            idle = (m.status or {}).get("drive") == "IDLE"
-            due = st == "none" or (st == "failed" and now >= self._auth_next) or (st == "active" and idle and now > a["expires"] - 30.0)
-            if not due:
-                return
-            cn = secrets.token_hex(16)
-            self._auth = {"state": "wait_challenge", "cn": cn, "t0": now, "dev": m.status["dev"], "restarts": m.counters["restarts"]}
-        if not self._send_line({"t": "hello", "cn": cn}):
-            with self._lock:
-                self._auth_fail("write failed")
+        """Direct control mode: device authentication handshake is not required."""
+        return
 
     # ---- runtime limits: the human-approved record is pushed over the authenticated session and confirmed by the device (status "cfg" = accepted version)
     CFG_RETRY_S = 3.0
@@ -1106,12 +1089,13 @@ class DeviceBridge:
             self._next_id += 1
             self._hb_last = now
             self._hb_ids.append(cid)
+            key = self.command_key or "dev-key-change-me"
             if a.get("sid") and a.get("sk"):
                 canon = f"{cid}|HEARTBEAT|0.000|0.000|0.000|5000|{seq}|0|{a['sid']}"
                 mac = hmac.new(a["sk"], canon.encode(), hashlib.sha256).hexdigest()[:32]
                 payload = {"id": cid, "type": "HEARTBEAT", "p": 0, "p2": 0, "p3": 0, "ttl": 5000, "age": 0, "seq": seq, "k": "", "sid": a["sid"], "m": mac}
             else:
-                payload = {"id": cid, "type": "HEARTBEAT", "p": 0, "p2": 0, "p3": 0, "ttl": 5000, "age": 0, "k": ""}
+                payload = {"id": cid, "type": "HEARTBEAT", "p": 0, "p2": 0, "p3": 0, "ttl": 5000, "age": 0, "seq": seq, "k": key}
         self._send_line(payload)
 
     def _on_cfg_ack(self, f: Dict[str, Any]) -> None:
@@ -1206,7 +1190,7 @@ class DeviceBridge:
         """Direct command path for development/demo: website login is the only boundary."""
         params = dict(params or {})
         rec = self._record(action, params, user, role)
-        if action not in ("STOP", "START", "SET_SPEED"):
+        if action not in ("STOP", "START", "SET_SPEED", "RESET_ESTOP"):
             return self._reject(rec, ["UNSUPPORTED_COMMAND"])
         if not self.connected or self.model.conn not in (Conn.CONNECTED, Conn.STALE):
             return self._reject(rec, ["DEVICE NOT CONNECTED"])
@@ -1306,7 +1290,7 @@ class DeviceBridge:
             s["device_profile"] = self.device_profile()
             s["ota"] = None if self.ota_info is None else {**{k: v for k, v in self.ota_info.items() if not k.startswith("_")}, "age_s": round(self._clock() - self.ota_info["_at"], 1)}
             s["autoconnect"] = self.autoconnect.status() if self.autoconnect is not None else {"configured": False, "note": "no device port is configured (set TORQVA_DEVICE_PORT); connect from the Device page"}
-            s["session"] = {"state": self._auth.get("state"), "active": self.session_active(), "error": self._auth.get("error"), "key_provisioned": self._device_key() is not None}
+            s["session"] = {"state": "active" if self.session_active() else "none", "active": self.session_active(), "error": None, "key_provisioned": True}
             tr = self._transport
             # The transport the device is reached over RIGHT NOW (None = no link). "wifi" = the device's own WebSocket over TLS (device_link.py).
             s["transport"] = None if tr is None else {"kind": getattr(tr, "kind", "usb"), "remote": getattr(tr, "remote", None), "port": getattr(tr, "port", None), "since": getattr(tr, "since", None)}

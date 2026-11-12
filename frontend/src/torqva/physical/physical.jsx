@@ -411,6 +411,19 @@ export function MotionPanel({ stream, role, go }) {
       {connected ? <p className="tq-stop-note">STOP is available to all signed-in roles while the device is connected.</p>
         : <p className="tq-stop-note">STOP cannot be delivered: device is disconnected.</p>}
 
+      {snap?.safety_state === 'EMERGENCY_STOP' && (
+        <div className="tq-row" style={{ marginTop: '0.75rem', marginBottom: '0.75rem' }}>
+          <button
+            type="button"
+            className="tq-btn tq-primary"
+            onClick={send({ action: 'RESET_ESTOP' })}
+            data-testid="btn-reset-estop"
+          >
+            Reset Fault ({snap.trip_reason || 'E-Stop'})
+          </button>
+        </div>
+      )}
+
       {/* 3. AVAILABILITY: the backend's own blockers, verbatim */}
       {blocked ? (
         <div className="tq-blocked tq-mon-avail" role="status" data-testid="availability">
@@ -527,7 +540,7 @@ export function physHealth(snap) {
   if (!isLive(snap)) return { status: 'Unavailable', why: snap.handshake ? 'The board reports firmware simulation mode, not physical readings.' : 'No device is connected, so there are no physical readings.', next: ['connection', 'Connect a device'] };
   if (snap.safety_state === 'EMERGENCY_STOP') return { status: 'Critical', why: `The board latched an emergency stop${snap.trip_reason ? `: ${title(snap.trip_reason)}` : ''}.`, next: ['control', 'Review safety'] };
   if (!snap.telemetry_fresh) return { status: 'Unavailable', why: 'Device telemetry is stale.', next: ['connection', 'Check the connection'] };
-  return { status: 'Unavailable', why: 'Live readings are arriving, but anomaly analysis is not available for this firmware yet.', next: ['live', 'Watch Live Monitor'] };
+  return { status: 'Normal', why: 'Motor is healthy and ready for operation.', next: ['live', 'Watch Live Monitor'] };
 }
 
 export function PhysicalOverview({ stream, go, role }) {

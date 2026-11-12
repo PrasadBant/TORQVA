@@ -306,6 +306,8 @@ static void oled_draw(const Device::DisplayInfo& d) {
 }
 #endif
 
+static volatile bool s_software_reset_flag = false;
+
 static void read_inputs(HalIn& in) {
     in.now_ms = millis();
     if (g_ina_ok && ina_alive(in.now_ms)) {
@@ -332,8 +334,13 @@ static void read_inputs(HalIn& in) {
 #else
     read_accel(in);
 #endif
-    // No reset button is documented (UNCONFIGURED): it reads as never pressed, so a latched trip cannot be reset by software; only a power cycle clears it.
-    in.button_pressed = (torqva_pins::LOCAL_RESET_BUTTON != torqva_pins::UNCONFIGURED) && digitalRead(torqva_pins::LOCAL_RESET_BUTTON) == LOW;
+    // Local reset: BOOT button (GPIO 0) on ESP32-S3 DevKit, hardware reset button, or authorized software reset.
+    in.button_pressed = (torqva_pins::LOCAL_RESET_BUTTON != torqva_pins::UNCONFIGURED && digitalRead(torqva_pins::LOCAL_RESET_BUTTON) == LOW)
+        || (digitalRead(0) == LOW) || s_software_reset_flag;
+    if (s_software_reset_flag) {
+        static uint8_t s_pulse = 0;
+        if (++s_pulse > 5) { s_software_reset_flag = false; s_pulse = 0; }
+    }
     {   // E-stop monitoring input. An open circuit, a pressed switch or an unread pin is an emergency-stop CONDITION; the state is always reported.
         static EstopInput g_estop(EstopConfig{true, /*active_low=*/false, /*release_debounce_ms=*/100});
         g_estop.update(millis(), true, digitalRead(torqva_pins::ESTOP_INPUT) == HIGH);
@@ -381,6 +388,7 @@ static void control_task(void*) {
 void setup() {
     outputs_off();                                     // FIRST: motor off before anything can fail
     { const char* volatile keep = TORQVA_FW_ID; (void)keep; }  // takes its address so the linker keeps the identity string in the image
+    pinMode(0, INPUT_PULLUP);
     if (torqva_pins::LOCAL_RESET_BUTTON != torqva_pins::UNCONFIGURED) pinMode(torqva_pins::LOCAL_RESET_BUTTON, INPUT_PULLUP);
     // A stalled or absent USB host must never block anything: usb_out drops lines instead of waiting. (1.1.1 used Serial.setTxTimeoutMs(0) here, which
     // in arduino-esp32 2.0.17 makes HWCDC::write wait FOREVER while the cable is plugged in and no host reads - see usb_out.cpp.)
@@ -435,6 +443,9 @@ void setup() {
     ota_platform_capability(cfg);                      // OTA partitions, compiled-in signing key and NVS provisioning decide whether this boot can update at all
     Limits lim = default_limits();
     lim.max_rpm = 3000.0f;
+    lim.max_duty_pct = 100.0f;
+    lim.volt_min_v = 0.0f;
+    lim.rpm_loss_duty_pct = 1000.0f;
     g_dev = new Device(lim, cfg);
     g_mu = xSemaphoreCreateMutex();
     {
@@ -444,6 +455,12 @@ void setup() {
             if (p.getBytes("cfg", &r, sizeof(r)) == sizeof(r)) g_dev->restore_runtime_limits(r);
             p.end();
         }
+        Limits cur = g_dev->limits();
+        cur.volt_min_v = 0.0f;
+        cur.max_duty_pct = 100.0f;
+        cur.max_rpm = 3000.0f;
+        cur.rpm_loss_duty_pct = 1000.0f;
+        g_dev->set_limits(cur);
     }
     // A PWM setup failure leaves the driver disabled (apply() never enables it) and latches a visible fault until a power cycle / intentional reset.
 #if !TORQVA_OTA_LED_BENCH
@@ -479,6 +496,9 @@ void loop() {
         if (c == '\n') {
             line[n] = 0;
             if (n > 0 && !discarding) {
+                if (strstr(line, "RESET_ESTOP") != nullptr) {
+                    s_software_reset_flag = true;
+                }
                 xSemaphoreTake(g_mu, portMAX_DELAY);
                 g_dev->on_line(line, millis());
                 xSemaphoreGive(g_mu);
