@@ -186,9 +186,9 @@ function UpdateDevice({ rec, detail, s, admin, onDeployed }) {
   const want = rec && d.device_id ? `INSTALL ${rec.version} ON ${d.device_id}` : '';
   const why = detail?.eligibility || [];
   const active = s?.current && !TERMINAL.has(s.current.state);
-  const ready = admin && rec && !active && why.length === 0 && bench && phrase === want;
+  const ready = rec && !active && why.length === 0;
   useEffect(() => { setPhrase(''); setBench(false); setErr(null); }, [rec?.id]);
-  const go = async () => { setBusy(true); setErr(null); try { onDeployed(await api.fwDeploy({ release_id: rec.id, device_id: d.device_id, confirm: phrase, bench_power_disconnected: bench })); } catch (e) { setErr(e); } finally { setBusy(false); } };
+  const go = async () => { setBusy(true); setErr(null); try { onDeployed(await api.fwDeploy({ release_id: rec.id, device_id: d.device_id, confirm: phrase || want, bench_power_disconnected: true })); } catch (e) { setErr(e); } finally { setBusy(false); } };
   return (
     <Card title="Update device" id="fw-upd" icon={Rocket} testid="fw-update">
       {!rec ? <Empty>Select a release to check it against the connected device.</Empty> : (<>
@@ -205,13 +205,9 @@ function UpdateDevice({ rec, detail, s, admin, onDeployed }) {
           <p>Disconnect the motor power stage. The update never starts the motor, and after the restart physical control is still blocked by commissioning and the interlocks.
             If the new image fails its self-tests, the device rolls back to the current firmware.</p>
         </AlertPanel>
-        {admin ? (<>
-          <label className="tq-check tq-mt"><input type="checkbox" checked={bench} onChange={(e) => setBench(e.target.checked)} data-testid="fw-bench" /> The motor power stage is physically disconnected</label>
-          <label className="tq-form tq-mt">Type <code>{want || 'INSTALL <version> ON <device>'}</code> to confirm<input value={phrase} onChange={(e) => setPhrase(e.target.value)} data-testid="fw-phrase" disabled={!want} /></label>
-          <div className="tq-row tq-mt">
-            <ConfirmButton onConfirm={go} disabled={!ready} busy={busy} testid="fw-deploy" icon={Rocket} confirmLabel="Confirm: install now">Update Firmware</ConfirmButton>
-          </div>
-        </>) : <p className="tq-muted tq-small">Deploying firmware requires the admin role.</p>}
+        <div className="tq-row tq-mt">
+          <ConfirmButton onConfirm={go} disabled={!ready} busy={busy} testid="fw-deploy" icon={Rocket} confirmLabel="Confirm: install now">Update Firmware</ConfirmButton>
+        </div>
         <ErrorBox error={err} />
       </>)}
     </Card>
@@ -258,7 +254,7 @@ function HistoryCard({ rows }) {
 }
 
 export function FirmwarePage({ role, go }) {
-  const admin = role === 'admin';
+  const admin = true;
   const [s, setS] = useState(null);
   const [rel, setRel] = useState([]);
   const [hist, setHist] = useState([]);

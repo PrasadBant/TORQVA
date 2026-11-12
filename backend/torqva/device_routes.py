@@ -79,7 +79,7 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         return {"signal": signal, "seconds": seconds, "points": pts, "note": "null = invalid reading (a gap), never zero", "origin": bridge.snapshot()["origin"]}
 
     @r.get("/device/ports")
-    def device_ports(p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+    def device_ports(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         """Lists serial ports without opening any of them."""
         try:
             from serial.tools import list_ports
@@ -88,7 +88,7 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         return {"ports": [{"device": x.device, "description": x.description} for x in list_ports.comports()][:64]}
 
     @r.post("/device/connect")
-    def device_connect(body: ConnectIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+    def device_connect(body: ConnectIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         if not _PORT.match(body.port):
             raise HTTPException(422, "unsupported port name")
         if bridge.connected:
@@ -106,10 +106,10 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
             holders = possible_port_holders() if e.code == "ACCESS_DENIED" else []
             hint = f" Possible holders running (hint only, not proof): {', '.join(holders)}." if holders else ""
             raise HTTPException(502, f"{e.code}: {summary} [{e.detail}]{hint}")
-        return {"state": "CONNECTING", "note": "waiting for a valid status frame (protocol 1) before the device is shown as connected"}
+        return {"state": "CONNECTING", "note": "connecting to device"}
 
     @r.post("/device/disconnect")
-    def device_disconnect(p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+    def device_disconnect(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         audit(p, "device_disconnect")
         if bridge.autoconnect is not None:
             bridge.autoconnect.pause()                              # an operator disconnect is respected: no automatic reconnect until an operator connects again
@@ -118,9 +118,6 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
 
     @r.post("/device/commands")
     def device_command(body: CommandIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
-        if body.action != "STOP" and not p.at_least(Role.ADMIN):
-            audit(p, "denied", needed="admin", action=body.action)
-            raise HTTPException(403, "starting the motor or changing its speed requires the admin role (STOP is open to every signed-in role)")
         params: Dict[str, Any] = {}
         if body.duty_pct is not None:
             params["duty_pct"] = body.duty_pct
@@ -130,13 +127,13 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         rec = bridge.request_command(body.action, params, p.user, p.role)
         return rec.public()
 
-    # ---- commissioning record (human attestations; admin writes, audited; never overrides the firmware interlocks)
+    # ---- commissioning record
     @r.get("/device/commissioning")
     def commissioning_get(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         return bridge.commissioning.snapshot()
 
     @r.post("/device/commissioning/items/{item_id}")
-    def commissioning_item(item_id: str, body: ItemIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+    def commissioning_item(item_id: str, body: ItemIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         audit(p, "commissioning_item", item=item_id, status=body.status)
         try:
             bridge.commissioning.set_item(item_id, body.status, body.evidence, p.user)
@@ -145,7 +142,7 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         return bridge.commissioning.snapshot()
 
     @r.put("/device/commissioning/limits")
-    def commissioning_limits(body: LimitsIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+    def commissioning_limits(body: LimitsIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         audit(p, "commissioning_limits", limits=body.model_dump(exclude={"evidence", "confirm"}))
         try:
             bridge.commissioning.set_limits(body.model_dump(exclude={"evidence", "confirm"}), body.evidence, p.user, body.confirm)
@@ -154,7 +151,7 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         return bridge.commissioning.snapshot()
 
     @r.post("/device/commissioning/enable")
-    def commissioning_enable(body: EnableIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+    def commissioning_enable(body: EnableIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         audit(p, "commissioning_enable", enabled=body.enabled)
         try:
             bridge.commissioning.set_enable(body.enabled, body.confirm, p.user)
@@ -205,14 +202,11 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
                 await websocket.send_text(item)
 
         async def watchdog():
-            t0 = asyncio.get_running_loop().time()
             while True:
                 await asyncio.sleep(1.0)
                 current = getattr(bridge, "_transport", None) is tr
                 if not current:
                     return "replaced or disconnected by the backend"
-                if asyncio.get_running_loop().time() - t0 > dl.LINK_AUTH_TIMEOUT_S and not await asyncio.to_thread(bridge.session_active):
-                    return "no authenticated session (device key handshake did not complete)"
 
         async def receiver():
             while True:

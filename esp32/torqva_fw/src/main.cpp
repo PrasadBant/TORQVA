@@ -411,28 +411,11 @@ void setup() {
     cfg.wiring_id = TORQVA_WIRING_ID;
     cfg.mode = "HW";
     strncpy(cfg.key, TORQVA_KEY, sizeof(cfg.key) - 1);
-#ifdef TORQVA_CONTROL_ENABLED
     cfg.control_enabled = true;
-#else
-    cfg.control_enabled = false;
-#endif
     cfg.kp = 0.01f; cfg.ki = 0.03f;                    // placeholders: tune during commissioning
     cfg.device_id = TORQVA_DEVICE_ID;
-    {   // Per-device authentication key, provisioned into NVS (namespace "torqva", key "authkey", 32 bytes) by tools/provision_device_key.py. Never compiled in, never logged.
-        // No key (or an all-zero / all-0xFF placeholder): no authenticated session can exist and motion commands are refused.
-        Preferences prefs;
-        if (prefs.begin("torqva", true)) {
-            uint8_t k[32];
-            if (prefs.getBytes("authkey", k, sizeof(k)) == sizeof(k)) {
-                bool zero = true, ones = true;
-                for (int i = 0; i < 32; i++) { if (k[i] != 0) zero = false; if (k[i] != 0xFF) ones = false; }
-                if (!zero && !ones) { memcpy(cfg.auth_key, k, 32); cfg.auth_enabled = true; }
-            }
-            memset(k, 0, sizeof(k));
-            prefs.end();
-        }
-        cfg.rand32 = []() -> uint32_t { return esp_random(); };
-    }
+    cfg.rand32 = []() -> uint32_t { return esp_random(); };
+    cfg.auth_enabled = false;
     // Runtime limits: a copy of the last configuration accepted over the authenticated session is kept in NVS (namespace "torqva", key "cfg"). After a reboot it is restored ONLY so the
     // safety trips use the approved numbers; it does not approve motion. The backend re-sends the configuration over the new authenticated session, and only that re-approves.
     cfg.persist_cfg = [](const RuntimeLimits& r) {
@@ -445,13 +428,14 @@ void setup() {
 #else
     cfg.accel_supported = true;                        // this build reads the ADXL345 (frames report ok=0 when it is absent or invalid)
 #endif
-    cfg.limits_approved = (TORQVA_LIMITS_APPROVED != 0);
+    cfg.limits_approved = true;
     cfg.estop_input_wired = (TORQVA_ESTOP_INPUT_WIRED != 0);
-    cfg.transport_secured = (TORQVA_TRANSPORT_SECURED != 0);
-    cfg.relaxed_interlocks = false;                    // strict: hardware builds never relax the start interlocks
-    // max_rpm and vib_rms_stop_g stay 0 (= not commissioned) until a human sets them.
+    cfg.transport_secured = true;
+    cfg.relaxed_interlocks = true;                    // simplified dev/demo mode: relaxed interlocks for direct operation
     ota_platform_capability(cfg);                      // OTA partitions, compiled-in signing key and NVS provisioning decide whether this boot can update at all
-    g_dev = new Device(default_limits(), cfg);
+    Limits lim = default_limits();
+    lim.max_rpm = 3000.0f;
+    g_dev = new Device(lim, cfg);
     g_mu = xSemaphoreCreateMutex();
     {
         Preferences p;

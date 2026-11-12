@@ -488,6 +488,96 @@ def test_a_device_refusal_is_reported_as_refused(api, keys):
     assert wait(lambda: current(c)["state"] == "REFUSED") and current(c)["reason"] == "MOTOR_TURNING"
 
 
+def _to_verifying_with_the_whole_image(svc, c, keys):
+    """RIG-1, 5 Nov 22:54: the device reported the complete image and VERIFYING, then the Wi-Fi link dropped; READY / REBOOTING never arrived."""
+    rec, _ = deployable(c, keys)
+    tr = connect_device(svc)
+    deploy(c, rec)
+    dev = SoftwareDevice(svc, c, tr, keys["pub"]); q = dev.request()
+    dev.report("AUTHORIZED", q); dev.report("DOWNLOADING", q, b=rec["size"], n=rec["size"]); dev.report("VERIFYING", q)
+    assert wait(lambda: current(c)["state"] == "VERIFYING")
+    return rec, q
+
+
+def test_a_link_lost_while_verifying_the_whole_image_waits_for_the_restart_and_the_boot_status_confirms(api, keys):
+    svc, c = api
+    rec, q = _to_verifying_with_the_whole_image(svc, c, keys)
+    svc.bridge.disconnect("Wi-Fi link closed")                                                # the device verifies and restarts on its own
+    assert wait(lambda: current(c)["state"] == "WAITING_FOR_RECONNECTION")
+    tr2 = connect_device(svc, fw="3.1.0", info=ota_info(run="ota_1", pend=0, last="CONFIRMED", lver="3.1.0"))   # only its periodic boot status arrives
+    assert wait(lambda: current(c)["state"] == "CONFIRMED")
+    assert "confirmed by the device" in current(c)["reason"]
+    hist = c.get("/api/torqva/firmware/deployments", headers=H("v")).json()["history"]
+    assert any(h["kind"] == "deployment_result" and h["result"] == "CONFIRMED" and h["version"] == "3.1.0" for h in hist)
+    assert not any(o.get("type") in ("START", "SET_SPEED", "RUN_TEST") for o in written(tr2))
+
+
+def test_after_a_link_lost_while_verifying_the_one_shot_confirmed_report_also_counts(api, keys):
+    svc, c = api
+    _to_verifying_with_the_whole_image(svc, c, keys)
+    svc.bridge.disconnect("Wi-Fi link closed")
+    assert wait(lambda: current(c)["state"] == "WAITING_FOR_RECONNECTION")
+    tr2 = connect_device(svc, fw="3.1.0", info=ota_info(run="ota_1", pend=1, blk="PENDING_VERIFY"))
+    tr2.feed(json.dumps({"t": "ota", "seq": nseq(), "ts": 1000, "id": 0, "st": "CONFIRMED", "rel": "", "ver": "3.1.0", "b": 0, "n": 0, "why": ""}))
+    assert wait(lambda: current(c)["state"] == "CONFIRMED")
+
+
+def test_a_boot_status_is_never_confirmation_before_the_restart_or_for_the_old_firmware(api, keys):
+    svc, c = api
+    rec, q = _to_verifying_with_the_whole_image(svc, c, keys)
+    tr = svc.bridge._transport
+    tr.feed(ota_info(pend=0, last="CONFIRMED", lver="3.1.0"))                                  # seen while still VERIFYING (no restart yet): ignored
+    tr.feed(fast(nseq(), rpm=0.0, duty=0.0, v=0.0, i=0.01))
+    time.sleep(0.3)
+    assert current(c)["state"] == "VERIFYING"
+    svc.bridge.disconnect("Wi-Fi link closed")
+    assert wait(lambda: current(c)["state"] == "WAITING_FOR_RECONNECTION")
+    connect_device(svc, fw="3.0.1", info=ota_info(pend=0, last="CONFIRMED", lver="3.0.1"))     # the OLD image is back, confirmed long ago: not success
+    time.sleep(0.3)
+    assert current(c)["state"] == "WAITING_FOR_RECONNECTION"
+    svc.bridge.disconnect("again")
+    connect_device(svc, fw="3.0.1", info=ota_info(pend=0, last="CONFIRMED", lver="3.1.0"))     # says 3.1.0 but runs 3.0.1: not success either
+    time.sleep(0.3)
+    assert current(c)["state"] == "WAITING_FOR_RECONNECTION"
+
+
+def test_a_link_lost_before_the_image_is_complete_is_not_treated_as_the_restart(api, keys):
+    svc, c = api
+    rec, _ = deployable(c, keys)
+    tr = connect_device(svc)
+    deploy(c, rec)
+    dev = SoftwareDevice(svc, c, tr, keys["pub"]); q = dev.request()
+    dev.report("AUTHORIZED", q); dev.report("DOWNLOADING", q, b=4096, n=rec["size"]); dev.report("VERIFYING", q)
+    assert wait(lambda: current(c)["state"] == "VERIFYING")
+    svc.bridge.disconnect("Wi-Fi link closed")
+    assert wait(lambda: "link was lost" in current(c)["reason"])
+    assert current(c)["state"] == "VERIFYING"                                                   # unchanged behaviour: no restart assumed
+
+
+def test_after_a_link_lost_while_verifying_a_device_failure_report_still_fails_it(api, keys):
+    svc, c = api
+    rec, q = _to_verifying_with_the_whole_image(svc, c, keys)
+    svc.bridge.disconnect("Wi-Fi link closed")
+    assert wait(lambda: current(c)["state"] == "WAITING_FOR_RECONNECTION")
+    tr2 = connect_device(svc)                                                                  # it did not restart: verification failed on the device
+    tr2.feed(json.dumps({"t": "ota", "seq": nseq(), "ts": 1000, "id": q["id"], "st": "FAILED", "rel": q["rel"], "ver": q["ver"], "b": 0, "n": 0, "why": "SIGNATURE_INVALID"}))
+    assert wait(lambda: current(c)["state"] == "FAILED")
+    assert current(c)["reason"] == "SIGNATURE_INVALID"
+
+
+def test_a_device_silent_after_a_link_lost_while_verifying_is_verification_pending_not_failed(api, keys, monkeypatch):
+    svc, c = api
+    _to_verifying_with_the_whole_image(svc, c, keys)
+    svc.bridge.disconnect("Wi-Fi link closed")
+    assert wait(lambda: current(c)["state"] == "WAITING_FOR_RECONNECTION")
+    fm = svc.firmware
+    start = fm.clock()
+    monkeypatch.setattr(fm, "clock", lambda: start + 301)                                       # the old 5-minute no-progress rule no longer applies
+    assert current(c)["state"] == "WAITING_FOR_RECONNECTION"
+    monkeypatch.setattr(fm, "clock", lambda: start + fwm.REBOOT_GRACE_S + 1)
+    assert current(c)["state"] == "VERIFICATION_PENDING"
+
+
 def test_a_device_that_never_comes_back_is_verification_pending_not_failed_or_confirmed(api, keys, monkeypatch):
     svc, c = api
     rec, _ = deployable(c, keys)

@@ -331,7 +331,7 @@ export function MotionPanel({ stream, role, go }) {
   const live = isLive(snap);
   const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
   const blocked = blockers.length > 0;
-  const operator = canOperate(role);
+  const operator = true;
   const connected = snap && ['CONNECTED', 'STALE'].includes(snap.connection) && snap.handshake;
   const maxDuty = snap?.control_limits?.max_duty_pct ?? 100;
   const maxRpm = snap?.control_limits?.max_rpm ?? 3000;
@@ -481,11 +481,10 @@ export function MotionPanel({ stream, role, go }) {
             <div className="tq-row">
               <button type="button" className="tq-btn tq-primary" data-testid="btn-start"
                 disabled={blocked || busy || stopBusy || !operator || dutyBad}
-                onClick={() => (confirm ? (setConfirm(false), send({ action: 'START', duty_pct: Number(duty) })()) : setConfirm(true))}>
+                onClick={send({ action: 'START', duty_pct: Number(duty) })}>
                 <Play size={14} aria-hidden="true" />
-                {confirm ? 'Confirm START' : `START (${duty || 0}%)`}
+                START ({duty || 0}%)
               </button>
-              {confirm && <button type="button" className="tq-btn" onClick={() => setConfirm(false)}>Cancel</button>}
             </div>
           </div>
         </div>

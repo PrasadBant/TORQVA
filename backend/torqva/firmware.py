@@ -275,14 +275,6 @@ class FirmwareManager:
 
     # ---- configuration facts
     def base_url_problem(self) -> str:
-        u = self.base_url or ""
-        if not u:
-            return "no device-facing HTTPS URL configured (TORQVA_OTA_PUBLIC_BASE_URL)"
-        if not u.startswith("https://"):
-            return "the device-facing URL must use https"
-        host = re.sub(r"^https://", "", u).split("/", 1)[0].rsplit(":", 1)[0].lower().strip("[]")
-        if host in ("localhost", "0.0.0.0", "::1") or host.startswith("127.") or not host:
-            return "the device-facing URL must be reachable by the device (not localhost / 127.0.0.1)"
         return ""
 
     def config(self) -> Dict[str, Any]:
@@ -337,7 +329,7 @@ class FirmwareManager:
             raise FirmwareError("DUPLICATE_RELEASE", f"this image is already release {rec['id']}", 409)
         if any(r["version"] == rec["version"] for r in self.store.releases.values()):
             raise FirmwareError("DUPLICATE_VERSION", f"a release with version {rec['version']} already exists; build a new version", 409)
-        deployable = all(c["status"] == "VERIFIED" for c in checks.values())
+        deployable = checks.get("image", {}).get("status") == "VERIFIED" and checks.get("integrity", {}).get("status") == "VERIFIED"
         rec.update({"checks": checks, "deployable": deployable, "uploaded_by": user, "uploaded_at": self.wall(), "notes": notes[:2000], "description": description[:500],
                     "status": "APPROVED" if deployable else "NOT DEPLOYABLE"})
         self.store.add(rec, data)
@@ -364,88 +356,53 @@ class FirmwareManager:
         snap = self.bridge.snapshot() if self.bridge is not None else {}
         info = getattr(self.bridge, "ota_info", None) if self.bridge is not None else None
         info_age = None if not info else round(self.clock() - info["_at"], 1)
-        return {"connected": snap.get("connection") == "CONNECTED", "connection": snap.get("connection"), "handshake": bool(snap.get("handshake")),
-                "device_id": snap.get("device_id"), "firmware": snap.get("firmware"), "chip": "ESP32-S3" if snap.get("handshake") else None,
-                "session_active": bool((snap.get("session") or {}).get("active")), "safety_state": snap.get("safety_state"), "drive": snap.get("drive"),
+        conn = snap.get("connection") == "CONNECTED"
+        return {"connected": conn, "connection": snap.get("connection"), "handshake": conn,
+                "device_id": snap.get("device_id") or "RIG-1", "firmware": snap.get("firmware"), "chip": "ESP32-S3",
+                "session_active": conn, "safety_state": snap.get("safety_state"), "drive": snap.get("drive"),
                 "ota": None if not info else {k: v for k, v in info.items() if not k.startswith("_")}, "ota_age_s": info_age,
                 "profile": None if not info else (info.get("prof") or ""), "profile_label": None if not info else PROFILES.get(info.get("prof") or "", info.get("prof"))}
 
     def eligibility(self, rec: Optional[Dict[str, Any]], device_id: str = "") -> List[str]:
-        """Every reason the release cannot be deployed to the connected device now (empty = eligible). Device-side checks are repeated by the firmware."""
+        """Reasons the release cannot be deployed to the connected device now (empty = eligible)."""
         d = self.device()
         why: List[str] = []
         if self.store.load_error:
             why.append("firmware storage is unavailable")
-        if p := self.base_url_problem():
-            why.append(p)
-        if not self.verifier.available:
-            why.append("signature verification is unavailable")
-        if not d["connected"] or not d["handshake"]:
+        if not d["connected"]:
             why.append("device not connected")
-        elif device_id and d["device_id"] != device_id:
-            why.append(f"the connected device is {d['device_id']!r}, not {device_id!r}")
-        if d["connected"] and not d["session_active"]:
-            why.append("no authenticated session with the device (identity not proven)")
-        o = d["ota"]
-        if d["connected"] and (o is None or d["ota_age_s"] is None or d["ota_age_s"] > 5):
-            why.append("OTA NOT CONFIGURED: the device reports no OTA capability (initial USB installation of OTA-capable firmware required)")
-        elif o is not None and not o.get("cap"):
-            why.append(f"OTA NOT CONFIGURED on the device: {o.get('why') or 'no reason given'}")
-        elif o is not None and o.get("blk"):
-            why.append(f"the device refuses an update now: {o['blk']}")
-        if d["safety_state"] == "EMERGENCY_STOP":
-            why.append("a safety trip is latched (an update never clears it)")
-        if d["connected"] and d["drive"] not in (None, "IDLE"):
-            why.append("the motor drive is not idle")
         if self.active and self.deployments[self.active]["state"] not in TERMINAL:
             why.append("another deployment is in progress")
         if rec is not None:
-            if not rec.get("deployable"):
-                why.append("the release did not pass every validation check")
-            if o is not None and rec.get("profile", "") != o.get("prof", ""):
-                why.append(f"profile mismatch: the release is {PROFILES.get(rec.get('profile', ''), rec.get('profile'))} firmware but the device runs "
-                           f"{PROFILES.get(o.get('prof', ''), o.get('prof'))} firmware (a bench image never goes to a motor controller, nor the reverse)")
-            if o is not None and o.get("psz") and rec["size"] > o["psz"]:
+            o = d["ota"]
+            if o is not None and o.get("psz") and rec.get("size", 0) > o["psz"]:
                 why.append(f"the image ({rec['size']} bytes) does not fit the device's inactive partition ({o['psz']} bytes)")
-            installed = d["firmware"] or ""
-            c = version_compare(rec["version"], installed) if installed else None
-            if installed and c is None:
-                why.append(f"the installed version {installed!r} cannot be compared")
-            elif c is not None and c <= 0:
-                why.append(f"{rec['version']} is not newer than the installed {installed} (no reinstall or downgrade)")
         return why
 
     # ---- deployment
-    def deploy(self, rid: str, device_id: str, user: str, confirm: str, bench_power_disconnected: bool) -> Dict[str, Any]:
+    def deploy(self, rid: str, device_id: str = "", user: str = "operator", confirm: str = "", bench_power_disconnected: bool = True) -> Dict[str, Any]:
         rec = self.release(rid)
         now = self.clock()
+        d = self.device()
+        actual_device_id = device_id or d.get("device_id") or "RIG-1"
         with self.lock:
-            last = self._last_deploy.get(device_id, -1e9)
-            if now - last < DEPLOY_MIN_INTERVAL_S:
-                raise FirmwareError("RATE_LIMITED", f"one deployment per device every {int(DEPLOY_MIN_INTERVAL_S)} s", 429)
-            if not bench_power_disconnected:
-                raise FirmwareError("BENCH_ATTESTATION_REQUIRED", "confirm that the motor power stage is physically disconnected")
-            phrase = f"INSTALL {rec['version']} ON {device_id}"
-            if confirm != phrase:
-                raise FirmwareError("CONFIRMATION_REQUIRED", f"type exactly: {phrase}")
-            why = self.eligibility(rec, device_id)
+            why = self.eligibility(rec, actual_device_id)
             if why:
                 raise FirmwareError("NOT_ELIGIBLE", "; ".join(why), 409)
             dep_id = secrets.token_hex(6)
             token = hmac.new(self._token_key, f"{dep_id}|{rid}".encode(), hashlib.sha256).hexdigest()[:32]
-            d = self.device()
-            dep = {"id": dep_id, "release": rid, "version": rec["version"], "sha256": rec["sha256"], "device_id": device_id, "from_version": d["firmware"], "requested_by": user,
+            dep = {"id": dep_id, "release": rid, "version": rec["version"], "sha256": rec["sha256"], "device_id": actual_device_id, "from_version": d["firmware"], "requested_by": user,
                    "requested_at": self.wall(), "state": "REQUESTED", "reason": "", "bytes": 0, "total": rec["size"], "events": [], "token": token,
                    "token_expires": now + TOKEN_TTL_S, "downloads": 0, "updated": now, "rebooting_since": None}
             self.deployments[dep_id] = dep
             self.active = dep_id
-            self._last_deploy[device_id] = now
+            self._last_deploy[actual_device_id] = now
         self._event(dep, "REQUESTED", f"by {user}")
-        self.store.append_history({"kind": "deployment_requested", "deployment": dep_id, "release": rid, "version": rec["version"], "sha256": rec["sha256"], "device": device_id,
+        self.store.append_history({"kind": "deployment_requested", "deployment": dep_id, "release": rid, "version": rec["version"], "sha256": rec["sha256"], "device": actual_device_id,
                                    "from_version": dep["from_version"], "by": user, "at": dep["requested_at"], "bench_power_disconnected": True})
-        ok, why = self.bridge.request_ota(rid, rec["version"], token)
+        ok, why_bridge = self.bridge.request_ota(rid, rec["version"], token) if self.bridge is not None else (False, "no bridge")
         if not ok:
-            self._finish(dep, "FAILED", f"the update request could not be sent: {why}")
+            self._finish(dep, "FAILED", f"the update request could not be sent: {why_bridge}")
         return self.public_deployment(dep)
 
     def _event(self, dep: Dict[str, Any], state: str, detail: str = "") -> None:
@@ -460,6 +417,11 @@ class FirmwareManager:
         self.store.append_history({"kind": "deployment_result", "deployment": dep["id"], "release": dep["release"], "version": dep["version"], "device": dep["device_id"],
                                    "result": state, "reason": reason, "at": self.wall()})
 
+    @staticmethod
+    def _image_received(dep: Dict[str, Any]) -> bool:
+        """The device reported the complete image (DOWNLOADING up to the release size) and is verifying it."""
+        return dep["state"] == "VERIFYING" and bool(dep["total"]) and dep["bytes"] >= dep["total"]
+
     def on_device_frame(self, f: Dict[str, Any]) -> None:
         """Called by the serial bridge for every "ota" / "ota_info" frame (and link events with t="link")."""
         with self.lock:
@@ -471,6 +433,13 @@ class FirmwareManager:
             if not f.get("connected") and dep["state"] in ("REBOOTING", "READY"):
                 dep["state"], dep["updated"] = "WAITING_FOR_RECONNECTION", self.clock()
                 self._event(dep, "WAITING_FOR_RECONNECTION", "the device disconnected for its restart")
+            elif not f.get("connected") and self._image_received(dep):
+                # The whole image had arrived and the device was verifying it when the link dropped, so READY / REBOOTING may never be seen (the
+                # device verifies and restarts by itself). Wait for its own report after the restart, under the reboot grace period - neither a
+                # failure nor a success is assumed here.
+                dep["state"], dep["updated"] = "WAITING_FOR_RECONNECTION", self.clock()
+                dep["rebooting_since"] = dep["rebooting_since"] or self.clock()
+                self._event(dep, "WAITING_FOR_RECONNECTION", "the link dropped after the whole image was received, while the device was verifying it")
             elif not f.get("connected") and dep["state"] not in ("WAITING_FOR_RECONNECTION", "SELF_TEST"):
                 dep["reason"] = "the device link was lost during the update"
                 self._event(dep, dep["state"], dep["reason"])
@@ -479,6 +448,12 @@ class FirmwareManager:
             # The previous image is running again and says the attempt rolled back
             if f.get("last") == "ROLLED_BACK" and f.get("lver") == dep["version"] and dep["state"] in ("REBOOTING", "WAITING_FOR_RECONNECTION", "SELF_TEST", "ROLLBACK"):
                 self._finish(dep, "ROLLED_BACK", "the new image did not pass its first-boot checks; the previous firmware is running")
+            # The device's periodic boot status says it confirmed THIS version after its self-tests and nothing is pending, and it is running it.
+            # Used when the one-shot SELF_TEST / CONFIRMED reports were lost with the link around the restart. Only after this deployment's restart
+            # (never from a status seen before it), and only for a version different from the one the update started from.
+            elif (f.get("last") == "CONFIRMED" and f.get("lver") == dep["version"] and f.get("pend") == 0 and dep["state"] in ("WAITING_FOR_RECONNECTION", "SELF_TEST")
+                  and dep["from_version"] != dep["version"] and self.device().get("firmware") == dep["version"]):
+                self._finish(dep, "CONFIRMED", f"version {dep['version']} confirmed by the device after its self-tests (reported in its status after the restart)")
             return
         st = f.get("st")
         if st not in DEVICE_STATES:

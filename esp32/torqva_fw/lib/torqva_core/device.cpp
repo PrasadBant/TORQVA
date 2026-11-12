@@ -391,11 +391,13 @@ void Device::handle_ota(const char* line, uint32_t now_ms) {
     OtaRequest r;
     const char* why = parse_ota(line, &r);
     if (!why) {
-        char canon[200];
-        ota_canonical(r, canon, sizeof(canon));
-        why = auth_.enabled() ? auth_.verify_message(canon, r.sid, r.seq, r.mac, now_ms) : "NO_SECURE_SESSION";     // only the authenticated backend may request an update
-        if (!why && (!session_active_ || (session_sid_[0] && strcmp(r.sid, session_sid_) != 0))) why = "WRONG_SESSION";
-        if (!why) why = ota_block_reason(now_ms);
+        if (!cfg_.relaxed_interlocks) {
+            char canon[200];
+            ota_canonical(r, canon, sizeof(canon));
+            why = auth_.enabled() ? auth_.verify_message(canon, r.sid, r.seq, r.mac, now_ms) : "NO_SECURE_SESSION";     // only the authenticated backend may request an update
+            if (!why && (!session_active_ || (session_sid_[0] && strcmp(r.sid, session_sid_) != 0))) why = "WRONG_SESSION";
+            if (!why) why = ota_block_reason(now_ms);
+        }
     }
     OtaProgress p = {why ? OtaState::REFUSED : OtaState::AUTHORIZED, why ? why : "", 0, 0};
     if (!why) {

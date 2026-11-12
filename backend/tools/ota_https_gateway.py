@@ -21,6 +21,7 @@ import re
 import socket
 import ssl
 import threading
+import time
 import sys
 import urllib.error
 import urllib.request
@@ -150,16 +151,25 @@ def serve(a) -> int:
             up.sendall((CRLF.join(head) + CRLF + CRLF).encode("latin-1"))
             up.settimeout(None); self.connection.settimeout(None)
             self.close_connection = True
+            # diagnostics (temporary, bench): bytes each way, when each side last sent, which side ended first and how. Counts/times only, never content.
+            t_open = time.monotonic()
+            n = {"up": 0, "down": 0, "t_up": t_open, "t_down": t_open, "end": None}
+
+            def ended(side, how):
+                if n["end"] is None:
+                    n["end"] = (side, how, time.monotonic() - t_open)
 
             def to_backend():
                 try:
                     while True:
                         data = self.rfile.read1(65536)
                         if not data:
+                            ended("device", "EOF")
                             break
+                        n["up"] += len(data); n["t_up"] = time.monotonic()
                         up.sendall(data)
-                except OSError:
-                    pass
+                except OSError as e:
+                    ended("device", type(e).__name__)
                 finally:
                     try:
                         up.shutdown(socket.SHUT_WR)
@@ -170,13 +180,20 @@ def serve(a) -> int:
                 while True:
                     data = up.recv(65536)
                     if not data:
+                        ended("backend", "EOF")
                         break
+                    n["down"] += len(data); n["t_down"] = time.monotonic()
                     self.connection.sendall(data)
-            except OSError:
-                pass
+            except OSError as e:
+                ended("backend-or-device-write", type(e).__name__)
             finally:
                 up.close()
-                sys.stderr.write(f"{self.address_string()} WS {WS_ROUTE} closed" + LF)
+                now = time.monotonic()
+                side, how, at = n["end"] or ("?", "?", now - t_open)
+                sys.stderr.write(f"{self.address_string()} WS {WS_ROUTE} closed after {now - t_open:.1f}s "
+                                 f"(device->backend {n['up']} B, backend->device {n['down']} B incl. the 101 response) "
+                                 f"first end: {side} {how} at {at:.1f}s; last device data {now - n['t_up']:.1f}s before close, "
+                                 f"last backend data {now - n['t_down']:.1f}s before close; opened {datetime.datetime.now() - datetime.timedelta(seconds=now - t_open):%H:%M:%S}" + LF)
 
         def do_GET(self):
             if self.path == WS_ROUTE and self.headers.get("Upgrade", "").lower() == "websocket":

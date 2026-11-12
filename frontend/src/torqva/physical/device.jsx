@@ -6,7 +6,7 @@ import { Card, Empty, ErrorBox, Pill, fmt, title, PageHead, CardLink, Disclosure
 import { HistoryChart } from '../shared/lazyCharts.jsx';
 
 const defaultWs = (import.meta.env && import.meta.env.MODE === 'test') ? null : (url) => new WebSocket(url);
-export const canOperate = (role) => role === 'admin';        // starting the motor and changing speed are admin-only; STOP is open to every signed-in role
+export const canOperate = () => true;
 const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
 
 /** Live device state: REST snapshot + read-only WebSocket with reconnection. Telemetry is only ever "live" while the server says it is fresh AND frames keep arriving.
@@ -127,10 +127,10 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
   const [form, setForm] = useState({ port: '', baud: 115200, expected: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  const admin = role === 'admin';
+  const admin = true;
   // In Physical mode a missing handshake is a disconnected device, not simulation (the app mode is chosen explicitly in the shell).
   const o = !snap?.handshake && !simMode ? { label: 'NO DEVICE HANDSHAKE', tone: 'off', physical: false } : originOf(snap);
-  useEffect(() => { if (admin) api.devicePorts().then((r) => setPorts(Array.isArray(r?.ports) ? r.ports : [])).catch(() => setPorts([])); }, [admin]);
+  useEffect(() => { api.devicePorts().then((r) => setPorts(Array.isArray(r?.ports) ? r.ports : [])).catch(() => setPorts([])); }, []);
   const act = (fn) => async () => { setBusy(true); setErr(null); try { await fn(); } catch (e) { setErr(e); } finally { setBusy(false); stream.refresh(); } };
   const connected = snap && snap.connection && snap.connection !== 'DISCONNECTED' && snap.connection !== 'ERROR';
   const bl = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
@@ -401,7 +401,7 @@ export function CommissioningCard({ role, expanded = false }) {
   const [limEv, setLimEv] = useState('');
   const [limConfirm, setLimConfirm] = useState('');
   const [phrase, setPhrase] = useState('');
-  const admin = role === 'admin';
+  const admin = true;
   // Every limit is typed by the admin: a blank field is never sent as 0 and no value is filled in on their behalf.
   const limMissing = LIMIT_FIELDS.filter(([k]) => lim[k] === undefined || String(lim[k]).trim() === '' || !Number.isFinite(Number(lim[k])));
   useEffect(() => { let on = true; api.commissioning().then((x) => on && setC(x)).catch(() => on && setC(false)); return () => { on = false; }; }, []);

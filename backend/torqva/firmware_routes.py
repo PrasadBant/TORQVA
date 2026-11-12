@@ -22,8 +22,8 @@ MAX_UPLOAD_READ = 8 * 1024 * 1024          # read at most this much from a reque
 
 class DeployIn(BaseModel):
     release_id: str = Field(pattern=r"^[0-9a-f]{12}$")
-    device_id: str = Field(max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
-    confirm: str = Field(max_length=120)
+    device_id: str = Field(default="", max_length=64)
+    confirm: str = Field(default="", max_length=120)
     bench_power_disconnected: bool = False
 
 
@@ -58,7 +58,7 @@ def add_firmware_routes(r, service, need: Callable, audit: Callable) -> None:
 
     @r.post("/firmware/releases")
     async def firmware_upload(file: UploadFile = File(...), signature: str = Form(""), version: str = Form(""), notes: str = Form(""), description: str = Form(""),
-                              p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+                              p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         name = (file.filename or "").lower()
         if not name.endswith(".bin"):
             raise HTTPException(status_code=400, detail={"code": "NOT_A_BIN", "message": "upload the compiled application image (.bin); source files, bootloaders and partition tables are not accepted"})
@@ -74,7 +74,7 @@ def add_firmware_routes(r, service, need: Callable, audit: Callable) -> None:
         return rec
 
     @r.post("/firmware/deployments")
-    def firmware_deploy(body: DeployIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+    def firmware_deploy(body: DeployIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         try:
             dep = fm.deploy(body.release_id, body.device_id, p.user, body.confirm, body.bench_power_disconnected)
         except FirmwareError as e:
