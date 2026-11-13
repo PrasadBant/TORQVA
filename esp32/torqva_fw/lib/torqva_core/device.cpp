@@ -133,12 +133,6 @@ void Device::on_line(const char* line, uint32_t now_ms) {
         if (why) { Ack a = {pc.cmd.id, AckStatus::REJECTED, why}; queue_ack(a); return; }
     }
 
-    if (cfg_.relaxed_interlocks && pc.cmd.authorized &&
-        safety_.state() == SafetyState::EMERGENCY_STOP &&
-        safety_.reason() == TripReason::HEARTBEAT_LOST) {
-        safety_.reset_trip(true, true);
-    }
-
     Ack ack = validator_.validate(pc.cmd, ctx());
     if (ack.status == AckStatus::ACCEPTED && !validator_.last_was_duplicate()) {
         // Execution may still refuse (e.g. test envelope). Then the ONLY ack sent is the final REJECTED one.
@@ -205,11 +199,6 @@ const char* Device::start_blocked_reason(uint32_t now_ms) const {
 }
 
 const char* Device::execute(const Command& c, uint32_t now_ms) {
-    if (c.authorized) {
-        safety_.heartbeat(now_ms);
-        last_hb_ms_ = now_ms;
-        hb_seen_ = true;
-    }
     // An update in progress refuses every motion command in every build (relaxed simulation included), and is reported first. STOP and the rest are never blocked here.
     if (ota_active_ && (c.type == CmdType::START || c.type == CmdType::SET_SPEED || c.type == CmdType::RUN_TEST)) return "OTA_IN_PROGRESS";
     // A new image that has not passed its first-boot self-test never drives the motor.
@@ -221,6 +210,11 @@ const char* Device::execute(const Command& c, uint32_t now_ms) {
     }
     switch (c.type) {
         case CmdType::HEARTBEAT:
+            if (c.authorized) {
+                safety_.heartbeat(now_ms);
+                last_hb_ms_ = now_ms;
+                hb_seen_ = true;
+            }
             break;
         case CmdType::STOP: {
             drive_.stop();
@@ -249,15 +243,7 @@ const char* Device::execute(const Command& c, uint32_t now_ms) {
             tests_.abort("COMMAND");
             break;
         case CmdType::RESET_ESTOP:
-            if (cfg_.relaxed_interlocks) {
-                safety_.reset_trip(true, true);
-                drive_.stop();
-                Ack a = {c.id, AckStatus::COMPLETED, "RESET"};
-                validator_.update_cached(a.id, a.status, a.reason);
-                queue_ack(a);
-            } else {
-                reset_cmd_id_ = c.id; reset_pending_ = true; reset_deadline_ms_ = now_ms + kResetWindowMs;
-            }
+            reset_cmd_id_ = c.id; reset_pending_ = true; reset_deadline_ms_ = now_ms + kResetWindowMs;
             break;
         case CmdType::REQUEST_RAW_BURST:
             break;   // raw bursts are produced by the vibration task (not implemented in this layer)
@@ -284,7 +270,7 @@ HalOut Device::step(const HalIn& in) {
             Ack a = {reset_cmd_id_, AckStatus::ABORTED, "RESET_TIMEOUT"};
             validator_.update_cached(a.id, a.status, a.reason);
             queue_ack(a);
-        } else if (safety_.state() == SafetyState::EMERGENCY_STOP && (in.button_pressed || cfg_.relaxed_interlocks) &&
+        } else if (safety_.state() == SafetyState::EMERGENCY_STOP && in.button_pressed &&
                    safety_.reset_trip(true, true)) {
             reset_pending_ = false;
             drive_.stop();
