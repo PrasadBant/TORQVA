@@ -36,6 +36,7 @@ class CommandIn(BaseModel):
     action: str = Field(max_length=16)
     duty_pct: Optional[float] = Field(default=None, allow_inf_nan=False, ge=0, le=100)
     rpm: Optional[float] = Field(default=None, allow_inf_nan=False, ge=0, le=100000)
+    duration_s: Optional[float] = Field(default=None, allow_inf_nan=False, ge=0, le=3600)
 
 
 class ItemIn(BaseModel):
@@ -123,6 +124,8 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
             params["duty_pct"] = body.duty_pct
         if body.rpm is not None:
             params["rpm"] = body.rpm
+        if body.duration_s is not None:
+            params["duration_s"] = body.duration_s
         audit(p, "device_command_requested", action=body.action, params=params)
         rec = bridge.request_command(body.action, params, p.user, p.role)
         return rec.public()

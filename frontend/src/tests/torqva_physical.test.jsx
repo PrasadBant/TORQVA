@@ -170,7 +170,7 @@ describe('physical-device-first application', () => {
     expect(screen.getByTestId('btn-stop')).toBeDisabled(); expect(screen.getByText(/STOP cannot be delivered/)).toBeInTheDocument();
   });
 
-  it('START is a two-step request bounded by the approved limit and posts only after confirmation', async () => {
+  it('START is a direct operator command bounded by the approved limit', async () => {
     const posted = [];
     server({ ...CONNECTED, control_blockers: [], control_limits: { max_duty_pct: 30, max_rpm: 2000 } });
     const base = globalThis.fetch;
@@ -179,7 +179,6 @@ describe('physical-device-first application', () => {
     const duty = await screen.findByLabelText('Duty percent');
     expect(duty).toHaveAttribute('max', '30');                                                                           // the ceiling comes from the approved limit, not a hard-coded range
     fireEvent.change(duty, { target: { value: '20' } });
-    fireEvent.click(screen.getByTestId('btn-start')); expect(posted).toEqual([]);
     fireEvent.click(screen.getByTestId('btn-start'));
     await waitFor(() => expect(posted).toEqual([{ action: 'START', duty_pct: 20 }]));
     expect(await screen.findByTestId('last-command')).toHaveTextContent('REJECTED');

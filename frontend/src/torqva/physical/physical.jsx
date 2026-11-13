@@ -323,6 +323,9 @@ export function MotionPanel({ stream, role, go }) {
   const { snap, commands } = stream;
   const [duty, setDuty] = useState('0');
   const [rpm, setRpm] = useState('1200');
+  const [duration, setDuration] = useState('0');     // '0' for continuous (default); > 0 for auto-stop
+  const [autoStopDeadline, setAutoStopDeadline] = useState(null);
+  const [countdown, setCountdown] = useState(null);
   const [busy, setBusy] = useState(false);
   const [stopBusy, setStopBusy] = useState(false);   // STOP has its own in-flight state: a pending START or speed request never holds STOP back
   const [confirm, setConfirm] = useState(false);
@@ -331,18 +334,42 @@ export function MotionPanel({ stream, role, go }) {
   const live = isLive(snap);
   const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
   const blocked = blockers.length > 0;
-  const operator = true;
+  const operator = role ? role === 'admin' : true;
   const connected = snap && ['CONNECTED', 'STALE'].includes(snap.connection) && snap.handshake;
   const maxDuty = snap?.control_limits?.max_duty_pct ?? 100;
   const maxRpm = snap?.control_limits?.max_rpm ?? 3000;
 
+  useEffect(() => {
+    if (!autoStopDeadline) {
+      setCountdown(null);
+      return;
+    }
+    const iv = setInterval(() => {
+      const left = Math.max(0, Math.ceil((autoStopDeadline - Date.now()) / 1000));
+      setCountdown(left);
+      if (left <= 0) {
+        setAutoStopDeadline(null);
+      }
+    }, 200);
+    return () => clearInterval(iv);
+  }, [autoStopDeadline]);
+
   const send = (body) => async () => {
     setBusy(true);
     setErr(null);
+    const dur = Number(duration);
+    const payload = { ...body };
+    if (dur > 0 && (payload.action === 'START' || payload.action === 'SET_SPEED') && (payload.rpm > 0 || payload.duty_pct > 0)) {
+      payload.duration_s = dur;
+      setAutoStopDeadline(Date.now() + dur * 1000);
+    } else {
+      setAutoStopDeadline(null);
+    }
     try {
-      setLast(await api.deviceCommand(body));
+      setLast(await api.deviceCommand(payload));
     } catch (e) {
       setErr(e);
+      setAutoStopDeadline(null);
     } finally {
       setBusy(false);
       stream.refresh();
@@ -352,6 +379,7 @@ export function MotionPanel({ stream, role, go }) {
   const sendStop = async () => {
     setStopBusy(true);
     setErr(null);
+    setAutoStopDeadline(null);
     try {
       setLast(await api.deviceCommand({ action: 'STOP' }));
     } catch (e) {
@@ -450,6 +478,33 @@ export function MotionPanel({ stream, role, go }) {
         </div>
       )}
 
+      {/* Auto-Stop Duration Control */}
+      <div className="tq-row" style={{ alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '6px' }}>
+        <span className="tq-muted" style={{ fontSize: '0.85rem', fontWeight: 500 }}>Auto-Stop:</span>
+        {[
+          { label: 'Continuous', val: '0' },
+          { label: '3s', val: '3' },
+          { label: '5s', val: '5' },
+          { label: '10s', val: '10' },
+          { label: '30s', val: '30' },
+        ].map((opt) => (
+          <button
+            key={opt.val}
+            type="button"
+            className={`tq-btn tq-small ${duration === opt.val ? 'tq-primary' : ''}`}
+            style={{ padding: '0.2rem 0.6rem', fontSize: '0.8rem', borderRadius: '4px' }}
+            onClick={() => setDuration(opt.val)}
+          >
+            {opt.label}
+          </button>
+        ))}
+        {countdown !== null && countdown > 0 && (
+          <span style={{ fontSize: '0.85rem', color: '#38bdf8', fontWeight: 600, marginLeft: 'auto' }}>
+            ⏱ Auto-stopping in {countdown}s
+          </span>
+        )}
+      </div>
+
       {/* 4. OPERATING CONTROLS */}
       <div className="tq-motion-controls-grid">
         <div className="tq-control-card">
@@ -468,10 +523,10 @@ export function MotionPanel({ stream, role, go }) {
               </div>
             </label>
             <button type="button" className="tq-btn tq-primary" data-testid="btn-speed"
-              disabled={blocked || busy || stopBusy || !operator || rpm === '' || Number(rpm) <= 0}
+              disabled={blocked || busy || stopBusy || !operator || rpm === '' || Number(rpm) < 0 || Number(rpm) > maxRpm}
               onClick={send({ action: 'SET_SPEED', rpm: Number(rpm) })}>
               <Play size={14} aria-hidden="true" />
-              Set speed {rpm ? `(${rpm} rpm)` : ''}
+              {Number(rpm) === 0 ? 'Set speed (0 rpm — Stop)' : `Set speed (${rpm} rpm)${Number(duration) > 0 ? ` [${duration}s]` : ''}`}
             </button>
           </div>
         </div>
@@ -496,7 +551,7 @@ export function MotionPanel({ stream, role, go }) {
                 disabled={blocked || busy || stopBusy || !operator || dutyBad}
                 onClick={send({ action: 'START', duty_pct: Number(duty) })}>
                 <Play size={14} aria-hidden="true" />
-                START ({duty || 0}%)
+                {Number(duty) === 0 ? 'START (0% — Idle)' : `START (${duty}%)${Number(duration) > 0 ? ` [${duration}s]` : ''}`}
               </button>
             </div>
           </div>

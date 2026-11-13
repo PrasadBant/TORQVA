@@ -1220,12 +1220,34 @@ class DeviceBridge:
             if not 0 <= r <= 35000:
                 return self._reject(rec, ["INVALID_PARAMETER: rpm must be between 0 and 35000"])
 
+        # Cancel any previous auto-stop timer if active
+        timer = getattr(self, "_auto_stop_timer", None)
+        if timer is not None:
+            try:
+                timer.cancel()
+            except Exception:
+                pass
+            self._auto_stop_timer = None
+
         # If latched due to previous connection loss (HEARTBEAT_LOST), auto-reset before normal motion command
         with self._lock:
             st = self.model.status or {}
             if st.get("state") == "EMERGENCY_STOP" and st.get("reason") in ("HEARTBEAT_LOST", "NONE", "") and action != "RESET_ESTOP":
                 reset_rec = self._record("RESET_ESTOP", {}, user, role)
                 self._dispatch(reset_rec, "RESET_ESTOP", {})
+
+        # Schedule automatic stop if duration_s is set (> 0) and command is motion
+        dur = params.get("duration_s")
+        if dur is not None and isinstance(dur, (int, float)) and dur > 0 and action in ("START", "SET_SPEED"):
+            def _auto_stop():
+                try:
+                    self.request_command("STOP", {}, user, role)
+                except Exception:
+                    pass
+            t = threading.Timer(float(dur), _auto_stop)
+            t.daemon = True
+            t.start()
+            self._auto_stop_timer = t
 
         rec.state = CmdState.AUTHORIZED
         return self._dispatch(rec, action, params)
