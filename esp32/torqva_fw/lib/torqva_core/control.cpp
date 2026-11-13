@@ -71,7 +71,17 @@ DriveOutput DriveController::update(float dt_s, float measured_rpm, bool drive_a
     switch (mode_) {
         case DriveMode::IDLE:        demand = 0.0f; break;
         case DriveMode::OPEN_LOOP:   demand = target_duty_; break;
-        case DriveMode::CLOSED_LOOP: demand = pi_.step(target_rpm_, measured_rpm, dt_s); break;
+        case DriveMode::CLOSED_LOOP: {
+            if (measured_rpm > 0.0f) {
+                demand = pi_.step(target_rpm_, measured_rpm, dt_s);
+            } else {
+                // When measured RPM is 0 (unwired/absent sensor or initial startup),
+                // map target speed proportionally to duty so speed commands actually control motor speed.
+                demand = (lim_.max_rpm > 0.0f) ? (target_rpm_ / lim_.max_rpm) * lim_.max_duty_pct : 0.0f;
+                pi_.reset();
+            }
+            break;
+        }
     }
     demand = clampf(demand, 0.0f, lim_.max_duty_pct);
     const float duty = ramp_.step(demand, dt_s);
