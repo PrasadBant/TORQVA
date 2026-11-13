@@ -60,5 +60,5 @@ if (simOnly) {
       + 'record, the session check and the Safety Supervisor still apply. You can remove it from your environment.');
   }
 }
-run(python, ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000'], { cwd: backendDir, env: backendEnv }, 'backend');
+run(python, ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000', '--reload'], { cwd: backendDir, env: backendEnv }, 'backend');
 run('npx', ['vite'], { cwd: path.resolve(here, '..'), env: { ...process.env, VITE_TORQVA_DEV_TOKEN: TOKEN } }, 'frontend');

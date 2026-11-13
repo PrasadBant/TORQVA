@@ -800,6 +800,9 @@ class DeviceBridge:
             self._protocol_error(e.code)
             return
         if f["t"] in ("auth_ch", "auth_ok", "auth_err"):
+            with self._lock:
+                if self._auth.get("state") not in ("wait_challenge", "wait_ok"):
+                    return
             self._on_auth_frame(f, now)
             return
         if f["t"] == "cfg_ack":
@@ -828,6 +831,14 @@ class DeviceBridge:
         if f["t"] == "fast":
             self.hub.publish("telemetry", self.model.snapshot(now))
         elif f["t"] == "status":
+            if f.get("state") == "EMERGENCY_STOP" and f.get("reason") in ("HEARTBEAT_LOST", "NONE", ""):
+                if not getattr(self, "_auto_reset_sent", False):
+                    self._auto_reset_sent = True
+                    rec = self._record("RESET_ESTOP", {}, "system", Role.ADMIN)
+                    self._dispatch(rec, "RESET_ESTOP", {})
+            elif f.get("state") != "EMERGENCY_STOP":
+                self._auto_reset_sent = False
+
             prev = getattr(self, "_last_state_key", None)
             key = (f["state"], f["reason"], f["drive"], f["fm"], f["blk"], f["mode"])
             if key != prev:
@@ -899,6 +910,8 @@ class DeviceBridge:
     def _on_ack(self, a: Dict[str, Any]) -> None:
         with self._lock:
             if a["id"] in self._hb_ids:
+                if a.get("status") != "ACCEPTED":
+                    log.warning("HEARTBEAT NON-ACCEPTED: %s", a)
                 return                                              # acknowledgement of a periodic heartbeat, not a user command
             exp = self.model.expected_device_id
             if exp is not None and a.get("dev") != exp:
@@ -1084,9 +1097,9 @@ class DeviceBridge:
             return
         with self._lock:
             seq = self._next_seq
-            self._next_seq += 1
+            self._next_seq = (self._next_seq + 1) & 0x7FFFFFFF or 1
             cid = self._next_id
-            self._next_id += 1
+            self._next_id = (self._next_id + 1) & 0x7FFFFFFF or 1
             self._hb_last = now
             self._hb_ids.append(cid)
             key = self.command_key or "dev-key-change-me"
@@ -1206,6 +1219,14 @@ class DeviceBridge:
                 return self._reject(rec, ["INVALID_PARAMETER: rpm"])
             if not 0 <= r <= 35000:
                 return self._reject(rec, ["INVALID_PARAMETER: rpm must be between 0 and 35000"])
+
+        # If latched due to previous connection loss (HEARTBEAT_LOST), auto-reset before normal motion command
+        with self._lock:
+            st = self.model.status or {}
+            if st.get("state") == "EMERGENCY_STOP" and st.get("reason") in ("HEARTBEAT_LOST", "NONE", "") and action != "RESET_ESTOP":
+                reset_rec = self._record("RESET_ESTOP", {}, user, role)
+                self._dispatch(reset_rec, "RESET_ESTOP", {})
+
         rec.state = CmdState.AUTHORIZED
         return self._dispatch(rec, action, params)
 
@@ -1214,7 +1235,7 @@ class DeviceBridge:
         p1 = float(params.get("duty_pct", params.get("rpm", 0.0)))
         with self._lock:
             seq = self._next_seq
-            self._next_seq += 1
+            self._next_seq = (self._next_seq + 1) & 0x7FFFFFFF or 1
         p1 = round(p1) if ty == "SET_SPEED" else round(p1, 3)         # values the firmware reproduces exactly when it rebuilds the MAC input (%.3f)
         key = self.command_key or "dev-key-change-me"
         msg = {"id": rec.id, "type": ty, "p": p1, "p2": 0, "p3": 0, "ttl": 5000, "age": 0, "seq": seq, "k": key if ty != "STOP" else ""}
