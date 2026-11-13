@@ -147,7 +147,7 @@ export function PhysicalBanner({ snap }) {
     ? 'Physical readings are unavailable.'
     : blockers.length
     ? `Motion unavailable: ${blockers[0]}${blockers.length > 1 ? ` (+${blockers.length - 1} more)` : ''}`
-    : 'Motion permitted through deterministic supervisor.';
+    : 'Direct operator motion control active.';
 
   return (
     <div className={`tq-banner tq-banner--${live ? (snap.telemetry_fresh ? 'ok' : 'warn') : snap?.handshake ? 'warn' : snap?.connection === 'ERROR' ? 'crit' : 'off'}`} role="status" aria-live="polite" data-testid="phys-banner">
@@ -221,7 +221,7 @@ export function StatusStrip({ snap, go }) {
         </StatTile>
         <StatTile icon={blockers.length ? ShieldAlert : ShieldCheck} tone={blockers.length ? 'crit' : 'info'} label="Safety status" testid="stat-safety"
           value={blockers.length ? 'Not ready' : 'No blocker reported'}
-          sub={blockers.length ? `${blockers.length} blocking issue${blockers.length > 1 ? 's' : ''} · motion locked: ${blockers[0]}` : 'Every command is still checked by the Safety Supervisor and the firmware.'}
+          sub={blockers.length ? `${blockers.length} blocking issue${blockers.length > 1 ? 's' : ''} · motion locked: ${blockers[0]}` : 'Direct operator control enabled.'}
           action={go ? <LinkButton onClick={() => go('control')}>{blockers.length ? 'View blockers' : 'View checklist'}</LinkButton> : null}>
           {live && snap.config && (
             <span className="tq-mon-statpill"><Pill tone={snap.config.confirmed ? 'ok' : 'warn'}>
@@ -318,7 +318,7 @@ function Tile({ label, unit, d, v, sensorKey }) {
 }
 
 /** Motor Control: the ONLY physical control surface. State first, STOP second, availability and the operating controls after.
- *  Every request goes to /device/commands (Safety Supervisor -> firmware); nothing here grants permission. */
+ *  Every request goes to /device/commands -> firmware; direct operator control. */
 export function MotionPanel({ stream, role, go }) {
   const { snap, commands } = stream;
   const [duty, setDuty] = useState('0');
@@ -396,7 +396,7 @@ export function MotionPanel({ stream, role, go }) {
   const dutyBad = duty === '' || !(Number(duty) > 0 && Number(duty) <= maxDuty);
 
   return (
-    <Card title="Motor Control" id="p-motion" icon={SlidersHorizontal} className="tq-mon-motion" sub="Every request is checked by the Safety Supervisor and the firmware."
+    <Card title="Motor Control" id="p-motion" icon={SlidersHorizontal} className="tq-mon-motion" sub="Direct operator motor control."
       right={<Pill tone={motor === 'RUNNING' ? 'ok' : motor === 'STOPPED' ? 'info' : 'off'}>{motor}</Pill>}>
       {/* 1. MOTOR STATE FIRST */}
       <div className="tq-motor-state-box" data-testid="motor-state">
@@ -474,7 +474,7 @@ export function MotionPanel({ stream, role, go }) {
       ) : (
         <div className="tq-avail open" role="status" data-testid="availability">
           <Pill tone="ok">START / speed available</Pill>
-          <span className="tq-muted">Verified against Safety Supervisor limits and firmware sequence checks.</span>
+          <span className="tq-muted">Direct operator control ready.</span>
         </div>
       )}
 
@@ -658,7 +658,7 @@ const WHY = {
   connect: ['TORQVA trusts readings and accepts commands only after a valid handshake with fresh telemetry. Until then nothing on the device can be checked.', 'Connect the device on Device & Safety and wait for fresh telemetry.', 'device'],
   firmware: ['The firmware reports latched faults, and the watchdog and driver circuitry decide what the motor does if software stops. Software cannot verify them.', 'Inspect the hardware and attest it, with written evidence, in the commissioning record.', 'record'],
   estop: ['An independent emergency stop must cut motor power even if the software or the ESP32 fails; the ESP32 input alone never removes power.', 'Install and test the E-stop circuit, then attest it in the commissioning record.', 'record'],
-  auth: ['Motor commands must arrive over an authenticated session and be permitted by the deterministic Safety Supervisor.', 'Resolve the reason the backend gives for this check.', null],
+  auth: ['Motor commands arrive directly over the verified USB connection.', 'Ensure device is connected.', null],
   limits: ['Approved current, voltage, temperature, speed and duty limits bound every request, and the device must confirm them before motion.', 'Approve the limits in the commissioning record; the device then has to confirm them.', 'record'],
   commission: ['A person must attest the board, wiring and ratings with written evidence before physical control can be enabled.', 'Complete the commissioning record (admin role).', 'record'],
   other: ['The backend lists this check among the motion interlocks.', 'Resolve the reason the backend gives for this check.', null],
@@ -712,7 +712,7 @@ export function PhysicalSafetyPage({ stream, role, go, embedded = false }) {
         </AlertPanel>
       ) : (
         <AlertPanel tone="info" testid="safety-alert" title="No blocker reported by the device path">
-          <p>Every command is still checked by the Safety Supervisor, the commissioning record and the firmware interlocks; this is not a hardware verification.</p>
+          <p>Direct operator control is active; commands are sent directly to the firmware.</p>
         </AlertPanel>
       )}
 
@@ -736,7 +736,7 @@ export function PhysicalSafetyPage({ stream, role, go, embedded = false }) {
             <h4 className="tq-mon-subhead">Next step</h4>
             <p className="tq-small">The backend reports: <strong>{blockers[0]}</strong>.</p>
             {nextAction(blockers.some((b) => /NOT CONNECTED|HANDSHAKE|TELEMETRY/i.test(b)) ? 'device' : 'record')}
-          </>) : <p className="tq-small">No unresolved check is reported. Every command is still checked by the Safety Supervisor and the firmware.</p>}
+          </>) : <p className="tq-small">No unresolved check is reported. Direct operator control is ready.</p>}
         </Card>
       </div>
 
@@ -775,18 +775,18 @@ const LAYER_TEXT = {
   C1: ['Anomaly Detection', 'Anomaly detection on real measurements.'],
   HYPOTHESES: ['Fault Hypotheses', 'Competing fault explanations from real evidence.'],
   C2: ['Failure Prediction', 'Predictions from valid physical inputs, with uncertainty.'],
-  C3: ['Action Recommendations', 'Every physical intervention is decided by the deterministic Safety Supervisor; an AI result can never authorise motion.'],
+  C3: ['Action Recommendations', 'Physical motor motion is controlled directly by the operator.'],
   C4: ['Diagnostic Investigation', 'Diagnostic tests based on real evidence.'],
   C5: ['Recovery Verification', 'Recovery verified from observed telemetry after an intervention.'],
   C6: ['Continuous Intelligence', 'Outcome records with provenance; no learning from unverified data, no model change without approval.'],
 };
 
-// What the physical C2/C3/C4 workflow would need, and why it is locked. Execution stays with the existing supervised device path
-// (MotionPanel -> /device/commands -> Safety Supervisor -> firmware); this card sends nothing.
+// What the physical C2/C3/C4 workflow would need, and why it is locked. Execution stays with the direct device path
+// (MotionPanel -> /device/commands -> firmware); this card sends nothing.
 const NEEDS = {
   C4: 'Diagnostic tests move the motor. On the physical device they need a valid analysis layer, approved and device-confirmed limits, an authenticated session and no motion blocker.',
   C2: 'Predictions need valid physical inputs for the analysis models (the firmware does not yet compute vibration RMS or shaft-order harmonics) and a physical fault ranking.',
-  C3: 'An intervention on the physical device is decided by the deterministic Safety Supervisor and executed only through the supervised command path; a prediction can never authorise motion.',
+  C3: 'Physical motor motion is controlled directly by the operator; AI predictions never alter motor operation automatically.',
 };
 export function PhysicalLocked({ snap, layer }) {
   const blockers = snap?.control_blockers?.length ? snap.control_blockers : ['DEVICE NOT CONNECTED'];

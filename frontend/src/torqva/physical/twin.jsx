@@ -99,7 +99,7 @@ export function physTwin(snap, { unreachable = false } = {}) {
   });
   const findings = [
     ...groups.map((g) => ({ tone: ['ACTIVE', 'AVAILABLE', 'READY', 'VERIFIED'].includes(g.status) ? 'ok' : 'off', label: plainText(`${g.keys.join(', ')}: ${title(g.status)}`), detail: g.reason })),
-    { tone: (snap.control_blockers || []).length ? 'stop' : 'info', label: (snap.control_blockers || []).length ? `Motion locked: ${snap.control_blockers[0]}` : 'No motion blocker reported', detail: 'Read-only here; the Safety Supervisor decides.' },
+    { tone: (snap.control_blockers || []).length ? 'stop' : 'info', label: (snap.control_blockers || []).length ? `Motion locked: ${snap.control_blockers[0]}` : 'No motion blocker reported', detail: 'Read-only monitor view.' },
   ];
   if (!handshake) findings.push({ tone: 'info', label: 'Connect a board', detail: 'Connection is managed on Device & Safety.', go: ['device', 'Device & Safety'] });
   const facts = [

@@ -40,7 +40,7 @@ def add_firmware_routes(r, service, need: Callable, audit: Callable) -> None:
     def firmware_status(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         dev = fm.device()
         return {"device": dev, "config": fm.config(), "current": fm.current(), "eligibility": fm.eligibility(None, dev.get("device_id") or ""),
-                "motor_operation": "Firmware updates never enable motor operation. Physical operation stays governed by Device & Safety (commissioning, interlocks, Safety Supervisor)."}
+                "motor_operation": "Firmware updates never enable motor operation. Physical operation is directly controlled by the operator on Overview."}
 
     @r.get("/firmware/releases")
     def firmware_releases(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:

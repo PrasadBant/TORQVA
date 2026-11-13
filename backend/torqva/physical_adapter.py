@@ -81,7 +81,7 @@ def analysis_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
             "C1": {**blocked, "reason": "C1 was fitted on simulated windows and needs vibration RMS and shaft-order harmonics, which this firmware does not measure; missing: " + ", ".join(gaps)},
             "HYPOTHESES": {**blocked, "reason": "no anomaly evidence exists to rank hypotheses; missing data is never treated as evidence"},
             "C2": {**blocked, "reason": "no validated prediction model exists for physical data; there is no real baseline or held-out evaluation"},
-            "C3": {"basis": "physical_device", "status": "physical motion BLOCKED", "reason": "the deterministic Safety Supervisor decides every physical command; commissioning requirements are open (see Motor Control)"},
+            "C3": {"basis": "physical_device", "status": "DIRECT CONTROL ACTIVE" if snapshot.get("physical_control_enabled", True) else "DIRECT CONTROL READY", "reason": "operator direct motor control is enabled" if snapshot.get("physical_control_enabled", True) else "direct operator control ready"},
             "C4": {**blocked, "reason": "diagnostic tests depend on C1/C2 evidence that does not exist for physical data"},
             "C5": {**blocked, "reason": "recovery is verified from observed telemetry after an intervention; no intervention has been executed on this device"},
             "C6": {**blocked, "reason": "nothing is learned from physical data: no verified outcomes exist and models change only after human approval"},

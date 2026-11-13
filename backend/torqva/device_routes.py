@@ -1,7 +1,7 @@
 """HTTP + WebSocket surface of the USB serial bridge. Mounted by torqva.api.create_router. The backend owns the serial port; these routes only call the bridge.
 
 Authority: every route needs a bearer token (WebSocket: an `auth` first message). Connect/disconnect/port listing are admin-only; motion commands need operator; STOP needs any
-authenticated role (it can only make things safer and is NOT an emergency stop). Commands go through DeviceBridge.request_command (Safety Supervisor, commissioning/interlocks,
+authenticated role (it can only make things safer and is NOT an emergency stop). Commands go through DeviceBridge.request_command (direct operator control,
 dispatcher) and are never executed inside the WebSocket handler: the WebSocket is read-only.
 """
 from __future__ import annotations

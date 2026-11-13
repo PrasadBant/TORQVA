@@ -148,7 +148,7 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
       <AlertPanel tone={simMode ? 'info' : bl.length ? 'warn' : 'info'} testid="dev-readiness" icon={simMode ? Cpu : undefined}
         title={bl.length ? `Physical motion blocked (${bl.length})` : 'No motion blocker reported'}
         action={go && !simMode ? <LinkButton onClick={() => go('control')}>Review readiness and commissioning</LinkButton> : null}>
-        {bl.length ? <p>{bl[0]}{bl.length > 1 ? ` and ${bl.length - 1} more.` : '.'}</p> : <p>Every command is still checked by the Safety Supervisor and the firmware; this is not a hardware verification.</p>}
+        {bl.length ? <p>{bl[0]}{bl.length > 1 ? ` and ${bl.length - 1} more.` : '.'}</p> : <p>Direct operator control is active on the connected device.</p>}
         {go && simMode && <p>Physical Motor Control is available in Physical mode. To run the simulated motor, use <button type="button" className="tq-linkbtn" data-testid="dev-to-scenario" onClick={() => go('scenario')}>Scenario Studio</button>.</p>}
       </AlertPanel>
 
@@ -537,7 +537,7 @@ export function ReadinessCard({ snap, go }) {
           <ul className="tq-list">{blockers.map((b) => <li key={b}>{b}</li>)}</ul>
         </div>
       ) : (
-        <p className="tq-callout warn" role="note">No blocker is reported. Every command is still checked by the Safety Supervisor, the commissioning record and the firmware interlocks; this is not a hardware verification.</p>)}
+        <p className="tq-callout info" role="note">No blocker is reported. Direct operator motor control is active.</p>)}
       {snap?.interlocks?.length > 0 && <p className="tq-small tq-muted" data-testid="ready-counts">Interlocks: {Object.entries(counts).map(([k, n]) => `${n} ${k.toLowerCase()}`).join(' · ')}.</p>}
       {go && blockers.some((b) => /NOT CONNECTED|HANDSHAKE|TELEMETRY/i.test(b)) && <p className="tq-small"><button type="button" className="tq-linkbtn" onClick={() => go('connection')}>Connect the device on Device & Safety</button></p>}
     </Card>
