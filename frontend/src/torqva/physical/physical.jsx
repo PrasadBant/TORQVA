@@ -478,31 +478,33 @@ export function MotionPanel({ stream, role, go }) {
         </div>
       )}
 
-      {/* Auto-Stop Duration Control */}
-      <div className="tq-row" style={{ alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '6px' }}>
-        <span className="tq-muted" style={{ fontSize: '0.85rem', fontWeight: 500 }}>Auto-Stop:</span>
-        {[
-          { label: 'Continuous', val: '0' },
-          { label: '3s', val: '3' },
-          { label: '5s', val: '5' },
-          { label: '10s', val: '10' },
-          { label: '30s', val: '30' },
-        ].map((opt) => (
-          <button
-            key={opt.val}
-            type="button"
-            className={`tq-btn tq-small ${duration === opt.val ? 'tq-primary' : ''}`}
-            style={{ padding: '0.2rem 0.6rem', fontSize: '0.8rem', borderRadius: '4px' }}
-            onClick={() => setDuration(opt.val)}
-          >
-            {opt.label}
-          </button>
-        ))}
-        {countdown !== null && countdown > 0 && (
-          <span style={{ fontSize: '0.85rem', color: '#38bdf8', fontWeight: 600, marginLeft: 'auto' }}>
-            ⏱ Auto-stopping in {countdown}s
-          </span>
-        )}
+      {/* Run Mode Banner */}
+      <div className="tq-row" style={{ alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem', flexWrap: 'wrap', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '6px' }}>
+        <span style={{ fontSize: '0.82rem', color: '#10b981', fontWeight: 600 }}>● Continuous Run Mode (Dynamic speed changes without stopping)</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <span className="tq-muted" style={{ fontSize: '0.75rem' }}>Auto-Stop:</span>
+          {[
+            { label: 'Off (Continuous)', val: '0' },
+            { label: '5s', val: '5' },
+            { label: '10s', val: '10' },
+            { label: '30s', val: '30' },
+          ].map((opt) => (
+            <button
+              key={opt.val}
+              type="button"
+              className={`tq-btn tq-small ${duration === opt.val ? 'tq-primary' : ''}`}
+              style={{ padding: '0.15rem 0.45rem', fontSize: '0.75rem', borderRadius: '4px' }}
+              onClick={() => setDuration(opt.val)}
+            >
+              {opt.label}
+            </button>
+          ))}
+          {countdown !== null && countdown > 0 && (
+            <span style={{ fontSize: '0.8rem', color: '#38bdf8', fontWeight: 600, marginLeft: '0.5rem' }}>
+              ⏱ {countdown}s
+            </span>
+          )}
+        </div>
       </div>
 
       {/* 4. OPERATING CONTROLS */}
@@ -526,8 +528,23 @@ export function MotionPanel({ stream, role, go }) {
               disabled={blocked || busy || stopBusy || !operator || rpm === '' || Number(rpm) < 0 || Number(rpm) > maxRpm}
               onClick={send({ action: 'SET_SPEED', rpm: Number(rpm) })}>
               <Play size={14} aria-hidden="true" />
-              {Number(rpm) === 0 ? 'Set speed (0 rpm — Stop)' : `Set speed (${rpm} rpm)${Number(duration) > 0 ? ` [${duration}s]` : ''}`}
+              {Number(rpm) === 0 ? 'Set speed (0 rpm — Stop)' : motor === 'RUNNING' ? `Update speed to ${rpm} rpm` : `Set speed (${rpm} rpm)${Number(duration) > 0 ? ` [${duration}s]` : ''}`}
             </button>
+            <div className="tq-row" style={{ gap: '0.35rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span className="tq-muted" style={{ fontSize: '0.75rem' }}>Presets:</span>
+              {[600, 1000, 1200, 1500, 1800, 2400].map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className="tq-btn tq-small"
+                  style={{ padding: '0.15rem 0.45rem', fontSize: '0.75rem' }}
+                  disabled={blocked || busy || stopBusy || !operator}
+                  onClick={() => { setRpm(String(p)); send({ action: 'SET_SPEED', rpm: p })(); }}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -551,8 +568,23 @@ export function MotionPanel({ stream, role, go }) {
                 disabled={blocked || busy || stopBusy || !operator || dutyBad}
                 onClick={send({ action: 'START', duty_pct: Number(duty) })}>
                 <Play size={14} aria-hidden="true" />
-                {Number(duty) === 0 ? 'START (0% — Idle)' : `START (${duty}%)${Number(duration) > 0 ? ` [${duration}s]` : ''}`}
+                {Number(duty) === 0 ? 'START (0% — Idle)' : motor === 'RUNNING' ? `Update duty to ${duty}%` : `START (${duty}%)${Number(duration) > 0 ? ` [${duration}s]` : ''}`}
               </button>
+            </div>
+            <div className="tq-row" style={{ gap: '0.35rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span className="tq-muted" style={{ fontSize: '0.75rem' }}>Presets:</span>
+              {[10, 25, 40, 60, 80].map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  className="tq-btn tq-small"
+                  style={{ padding: '0.15rem 0.45rem', fontSize: '0.75rem' }}
+                  disabled={blocked || busy || stopBusy || !operator}
+                  onClick={() => { setDuty(String(d)); send({ action: 'START', duty_pct: d })(); }}
+                >
+                  {d}%
+                </button>
+              ))}
             </div>
           </div>
         </div>

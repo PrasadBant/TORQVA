@@ -194,7 +194,7 @@ const char* Device::start_blocked_reason(uint32_t now_ms) const {
         last_in_.housing_valid && finite_f(last_in_.housing_c) && last_in_.rpm_valid && finite_f(last_in_.rpm);
     s.supply_present = have_in_ && last_in_.voltage_valid && finite_f(last_in_.voltage_v) && last_in_.voltage_v >= kSupplyPresentV;
     s.telemetry_fresh = have_in_ && (uint32_t)(now_ms - last_in_.now_ms) <= kFreshMs;      // wrap-safe
-    s.link_ok = hb_seen_ && (uint32_t)(now_ms - last_hb_ms_) < lim_.heartbeat_timeout_ms;
+    s.link_ok = hb_seen_ && (int32_t)(now_ms - last_hb_ms_) < (int32_t)lim_.heartbeat_timeout_ms;
     return start_interlock_reason(s);
 }
 
