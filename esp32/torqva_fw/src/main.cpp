@@ -446,7 +446,7 @@ void setup() {
     lim.max_duty_pct = 100.0f;
     lim.volt_min_v = 0.0f;
     lim.rpm_loss_duty_pct = 1000.0f;
-    lim.heartbeat_timeout_ms = 30000;
+    lim.heartbeat_timeout_ms = 60000;
     g_dev = new Device(lim, cfg);
     g_mu = xSemaphoreCreateMutex();
     {
@@ -461,7 +461,7 @@ void setup() {
         cur.max_duty_pct = 100.0f;
         cur.max_rpm = 3000.0f;
         cur.rpm_loss_duty_pct = 1000.0f;
-        cur.heartbeat_timeout_ms = 30000;
+        cur.heartbeat_timeout_ms = 60000;
         g_dev->set_limits(cur);
     }
     // A PWM setup failure leaves the driver disabled (apply() never enables it) and latches a visible fault until a power cycle / intentional reset.

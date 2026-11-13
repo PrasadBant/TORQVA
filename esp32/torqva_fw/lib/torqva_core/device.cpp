@@ -223,9 +223,19 @@ const char* Device::execute(const Command& c, uint32_t now_ms) {
         }
         case CmdType::SET_SPEED:
             if (!drive_.set_speed(c.param)) return "RPM_OUT_OF_RANGE";
+            if (c.authorized) {
+                safety_.heartbeat(now_ms);
+                last_hb_ms_ = now_ms;
+                hb_seen_ = true;
+            }
             break;
         case CmdType::START:
             drive_.start_open_loop(c.param);
+            if (c.authorized) {
+                safety_.heartbeat(now_ms);
+                last_hb_ms_ = now_ms;
+                hb_seen_ = true;
+            }
             break;
         case CmdType::RUN_TEST: {
             TestParams p;
@@ -295,7 +305,7 @@ HalOut Device::step(const HalIn& in) {
     SafetyOutput so = safety_.update(si);
 
     // Diagnostic test executor: setpoint override, runs on-device.
-    const bool link_ok = hb_seen_ && (uint32_t)(in.now_ms - last_hb_ms_) < lim_.heartbeat_timeout_ms;
+    const bool link_ok = hb_seen_ && (int32_t)(in.now_ms - last_hb_ms_) < (int32_t)lim_.heartbeat_timeout_ms;
     if (tests_.active()) {
         TestTickInput ti = {in.now_ms, so.drive_allowed, link_ok, in.rpm};
         TestTickOutput to = tests_.tick(ti);
@@ -358,7 +368,7 @@ void Device::emit_frames(const HalIn& in) {
         StatusFrame f = {seq_++, in.now_ms, cfg_.fw_version, cfg_.wiring_id, lim_.version,
                          safety_.state(), safety_.reason(), cfg_.mode,
                          m == DriveMode::IDLE ? "IDLE" : (m == DriveMode::OPEN_LOOP ? "OPEN_LOOP" : "CLOSED_LOOP"),
-                         cfg_.control_enabled, hb_seen_ ? (uint32_t)(in.now_ms - last_hb_ms_) : 0xFFFFFFFFu,
+                         cfg_.control_enabled, hb_seen_ ? ((int32_t)(in.now_ms - last_hb_ms_) > 0 ? (uint32_t)(in.now_ms - last_hb_ms_) : 0u) : 0xFFFFFFFFu,
                          tests_.active() ? (uint8_t)tests_.id() : (uint8_t)0,
                          cfg_.device_id, cfg_.relaxed_interlocks ? "" : (start_blocked_reason(in.now_ms) ? start_blocked_reason(in.now_ms) : ""), safety_.fault_mask(),
                          cfg_version(), last_in_.estop_state};

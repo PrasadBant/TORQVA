@@ -117,7 +117,8 @@ SafetyOutput SafetyMonitor::update(const SafetyInputs& in) {
         // without a recent heartbeat (NO_HEARTBEAT), so nothing can start without a live host.
         if (in.hardware_control_mode && in.duty_pct > 0.0f) {
             if (!hb_seen_) { hb_seen_ = true; last_hb_ms_ = now; }
-            if (lim_.heartbeat_timeout_ms > 0 && (uint32_t)(now - last_hb_ms_) >= lim_.heartbeat_timeout_ms) trip(TripReason::HEARTBEAT_LOST);
+            const int32_t dt = (int32_t)(now - last_hb_ms_);
+            if (lim_.heartbeat_timeout_ms > 0 && dt >= (int32_t)lim_.heartbeat_timeout_ms) trip(TripReason::HEARTBEAT_LOST);
         }
     }
 
