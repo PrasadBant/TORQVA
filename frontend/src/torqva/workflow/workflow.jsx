@@ -418,11 +418,11 @@ function StartAndExecution({ wf, physical }) {
       {!t ? <Empty>{TERMINAL.includes(wf.status) ? 'No test ran in this workflow.' : 'The test result appears here when the backend records it.'}</Empty> : (
         <div className="tq-table-wrap"><table className="tq-table tq-small" data-testid="wf-test-stages"><caption className="tq-sr">Test stage results</caption>
           <thead><tr><th scope="col">Stage</th><th scope="col">Status</th><th scope="col">Observation (derived)</th><th scope="col">Ranking before → after</th></tr></thead>
-          <tbody>{t.stages.map((s) => (
+          <tbody>{(t.stages || []).map((s) => (
             <tr key={s.index}><th scope="row">{s.test === 'profile' ? 'Speed profile' : s.test}{s.simulated_seconds ? <span className="tq-muted tq-small tq-num"> {s.simulated_seconds} s</span> : null}</th>
               <td><Pill tone={s.status === 'completed' ? 'ok' : 'crit'}>{s.status}</Pill>{s.reason && <div className="tq-small">{s.reason}</div>}</td>
-              <td>{s.observation ? s.observation_meaning.map((m, i) => `${m} ${fmt(s.observation[i], 3)}`).join(' · ')
-                : s.steps ? s.steps.map((x) => `${rpm(x.target_rpm)} rpm: ${rpm(x.mean_rpm_settled)} settled, ${fmt(x.mean_current, 2)} A, ${fmt(x.mean_vib_rms, 3)} g, ${pct(x.flagged_fraction)} flagged`).join(' · ') : '—'}
+              <td>{s.observation ? (s.observation_meaning || []).map((m, i) => `${m} ${fmt(s.observation[i], 3)}`).join(' · ')
+                : s.steps ? (s.steps || []).map((x) => `${rpm(x.target_rpm)} rpm: ${rpm(x.mean_rpm_settled)} settled, ${fmt(x.mean_current, 2)} A, ${fmt(x.mean_vib_rms, 3)} g, ${pct(x.flagged_fraction)} flagged`).join(' · ') : '—'}
                 {s.signature_note && <div className="tq-muted">{s.signature_note}</div>}</td>
               <td>{rankText(s.posterior_before)} → {rankText(s.posterior_after)}</td></tr>))}</tbody></table></div>)}
     </Card>
@@ -463,12 +463,12 @@ function EvidenceAndDiagnosis({ c }) {
           <h4 className="tq-an-h" id="wf-ev-h">4 · Evidence <SourceTag kind="SIMULATED" /></h4>
           {ev ? (
             <dl className="tq-kv tq-small" data-testid="wf-evidence">
-              <dt>Windows (simulated 1 s)</dt><dd className="tq-num">{ev.windows} · {pct(ev.valid_fraction)} valid</dd>
-              <dt>Windows scored / flagged</dt><dd className="tq-num">{ev.scored_windows} · {pct(ev.c1_flagged_fraction)} above threshold</dd>
-              <dt>Tested setpoints</dt><dd className="tq-num">{ev.tested_setpoints_rpm.map(rpm).join(', ') || '—'} rpm</dd>
-              <dt>Signals present</dt><dd>{ev.signals_present.join(', ') || 'none'}</dd>
-              <dt>Missing signals</dt><dd>{ev.signals_missing.length ? ev.signals_missing.join(', ') : 'none'}</dd>
-              {ev.unscored_statuses.length > 0 && <><dt>Unscored windows</dt><dd>{ev.unscored_statuses.map(title).join(', ')}</dd></>}
+              <dt>Windows</dt><dd className="tq-num">{ev.windows ?? 0} · {pct(ev.valid_fraction ?? 1.0)} valid</dd>
+              <dt>Windows scored / flagged</dt><dd className="tq-num">{ev.scored_windows ?? ev.windows ?? 0} · {pct(ev.c1_flagged_fraction ?? 0)} above threshold</dd>
+              <dt>Tested setpoints</dt><dd className="tq-num">{(ev.tested_setpoints_rpm || []).map(rpm).join(', ') || '—'} rpm</dd>
+              <dt>Signals present</dt><dd>{(ev.signals_present || []).join(', ') || 'none'}</dd>
+              <dt>Missing signals</dt><dd>{ev.signals_missing?.length ? ev.signals_missing.join(', ') : 'none'}</dd>
+              {ev.unscored_statuses?.length > 0 && <><dt>Unscored windows</dt><dd>{ev.unscored_statuses.map(title).join(', ')}</dd></>}
               <dt>Evidence quality</dt><dd>{an?.sufficiency ? title(an.sufficiency) : 'not applicable'}</dd>
             </dl>) : <Empty>No evidence was recorded.</Empty>}
           {ev?.kinds && <p className="tq-muted tq-small">Measured: {ev.kinds.measured}. Derived: {ev.kinds.derived}.</p>}
@@ -528,9 +528,9 @@ function Recommendation({ wf }) {
       <div className="tq-an-cols tq-mt">
         <section className="tq-an-col" aria-labelledby="wf-why-h">
           <h4 className="tq-an-h" id="wf-why-h">Rationale</h4>
-          <ul className="tq-list tq-small" data-testid="wf-why">{rec.why.map((w, i) => <li key={i}>{w}</li>)}</ul>
+          <ul className="tq-list tq-small" data-testid="wf-why">{(rec.why || []).map((w, i) => <li key={i}>{w}</li>)}</ul>
           <h4 className="tq-an-h">Adjustments</h4>
-          <ul className="tq-list tq-small" data-testid="wf-adjustments">{rec.adjustments.map((a, i) => (
+          <ul className="tq-list tq-small" data-testid="wf-adjustments">{(rec.adjustments || []).map((a, i) => (
             <li key={i}><strong>{a.parameter}</strong>{a.from_rpm != null ? `: ${rpm(a.from_rpm)} → ${rpm(a.to_rpm)} rpm` : a.to ? `: ${a.from ? `${a.from} → ` : ''}${a.to}` : ''}{a.why ? ` — ${a.why}` : ''}
               {a.constraint && <div className="tq-muted">{a.constraint}</div>}{a.expected && <div className="tq-muted">{a.expected} (predicted)</div>}</li>))}</ul>
           <p className="tq-muted tq-small">Decision rule: {rec.decision_rule}.</p>
@@ -546,7 +546,7 @@ function Recommendation({ wf }) {
           {po && <p className="tq-muted tq-small">Risk {fmt(po.risk, 2)}{po.continue_risk != null ? ` vs ${fmt(po.continue_risk, 2)} if nothing changes` : ''} · {po.interval_meaning}.</p>}
           {rec.limitations?.length > 0 && <><h4 className="tq-an-h">Limitations</h4><ul className="tq-list tq-small">{rec.limitations.map((l) => <li key={l}>{l}</li>)}</ul></>}
           <h4 className="tq-an-h">Constraints</h4>
-          <p className="tq-muted tq-small">{rec.constraints.join('; ')} · {rec.control_resolution}.</p>
+          <p className="tq-muted tq-small">{(rec.constraints || []).join('; ')} · {rec.control_resolution}.</p>
         </section>
       </div>
       {rec.ranking?.length > 0 && (

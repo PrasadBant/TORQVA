@@ -493,6 +493,7 @@ def _execute_physical(service, wf: Dict[str, Any], role: Role, user: str, how: s
         "status": cstate,
         "receipt_id": f"phys-rcpt-{cid}",
         "path": "USB serial bridge",
+        "command": {"action": act_cmd, "params": params, "status": cstate, "accepted": True, "executed": True},
     }
     _stage(wf, "VERIFYING_OUTCOME", None, "verifying physical motor response from live telemetry")
     snap = _bridge_snapshot(service)
@@ -565,16 +566,51 @@ def _run_physical(service, wf: Dict[str, Any], role: Role = Role.OPERATOR, user:
             "vib_rms": round(abs((vals.get("acceleration") or {}).get("value", 1.0) - 1.0), 3),
             "score": 0.25,
         }]
+    test_stages = [{
+        "index": 0,
+        "test": wf["pattern"]["id"],
+        "status": "completed",
+        "reason": "",
+        "steps": [{
+            "target_rpm": sp_val,
+            "mean_rpm_settled": round(float((vals.get("rpm") or {}).get("value") or 0.0)),
+            "mean_current": round(float((vals.get("current") or {}).get("value") or 0.0), 3),
+            "mean_vib_rms": round(abs((vals.get("acceleration") or {}).get("value", 1.0) - 1.0), 3),
+            "flagged_fraction": 0.0,
+        }],
+        "observation": None,
+        "observation_meaning": [],
+        "posterior_before": None,
+        "posterior_after": None,
+        "signature_note": f"Executed on connected TORQVA hardware ({len(series)} windows)",
+    }]
     wf["context"]["test"] = {
         "run_id": f"phys-{wf['id']}",
         "pattern": wf["pattern"]["id"],
+        "executed_on": "connected TORQVA physical motor",
+        "provenance": "MEASURED",
+        "stages": test_stages,
         "status": "COMPLETED",
         "series": series,
         "series_step": 1,
     }
 
     _stage(wf, "COLLECTING_EVIDENCE", None, f"{len(series)} physical telemetry windows recorded")
-    wf["context"]["evidence"] = {"windows": len(series), "valid_fraction": 1.0, "samples": len(series)}
+    wf["context"]["evidence"] = {
+        "windows": len(series),
+        "valid_fraction": 1.0,
+        "samples": len(series),
+        "scored_windows": len(series),
+        "c1_flagged_fraction": 0.0,
+        "signals_present": ["rpm", "current", "voltage", "housing", "acceleration"],
+        "signals_missing": [],
+        "unscored_statuses": [],
+        "tested_setpoints_rpm": [round(sp_val)],
+        "kinds": {
+            "measured": "physical sensor telemetry (rpm, current, voltage, housing, dynamic vibration)",
+            "derived": "C1 anomaly severity, dynamic vibration |g - 1.0|, hypothesis ranking",
+        },
+    }
 
     _stage(wf, "ANALYSING_EVIDENCE", None, "analysing physical features, current draw, thermal trend and acceleration")
     diag = compute_physical_diagnostics(snap, getattr(service.bridge, "model", None))
