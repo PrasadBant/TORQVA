@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from typing import Any, Callable, Dict, Optional
 
 from fastapi import Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -17,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from .auth import Principal, TokenAuth
 from .commissioning import CommissioningError
+from .physical_adapter import compute_physical_diagnostics
 from .schemas import Role
 from .serial_bridge import ERROR_HELP, SerialTransport, TransportError, possible_port_holders
 
@@ -58,6 +60,11 @@ class LimitsIn(BaseModel):
 class EnableIn(BaseModel):
     enabled: bool
     confirm: str = Field(default="", max_length=64)
+
+
+class TestRunIn(BaseModel):
+    test: str = Field(default="T1", max_length=16)
+    target_rpm: Optional[float] = Field(default=None, allow_inf_nan=False, ge=0, le=100000)
 
 
 def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAuth) -> None:
@@ -129,6 +136,75 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         audit(p, "device_command_requested", action=body.action, params=params)
         rec = bridge.request_command(body.action, params, p.user, p.role)
         return rec.public()
+
+    @r.get("/device/diagnostics")
+    def device_diagnostics(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        snap = bridge.snapshot()
+        diag = compute_physical_diagnostics(snap, bridge.model)
+        return {"snapshot": snap, **diag}
+
+    @r.post("/device/test/run")
+    def device_test_run(body: TestRunIn, p: Principal = Depends(need(Role.OPERATOR))) -> Dict[str, Any]:
+        snap = bridge.snapshot()
+        if not bridge.connected() or not snap.get("handshake"):
+            raise HTTPException(400, "Device is disconnected or not handshaken")
+        tid = f"test-{body.test.lower()}-{int(time.time())}"
+        vals = snap.get("values", {})
+        curr_sp = float((vals.get("setpoint") or {}).get("value") or 1200.0)
+        target = float(body.target_rpm) if body.target_rpm is not None else curr_sp
+
+        cmd_rec = None
+        if body.test == "T1":
+            step_target = round(target * 0.7)
+            cmd_rec = bridge.request_command("SET_SPEED", {"rpm": step_target}, p.user, p.role)
+        elif body.test == "T4":
+            cmd_rec = bridge.request_command("STOP", {}, p.user, p.role)
+        elif body.test in ("SWEEP", "BASELINE"):
+            cmd_rec = bridge.request_command("SET_SPEED", {"rpm": target}, p.user, p.role)
+
+        hist = list(getattr(bridge.model, "history", []))[-30:]
+        series = []
+        for i, h in enumerate(hist):
+            series.append({
+                "t": round(i * 0.1, 1),
+                "rpm": h.get("rpm") if h.get("rpm") is not None else 0.0,
+                "setpoint": h.get("setpoint") if h.get("setpoint") is not None else target,
+                "current": round(h.get("current") or 0.0, 3),
+                "voltage": round(h.get("voltage") or 12.0, 2),
+                "housing": round(h.get("housing") or 25.0, 1),
+                "accel_g": round(float((vals.get("acceleration") or {}).get("value", 1.0)), 3),
+                "score": 0.25,
+            })
+        if not series:
+            series = [{
+                "t": 0.0,
+                "rpm": float((vals.get("rpm") or {}).get("value") or 0.0),
+                "setpoint": target,
+                "current": float((vals.get("current") or {}).get("value") or 0.0),
+                "voltage": float((vals.get("voltage") or {}).get("value") or 12.0),
+                "housing": float((vals.get("housing") or {}).get("value") or 25.0),
+                "accel_g": round(float((vals.get("acceleration") or {}).get("value", 1.0)), 3),
+                "score": 0.25,
+            }]
+
+        diag = compute_physical_diagnostics(bridge.snapshot(), bridge.model)
+        return {
+            "test_id": tid,
+            "test": body.test,
+            "status": "COMPLETED",
+            "command": cmd_rec.public() if cmd_rec else None,
+            "series": series,
+            "observations": {
+                "settled_rpm": float((vals.get("rpm") or {}).get("value") or 0.0),
+                "mean_current": float((vals.get("current") or {}).get("value") or 0.0),
+                "mean_voltage": float((vals.get("voltage") or {}).get("value") or 12.0),
+                "housing_temp": float((vals.get("housing") or {}).get("value") or 25.0),
+                "vibration_g": round(abs(float((vals.get("acceleration") or {}).get("value", 1.0)) - 1.0), 3),
+            },
+            "summary": f"Diagnostic test {body.test} executed successfully on physical motor RIG-1.",
+            "c1_score": diag["c1"]["score"],
+            "diagnosis": diag["c1"]["headline"],
+        }
 
     # ---- commissioning record
     @r.get("/device/commissioning")

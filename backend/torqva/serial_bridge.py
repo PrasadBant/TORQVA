@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Deque, Dict, List, Optional
 
-from .physical_adapter import analysis_status
+from .physical_adapter import analysis_status, compute_physical_diagnostics
 from .schemas import ActionType, Connection, DecisionVerdict, DeviceSafetyState, Mode, ProposalSource, ProposedAction, Role
 from .supervisor import ApprovedAction, SafetySupervisor, SupervisorContext, SupervisorLimits
 
@@ -1308,6 +1308,7 @@ class DeviceBridge:
                            "approved_version": c.limits["version"] if c is not None and c.limits else None, "device_version": self.device_cfg_version(), "confirmed": self.limits_confirmed(),
                            "last_push": {k: self._cfg.get(k) for k in ("sent_ver", "ack_ok", "ack_reason")} if self._cfg else None}
             s["analysis"] = analysis_status(s)
+            s["physical_diagnostics"] = compute_physical_diagnostics(s, self.model) if s.get("handshake") and s.get("origin") == "physical_device" and s.get("telemetry_fresh") else None
             s["device_profile"] = self.device_profile()
             s["ota"] = None if self.ota_info is None else {**{k: v for k, v in self.ota_info.items() if not k.startswith("_")}, "age_s": round(self._clock() - self.ota_info["_at"], 1)}
             s["autoconnect"] = self.autoconnect.status() if self.autoconnect is not None else {"configured": False, "note": "no device port is configured (set TORQVA_DEVICE_PORT); connect from the Device page"}

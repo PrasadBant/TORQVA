@@ -61,6 +61,11 @@ const SimPredictionsPage = lazy(() => import('./simulation/predict.jsx').then((m
 const SimInterventionsPage = lazy(() => import('./simulation/intervene.jsx').then((m) => ({ default: m.SimInterventionsPage })));
 // The unified workflow: one component for both modes (the backend's mode-specific adapter decides what can run).
 const WorkflowPage = lazy(() => import('./workflow/workflow.jsx').then((m) => ({ default: m.WorkflowPage })));
+// Physical diagnostic workspaces powered by real live hardware telemetry
+const PhysicalDiagnosticsPage = lazy(() => import('./physical/diagnostics.jsx').then((m) => ({ default: m.PhysicalDiagnosticsPage })));
+const PhysicalPredictionsPage = lazy(() => import('./physical/diagnostics.jsx').then((m) => ({ default: m.PhysicalPredictionsPage })));
+const PhysicalTestsPage = lazy(() => import('./physical/diagnostics.jsx').then((m) => ({ default: m.PhysicalTestsPage })));
+const PhysicalInterventionsPage = lazy(() => import('./physical/diagnostics.jsx').then((m) => ({ default: m.PhysicalInterventionsPage })));
 const pageFallback = <Empty loading>Loading…</Empty>;
 // Firmware Manager (physical device only): fetched when first opened.
 const FirmwarePage = lazy(() => import('./physical/firmware.jsx').then((m) => ({ default: m.FirmwarePage })));
@@ -411,16 +416,21 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     }
     return fallback;
   };
+  const physDiag = (layer, fallbackComponent) => {
+    const s = device.snap;
+    if (s?.physical_diagnostics || (s?.telemetry_fresh && s?.origin === 'physical_device' && s?.handshake && !s?.analysis?.layers?.[layer]?.status?.includes('NOT AVAILABLE'))) {
+      return <Suspense fallback={pageFallback}>{fallbackComponent}</Suspense>;
+    }
+    return <PhysicalAiPage stream={device} layer={layer} go={go} />;
+  };
   const physPages = {
     overview: <PhysicalOverview stream={device} go={go} role={user.role} />,
     live: <PhysicalLive stream={device} go={go} />,
     twin: <Suspense fallback={twinFallback}><PhysTwinPage stream={device} go={go} /></Suspense>,
-    // C1–C4 in physical mode always show the device's own analysis status: the simulation workspaces never render device data,
-    // and simulator records never appear under a physical heading, whatever a layer reports.
-    diagnostics: <PhysicalAiPage stream={device} layer="C1" go={go} />,
-    predictions: <PhysicalAiPage stream={device} layer="C2" go={go} />,
-    tests: <PhysicalAiPage stream={device} layer="C4" go={go} />,
-    interventions: <PhysicalAiPage stream={device} layer="C3" go={go} />,
+    diagnostics: physDiag('C1', <PhysicalDiagnosticsPage stream={device} go={go} role={user.role} />),
+    predictions: physDiag('C2', <PhysicalPredictionsPage stream={device} go={go} role={user.role} />),
+    tests: physDiag('C4', <PhysicalTestsPage stream={device} go={go} role={user.role} />),
+    interventions: physDiag('C3', <PhysicalInterventionsPage stream={device} go={go} role={user.role} />),
     workflow: <Suspense fallback={pageFallback}><WorkflowPage mode="PHYSICAL" role={user.role} stale={false} go={go} /></Suspense>,
     recovery: phys('C5', S(<RecoveryPage {...ctx} />)),
     learning: phys('C6', S(<LearningPage {...ctx}>{S(<Attestation role={user.role} />)}</LearningPage>)),

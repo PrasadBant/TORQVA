@@ -92,6 +92,8 @@ export const api = {
   evaluation: () => req('/evaluation/latest'),
   evaluationC2C4: () => req('/evaluation/c2c4'),
   predictionChecks: () => req('/prediction-checks'),
+  deviceDiagnostics: () => req('/device/diagnostics'),
+  deviceTestRun: (body) => req('/device/test/run', { method: 'POST', body }),
   deviceStatus: () => req('/device/status'),
   deviceCommands: () => req('/device/commands'),
   deviceHistory: (signal, seconds) => req(`/device/history?signal=${encodeURIComponent(signal)}&seconds=${Number(seconds)}`),
