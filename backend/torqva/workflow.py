@@ -474,8 +474,9 @@ def _execute_physical(service, wf: Dict[str, Any], role: Role, user: str, how: s
     action = rec.get("action", "MAINTAIN_SPEED")
     target_rpm = rec.get("target_rpm", 1200.0)
     _stage(wf, "EXECUTING_ACTION", None, f"commanding {action} on physical motor")
-    params = {"rpm": float(target_rpm)} if action in ("SET_SPEED", "REDUCE_SPEED") else {}
-    act_cmd = "SET_SPEED" if action in ("SET_SPEED", "REDUCE_SPEED") else ("STOP" if action == "STOP" else "SET_SPEED")
+    is_stop = action == "STOP" or float(target_rpm or 0) == 0
+    act_cmd = "STOP" if is_stop else "SET_SPEED"
+    params = {} if is_stop else {"rpm": float(target_rpm)}
     bridge = getattr(service, "bridge", None)
     if bridge is not None:
         crec = bridge.request_command(act_cmd, params, user, role)

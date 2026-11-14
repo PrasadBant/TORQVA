@@ -1202,6 +1202,15 @@ class DeviceBridge:
     def request_command(self, action: str, params: Optional[Dict[str, Any]], user: str, role: Role) -> CommandRecord:
         """Direct command path for development/demo: website login is the only boundary."""
         params = dict(params or {})
+        if action in ("MAINTAIN_SPEED", "REDUCE_SPEED", "APPLY_RECOMMENDATION"):
+            action = "SET_SPEED"
+        elif action in ("STOP_MOTOR", "HALT"):
+            action = "STOP"
+        if action == "SET_SPEED" and "rpm" not in params:
+            if "target_rpm" in params:
+                params["rpm"] = params["target_rpm"]
+            elif "target" in params:
+                params["rpm"] = params["target"]
         rec = self._record(action, params, user, role)
         if action not in ("STOP", "START", "SET_SPEED", "RESET_ESTOP"):
             return self._reject(rec, ["UNSUPPORTED_COMMAND"])

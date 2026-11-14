@@ -35,9 +35,10 @@ class ConnectIn(BaseModel):
 
 
 class CommandIn(BaseModel):
-    action: str = Field(max_length=16)
+    action: str = Field(max_length=32)
     duty_pct: Optional[float] = Field(default=None, allow_inf_nan=False, ge=0, le=100)
     rpm: Optional[float] = Field(default=None, allow_inf_nan=False, ge=0, le=100000)
+    target_rpm: Optional[float] = Field(default=None, allow_inf_nan=False, ge=0, le=100000)
     duration_s: Optional[float] = Field(default=None, allow_inf_nan=False, ge=0, le=3600)
 
 
@@ -131,6 +132,8 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
             params["duty_pct"] = body.duty_pct
         if body.rpm is not None:
             params["rpm"] = body.rpm
+        elif body.target_rpm is not None:
+            params["rpm"] = body.target_rpm
         if body.duration_s is not None:
             params["duration_s"] = body.duration_s
         audit(p, "device_command_requested", action=body.action, params=params)
@@ -146,7 +149,9 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
     @r.post("/device/test/run")
     def device_test_run(body: TestRunIn, p: Principal = Depends(need(Role.OPERATOR))) -> Dict[str, Any]:
         snap = bridge.snapshot()
-        if not bridge.connected() or not snap.get("handshake"):
+        conn_val = getattr(bridge, "connected", False)
+        is_conn = conn_val() if callable(conn_val) else bool(conn_val)
+        if not is_conn or not snap.get("handshake"):
             raise HTTPException(400, "Device is disconnected or not handshaken")
         tid = f"test-{body.test.lower()}-{int(time.time())}"
         vals = snap.get("values", {})
@@ -159,7 +164,7 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
             cmd_rec = bridge.request_command("SET_SPEED", {"rpm": step_target}, p.user, p.role)
         elif body.test == "T4":
             cmd_rec = bridge.request_command("STOP", {}, p.user, p.role)
-        elif body.test in ("SWEEP", "BASELINE"):
+        elif body.test in ("T3", "SWEEP", "BASELINE", "ADAPTIVE"):
             cmd_rec = bridge.request_command("SET_SPEED", {"rpm": target}, p.user, p.role)
 
         hist = list(getattr(bridge.model, "history", []))[-30:]
