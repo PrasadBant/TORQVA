@@ -76,6 +76,7 @@ const LOADERS = {
   pages: () => import('./simulation/pages.jsx'),
   assurance: () => import('./simulation/assurance.jsx'),
   evaluation: () => import('./simulation/evaluation.jsx'),
+  physEvaluation: () => import('./physical/evaluation.jsx'),
   lab: () => import('./simulation/lab.jsx'),
   attestation: () => import('./simulation/attestation.jsx'),
   scenario: () => import('./simulation/scenario.jsx'),
@@ -86,6 +87,7 @@ const DevicesPage = page('pages', 'DevicesPage');
 const RecoveryPage = page('assurance', 'RecoveryPage');
 const LearningPage = page('assurance', 'LearningPage');
 const Evaluation = page('evaluation', 'Evaluation');
+const PhysicalEvaluation = page('physEvaluation', 'PhysicalEvaluation');
 const Lab = page('lab', 'default');
 const Attestation = page('attestation', 'default');
 const ScenarioPage = page('scenario', 'ScenarioPage');
@@ -390,7 +392,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     interventions: <Suspense fallback={pageFallback}><SimInterventionsPage {...ctx} /></Suspense>,
     workflow: <Suspense fallback={pageFallback}><WorkflowPage mode="SIMULATION" d={d} role={user.role} stale={stale} go={go} /></Suspense>,
     recovery: S(<RecoveryPage {...ctx} />), learning: S(<LearningPage {...ctx}>{S(<Attestation role={user.role} />)}</LearningPage>),
-    evaluation: evaluationPage(null),
+    evaluation: S(<PhysicalEvaluation physicalMode={false} simView={<Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} />} />),
     device: deviceSafety(<DevicePage stream={device} role={user.role} go={go} simMode embedded />, null, S(<DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />)),
     lab: (<><PageHead title="Lab" sub="Recording sessions and matched experiments." />{S(<Lab role={user.role} isPhys={physicalMode} />)}</>),
     scenario: S(<ScenarioPage {...ctx} stepSeconds={stepSeconds} />),
@@ -434,7 +436,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     workflow: <Suspense fallback={pageFallback}><WorkflowPage mode="PHYSICAL" role={user.role} stale={false} go={go} /></Suspense>,
     recovery: phys('C5', S(<RecoveryPage {...ctx} />)),
     learning: phys('C6', S(<LearningPage {...ctx}>{S(<Attestation role={user.role} />)}</LearningPage>)),
-    evaluation: evaluationPage(<AlertPanel tone="info" icon={FlaskConical} title="SIMULATION EVIDENCE" testid="eval-sim-note">These are results from the software simulator. They say nothing about this physical device and are not hardware validation.</AlertPanel>),
+    evaluation: S(<PhysicalEvaluation physicalMode={true} simView={<Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} />} />),
     device: deviceSafety(<DevicePage stream={device} role={user.role} go={go} embedded />, <PhysicalSafetyPage stream={device} role={user.role} go={go} embedded />,
       S(<DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />)),
     lab: simOnly('Lab', 'lab-sim-note'),

@@ -90,6 +90,7 @@ export const api = {
   cases: () => req('/cases'),
   log: () => req('/log'),
   evaluation: () => req('/evaluation/latest'),
+  evaluationPhysical: () => req('/evaluation/physical'),
   evaluationC2C4: () => req('/evaluation/c2c4'),
   predictionChecks: () => req('/prediction-checks'),
   deviceDiagnostics: () => req('/device/diagnostics'),

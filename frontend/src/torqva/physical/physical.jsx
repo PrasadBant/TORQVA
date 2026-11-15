@@ -212,7 +212,7 @@ function sensorSummary(sens) {
 }
 
 const ZONE_TONE = { IDLE: 'info', NORMAL: 'ok', WARNING: 'warn', CRITICAL: 'crit', UNKNOWN: 'warn' };
-const isRunningOf = (snap, rpm) => isLive(snap) && (snap.drive !== 'IDLE' || Number(rpm) > 50);
+const isRunningOf = (snap, rpm) => isLive(snap) && snap.safety_state !== 'EMERGENCY_STOP' && (snap.drive !== 'IDLE' || Number(rpm) > 50);
 
 /** Headline status of the physical device as four tiles: device link, motion blockers, measured speed, sensors and faults.
  *  Every value is what the backend reports; motion readiness is never inferred from the connection. */

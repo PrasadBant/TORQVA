@@ -1245,7 +1245,7 @@ class DeviceBridge:
             if st.get("state") == "EMERGENCY_STOP" and action in ("START", "SET_SPEED"):
                 reset_rec = self._record("RESET_ESTOP", {}, user, role)
                 self._dispatch(reset_rec, "RESET_ESTOP", {})
-                time.sleep(0.05)
+                time.sleep(0.25)
 
         rec.state = CmdState.AUTHORIZED
         return self._dispatch(rec, action, params)
