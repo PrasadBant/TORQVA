@@ -58,9 +58,9 @@ def test_no_accel_frames_means_unavailable_not_zero():
 def test_sensor_status_distinguishes_valid_invalid_stale_and_unavailable():
     m = DeviceModel(); m.conn = Conn.CONNECTED
     m.ingest(parse_frame(fast(0, q=63 & ~16)), 1.0, 1.0)            # rpm invalid
-    m.ingest(parse_frame(slow(1, q=63 & ~8)), 1.1, 1.1)             # ambient invalid
+    m.ingest(parse_frame(slow(1, q=63 & ~4 & ~8)), 1.1, 1.1)        # housing invalid, ambient unfitted/unavailable
     s = m.snapshot(1.2)["sensor_status"]
-    assert s["rpm"] == "invalid" and s["current"] == "valid" and s["ambient"] == "invalid" and s["housing"] == "valid" and s["acceleration"] == "unavailable"
+    assert s["rpm"] == "invalid" and s["current"] == "valid" and s["ambient"] == "unavailable" and s["housing"] == "invalid" and s["acceleration"] == "unavailable"
     assert m.snapshot(20.0)["sensor_status"]["current"] == "stale"
 
 
