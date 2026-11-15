@@ -536,6 +536,9 @@ export function MotionPanel({ stream, role, go }) {
       </div>
 
       {/* 4. OPERATING CONTROLS */}
+      <div className="tq-callout info tq-mt-xs" style={{ padding: '8px 12px', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
+        <strong>💡 Direct Motor Test Tip:</strong> For raw speed testing with your Hall sensor, use <strong>Duty cycle (open loop)</strong> (e.g. 30%–40%). In open loop mode, Hall sensor pulses display live RPM but never alter motor power.
+      </div>
       <div className="tq-motion-controls-grid">
         <div className="tq-control-card">
           <div className="tq-control-card-header">

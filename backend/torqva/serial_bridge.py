@@ -839,7 +839,7 @@ class DeviceBridge:
         if f["t"] == "fast":
             self.hub.publish("telemetry", self.model.snapshot(now))
         elif f["t"] == "status":
-            if f.get("state") == "EMERGENCY_STOP" and f.get("reason") in ("HEARTBEAT_LOST", "NONE", ""):
+            if f.get("state") == "EMERGENCY_STOP" and f.get("reason") in ("HEARTBEAT_LOST", "NONE", "", "TEMP_STOP", "SENSOR_INVALID"):
                 if not getattr(self, "_auto_reset_sent", False):
                     self._auto_reset_sent = True
                     rec = self._record("RESET_ESTOP", {}, "system", Role.ADMIN)

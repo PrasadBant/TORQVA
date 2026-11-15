@@ -200,7 +200,8 @@ void IRAM_ATTR hall_isr() {
 static void read_rpm(HalIn& in) {
     uint32_t last, period; bool have;
     noInterrupts(); last = g_last_pulse_us; period = g_period_us; have = g_have_period; interrupts();
-    const uint32_t since_ms = (micros() - last) / 1000;
+    const uint32_t elapsed_us = (last != 0) ? (micros() - last) : 0;
+    const uint32_t since_ms = elapsed_us / 1000;
     in.pulse_recent = (last != 0) && since_ms < 1000;
 #if TORQVA_OTA_LED_BENCH
     in.pulse_recent = false; in.rpm = 0.0f; in.rpm_valid = false;     // bench: there is no Hall sensor, so there is no speed reading (never "0 rpm")
@@ -208,7 +209,19 @@ static void read_rpm(HalIn& in) {
 #endif
     // Sensor is "valid" whenever it is readable; a stopped shaft legitimately reads 0 rpm.
     in.rpm_valid = true;
-    in.rpm = (in.pulse_recent && have && period > 0) ? 60.0e6f / (float)period : 0.0f;
+    if (in.pulse_recent && have && period > 0) {
+        // If elapsed time since last pulse exceeds the measured period, the motor is decelerating.
+        // If no pulse has arrived for >= 300 ms, the motor is effectively stopped.
+        if (since_ms >= 300) {
+            in.rpm = 0.0f;
+        } else if (elapsed_us > period) {
+            in.rpm = 60.0e6f / (float)elapsed_us;
+        } else {
+            in.rpm = 60.0e6f / (float)period;
+        }
+    } else {
+        in.rpm = 0.0f;
+    }
 }
 
 // ---------- slow sensors ----------
@@ -226,6 +239,12 @@ static void read_temps(uint32_t now) {
     g_last_temp_ms = now;
     float h = g_ds.getTempCByIndex(0);
     float a = g_ds.getTempCByIndex(1);
+    // 85.0 C is the DS18B20 power-on reset default.
+    // Discard 85.0 C if previous reading was well below 70 C to avoid false TEMP_STOP trips on power jitter.
+    if (h == 85.0f && g_housing < 70.0f) {
+        g_ds.requestTemperatures();
+        return;
+    }
     g_housing_ok = (h != DEVICE_DISCONNECTED_C && h > -40.0f && h < 150.0f);
     g_ambient_ok = (a != DEVICE_DISCONNECTED_C && a > -40.0f && a < 100.0f);
     if (g_housing_ok) { g_housing = h; g_housing_ms = now; }
@@ -456,7 +475,8 @@ void setup() {
     lim.max_duty_pct = 100.0f;
     lim.volt_min_v = 0.0f;
     lim.rpm_loss_duty_pct = 1000.0f;
-    lim.sensor_invalid_ms = 3000;
+    lim.sensor_invalid_ms = 5000;
+    lim.temp_stop_c = 85.0f;
     lim.heartbeat_timeout_ms = 60000;
     g_dev = new Device(lim, cfg);
     g_mu = xSemaphoreCreateMutex();
@@ -472,7 +492,8 @@ void setup() {
         cur.max_duty_pct = 100.0f;
         cur.max_rpm = 3000.0f;
         cur.rpm_loss_duty_pct = 1000.0f;
-        cur.sensor_invalid_ms = 3000;
+        cur.sensor_invalid_ms = 5000;
+        cur.temp_stop_c = 85.0f;
         cur.heartbeat_timeout_ms = 60000;
         g_dev->set_limits(cur);
     }
