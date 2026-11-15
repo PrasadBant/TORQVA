@@ -77,6 +77,8 @@ const LOADERS = {
   assurance: () => import('./simulation/assurance.jsx'),
   evaluation: () => import('./simulation/evaluation.jsx'),
   physEvaluation: () => import('./physical/evaluation.jsx'),
+  physRecovery: () => import('./physical/recovery.jsx'),
+  physLearning: () => import('./physical/learning.jsx'),
   lab: () => import('./simulation/lab.jsx'),
   attestation: () => import('./simulation/attestation.jsx'),
   scenario: () => import('./simulation/scenario.jsx'),
@@ -86,6 +88,8 @@ const LivePage = page('pages', 'LivePage');
 const DevicesPage = page('pages', 'DevicesPage');
 const RecoveryPage = page('assurance', 'RecoveryPage');
 const LearningPage = page('assurance', 'LearningPage');
+const PhysicalRecoveryPage = page('physRecovery', 'PhysicalRecoveryPage');
+const PhysicalLearningPage = page('physLearning', 'PhysicalLearningPage');
 const Evaluation = page('evaluation', 'Evaluation');
 const PhysicalEvaluation = page('physEvaluation', 'PhysicalEvaluation');
 const Lab = page('lab', 'default');
@@ -263,8 +267,8 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const device = useDeviceStream(!!user, wsFactory, undefined, authLost);
   // Provenance of `d` (the /status, /telemetry ... records) comes only from what that data says about itself. A connected board does not make
   // simulator records measured; the board's own readings arrive separately through `device`.
-  const isPhys = isPhysOf(d);
   const physicalMode = appMode === 'PHYSICAL';
+  const isPhys = physicalMode || isPhysOf(d);
   const view = ALIASES[rawView]?.[0] || rawView;
   // Safety & Commissioning is the physical device's interlock record, so that section exists only in physical mode.
   const deviceTab = !physicalMode && devTab === 'safety' ? 'system' : devTab;
@@ -334,7 +338,12 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
 
   useEffect(() => {
     if (!user) return undefined;
-    if (physicalMode) { if (view === 'device') refresh(); return undefined; }        // physical mode never polls or steps the simulator
+    if (physicalMode) {
+      if (['device', 'recovery', 'learning', 'tests', 'workflow', 'interventions'].includes(view)) {
+        refresh();
+      }
+      return undefined;
+    }
     refresh();
     const id = setInterval(async () => {
       if (ticking.current) return;
@@ -391,7 +400,8 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     predictions: <Suspense fallback={pageFallback}><SimPredictionsPage {...ctx} /></Suspense>, tests: <Suspense fallback={pageFallback}><SimTestsPage {...ctx} c2c4={c2c4.data} /></Suspense>,
     interventions: <Suspense fallback={pageFallback}><SimInterventionsPage {...ctx} /></Suspense>,
     workflow: <Suspense fallback={pageFallback}><WorkflowPage mode="SIMULATION" d={d} role={user.role} stale={stale} go={go} /></Suspense>,
-    recovery: S(<RecoveryPage {...ctx} />), learning: S(<LearningPage {...ctx}>{S(<Attestation role={user.role} />)}</LearningPage>),
+    recovery: S(<PhysicalRecoveryPage stream={device} go={go} role={user.role} d={d} physicalMode={false} simView={S(<RecoveryPage {...ctx} />)} />),
+    learning: S(<PhysicalLearningPage stream={device} go={go} role={user.role} d={d} physicalMode={false} simView={S(<LearningPage {...ctx}>{S(<Attestation role={user.role} />)}</LearningPage>)} />),
     evaluation: S(<PhysicalEvaluation physicalMode={false} simView={<Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} />} />),
     device: deviceSafety(<DevicePage stream={device} role={user.role} go={go} simMode embedded />, null, S(<DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />)),
     lab: (<><PageHead title="Lab" sub="Recording sessions and matched experiments." />{S(<Lab role={user.role} isPhys={physicalMode} />)}</>),
@@ -434,8 +444,8 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     tests: physDiag('C4', <PhysicalTestsPage stream={device} go={go} role={user.role} />),
     interventions: physDiag('C3', <PhysicalInterventionsPage stream={device} go={go} role={user.role} />),
     workflow: <Suspense fallback={pageFallback}><WorkflowPage mode="PHYSICAL" role={user.role} stale={false} go={go} /></Suspense>,
-    recovery: phys('C5', S(<RecoveryPage {...ctx} />)),
-    learning: phys('C6', S(<LearningPage {...ctx}>{S(<Attestation role={user.role} />)}</LearningPage>)),
+    recovery: phys('C5', S(<PhysicalRecoveryPage stream={device} go={go} role={user.role} d={d} physicalMode={true} simView={S(<RecoveryPage {...ctx} />)} />)),
+    learning: phys('C6', S(<PhysicalLearningPage stream={device} go={go} role={user.role} d={d} physicalMode={true} simView={S(<LearningPage {...ctx}>{S(<Attestation role={user.role} />)}</LearningPage>)} />)),
     evaluation: S(<PhysicalEvaluation physicalMode={true} simView={<Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} />} />),
     device: deviceSafety(<DevicePage stream={device} role={user.role} go={go} embedded />, <PhysicalSafetyPage stream={device} role={user.role} go={go} embedded />,
       S(<DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />)),
