@@ -16,4 +16,4 @@
 
 #define PWM_FREQ_HZ     20000
 #define PWM_RES_BITS    10
-#define HALL_MIN_PERIOD_US 2000   // ignore pulses faster than 30 000 rpm (bounce / noise)
+#define HALL_MIN_PERIOD_US 1000   // ignore pulses faster than 60 000 rpm (bounce / noise)

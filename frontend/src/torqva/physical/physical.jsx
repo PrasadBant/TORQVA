@@ -103,20 +103,20 @@ function useAlarm(zone) {
 // ── Speed Status banner ───────────────────────────────────────────────────────
 export function SpeedStatus({ rpm, isRunning, muted, onToggleMute }) {
   const zone = classifyRpm(rpm, isRunning);
-  useAlarm(muted ? 'IDLE' : zone);
-  const meta = ZONE_META[zone];
   const known = zone !== 'UNKNOWN' && rpm !== null && rpm !== undefined;
   const noPulsesSeen = isRunning && rpm !== null && rpm !== undefined && Number(rpm) === 0;
+  useAlarm(noPulsesSeen || muted ? 'IDLE' : zone);
+  const meta = ZONE_META[zone];
 
   return (
     <>
-      <div data-testid="speed-status" role="status" aria-live="polite" className={`tq-speed tq-speed--${zone}`}>
+      <div data-testid="speed-status" role="status" aria-live="polite" className={`tq-speed tq-speed--${noPulsesSeen ? 'WARNING' : zone}`}>
         <span className="tq-speed-dot" aria-hidden="true" />
-        <strong className="tq-speed-zone">{meta.label}</strong>
+        <strong className="tq-speed-zone">{noPulsesSeen ? 'WAITING FOR PULSES' : meta.label}</strong>
         <span className="tq-speed-rpm tq-num">{known ? <>{Number(rpm).toFixed(0)}<small>rpm</small></> : 'UNAVAILABLE'}</span>
         <span className="tq-speed-desc">
           {noPulsesSeen
-            ? 'Motor commanded to run but zero speed measured (check Hall sensor & magnet)'
+            ? 'Motor drive active — waiting for Hall speed pulses (warning only — motor is not stopped by speed)'
             : (zone === 'CRITICAL' && Number(rpm) > 1900)
             ? `Speed advisory: ${Number(rpm).toFixed(0)} rpm (warning only — motor is not stopped by speed)`
             : meta.desc}
