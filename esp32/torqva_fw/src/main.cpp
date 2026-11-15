@@ -189,7 +189,10 @@ static volatile bool g_have_period = false;
 void IRAM_ATTR hall_isr() {
     const uint32_t now = micros();
     const uint32_t dt = now - g_last_pulse_us;
-    if (g_last_pulse_us != 0 && dt < HALL_MIN_PERIOD_US) return;
+    if (g_last_pulse_us != 0 && dt < HALL_MIN_PERIOD_US) {
+        g_last_pulse_us = now;
+        return;
+    }
     if (g_last_pulse_us != 0) { g_period_us = dt; g_have_period = true; }
     g_last_pulse_us = now;
 }

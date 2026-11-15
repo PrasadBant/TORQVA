@@ -74,6 +74,12 @@ DriveOutput DriveController::update(float dt_s, float measured_rpm, bool drive_a
         case DriveMode::CLOSED_LOOP: {
             if (measured_rpm > 0.0f) {
                 demand = pi_.step(target_rpm_, measured_rpm, dt_s);
+                // When driving with target_rpm > 0, maintain a minimum duty floor so closed-loop regulation
+                // does not violently stall or cut power to the motor when measured speed exceeds setpoint.
+                const float min_floor = (target_rpm_ > 0.0f && lim_.max_rpm > 0.0f)
+                    ? 0.15f * ((target_rpm_ / lim_.max_rpm) * lim_.max_duty_pct)
+                    : 0.0f;
+                if (demand < min_floor) demand = min_floor;
             } else {
                 // When measured RPM is 0 (unwired/absent sensor or initial startup),
                 // map target speed proportionally to duty so speed commands actually control motor speed.

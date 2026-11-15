@@ -28,7 +28,7 @@ export const ZONE_META = {
   IDLE:     { label: 'IDLE',     color: 'var(--tq-accent)', desc: 'Motor stopped or ready — no alert active' },
   NORMAL:   { label: 'NORMAL',   color: 'var(--tq-ok)',    desc: 'Speed in optimal range (~1300 rpm nominal: 1100–1500 rpm)' },
   WARNING:  { label: 'WARNING',  color: 'var(--tq-warn)',  desc: 'Speed deviating from 1300 rpm normal range (700–1099 or 1501–1900 rpm)' },
-  CRITICAL: { label: 'CRITICAL', color: 'var(--tq-crit)',  desc: 'Speed critically out of range (<700 rpm stall or >1900 rpm overspeed)' },
+  CRITICAL: { label: 'CRITICAL', color: 'var(--tq-crit)',  desc: 'Speed advisory: operating outside nominal band (<700 or >1900 rpm) — warning only, does not stop motor' },
   UNKNOWN:  { label: 'SPEED UNAVAILABLE', color: 'var(--tq-warn)', desc: 'The drive is active but the Hall speed reading is invalid or missing: the speed is unknown, not zero' },
 };
 
@@ -114,7 +114,13 @@ export function SpeedStatus({ rpm, isRunning, muted, onToggleMute }) {
         <span className="tq-speed-dot" aria-hidden="true" />
         <strong className="tq-speed-zone">{meta.label}</strong>
         <span className="tq-speed-rpm tq-num">{known ? <>{Number(rpm).toFixed(0)}<small>rpm</small></> : 'UNAVAILABLE'}</span>
-        <span className="tq-speed-desc">{noPulsesSeen ? 'Motor commanded to run but zero speed measured (check Hall sensor & magnet)' : meta.desc}</span>
+        <span className="tq-speed-desc">
+          {noPulsesSeen
+            ? 'Motor commanded to run but zero speed measured (check Hall sensor & magnet)'
+            : (zone === 'CRITICAL' && Number(rpm) > 1900)
+            ? `Speed advisory: ${Number(rpm).toFixed(0)} rpm (warning only — motor is not stopped by speed)`
+            : meta.desc}
+        </span>
         <span className="tq-speed-bands">{'Normal 1100–1500 · Warn 700–1099/1501–1900 · Crit <700/>1900'}</span>
         <button type="button" className="tq-btn tq-ghost" onClick={onToggleMute} aria-pressed={muted} title={muted ? 'Unmute alarms' : 'Mute alarms'}>
           {muted ? <><BellOff size={14} aria-hidden="true" /> Muted</> : <><Bell size={14} aria-hidden="true" /> Alarm on</>}
@@ -123,6 +129,11 @@ export function SpeedStatus({ rpm, isRunning, muted, onToggleMute }) {
       {noPulsesSeen && (
         <div className="tq-callout warn tq-mt-xs" style={{ padding: '8px 14px', fontSize: '0.82rem' }}>
           <strong>ℹ Hall speed sensor note:</strong> The motor drive is active, but the A3144 Hall sensor (GPIO 9) reports zero speed. If the motor is spinning, check: 1) <strong>Magnet polarity</strong> (A3144 requires <em>South pole</em> facing sensor), 2) <strong>Distance</strong> (air gap &lt; 3 mm), 3) <strong>Wiring</strong> (Signal to GPIO 9, VCC 3.3V/5V, GND).
+        </div>
+      )}
+      {isRunning && Number(rpm) > 3000 && (
+        <div className="tq-callout warn tq-mt-xs" style={{ padding: '8px 14px', fontSize: '0.82rem' }}>
+          <strong>ℹ High Speed Advisory (&gt;3000 rpm):</strong> The motor is rotating at {Number(rpm).toFixed(0)} rpm. Speed limits do not automatically cut motor power; this is an informational advisory only.
         </div>
       )}
     </>
