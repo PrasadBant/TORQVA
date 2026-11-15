@@ -784,7 +784,7 @@ class DeviceBridge:
                 pass
 
     def _on_line(self, line: bytes, now: float) -> None:
-        if not line or not line.strip().startswith(b"{"):
+        if not line or not line.strip():
             return
         try:
             f = parse_frame(line)

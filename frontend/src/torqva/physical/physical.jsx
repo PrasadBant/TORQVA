@@ -176,11 +176,20 @@ const SENSOR_DISPLAY_NAME = {
   duty: 'Drive duty',
   setpoint: 'Setpoint',
 };
-// All sensors — nothing is silently excluded from the fault count
+// Operational sensors: primary physical channels plus optional secondary sensors when fitted
 function sensorSummary(sens) {
   const e = Object.entries(sens || {});
-  const bad = e.filter(([, s]) => s !== 'valid');
-  return { total: e.length, valid: e.length - bad.length, bad };
+  // vibration_rms is an uncomputed simulator metric (physical hardware measures dynamic acceleration via ADXL345)
+  // ambient is an optional secondary sensor ("if fitted"); unfitted or unavailable is not an operational fault
+  const bad = e.filter(([k, s]) => {
+    if (s === 'valid') return false;
+    if (k === 'vibration_rms') return false;
+    if (k === 'ambient' && (s === 'unavailable' || s === 'invalid')) return false;
+    return true;
+  });
+  const operational = e.filter(([k]) => k !== 'vibration_rms' && (k !== 'ambient' || sens[k] === 'valid'));
+  const validCount = operational.filter(([, s]) => s === 'valid').length;
+  return { total: operational.length, valid: validCount, bad };
 }
 
 const ZONE_TONE = { IDLE: 'info', NORMAL: 'ok', WARNING: 'warn', CRITICAL: 'crit', UNKNOWN: 'warn' };

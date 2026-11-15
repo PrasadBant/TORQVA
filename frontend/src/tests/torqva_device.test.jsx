@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act, cleanup } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import TorqvaApp from '../torqva/TorqvaApp.jsx';
 import { setToken } from '../torqva/api.js';
@@ -61,7 +61,7 @@ async function open(page, opts = {}) {
   return calls;
 }
 
-beforeEach(() => { window.localStorage.setItem('torqva.mode', 'SIMULATION'); vi.unstubAllGlobals(); setToken(''); FakeSocket.last = null; });
+beforeEach(() => { cleanup(); window.localStorage.setItem('torqva.mode', 'SIMULATION'); vi.unstubAllGlobals(); setToken(''); FakeSocket.last = null; });
 
 describe('device pages', () => {
   it('without a device the app is in SIMULATION, says so, and offers no physical telemetry or controls', async () => {

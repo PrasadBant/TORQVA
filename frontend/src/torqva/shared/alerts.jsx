@@ -20,7 +20,12 @@ export function deviceAlerts(stream) {
   if (snap.safety_state === 'EMERGENCY_STOP') out.push({ key: 'estop', tone: 'stop', title: 'Emergency stop latched', text: title(snap.trip_reason) || 'The firmware latched an emergency stop.', to: 'control' });
   const blockers = snap.control_blockers || [];
   if (blockers.length) out.push({ key: 'blk', tone: 'crit', title: `Motor operation blocked (${blockers.length})`, text: blockers[0], to: 'control' });
-  const bad = Object.entries(snap.sensor_status || {}).filter(([, s]) => s !== 'valid');
+  const bad = Object.entries(snap.sensor_status || {}).filter(([k, s]) => {
+    if (s === 'valid') return false;
+    if (k === 'vibration_rms') return false;
+    if (k === 'ambient' && (s === 'unavailable' || s === 'invalid')) return false;
+    return true;
+  });
   if (live && bad.length) out.push({ key: 'sens', tone: 'warn', title: `${bad.length} sensor${bad.length > 1 ? 's' : ''} not reporting valid data`, text: bad.map(([k, s]) => `${title(k)}: ${s}`).join(', '), to: 'device' });
   return out;
 }
