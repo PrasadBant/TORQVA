@@ -470,7 +470,7 @@ void setup() {
     cfg.relaxed_interlocks = true;                    // simplified dev/demo mode: relaxed interlocks for direct operation
     ota_platform_capability(cfg);                      // OTA partitions, compiled-in signing key and NVS provisioning decide whether this boot can update at all
     Limits lim = default_limits();
-    lim.max_rpm = 3000.0f;
+    lim.max_rpm = 20000.0f;
     lim.max_duty_pct = 100.0f;
     lim.volt_min_v = 0.0f;
     lim.rpm_loss_duty_pct = 1000.0f;
@@ -489,7 +489,7 @@ void setup() {
         Limits cur = g_dev->limits();
         cur.volt_min_v = 0.0f;
         cur.max_duty_pct = 100.0f;
-        cur.max_rpm = 3000.0f;
+        cur.max_rpm = 20000.0f;
         cur.rpm_loss_duty_pct = 1000.0f;
         cur.sensor_invalid_ms = 5000;
         cur.temp_stop_c = 85.0f;

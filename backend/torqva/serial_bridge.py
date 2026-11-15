@@ -839,7 +839,7 @@ class DeviceBridge:
         if f["t"] == "fast":
             self.hub.publish("telemetry", self.model.snapshot(now))
         elif f["t"] == "status":
-            if f.get("state") == "EMERGENCY_STOP" and f.get("reason") in ("HEARTBEAT_LOST", "NONE", "", "TEMP_STOP", "SENSOR_INVALID"):
+            if f.get("state") == "EMERGENCY_STOP" and f.get("reason") in ("HEARTBEAT_LOST", "NONE", ""):
                 if not getattr(self, "_auto_reset_sent", False):
                     self._auto_reset_sent = True
                     rec = self._record("RESET_ESTOP", {}, "system", Role.ADMIN)
@@ -994,8 +994,8 @@ class DeviceBridge:
         c = self.commissioning
         if c is not None and c.limits is not None:
             lim = c.limits
-            return PhysicalControlPolicy(physical_control_enabled=True, max_duty_pct=100.0, max_rpm=float(lim.get("max_rpm", 3000.0)))
-        return PhysicalControlPolicy(physical_control_enabled=True, max_duty_pct=100.0, max_rpm=3000.0)
+            return PhysicalControlPolicy(physical_control_enabled=True, max_duty_pct=100.0, max_rpm=float(lim.get("max_rpm", 20000.0)))
+        return PhysicalControlPolicy(physical_control_enabled=True, max_duty_pct=100.0, max_rpm=20000.0)
 
     @policy.setter
     def policy(self, v: PhysicalControlPolicy) -> None:

@@ -131,9 +131,9 @@ export function SpeedStatus({ rpm, isRunning, muted, onToggleMute }) {
           <strong>ℹ Hall speed sensor note:</strong> The motor drive is active, but the A3144 Hall sensor (GPIO 9) reports zero speed. If the motor is spinning, check: 1) <strong>Magnet polarity</strong> (A3144 requires <em>South pole</em> facing sensor), 2) <strong>Distance</strong> (air gap &lt; 3 mm), 3) <strong>Wiring</strong> (Signal to GPIO 9, VCC 3.3V/5V, GND).
         </div>
       )}
-      {isRunning && Number(rpm) > 3000 && (
+      {isRunning && Number(rpm) > 20000 && (
         <div className="tq-callout warn tq-mt-xs" style={{ padding: '8px 14px', fontSize: '0.82rem' }}>
-          <strong>ℹ High Speed Advisory (&gt;3000 rpm):</strong> The motor is rotating at {Number(rpm).toFixed(0)} rpm. Speed limits do not automatically cut motor power; this is an informational advisory only.
+          <strong>ℹ High Speed Advisory (&gt;20000 rpm):</strong> The motor is rotating at {Number(rpm).toFixed(0)} rpm. Speed limits do not automatically cut motor power; this is an informational advisory only.
         </div>
       )}
     </>
@@ -365,7 +365,7 @@ export function MotionPanel({ stream, role, go }) {
   const operator = role ? role === 'admin' : true;
   const connected = snap && ['CONNECTED', 'STALE'].includes(snap.connection) && snap.handshake;
   const maxDuty = snap?.control_limits?.max_duty_pct ?? 100;
-  const maxRpm = snap?.control_limits?.max_rpm ?? 3000;
+  const maxRpm = snap?.control_limits?.max_rpm ?? 20000;
 
   useEffect(() => {
     if (!autoStopDeadline) {
@@ -563,7 +563,7 @@ export function MotionPanel({ stream, role, go }) {
             </button>
             <div className="tq-row" style={{ gap: '0.35rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
               <span className="tq-muted" style={{ fontSize: '0.75rem' }}>Presets:</span>
-              {[600, 1000, 1200, 1500, 1800, 2400].map((p) => (
+              {[1000, 3000, 6000, 10000, 15000, 20000].map((p) => (
                 <button
                   key={p}
                   type="button"
