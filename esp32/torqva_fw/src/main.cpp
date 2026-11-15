@@ -235,11 +235,18 @@ static void read_temps(uint32_t now) {
 
 // The Adafruit INA219 driver cannot report a failed read (it returns stale/zero values), so the bus is probed every 100 ms: a missing device invalidates current and voltage.
 static bool ina_alive(uint32_t now) {
-    static uint32_t last = 0; static bool alive = false;
+    static uint32_t last = 0;
+    static uint32_t last_ok = 0;
+    static bool alive = false;
     if ((uint32_t)(now - last) >= 100 || last == 0) {
         last = now;
         Wire1.beginTransmission(TORQVA_INA219_ADDR);
-        alive = (Wire1.endTransmission() == 0);
+        if (Wire1.endTransmission() == 0) {
+            last_ok = now;
+            alive = true;
+        } else if (last_ok != 0 && (uint32_t)(now - last_ok) >= 2000) {
+            alive = false;
+        }
     }
     return alive;
 }
@@ -449,6 +456,7 @@ void setup() {
     lim.max_duty_pct = 100.0f;
     lim.volt_min_v = 0.0f;
     lim.rpm_loss_duty_pct = 1000.0f;
+    lim.sensor_invalid_ms = 3000;
     lim.heartbeat_timeout_ms = 60000;
     g_dev = new Device(lim, cfg);
     g_mu = xSemaphoreCreateMutex();
@@ -464,6 +472,7 @@ void setup() {
         cur.max_duty_pct = 100.0f;
         cur.max_rpm = 3000.0f;
         cur.rpm_loss_duty_pct = 1000.0f;
+        cur.sensor_invalid_ms = 3000;
         cur.heartbeat_timeout_ms = 60000;
         g_dev->set_limits(cur);
     }

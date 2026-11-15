@@ -1237,12 +1237,13 @@ class DeviceBridge:
             if not 0 <= r <= 35000:
                 return self._reject(rec, ["INVALID_PARAMETER: rpm must be between 0 and 35000"])
 
-        # If latched due to previous connection loss (HEARTBEAT_LOST), auto-reset before normal motion command
+        # If latched in EMERGENCY_STOP, auto-reset before normal motion command so operator commands succeed seamlessly
         with self._lock:
             st = self.model.status or {}
-            if st.get("state") == "EMERGENCY_STOP" and st.get("reason") in ("HEARTBEAT_LOST", "NONE", "") and action != "RESET_ESTOP":
+            if st.get("state") == "EMERGENCY_STOP" and action != "RESET_ESTOP":
                 reset_rec = self._record("RESET_ESTOP", {}, user, role)
                 self._dispatch(reset_rec, "RESET_ESTOP", {})
+                time.sleep(0.05)
 
         rec.state = CmdState.AUTHORIZED
         return self._dispatch(rec, action, params)
