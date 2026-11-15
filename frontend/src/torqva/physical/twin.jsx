@@ -40,6 +40,7 @@ export function physTwin(snap, { unreachable = false } = {}) {
     if (!handshake) { status = 'unavailable'; note = unreachable ? 'Backend unreachable: no reading.' : 'Hardware not connected: no reading.'; }
     else if (!v) { status = 'unavailable'; note = 'The device has not reported this value.'; }
     else if (v.origin === 'unavailable') status = 'unavailable';
+    else if (key === 'ambient' && !v.valid) { status = 'unavailable'; note = 'Secondary ambient probe not fitted (optional).'; }
     else if (!v.valid || (v.value !== null && !finite(v.value))) { status = 'invalid'; note = note || 'The device marked this reading invalid.'; }
     else if (v.value === null || v.value === undefined) { status = 'unavailable'; note = note || 'No value in the last frame.'; }
     else if (v.stale || !fresh) { status = 'stale'; note = 'Telemetry is stale: this is the last value received, not a live one.'; }
@@ -55,7 +56,7 @@ export function physTwin(snap, { unreachable = false } = {}) {
       readings: [read('rpm', 'Measured speed', 'rpm', 0), read('setpoint', 'Setpoint (device command state)', 'rpm', 0, { trend: false })],
       notes: ['The setpoint is what the firmware reports as commanded, not a measurement.'] },
     { id: 'temp', name: 'Temperature', short: 'Temp · DS18B20', part: 'DS18B20 one-wire probes', iface: '1-Wire (GPIO 6, unverified wiring)',
-      readings: [read('housing', 'Housing temperature', '°C', 1), read('ambient', 'Ambient temperature', '°C', 1, { trend: false })],
+      readings: [read('housing', 'Housing temperature', '°C', 1), read('ambient', 'Ambient temperature', '°C', 1, { trend: false, optional: true })],
       notes: ['Ambient is reported only if a second probe is fitted; the backend keeps no ambient history.'] },
     { id: 'ina', name: 'Voltage and current', short: 'Power · INA219', part: 'INA219 current / voltage monitor', iface: 'I²C bus 1 (SDA 7, SCL 8), 0x40',
       readings: [read('voltage', 'DC bus voltage', 'V', 2), read('current', 'Current', 'A', 3), { ...read('power', 'Power (V × I, computed by the firmware)', 'W', 1), ...(vals.power && handshake ? { prov: 'DERIVED' } : {}) }],
@@ -113,7 +114,7 @@ export function physTwin(snap, { unreachable = false } = {}) {
   // attributed to the reading it tripped on. Neither is a diagnosis of the part.
   const alerts = [];
   if (handshake && !unreachable) {
-    for (const p of parts) for (const r of p.readings) if (r.status === 'invalid') alerts.push({ part: p.id, tone: 'crit', kind: 'observation', label: `${r.label}: invalid`,
+    for (const p of parts) for (const r of p.readings) if (r.status === 'invalid' && !r.optional) alerts.push({ part: p.id, tone: 'crit', kind: 'observation', label: `${r.label}: invalid`,
       detail: 'The device marked this reading invalid. The sensor, its wiring or its interface may be at fault; this is not a diagnosis.' });
     const trip = snap.safety_state === 'EMERGENCY_STOP' ? TRIP_PART[snap.trip_reason] : null;
     if (trip) alerts.push({ part: trip[0], tone: 'stop', kind: 'trip', label: `Safety trip latched: ${title(snap.trip_reason)}`,

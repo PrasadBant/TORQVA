@@ -44,7 +44,9 @@ export function partTone(p) {
   if (p.tone) return p.tone;
   const rs = p.readings || [];
   if (!rs.length) return 'off';
-  const worst = rs.reduce((a, r) => (RANK[r.status] > RANK[a.status] ? r : a), rs[0]);
+  const effective = rs.filter((r) => !r.optional || r.status === 'ok');
+  const target = effective.length ? effective : rs;
+  const worst = target.reduce((a, r) => (RANK[r.status] > RANK[a.status] ? r : a), target[0]);
   return TONE[worst.status] || 'off';
 }
 const toneWord = (tone, source) => (tone === 'ok' ? (source === 'SIMULATION' ? 'simulated readings available' : 'live readings') : tone === 'warn' ? 'readings stale' : tone === 'crit' ? 'invalid reading' : 'no current reading');

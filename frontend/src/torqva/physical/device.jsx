@@ -127,7 +127,7 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
   const [form, setForm] = useState({ port: '', baud: 115200, expected: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  const admin = true;
+  const admin = role === 'admin';
   // In Physical mode a missing handshake is a disconnected device, not simulation (the app mode is chosen explicitly in the shell).
   const o = !snap?.handshake && !simMode ? { label: 'NO DEVICE HANDSHAKE', tone: 'off', physical: false } : originOf(snap);
   useEffect(() => { api.devicePorts().then((r) => setPorts(Array.isArray(r?.ports) ? r.ports : [])).catch(() => setPorts([])); }, []);
@@ -401,7 +401,7 @@ export function CommissioningCard({ role, expanded = false }) {
   const [limEv, setLimEv] = useState('');
   const [limConfirm, setLimConfirm] = useState('');
   const [phrase, setPhrase] = useState('');
-  const admin = true;
+  const admin = role === 'admin';
   // Every limit is typed by the admin: a blank field is never sent as 0 and no value is filled in on their behalf.
   const limMissing = LIMIT_FIELDS.filter(([k]) => lim[k] === undefined || String(lim[k]).trim() === '' || !Number.isFinite(Number(lim[k])));
   useEffect(() => { let on = true; api.commissioning().then((x) => on && setC(x)).catch(() => on && setC(false)); return () => { on = false; }; }, []);

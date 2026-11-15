@@ -1,20 +1,26 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor, within, act, cleanup } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import TorqvaApp from '../torqva/TorqvaApp.jsx';
 import { setToken } from '../torqva/api.js';
 
 const ok = (j) => ({ ok: true, status: 200, json: async () => j });
 const val = (v, extra = {}) => ({ value: v, valid: v !== null, stale: false, origin: 'device_measurement', ...extra });
-const VALUES = { rpm: val(1200), current: val(1.5), voltage: val(24), power: val(36), housing: val(31.5), duty: val(30, { origin: 'device_command_state' }), setpoint: val(0),
-  vibration: { value: null, valid: false, stale: false, origin: 'unavailable' } };
-const SNAP = { connection: 'CONNECTED', handshake: true, identity: 'unverified', device_id: 'RIG-1', origin: 'physical_device', label: 'PHYSICAL DEVICE', firmware: '3.0.0', wire_protocol: 1,
+const VALUES = {
+  rpm: val(1200), current: val(1.5), voltage: val(24), power: val(36), housing: val(31.5), duty: val(30, { origin: 'device_command_state' }), setpoint: val(0),
+  vibration: { value: null, valid: false, stale: false, origin: 'unavailable' }
+};
+const SNAP = {
+  connection: 'CONNECTED', handshake: true, identity: 'unverified', device_id: 'RIG-1', origin: 'physical_device', label: 'PHYSICAL DEVICE', firmware: '3.0.0', wire_protocol: 1,
   firmware_mode: 'HW', safety_state: 'OK', trip_reason: 'NONE', fault_mask: 0, drive: 'IDLE', start_blocked_reason: 'LIMITS_NOT_APPROVED', telemetry_fresh: true, telemetry_age_s: 0.2,
   last_rx_unix: Date.now() / 1000, values: VALUES, counters: { frames: 10, malformed: 0, gaps: 0 }, last_error: '',
   control_blockers: ['PHYSICAL CONTROL DISABLED', 'SECURE DEVICE TRANSPORT NOT CONFIGURED', 'SAFETY LIMITS NOT APPROVED'], physical_control_enabled: false,
-  usb_trust_boundary: 'USB serial is unauthenticated' };
-const DISCONNECTED = { connection: 'DISCONNECTED', handshake: false, identity: 'unknown', origin: 'none', label: 'SIMULATION', telemetry_fresh: false, values: { rpm: null }, counters: { frames: 0 },
-  control_blockers: ['PHYSICAL CONTROL DISABLED', 'DEVICE NOT CONNECTED', 'SECURE DEVICE TRANSPORT NOT CONFIGURED'], physical_control_enabled: false, last_error: '' };
+  usb_trust_boundary: 'USB serial is unauthenticated'
+};
+const DISCONNECTED = {
+  connection: 'DISCONNECTED', handshake: false, identity: 'unknown', origin: 'none', label: 'SIMULATION', telemetry_fresh: false, values: { rpm: null }, counters: { frames: 0 },
+  control_blockers: ['PHYSICAL CONTROL DISABLED', 'DEVICE NOT CONNECTED', 'SECURE DEVICE TRANSPORT NOT CONFIGURED'], physical_control_enabled: false, last_error: ''
+};
 
 class FakeSocket {
   static last = null;
@@ -62,6 +68,7 @@ async function open(page, opts = {}) {
 }
 
 beforeEach(() => { cleanup(); window.localStorage.setItem('torqva.mode', 'SIMULATION'); vi.unstubAllGlobals(); setToken(''); FakeSocket.last = null; });
+afterEach(() => { cleanup(); });
 
 describe('device pages', () => {
   it('without a device the app is in SIMULATION, says so, and offers no physical telemetry or controls', async () => {
@@ -150,7 +157,7 @@ describe('device pages', () => {
 
   it('groups the interlocks into a checklist with pass counts and a next step, and never hides a check it does not know', async () => {
     const interlocks = [{ id: 'handshake', label: 'Handshake valid', status: 'VERIFIED', detail: 'protocol 1' }, { id: 'telemetry', label: 'Telemetry fresh', status: 'BLOCKED', detail: 'stale' },
-      { id: 'estop', label: 'Emergency-stop circuit verified', status: 'NOT VERIFIED', detail: 'no E-stop input' }, { id: 'new_check', label: 'A future check', status: 'BLOCKED', detail: 'x' }];
+    { id: 'estop', label: 'Emergency-stop circuit verified', status: 'NOT VERIFIED', detail: 'no E-stop input' }, { id: 'new_check', label: 'A future check', status: 'BLOCKED', detail: 'x' }];
     await open('Safety & Commissioning', { mode: 'PHYSICAL', snap: { ...SNAP, interlocks }, commands: [] });
     const conn = await screen.findByTestId('ilk-connect');
     expect(conn).toHaveTextContent('Device connection'); expect(conn).toHaveTextContent('1 of 2 passed');
@@ -171,8 +178,10 @@ describe('device pages', () => {
   });
 
   it('shows the approved limit version and change history and asks for the confirmation phrase', async () => {
-    const withLimits = { ...COMM, limits: { version: 2, by: 'adam', max_current_a: 2.5, min_voltage_v: 18, max_voltage_v: 24, max_temp_c: 60, max_rpm: 3000, max_duty_pct: 30 }, limits_confirm_phrase: 'APPROVE THESE LIMITS',
-      limits_history: [{ version: 1, by: 'olga', at: 1700000000, previous: null, new: {} }, { version: 2, by: 'adam', at: 1700000100, previous: { max_current_a: 3, max_duty_pct: 30 }, new: { max_current_a: 2.5, max_duty_pct: 30 } }] };
+    const withLimits = {
+      ...COMM, limits: { version: 2, by: 'adam', max_current_a: 2.5, min_voltage_v: 18, max_voltage_v: 24, max_temp_c: 60, max_rpm: 3000, max_duty_pct: 30 }, limits_confirm_phrase: 'APPROVE THESE LIMITS',
+      limits_history: [{ version: 1, by: 'olga', at: 1700000000, previous: null, new: {} }, { version: 2, by: 'adam', at: 1700000100, previous: { max_current_a: 3, max_duty_pct: 30 }, new: { max_current_a: 2.5, max_duty_pct: 30 } }]
+    };
     server({ role: 'admin' });
     const f = globalThis.fetch;
     vi.stubGlobal('fetch', vi.fn(async (url, o) => (String(url).endsWith('/device/commissioning') ? ok(withLimits) : f(url, o))));
@@ -207,8 +216,10 @@ describe('device pages', () => {
   });
 
   it('shows the exact classified serial error with recovery steps, and a connected WebSocket never implies a USB connection', async () => {
-    const err = { code: 'ACCESS_DENIED', message: 'Windows refused to open the port (access denied).', detail: "could not open port 'COM7': PermissionError(13, 'Access is denied.', None, 5)",
-      recovery: ['Close the Arduino IDE Serial Monitor (or quit the Arduino IDE), then press Connect again.', 'Re-plug the USB cable.'] };
+    const err = {
+      code: 'ACCESS_DENIED', message: 'Windows refused to open the port (access denied).', detail: "could not open port 'COM7': PermissionError(13, 'Access is denied.', None, 5)",
+      recovery: ['Close the Arduino IDE Serial Monitor (or quit the Arduino IDE), then press Connect again.', 'Re-plug the USB cable.']
+    };
     await open('Device', { snap: { ...DISCONNECTED, connection: 'ERROR', error: err, last_error: err.message } });
     await waitFor(() => expect(FakeSocket.last).not.toBeNull());
     act(() => FakeSocket.last.emit({ type: 'snapshot', data: { ...DISCONNECTED, connection: 'ERROR', error: err }, commands: [] }));   // the socket is up
@@ -230,9 +241,11 @@ describe('device pages', () => {
   });
 
   it('shows the explicit state label, the selected port, per-sensor availability and total acceleration that is not called vibration', async () => {
-    const snap = { ...SNAP, state_label: 'PHYSICAL DEVICE CONNECTED', port: 'COM7',
+    const snap = {
+      ...SNAP, state_label: 'PHYSICAL DEVICE CONNECTED', port: 'COM7',
       sensor_status: { rpm: 'valid', current: 'valid', voltage: 'invalid', power: 'invalid', housing: 'valid', ambient: 'unavailable', acceleration: 'valid', vibration_rms: 'unavailable' },
-      values: { ...VALUES, acceleration: { value: 0.99, valid: true, stale: false, origin: 'device_measurement', x_g: 0, y_g: 0, z_g: 0.99 } } };
+      values: { ...VALUES, acceleration: { value: 0.99, valid: true, stale: false, origin: 'device_measurement', x_g: 0, y_g: 0, z_g: 0.99 } }
+    };
     await open('Device', { snap });
     expect(await screen.findByTestId('state-label')).toHaveTextContent('PHYSICAL DEVICE CONNECTED');
     expect(screen.getByText('COM7')).toBeInTheDocument();

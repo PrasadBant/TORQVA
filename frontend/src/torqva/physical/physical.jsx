@@ -106,18 +106,26 @@ export function SpeedStatus({ rpm, isRunning, muted, onToggleMute }) {
   useAlarm(muted ? 'IDLE' : zone);
   const meta = ZONE_META[zone];
   const known = zone !== 'UNKNOWN' && rpm !== null && rpm !== undefined;
+  const noPulsesSeen = isRunning && rpm !== null && rpm !== undefined && Number(rpm) === 0;
 
   return (
-    <div data-testid="speed-status" role="status" aria-live="polite" className={`tq-speed tq-speed--${zone}`}>
-      <span className="tq-speed-dot" aria-hidden="true" />
-      <strong className="tq-speed-zone">{meta.label}</strong>
-      <span className="tq-speed-rpm tq-num">{known ? <>{Number(rpm).toFixed(0)}<small>rpm</small></> : 'UNAVAILABLE'}</span>
-      <span className="tq-speed-desc">{meta.desc}</span>
-      <span className="tq-speed-bands">{'Normal 1100–1500 · Warn 700–1099/1501–1900 · Crit <700/>1900'}</span>
-      <button type="button" className="tq-btn tq-ghost" onClick={onToggleMute} aria-pressed={muted} title={muted ? 'Unmute alarms' : 'Mute alarms'}>
-        {muted ? <><BellOff size={14} aria-hidden="true" /> Muted</> : <><Bell size={14} aria-hidden="true" /> Alarm on</>}
-      </button>
-    </div>
+    <>
+      <div data-testid="speed-status" role="status" aria-live="polite" className={`tq-speed tq-speed--${zone}`}>
+        <span className="tq-speed-dot" aria-hidden="true" />
+        <strong className="tq-speed-zone">{meta.label}</strong>
+        <span className="tq-speed-rpm tq-num">{known ? <>{Number(rpm).toFixed(0)}<small>rpm</small></> : 'UNAVAILABLE'}</span>
+        <span className="tq-speed-desc">{noPulsesSeen ? 'Motor commanded to run but zero speed measured (check Hall sensor & magnet)' : meta.desc}</span>
+        <span className="tq-speed-bands">{'Normal 1100–1500 · Warn 700–1099/1501–1900 · Crit <700/>1900'}</span>
+        <button type="button" className="tq-btn tq-ghost" onClick={onToggleMute} aria-pressed={muted} title={muted ? 'Unmute alarms' : 'Mute alarms'}>
+          {muted ? <><BellOff size={14} aria-hidden="true" /> Muted</> : <><Bell size={14} aria-hidden="true" /> Alarm on</>}
+        </button>
+      </div>
+      {noPulsesSeen && (
+        <div className="tq-callout warn tq-mt-xs" style={{ padding: '8px 14px', fontSize: '0.82rem' }}>
+          <strong>ℹ Hall speed sensor note:</strong> The motor drive is active, but the A3144 Hall sensor (GPIO 9) reports zero speed. If the motor is spinning, check: 1) <strong>Magnet polarity</strong> (A3144 requires <em>South pole</em> facing sensor), 2) <strong>Distance</strong> (air gap &lt; 3 mm), 3) <strong>Wiring</strong> (Signal to GPIO 9, VCC 3.3V/5V, GND).
+        </div>
+      )}
+    </>
   );
 }
 
@@ -291,9 +299,9 @@ function Tile({ label, unit, d, v, sensorKey }) {
   const faultLabel = !v
     ? 'UNAVAILABLE'
     : v.origin === 'unavailable'
-    ? 'NOT CONNECTED'
+    ? (sensorKey === 'ambient' ? 'NOT FITTED' : 'NOT CONNECTED')
     : !v.valid
-    ? 'SENSOR FAULT'
+    ? (sensorKey === 'ambient' ? 'NOT FITTED' : 'SENSOR FAULT')
     : v.stale
     ? 'STALE'
     : 'UNAVAILABLE';

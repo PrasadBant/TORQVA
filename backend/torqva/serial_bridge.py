@@ -258,7 +258,15 @@ class DeviceModel:
             self.accel_history.append((wall, f.get("mag") if ok else None))
         elif f["t"] == "slow":
             self._set("housing", f["housing"], bool(q & Q_BITS["housing"]), f["ts"], now)
-            self._set("ambient", f["ambient"], bool(q & Q_BITS["ambient"]), f["ts"], now)
+            amb_ok = bool(q & Q_BITS["ambient"])
+            if amb_ok:
+                self._set("ambient", f["ambient"], True, f["ts"], now)
+            else:
+                self.values["ambient"] = {
+                    "value": None, "valid": False, "device_ts_ms": f["ts"],
+                    "received_at": now, "received_unix": self._rx_wall,
+                    "origin": "unavailable", "note": "Optional secondary ambient probe not fitted"
+                }
         elif f["t"] == "status":
             self.status = f
             self.identity = "verified"
@@ -320,7 +328,7 @@ class DeviceModel:
         for k in ("rpm", "current", "voltage", "power", "housing", "ambient"):
             v = self.values.get(k)
             old = v is not None and now - v["received_at"] > (5.0 if k in ("housing", "ambient") else STALE_AFTER_S)
-            out[k] = "unavailable" if v is None else ("stale" if old else ("valid" if v["valid"] else "invalid"))
+            out[k] = "unavailable" if (v is None or v.get("origin") == "unavailable") else ("stale" if old else ("valid" if v["valid"] else "invalid"))
         a = self.accel
         out["acceleration"] = "unavailable" if a is None else ("stale" if now - a["received_at"] > 2.0 else ("valid" if a["valid"] else "invalid"))
         out["vibration_rms"] = "unavailable"
