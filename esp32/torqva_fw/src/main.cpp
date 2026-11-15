@@ -448,7 +448,7 @@ void setup() {
     cfg.mode = "HW";
     strncpy(cfg.key, TORQVA_KEY, sizeof(cfg.key) - 1);
     cfg.control_enabled = true;
-    cfg.kp = 0.01f; cfg.ki = 0.03f;                    // placeholders: tune during commissioning
+    cfg.kp = 0.0f; cfg.ki = 0.0f;                    // Direct speed feedforward: Hall sensor purely observes/measures speed without slowing down motor
     cfg.device_id = TORQVA_DEVICE_ID;
     cfg.rand32 = []() -> uint32_t { return esp_random(); };
     cfg.auth_enabled = false;

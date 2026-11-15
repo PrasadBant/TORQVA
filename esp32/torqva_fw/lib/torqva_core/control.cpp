@@ -73,7 +73,7 @@ DriveOutput DriveController::update(float dt_s, float measured_rpm, bool drive_a
         case DriveMode::OPEN_LOOP:   demand = target_duty_; break;
         case DriveMode::CLOSED_LOOP: {
             const float ff = (lim_.max_rpm > 0.0f) ? (target_rpm_ / lim_.max_rpm) * lim_.max_duty_pct : 0.0f;
-            if (measured_rpm > 0.0f) {
+            if ((kp_ > 0.0f || ki_ > 0.0f) && measured_rpm > 0.0f) {
                 demand = pi_.step(target_rpm_, measured_rpm, dt_s);
                 // When driving with target_rpm > 0, maintain a safe minimum running duty floor (at least 20% or 0.4 * ff)
                 // so closed-loop regulation never cuts motor power or stalls when measured speed exceeds setpoint.
@@ -82,8 +82,7 @@ DriveOutput DriveController::update(float dt_s, float measured_rpm, bool drive_a
                     : 0.0f;
                 if (demand < min_floor) demand = min_floor;
             } else {
-                // When measured RPM is 0 (unwired/distant sensor or initial startup),
-                // map target speed proportionally to duty so speed commands actually run the motor.
+                // Direct feedforward drive: the Hall sensor purely observes and notes current speed without altering motor duty
                 demand = ff;
                 pi_.reset();
             }
