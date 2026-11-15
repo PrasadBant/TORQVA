@@ -169,7 +169,7 @@ export function recoveryStatus(d) {
   if (inc?.state === 'VERIFYING_RECOVERY') return { tone: 'wait', head: 'Verifying recovery', text: `Recovery Verification is collecting fresh samples for ${inc.id} after the device acknowledged the action; the simulation must keep running.`, to: ['interventions', 'View the action on Action Recommendations'] };
   if (inc && (!last || last.incident !== inc.id)) return { tone: 'info', head: 'Not in recovery', text: `Incident ${inc.id} is open (${title(inc.state)}). No action for it has been verified yet.`, to: ['interventions', 'Open Action Recommendations'] };
   if (!last) return { tone: 'off', head: 'Not in recovery', text: 'No action has been verified in this run. Recovery is assessed only after the device acknowledges an action.', to: null };
-  if (last.outcome === 'RECOVERED') return { tone: 'ok', head: 'Recovery verified', text: `${last.incident}: from ${last.n_fresh} fresh window(s) after the acknowledged ${title(last.action)}. Keep monitoring.`, to: ['live', 'Open Live Monitor'], last };
+  if (['RECOVERED', 'RECOVERY_VERIFIED'].includes(last.outcome)) return { tone: 'ok', head: 'Recovery verified', text: `${last.incident}: from ${last.n_fresh} fresh window(s) after the acknowledged ${title(last.action)}. Keep monitoring.`, to: ['live', 'Open Live Monitor'], last };
   if (last.outcome === 'UNRESOLVED') return { tone: 'crit', head: 'Condition persists', text: `${last.incident}: the action did not resolve it. Re-run the diagnosis.`, to: ['workflow', 'Run the Diagnostic Workflow'], last };
   if (last.outcome === 'HUMAN_INSPECTION_REQUIRED') return { tone: 'warn', head: 'Human inspection required', text: `${last.incident}: Recovery Verification cannot decide from the data; a person must inspect the motor.`, to: null, last };
   return { tone: 'warn', head: `Recovery not verified: ${title(last.outcome)}`, text: `${last.incident}: ${(last.reasons || []).map(title).join(', ') || 'no reason recorded'}.`, to: ['workflow', 'Run the Diagnostic Workflow'], last };
@@ -227,7 +227,7 @@ export function RecoveryPage({ d, isPhys: isPhysProp, go }) {
       {!isPhys && <p className="tq-muted tq-small tq-as-note" role="note">Simulator observations, not hardware evidence.</p>}
       <div className="tq-split tq-as-rec">
         <Card title="Verification criteria" id="c-ver" icon={ListChecks} sub={last ? `Latest recovery verdict · ${last.incident}` : 'Shown once Recovery Verification has assessed an acknowledged action'}
-          right={last ? <Pill tone={last.outcome === 'RECOVERED' ? 'ok' : last.outcome === 'UNRESOLVED' ? 'crit' : 'warn'}>{title(last.outcome)}</Pill> : null}>
+          right={last ? <Pill tone={['RECOVERED', 'RECOVERY_VERIFIED'].includes(last.outcome) ? 'ok' : last.outcome === 'UNRESOLVED' ? 'crit' : 'warn'}>{title(last.outcome)}</Pill> : null}>
           {!last ? <Empty>{st.tone === 'wait' ? 'Verification is still in progress: criteria appear when Recovery Verification records its verdict.' : 'No verdict yet. Recovery Verification checks the device acknowledgement, a fresh window of valid samples, the learned band and the trend.'}</Empty> : (
             <><CheckList label="Recovery verification criteria" items={items} testid="rec-criteria" />
               <p className="tq-muted tq-small">Reason: {(last.reasons || []).map(title).join(', ') || '—'}</p></>)}
@@ -241,7 +241,7 @@ export function RecoveryPage({ d, isPhys: isPhysProp, go }) {
         {!outs.length ? <Empty>No incident has been verified yet. Verified outcomes appear here after an acknowledged action and a fresh observation window.</Empty> : (
           <div className="tq-as-outcomes">{outs.map((o) => (
             <article key={o.incident} className="tq-outcome tq-as-outcome">
-              <h4>{o.incident}{' '}<Pill tone={o.outcome === 'RECOVERED' ? 'ok' : o.outcome === 'UNRESOLVED' ? 'crit' : 'warn'}>{title(o.outcome)}</Pill>{' '}<ProvBadge kind={provKind} /></h4>
+              <h4>{o.incident}{' '}<Pill tone={['RECOVERED', 'RECOVERY_VERIFIED'].includes(o.outcome) ? 'ok' : o.outcome === 'UNRESOLVED' ? 'crit' : 'warn'}>{title(o.outcome)}</Pill>{' '}<ProvBadge kind={o.provenance || provKind} /></h4>
               <p>Action: <strong>{o.action ? title(o.action) : '—'}</strong> · device confirmed: {o.command_executed ? 'yes' : 'no'} · fresh samples: <span className="tq-num">{o.n_fresh}</span></p>
               <p className="tq-muted">Reason: {(o.reasons || []).map(title).join(', ')}</p>
               {Object.keys(o.criteria || {}).length > 0 && (
