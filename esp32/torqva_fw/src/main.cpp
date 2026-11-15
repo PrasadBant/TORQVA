@@ -213,10 +213,15 @@ static void read_rpm(HalIn& in) {
         // If no pulse has arrived for >= 300 ms, the motor is effectively stopped.
         if (since_ms >= 300) {
             in.rpm = 0.0f;
-        } else if (elapsed_us > period) {
+        } else if (elapsed_us > period && elapsed_us > 0) {
             in.rpm = 60.0e6f / (float)elapsed_us;
         } else {
             in.rpm = 60.0e6f / (float)period;
+        }
+        if (!isfinite(in.rpm) || in.rpm < 0.0f) {
+            in.rpm = 0.0f;
+        } else if (in.rpm > 20000.0f) {
+            in.rpm = 20000.0f;
         }
     } else {
         in.rpm = 0.0f;

@@ -72,18 +72,13 @@ DriveOutput DriveController::update(float dt_s, float measured_rpm, bool drive_a
         case DriveMode::IDLE:        demand = 0.0f; break;
         case DriveMode::OPEN_LOOP:   demand = target_duty_; break;
         case DriveMode::CLOSED_LOOP: {
-            const float ff = (lim_.max_rpm > 0.0f) ? (target_rpm_ / lim_.max_rpm) * lim_.max_duty_pct : 0.0f;
-            if ((kp_ > 0.0f || ki_ > 0.0f) && measured_rpm > 0.0f) {
+            if (kp_ > 0.0f || ki_ > 0.0f) {
                 demand = pi_.step(target_rpm_, measured_rpm, dt_s);
-                // When driving with target_rpm > 0, maintain a safe minimum running duty floor (at least 20% or 0.4 * ff)
-                // so closed-loop regulation never cuts motor power or stalls when measured speed exceeds setpoint.
-                const float min_floor = (target_rpm_ > 0.0f)
-                    ? (ff > 20.0f ? 0.40f * ff : 20.0f)
-                    : 0.0f;
-                if (demand < min_floor) demand = min_floor;
             } else {
-                // Direct feedforward drive: the Hall sensor purely observes and notes current speed without altering motor duty
-                demand = ff;
+                // Feedforward direct drive anchored to 3,000 RPM nominal baseline (100% duty at 3000 rpm, 40% duty at 1200 rpm).
+                // The Hall sensor serves as a live tachometer to note and record shaft speed without throttling motor power.
+                const float base_rpm = (lim_.max_rpm > 3000.0f) ? 3000.0f : (lim_.max_rpm > 0.0f ? lim_.max_rpm : 3000.0f);
+                demand = clampf((target_rpm_ / base_rpm) * lim_.max_duty_pct, 0.0f, lim_.max_duty_pct);
                 pi_.reset();
             }
             break;

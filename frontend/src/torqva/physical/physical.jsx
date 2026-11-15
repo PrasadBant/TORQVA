@@ -351,6 +351,7 @@ export function MotionPanel({ stream, role, go }) {
   const { snap, commands } = stream;
   const [duty, setDuty] = useState('0');
   const [rpm, setRpm] = useState('1200');
+  const [speedScale, setSpeedScale] = useState('nominal'); // 'nominal' (0-3000) or 'extended' (0-20000)
   const [duration, setDuration] = useState('0');     // '0' for continuous (default); > 0 for auto-stop
   const [autoStopDeadline, setAutoStopDeadline] = useState(null);
   const [countdown, setCountdown] = useState(null);
@@ -537,51 +538,13 @@ export function MotionPanel({ stream, role, go }) {
 
       {/* 4. OPERATING CONTROLS */}
       <div className="tq-callout info tq-mt-xs" style={{ padding: '8px 12px', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
-        <strong>💡 Direct Motor Test Tip:</strong> For raw speed testing with your Hall sensor, use <strong>Duty cycle (open loop)</strong> (e.g. 30%–40%). In open loop mode, Hall sensor pulses display live RPM but never alter motor power.
+        <strong>💡 Direct Manual Control:</strong> Set <strong>Duty cycle (open loop)</strong> below to drive the motor directly at your chosen PWM power level. The Hall sensor acts strictly as a tachometer to measure and note shaft speed without throttling or slowing down the motor.
       </div>
       <div className="tq-motion-controls-grid">
+        {/* CARD 1: DUTY CYCLE (OPEN LOOP) FIRST */}
         <div className="tq-control-card">
           <div className="tq-control-card-header">
-            <strong>Target speed (closed loop)</strong>
-            <span className="tq-muted">0 – {maxRpm} rpm</span>
-          </div>
-          <div className="tq-control-card-inputs">
-            <label>
-              <span className="tq-muted">Target RPM</span>
-              <div className="tq-input-pair">
-                <input type="number" min="0" max={maxRpm} step="10" value={rpm} disabled={blocked || !operator}
-                  onChange={(e) => setRpm(e.target.value)} aria-label="Speed setpoint rpm" placeholder="e.g. 1200" />
-                <input type="range" min="0" max={maxRpm} step="25" value={rpm === '' ? 0 : rpm} disabled={blocked || !operator}
-                  onChange={(e) => setRpm(e.target.value)} aria-label="Speed slider" />
-              </div>
-            </label>
-            <button type="button" className="tq-btn tq-primary" data-testid="btn-speed"
-              disabled={blocked || busy || stopBusy || !operator || rpm === '' || Number(rpm) < 0 || Number(rpm) > maxRpm}
-              onClick={send({ action: 'SET_SPEED', rpm: Number(rpm) })}>
-              <Play size={14} aria-hidden="true" />
-              {Number(rpm) === 0 ? 'Set speed (0 rpm — Stop)' : motor === 'RUNNING' ? `Update speed to ${rpm} rpm` : `Set speed (${rpm} rpm)${Number(duration) > 0 ? ` [${duration}s]` : ''}`}
-            </button>
-            <div className="tq-row" style={{ gap: '0.35rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-              <span className="tq-muted" style={{ fontSize: '0.75rem' }}>Presets:</span>
-              {[1000, 3000, 6000, 10000, 15000, 20000].map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  className="tq-btn tq-small"
-                  style={{ padding: '0.15rem 0.45rem', fontSize: '0.75rem' }}
-                  disabled={blocked || busy || stopBusy || !operator}
-                  onClick={() => { setRpm(String(p)); send({ action: 'SET_SPEED', rpm: p })(); }}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="tq-control-card">
-          <div className="tq-control-card-header">
-            <strong>Duty cycle (open loop)</strong>
+            <strong>Duty cycle (open loop) — Direct Manual Control</strong>
             <span className="tq-muted">0 – {maxDuty}%</span>
           </div>
           <div className="tq-control-card-inputs">
@@ -604,7 +567,7 @@ export function MotionPanel({ stream, role, go }) {
             </div>
             <div className="tq-row" style={{ gap: '0.35rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
               <span className="tq-muted" style={{ fontSize: '0.75rem' }}>Presets:</span>
-              {[10, 25, 40, 60, 80].map((d) => (
+              {[10, 20, 25, 30, 40, 50, 60, 80, 100].map((d) => (
                 <button
                   key={d}
                   type="button"
@@ -614,6 +577,73 @@ export function MotionPanel({ stream, role, go }) {
                   onClick={() => { setDuty(String(d)); send({ action: 'START', duty_pct: d })(); }}
                 >
                   {d}%
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* CARD 2: TARGET SPEED (CLOSED LOOP / TACHOMETER DRIVE) */}
+        <div className="tq-control-card">
+          <div className="tq-control-card-header">
+            <strong>Target speed (nominal 0–3,000 rpm)</strong>
+            <span className="tq-muted">Nominal 3k · Extended {maxRpm} rpm</span>
+          </div>
+          <div className="tq-control-card-inputs">
+            <label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="tq-muted">Target RPM</span>
+                <span className="tq-muted" style={{ fontSize: '0.75rem' }}>
+                  Scale: {speedScale === 'extended' ? '0–20k' : '0–3k'}
+                  {' · '}
+                  <button
+                    type="button"
+                    className="tq-btn tq-ghost tq-small"
+                    style={{ padding: '0 4px', fontSize: '0.72rem', textDecoration: 'underline' }}
+                    onClick={() => setSpeedScale(speedScale === 'extended' ? 'nominal' : 'extended')}
+                  >
+                    {speedScale === 'extended' ? '3k nominal' : '20k range'}
+                  </button>
+                </span>
+              </div>
+              <div className="tq-input-pair">
+                <input type="number" min="0" max={maxRpm} step="10" value={rpm} disabled={blocked || !operator}
+                  onChange={(e) => setRpm(e.target.value)} aria-label="Speed setpoint rpm" placeholder="e.g. 1200" />
+                <input type="range" min="0" max={speedScale === 'extended' ? maxRpm : 3000} step={speedScale === 'extended' ? 100 : 25} value={rpm === '' ? 0 : Math.min(Number(rpm), speedScale === 'extended' ? maxRpm : 3000)} disabled={blocked || !operator}
+                  onChange={(e) => setRpm(e.target.value)} aria-label="Speed slider" />
+              </div>
+            </label>
+            <button type="button" className="tq-btn tq-primary" data-testid="btn-speed"
+              disabled={blocked || busy || stopBusy || !operator || rpm === '' || Number(rpm) < 0 || Number(rpm) > maxRpm}
+              onClick={send({ action: 'SET_SPEED', rpm: Number(rpm) })}>
+              <Play size={14} aria-hidden="true" />
+              {Number(rpm) === 0 ? 'Set speed (0 rpm — Stop)' : motor === 'RUNNING' ? `Update speed to ${rpm} rpm` : `Set speed (${rpm} rpm)${Number(duration) > 0 ? ` [${duration}s]` : ''}`}
+            </button>
+            <div className="tq-row" style={{ gap: '0.35rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span className="tq-muted" style={{ fontSize: '0.75rem' }}>Presets:</span>
+              {[600, 1000, 1200, 1500, 1800, 2400, 3000].map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className="tq-btn tq-small"
+                  style={{ padding: '0.15rem 0.45rem', fontSize: '0.75rem' }}
+                  disabled={blocked || busy || stopBusy || !operator}
+                  onClick={() => { setRpm(String(p)); send({ action: 'SET_SPEED', rpm: p })(); }}
+                >
+                  {p}
+                </button>
+              ))}
+              <span className="tq-muted" style={{ fontSize: '0.7rem', margin: '0 2px' }}>|</span>
+              {[6000, 10000, 20000].map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className="tq-btn tq-small tq-ghost"
+                  style={{ padding: '0.15rem 0.35rem', fontSize: '0.7rem' }}
+                  disabled={blocked || busy || stopBusy || !operator}
+                  onClick={() => { setRpm(String(p)); send({ action: 'SET_SPEED', rpm: p })(); }}
+                >
+                  {p > 999 ? `${p / 1000}k` : p}
                 </button>
               ))}
             </div>

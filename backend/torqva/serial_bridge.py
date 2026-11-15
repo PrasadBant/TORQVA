@@ -115,7 +115,7 @@ def parse_frame(line: "bytes | str") -> Dict[str, Any]:
         raise FrameError("MALFORMED", "not an object")
     t = o.get("t")
     if t == "fast":
-        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "rpm": _num(o, "rpm", 0, 35000), "sp": _num(o, "sp", 0, 35000), "duty": _num(o, "duty", 0, 100),
+        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "rpm": _num(o, "rpm", 0, 70000), "sp": _num(o, "sp", 0, 70000), "duty": _num(o, "duty", 0, 100),
                 "v": _num(o, "v", -1, 60), "i": _num(o, "i", -50, 50), "p": _num(o, "p", -3000, 3000), "q": _uint(o, "q", 63)}
     if t == "slow":
         return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "housing": _num(o, "housing", -60, 200), "ambient": _num(o, "ambient", -60, 200), "q": _uint(o, "q", 63)}
@@ -987,6 +987,8 @@ class DeviceBridge:
         b: List[str] = []
         if not self.connected or m.conn not in (Conn.CONNECTED, Conn.STALE):
             b.append("DEVICE NOT CONNECTED")
+        if (m.status or {}).get("state") == "EMERGENCY_STOP":
+            b.append(f"SAFETY FAULT LATCHED: {(m.status or {}).get('reason', 'EMERGENCY_STOP')}")
         return b
 
     @property
@@ -1099,7 +1101,7 @@ class DeviceBridge:
 
     def _heartbeat_tick(self, now: float) -> None:
         a, st = self._auth, self.model.status or {}
-        if self.model.conn != Conn.CONNECTED or self._transport is None:
+        if self.model.conn != Conn.CONNECTED or self._transport is None or st.get("ctl") != 1:
             return
         if now - self._hb_last < self.HEARTBEAT_INTERVAL_S:
             return
@@ -1240,7 +1242,7 @@ class DeviceBridge:
         # If latched in EMERGENCY_STOP, auto-reset before normal motion command so operator commands succeed seamlessly
         with self._lock:
             st = self.model.status or {}
-            if st.get("state") == "EMERGENCY_STOP" and action != "RESET_ESTOP":
+            if st.get("state") == "EMERGENCY_STOP" and action in ("START", "SET_SPEED"):
                 reset_rec = self._record("RESET_ESTOP", {}, user, role)
                 self._dispatch(reset_rec, "RESET_ESTOP", {})
                 time.sleep(0.05)
