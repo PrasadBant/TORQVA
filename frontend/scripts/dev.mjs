@@ -19,7 +19,7 @@ const children = [];
 
 let stopping = false;
 const run = (cmd, args, opts, label) => {
-  const c = spawn(cmd, args, { stdio: ['ignore', 'inherit', 'inherit'], shell: process.platform === 'win32' && cmd === 'npx', ...opts });
+  const c = spawn(cmd, args, { stdio: ['ignore', 'inherit', 'inherit'], ...opts });
   c.on('error', (e) => { console.error(`[${label}] failed to start: ${e.message}`); if (label === 'frontend') shutdown(1); });
   c.on('exit', (code, signal) => {
     if (stopping) return;
@@ -60,5 +60,6 @@ if (simOnly) {
       + 'record, the session check and the Safety Supervisor still apply. You can remove it from your environment.');
   }
 }
+const viteBin = path.resolve(here, '..', 'node_modules', 'vite', 'bin', 'vite.js');
 run(python, ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000'], { cwd: backendDir, env: backendEnv }, 'backend');
-run('npx', ['vite'], { cwd: path.resolve(here, '..'), env: { ...process.env, VITE_TORQVA_DEV_TOKEN: TOKEN } }, 'frontend');
+run(process.execPath, [viteBin], { cwd: path.resolve(here, '..'), env: { ...process.env, VITE_TORQVA_DEV_TOKEN: TOKEN } }, 'frontend');
