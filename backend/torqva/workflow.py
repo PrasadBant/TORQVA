@@ -541,9 +541,41 @@ def _run_physical(service, wf: Dict[str, Any], role: Role = Role.OPERATOR, user:
 
     # Live hardware workflow execution
     _stage(wf, "RUNNING_DIAGNOSTIC_TEST", None, f"running {wf['pattern']['name']} on connected hardware")
+    bridge = getattr(service, "bridge", None)
+    pid = wf["pattern"]["id"]
+    sp_val = float((vals.get("setpoint") or {}).get("value") or 0.0)
+    if sp_val <= 0 or sp_val > 3000:
+        sp_val = 1200.0
+
+    test_cmd_rec = None
+    if bridge is not None and getattr(bridge, "connected", False):
+        if pid == "T1":
+            # Speed-step response (T1): Run at baseline, then step down to 70%
+            bridge.request_command("SET_SPEED", {"rpm": sp_val}, user, role)
+            time.sleep(1.5)
+            step_val = round(sp_val * 0.7)
+            test_cmd_rec = bridge.request_command("SET_SPEED", {"rpm": step_val}, user, role)
+            time.sleep(1.5)
+        elif pid == "T4":
+            # Coast-down (T4): Spin up, then cut driver to observe deceleration
+            bridge.request_command("SET_SPEED", {"rpm": sp_val}, user, role)
+            time.sleep(1.5)
+            test_cmd_rec = bridge.request_command("STOP", {}, user, role)
+            time.sleep(1.5)
+        elif pid == "SWEEP":
+            # Speed-response sweep
+            bridge.request_command("SET_SPEED", {"rpm": sp_val}, user, role)
+            time.sleep(1.0)
+            bridge.request_command("SET_SPEED", {"rpm": round(sp_val * 0.7)}, user, role)
+            time.sleep(1.0)
+            test_cmd_rec = bridge.request_command("SET_SPEED", {"rpm": round(sp_val * 0.85)}, user, role)
+            time.sleep(1.0)
+        else:  # T3, BASELINE, ADAPTIVE
+            test_cmd_rec = bridge.request_command("SET_SPEED", {"rpm": sp_val}, user, role)
+            time.sleep(2.0)
+
     hist = list(getattr(getattr(service, "bridge", None), "model", None).history if getattr(service, "bridge", None) and getattr(service.bridge, "model", None) else [])[-30:]
     series = []
-    sp_val = float((vals.get("setpoint") or {}).get("value") or 1200.0)
     for i, h in enumerate(hist):
         series.append({
             "t": round(i * 0.1, 1),
@@ -566,6 +598,13 @@ def _run_physical(service, wf: Dict[str, Any], role: Role = Role.OPERATOR, user:
             "vib_rms": round(abs((vals.get("acceleration") or {}).get("value", 1.0) - 1.0), 3),
             "score": 0.25,
         }]
+
+    fresh_snap = bridge.snapshot() if bridge is not None else snap
+    fresh_vals = (fresh_snap or {}).get("values") or vals
+    measured_rpm = round(float((fresh_vals.get("rpm") or {}).get("value") or 0.0))
+    measured_cur = round(float((fresh_vals.get("current") or {}).get("value") or 0.0), 3)
+    measured_vib = round(abs(float((fresh_vals.get("acceleration") or {}).get("value", 1.0)) - 1.0), 3)
+
     test_stages = [{
         "index": 0,
         "test": wf["pattern"]["id"],
@@ -573,16 +612,16 @@ def _run_physical(service, wf: Dict[str, Any], role: Role = Role.OPERATOR, user:
         "reason": "",
         "steps": [{
             "target_rpm": sp_val,
-            "mean_rpm_settled": round(float((vals.get("rpm") or {}).get("value") or 0.0)),
-            "mean_current": round(float((vals.get("current") or {}).get("value") or 0.0), 3),
-            "mean_vib_rms": round(abs((vals.get("acceleration") or {}).get("value", 1.0) - 1.0), 3),
+            "mean_rpm_settled": measured_rpm,
+            "mean_current": measured_cur,
+            "mean_vib_rms": measured_vib,
             "flagged_fraction": 0.0,
         }],
         "observation": None,
         "observation_meaning": [],
         "posterior_before": None,
         "posterior_after": None,
-        "signature_note": f"Executed on connected TORQVA hardware ({len(series)} windows)",
+        "signature_note": f"Executed on connected TORQVA hardware ({len(series)} live telemetry windows)",
     }]
     wf["context"]["test"] = {
         "run_id": f"phys-{wf['id']}",
@@ -613,7 +652,7 @@ def _run_physical(service, wf: Dict[str, Any], role: Role = Role.OPERATOR, user:
     }
 
     _stage(wf, "ANALYSING_EVIDENCE", None, "analysing physical features, current draw, thermal trend and acceleration")
-    diag = compute_physical_diagnostics(snap, getattr(service.bridge, "model", None))
+    diag = compute_physical_diagnostics(fresh_snap, getattr(service.bridge, "model", None))
     c1 = diag["c1"]
     c2 = diag["c2"]
     c3 = diag["c3"]

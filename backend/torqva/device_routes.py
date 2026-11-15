@@ -155,17 +155,33 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
             raise HTTPException(400, "Device is disconnected or not handshaken")
         tid = f"test-{body.test.lower()}-{int(time.time())}"
         vals = snap.get("values", {})
-        curr_sp = float((vals.get("setpoint") or {}).get("value") or 1200.0)
-        target = float(body.target_rpm) if body.target_rpm is not None else curr_sp
+        curr_sp = float((vals.get("setpoint") or {}).get("value") or 0.0)
+        if curr_sp <= 0 or curr_sp > 3000:
+            curr_sp = 1200.0
+        target = float(body.target_rpm) if body.target_rpm is not None and float(body.target_rpm) > 0 else curr_sp
 
         cmd_rec = None
         if body.test == "T1":
+            bridge.request_command("SET_SPEED", {"rpm": target}, p.user, p.role)
+            time.sleep(1.5)
             step_target = round(target * 0.7)
             cmd_rec = bridge.request_command("SET_SPEED", {"rpm": step_target}, p.user, p.role)
+            time.sleep(1.5)
         elif body.test == "T4":
+            bridge.request_command("SET_SPEED", {"rpm": target}, p.user, p.role)
+            time.sleep(1.5)
             cmd_rec = bridge.request_command("STOP", {}, p.user, p.role)
-        elif body.test in ("T3", "SWEEP", "BASELINE", "ADAPTIVE"):
+            time.sleep(1.5)
+        elif body.test == "SWEEP":
+            bridge.request_command("SET_SPEED", {"rpm": target}, p.user, p.role)
+            time.sleep(1.0)
+            bridge.request_command("SET_SPEED", {"rpm": round(target * 0.7)}, p.user, p.role)
+            time.sleep(1.0)
+            cmd_rec = bridge.request_command("SET_SPEED", {"rpm": round(target * 0.85)}, p.user, p.role)
+            time.sleep(1.0)
+        elif body.test in ("T3", "BASELINE", "ADAPTIVE"):
             cmd_rec = bridge.request_command("SET_SPEED", {"rpm": target}, p.user, p.role)
+            time.sleep(2.0)
 
         hist = list(getattr(bridge.model, "history", []))[-30:]
         series = []
@@ -192,7 +208,9 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
                 "score": 0.25,
             }]
 
-        diag = compute_physical_diagnostics(bridge.snapshot(), bridge.model)
+        fresh_snap = bridge.snapshot()
+        fresh_vals = fresh_snap.get("values", {})
+        diag = compute_physical_diagnostics(fresh_snap, bridge.model)
         return {
             "test_id": tid,
             "test": body.test,
@@ -200,11 +218,11 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
             "command": cmd_rec.public() if cmd_rec else None,
             "series": series,
             "observations": {
-                "settled_rpm": float((vals.get("rpm") or {}).get("value") or 0.0),
-                "mean_current": float((vals.get("current") or {}).get("value") or 0.0),
-                "mean_voltage": float((vals.get("voltage") or {}).get("value") or 12.0),
-                "housing_temp": float((vals.get("housing") or {}).get("value") or 25.0),
-                "vibration_g": round(abs(float((vals.get("acceleration") or {}).get("value", 1.0)) - 1.0), 3),
+                "settled_rpm": float((fresh_vals.get("rpm") or {}).get("value") or 0.0),
+                "mean_current": float((fresh_vals.get("current") or {}).get("value") or 0.0),
+                "mean_voltage": float((fresh_vals.get("voltage") or {}).get("value") or 12.0),
+                "housing_temp": float((fresh_vals.get("housing") or {}).get("value") or 25.0),
+                "vibration_g": round(abs(float((fresh_vals.get("acceleration") or {}).get("value", 1.0)) - 1.0), 3),
             },
             "summary": f"Diagnostic test {body.test} executed successfully on physical motor RIG-1.",
             "c1_score": diag["c1"]["score"],

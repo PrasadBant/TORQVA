@@ -183,6 +183,12 @@ export function WorkflowPage({ mode = 'SIMULATION', d, role, stale, go }) {
   const refreshCurrent = useCallback(() => refresh(wf?.id), [refresh, wf?.id]);
   useOnSimTime(simT, !physical && live, refreshCurrent);
 
+  useEffect(() => {
+    if (!physical || !live || !wf?.id) return;
+    const iv = setInterval(() => refresh(wf.id), 2000);
+    return () => clearInterval(iv);
+  }, [physical, live, wf?.id, refresh]);
+
   const patterns = pat.data?.patterns || [];
   const chosen = patterns.find((p) => p.id === sel) || patterns.find((p) => p.available) || patterns[0] || null;
   const running = busy === 'run';
@@ -582,7 +588,7 @@ function Authorization({ wf, ctl, busy, onAuthorize, onDecline }) {
           <dl className="tq-kv tq-small">
             <dt>Action</dt><dd>{title(rec.action)}{rec.target_rpm != null && rec.action !== 'STOP' ? ` to ${rpm(rec.target_rpm)} rpm` : ''}</dd>
             <dt>Candidate</dt><dd className="tq-num">{rec.candidate_id}</dd>
-            <dt>Evidence basis</dt><dd className="tq-num">simulation t = {fmt(rec.basis?.t, 0)} s{rec.basis?.posterior_top ? ` · ${title(rec.basis.posterior_top)} (${rec.basis.posterior_label})` : ''}</dd>
+            <dt>Evidence basis</dt><dd className="tq-num">{wf.mode === 'PHYSICAL' ? 'Live physical measurements' : `simulation t = ${fmt(rec.basis?.t, 0)} s`}{rec.basis?.posterior_top ? ` · ${title(rec.basis.posterior_top)} (${rec.basis.posterior_label})` : ''}</dd>
             {auth?.expires && <><dt>Expires</dt><dd>{auth.expires}</dd></>}
           </dl>
           <p className="tq-small">Nothing has been sent. Authorizing re-runs every safety check first.</p>
@@ -609,9 +615,10 @@ function Authorization({ wf, ctl, busy, onAuthorize, onDecline }) {
 /* ------------------------------------------------------------------ Steps 8–9: intervention and recovery verification */
 function Verification({ wf, go }) {
   const iv = wf.context.intervention; const v = wf.context.verification;
+  const prov = wf.mode === 'PHYSICAL' ? 'MEASURED' : 'SIMULATED';
   if (!iv) {
     return (
-      <Card title="Intervention and recovery" id="wf-sec-verify" icon={Activity} sub="Steps 8–9" right={<ProvBadge kind="SIMULATED" />}>
+      <Card title="Intervention and recovery" id="wf-sec-verify" icon={Activity} sub="Steps 8–9" right={<ProvBadge kind={prov} />}>
         <p className="tq-muted" data-testid="wf-verify-none">{wf.status === 'AWAITING_AUTHORIZATION' ? 'Nothing has been sent yet. Verification starts after an authorized command is acknowledged.' : 'No command was executed by this workflow, so there is no outcome to verify.'}</p>
       </Card>);
   }
@@ -619,17 +626,17 @@ function Verification({ wf, go }) {
   const improved = v?.c1_score_after != null && v?.c1_score_before != null && v.c1_score_after < v.c1_score_before;
   const steps = [
     ['requested', 'Command requested', iv.command_id != null, iv.command_id != null ? `#${iv.command_id} ${title(cmd.action)}${iv.command?.params?.rpm ? ` ${rpm(iv.command.params.rpm)} rpm` : ''}` : 'not dispatched'],
-    ['accepted', 'Accepted by the simulated device', !!cmd.accepted, cmd.status || '—'],
+    ['accepted', wf.mode === 'PHYSICAL' ? 'Accepted by the physical device' : 'Accepted by the simulated device', !!cmd.accepted, cmd.status || '—'],
     ['executed', 'Execution confirmed', !!cmd.executed, cmd.executed ? 'the device reports it took effect' : 'not confirmed'],
     ['improved', 'Improvement observed', improved, v ? `Anomaly severity (× threshold) ${fmt(v.c1_score_before, 2)} before → ${fmt(v.c1_score_after, 2)} after (${v.post_ack_windows} windows)` : '—'],
     ['verified', 'Recovery verified', wf.outcome === 'RECOVERY_VERIFIED', v?.assessment ? `${title(v.assessment.outcome)}: ${(v.assessment.reasons || []).map(title).join(', ')}` : 'waiting'],
   ];
   return (
-    <Card title="Intervention and recovery" id="wf-sec-verify" icon={Activity} sub="Steps 8–9" right={<span className="tq-an-right"><OutcomePill outcome={wf.outcome} /><ProvBadge kind="SIMULATED" /></span>}
+    <Card title="Intervention and recovery" id="wf-sec-verify" icon={Activity} sub="Steps 8–9" right={<span className="tq-an-right"><OutcomePill outcome={wf.outcome} /><ProvBadge kind={prov} /></span>}
       foot={<>{iv.receipt_id && <span className="tq-small">Decision summary <strong>{iv.receipt_id}</strong></span>}<LinkButton onClick={() => go?.('interventions')}>Open Action Recommendations</LinkButton><LinkButton onClick={() => go?.('recovery')}>Open Recovery Verification</LinkButton></>}>
       <CheckList testid="wf-verify-steps" label="Command and verification lifecycle"
         items={steps.map(([k, label, ok, detail]) => ({ key: k, label, detail, state: ok ? 'ok' : 'pending', status: ok ? 'yes' : 'not yet' }))} />
-      {wf.status === 'VERIFYING_OUTCOME' && <p className="tq-callout info">Verification needs fresh simulated readings: run the simulation in Scenario Studio to finish it.</p>}
+      {wf.status === 'VERIFYING_OUTCOME' && <p className="tq-callout info">{wf.mode === 'PHYSICAL' ? 'Verifying motor physical response...' : 'Verification needs fresh simulated readings: run the simulation in Scenario Studio to finish it.'}</p>}
       {iv.note && <p className="tq-muted tq-small">{iv.note}.</p>}
       {v?.predicted_vs_observed?.length > 0 && (
         <Disclosure summary="Compare the prediction with what was observed" meta={`${v.predicted_vs_observed.filter((r) => r.inside_interval).length} of ${v.predicted_vs_observed.length} samples inside the 90 % interval`} testid="wf-pvo-more">
