@@ -36,26 +36,206 @@ TORQVA is a **physical-AI platform for a DC motor test rig**. It reads live sens
 
 ## 2. Hardware
 
-### Motor Rig Components
+### The Rig at a Glance
 
-| Part | Role | ESP32-S3 GPIO |
+| Part | Spec / Model | Role |
 |---|---|---|
-| **ESP32-S3 N16R8** | Main controller | — |
-| **BTS7960 / IBT-2** | Motor driver (43 A, forward only; LPWM never driven) | R_EN 18, L_EN 21, RPWM 38, LPWM 39 |
-| **A3144 Hall sensor** | Shaft speed (rpm) via pulse timing — tachometer only, does not throttle motor | GPIO 9 |
-| **INA219** | DC bus voltage, current, power (W = V × I, labelled DERIVED) | SDA 7, SCL 8 (I²C bus 1) |
-| **DS18B20** | Motor housing temperature; second sensor = ambient (optional) | GPIO 6 (OneWire, 4.7 kΩ pull-up) |
-| **ADXL345** | Raw 3-axis acceleration (total incl. gravity — not vibration RMS) | SDA 16, SCL 17 (I²C bus 0) |
-| **SH1106 OLED** | Local 128×64 status display | SDA 4, SCL 5 (I²C bus 0) |
-| **LEDs (×4), Buzzer** | Sensor health annunciators (not safety functions) | GPIO 10–13, 14 |
-| **E-stop monitor input** | Normally-closed contact, monitoring only (not installed) | GPIO 15 |
+| **Microcontroller** | ESP32-S3 N16R8 (16 MB flash, 8 MB octal PSRAM) | Controller, runs `esp32/torqva_fw`; USB-serial bridge to backend |
+| **Motor** | RS-775 DC motor, 24 V | Test subject |
+| **Motor driver** | BTS7960 / IBT-2 (43 A peak) | High-current H-bridge; forward only — firmware never drives LPWM |
+| **Speed sensor** | A3144 Hall-effect sensor (TO-92) | 1 pulse/rev tachometer; tachometer only, never throttles motor |
+| **Power monitor** | INA219 (high-side, 0.1 Ω shunt) | DC bus voltage + current; power = V × I (labelled DERIVED) |
+| **Temperature** | DS18B20 OneWire (×1 housing, ×1 ambient optional) | Motor case temperature; ambient is optional secondary |
+| **Accelerometer** | ADXL345 3-axis | Raw total acceleration incl. gravity — **not** vibration RMS |
+| **Display** | SH1106 OLED 128×64 | Local status annunciation only |
+| **Status LEDs ×4** | GPIO 10–13 (motor, temp, accel, INA) | Sensor health indicators — not safety functions |
+| **Buzzer** | GPIO 14 | Audible fault alert — not a safety function |
+| **E-stop input** | GPIO 15, NC contact | Monitoring only — independent hardware E-stop **not installed** |
+| **Power supply** | 24 V DC bench PSU, current-limited | Motor supply; must share GND with ESP32 logic |
+
+### Authoritative GPIO Map (`pinmap.h`)
 
 > [!IMPORTANT]
-> The authoritative GPIO map is `esp32/torqva_fw/lib/torqva_core/pinmap.h`. The file `docs/hardware.md` shows an older revision and can disagree with `pinmap.h`. Where they differ, **`pinmap.h` wins**.
+> The source of truth is `esp32/torqva_fw/lib/torqva_core/pinmap.h`. Nothing below is a verified wiring contract — wiring ID in every status frame stays `...-UNVERIFIED` until a human confirms the physical wires.
+
+| Signal | GPIO | Interface | Notes |
+|---|---|---|---|
+| `OLED_SDA` | **4** | Software I²C | SH1106 OLED — annunciation only |
+| `OLED_SCL` | **5** | Software I²C | |
+| `TEMP_DATA` | **6** | OneWire | DS18B20; needs **4.7 kΩ pull-up to 3.3 V** |
+| `INA_SDA` | **7** | I²C bus 1 (TwoWire 1) | INA219 — dedicated bus |
+| `INA_SCL` | **8** | I²C bus 1 | |
+| `HALL_INPUT` | **9** | Digital interrupt (`INPUT_PULLUP`, `FALLING` edge) | A3144; **1 pulse per revolution** assumed |
+| `LED_MOTOR` | **10** | Digital output | Motor status LED |
+| `LED_TEMP` | **11** | Digital output | Temperature status LED |
+| `LED_ACCEL` | **12** | Digital output | Accelerometer status LED |
+| `LED_INA` | **13** | Digital output | INA219 status LED |
+| `BUZZER` | **14** | Digital output | Audible fault beep |
+| `ESTOP_INPUT` | **15** | Digital input (pull-up) | NC contact → GND; LOW = healthy, HIGH = E-stop / open wire |
+| `ADXL_SDA` | **16** | I²C bus 0 (Wire) | ADXL345 |
+| `ADXL_SCL` | **17** | I²C bus 0 | |
+| `R_EN` | **18** | Digital output | BTS7960 forward enable |
+| `L_EN` | **21** | Digital output | BTS7960 reverse enable (held LOW — reverse never driven) |
+| `RPWM` | **38** | PWM output (20 kHz) | BTS7960 forward PWM — ⚠ may conflict with on-board RGB LED on some DevKitC-1 v1.1 boards |
+| `LPWM` | **39** | Digital output | BTS7960 reverse PWM (always 0) |
+| `MOTOR_RELAY` | **−1** | UNCONFIGURED | No relay documented; firmware drives no relay |
+| `LOCAL_RESET_BUTTON` | **−1** | UNCONFIGURED | No reset button; latched trip requires power cycle |
+
+**Reserved / unavailable GPIO on ESP32-S3 N16R8:**
+
+| Range | Reason |
+|---|---|
+| 0, 3, 45, 46 | Boot strapping pins |
+| 19, 20 | Native USB D−/D+ (`esp32s3` transport) |
+| 26–32 | SPI flash |
+| 33–37 | Octal PSRAM (N16R8) |
+| 43, 44 | UART0 TX/RX (`esp32s3_uart` transport via CH343) |
+| 39 | Also JTAG TCK — irrelevant unless JTAG is used |
+
+### Sensor Wiring Details
+
+#### INA219 — Power Monitor
+| Signal | Connection |
+|---|---|
+| `VCC` | 3.3 V logic supply |
+| `GND` | Common ground |
+| `SDA` / `SCL` | GPIO 7 / 8 (dedicated I²C bus 1) |
+| `VIN+` | 24 V power supply **positive** terminal |
+| `VIN-` | Motor positive terminal (high-side, in-line) |
+| I²C address | `0x40` (A0, A1 grounded) |
+| Shunt | 0.1 Ω on-board (default; 0.05 Ω recommended for ±6.4 A range) |
+| Bus limit | 26 V max — never regenerate or active-brake |
+
+#### ADXL345 — Accelerometer
+| Signal | Connection |
+|---|---|
+| `VCC` | 3.3 V |
+| `GND` | Common ground |
+| `SDA` / `SCL` | GPIO 16 / 17 (I²C bus 0, `Wire`) |
+| `CS` | Tied HIGH (selects I²C mode) |
+| `SDO / ALT` | Tied to GND → address `0x53` |
+| I²C address | `0x53` (SDO low) or `0x1D` (SDO high) |
+| Mount | Rigidly fixed to motor casing near front bearing; Z-axis perpendicular to housing surface; thermal tape or non-conductive epoxy |
+
+#### DS18B20 — Temperature
+| Signal | Connection |
+|---|---|
+| `VCC` | 3.3 V |
+| `GND` | Common ground |
+| `DATA` | GPIO 6, **4.7 kΩ pull-up to 3.3 V** mandatory |
+| Index 0 | Motor housing (casing contact; thermal paste + insulation tape) |
+| Index 1 | Ambient (optional second sensor on same bus) |
+
+#### A3144 Hall Sensor — Speed
+| Signal | Connection |
+|---|---|
+| `VCC` Pin 1 | 3.3 V (or 5 V with 10 kΩ pull-up to 3.3 V — see W1 upgrade) |
+| `GND` Pin 2 | Common ground |
+| `OUT` Pin 3 | GPIO 9, `INPUT_PULLUP`, `FALLING` edge interrupt |
+| Air gap | 1.5 mm ± 0.5 mm to neodymium disc magnet |
+| Magnet polarity | **South pole facing sensor face** |
+| Pulses/rev | 1 (firmware constant `PULSES_PER_REV = 1`) |
+| RC filter (W1) | 1 kΩ + 1 nF on output line to suppress EMI |
+
+> [!NOTE]
+> The Hall sensor is a **pure tachometer**. It measures and displays shaft speed but never throttles or stops the motor. The `rpm_loss` safety trip watches for **zero Hall pulses while duty > 15%** for more than 1 s — that trips `RPM_LOSS`, but that is a motor protection trip (stall/sensor-disconnect), not speed control feedback.
+
+#### BTS7960 Motor Driver
+| Signal | GPIO | Notes |
+|---|---|---|
+| `R_EN` (forward enable) | 18 | HIGH = driver enabled; pull-down 10 kΩ to GND for safe default-off |
+| `L_EN` (reverse enable) | 21 | Firmware always LOW; never drives reverse |
+| `RPWM` (forward PWM) | 38 | 20 kHz; slew-rate limited to 30%/s; 70% duty cap |
+| `LPWM` (reverse PWM) | 39 | Always 0 |
+| Motor supply | 24 V bus | Star-grounded to PSU negative; common with ESP32 GND |
+| Bulk capacitor | ≥ 470 µF / 35 V | At BTS7960 power input to absorb current spikes |
+
+### I²C Bus Architecture
+
+| Bus | Instance | GPIO | Devices |
+|---|---|---|---|
+| Bus 0 (`Wire`) | ADXL345 | SDA 16, SCL 17 | ADXL345 (0x53) |
+| Bus 0 (`Wire`) | OLED | SDA 4, SCL 5 | SH1106 OLED (software I²C, separate) |
+| Bus 1 (`Wire1`) | INA219 | SDA 7, SCL 8 | INA219 (0x40) |
+
+Clock: 100 kHz standard / 400 kHz fast mode. Each sensor has 100 nF decoupling cap.
+
+### Power Architecture
+
+```
+24 V DC bench PSU ─────────────────────────────────────┐
+   │                                                    │
+   ├── INA219 VIN+ (high-side measurement)              │
+   │   └── INA219 VIN- → Motor + terminal              │
+   │       └── Motor − terminal → PSU GND (common)     │
+   │                                                    │
+   ├── BTS7960 motor supply (through bulk cap ≥470µF)   │
+   │                                                    │
+   └── PSU GND ─────────────────── ESP32 GND (star)    │
+                                       │                │
+                              ESP32-S3 USB 3.3V reg     │
+                              Sensor 3.3V rail (all)    │
+
+NEVER: motor supply → ESP32 GPIO
+NEVER: active braking / regeneration (INA219 bus limit 26 V)
+```
+
+### E-Stop Design (GPIO 15)
+
+> [!CAUTION]
+> The E-stop circuit is **designed but NOT installed**. The build flag `TORQVA_ESTOP_INPUT_WIRED=1` is intentionally **not set**. Until it is set, the start interlock refuses with `ESTOP_INPUT_NOT_VERIFIED` and nothing latches on the GPIO.
+
+**How it works (when wired):**
+- Normally-closed (NC) contact between GPIO 15 and GND, with internal pull-up enabled
+- **Healthy (closed)** → GPIO reads LOW = E-stop released
+- **Pressed / broken wire / disconnected** → GPIO reads HIGH = `EXTERNAL_ESTOP` latched
+- Debounce: assertion = immediate; release = 100 ms (`estop.h`)
+- Reported in every `status` frame: `es` = 0 (not monitored) / 1 (asserted) / 2 (released) / 3 (unknown)
+
+**Human verification steps (in order):**
+1. Wire NC contact and independent power-removal circuit with motor supply disconnected
+2. Confirm LOW when closed, HIGH when open/pressed with a meter
+3. Dashboard shows `E-stop input: released` / `asserted` correctly
+4. With driver unloaded, confirm pressing it removes driver power **without software**
+5. Record evidence in Device & Safety → Safety & Commissioning tab
+6. Only then: set `TORQVA_ESTOP_INPUT_WIRED=1`, rebuild and flash
+
+> [!IMPORTANT]
+> GPIO 15 is also `XTAL_32K_P` on the ESP32-S3. Confirm on your board's schematic that no 32 kHz crystal or other circuit uses it before wiring.
+
+### Mechanical Setup
+
+| Item | Requirement |
+|---|---|
+| Motor mounting | Screwed/clamped to rigid baseplate; guard around rotating disc; safety glasses |
+| Magnet | Neodymium disc epoxied to shaft hub/disc; South pole facing Hall sensor face; gap 1.5 mm ± 0.5 mm |
+| Masses (imbalance tests) | Screwed through the disc — never taped or glued |
+| ADXL345 | Rigidly fixed to motor casing, non-conductive epoxy or thermal tape; Z-axis ⊥ housing surface |
+| DS18B20 | Probe tip against motor stator casing; thermal paste + insulation tape |
+| Wiring | Short sensor leads, twisted with ground, routed away from motor power leads |
+
+### Pre-Power Checklist
+
+- [ ] Motor securely bolted to bench; disc guard in place
+- [ ] 24 V DC bench PSU set to current limit ≤ 3.5 A (unloaded; adjust after measurement)
+- [ ] INA219 `VIN+` → PSU +; `VIN-` → Motor +; bus < 26 V
+- [ ] Common GND between ESP32, PSU negative, and all sensor GNDs (star point)
+- [ ] 4.7 kΩ pull-up verified on DS18B20 `DATA` line (GPIO 6)
+- [ ] Shaft magnet secure; Hall air gap 1.5 mm; South pole facing sensor
+- [ ] GPIO 38 / RPWM: confirm not shared with on-board RGB LED on your DevKitC-1 revision
+- [ ] ESP32-S3 connected via USB to host PC; COM port visible in Device Manager
+- [ ] Backend running (`TORQVA_TOKENS` set, correct port)
+- [ ] Device page shows `PHYSICAL DEVICE CONNECTED` and valid sensor readings
 
 ### Connection
 
 USB serial (CH340/CH343, CP210x, FTDI, or native USB-CDC). The backend owns the serial port; the browser never touches it. Auto-connect activates when exactly one supported USB-serial device is present.
+
+**USB environments:**
+| Connector | PlatformIO env | Serial routing |
+|---|---|---|
+| CH343 "UART" connector | `esp32s3_uart` | UART0 (GPIO 43/44) |
+| Native "USB" connector | `esp32s3` | USB-CDC (GPIO 19/20) |
 
 ---
 
@@ -139,17 +319,58 @@ Built with PlatformIO (C++, Arduino framework). Host-tested core library at `lib
 
 ### Safety Trips
 
-Over-current (sustained/instant) · temperature stop/rise · vibration · RPM loss · voltage low/high · heartbeat lost (2 s) · sensor invalid (500 ms) → latched EMERGENCY_STOP. Reset requires authorized command **and** local button.
+All trips latch `EMERGENCY_STOP`. Reset requires **both** an authorized command **and** the local reset button press.
 
-### Default Limits (restored 3 Nov 2026)
-
-| Limit | Value |
+| Trip Reason | Condition |
 |---|---|
-| Max duty | 70% |
-| Current stop | 4 A (instant 5 A) |
-| Temperature stop | 60 °C |
-| Supply voltage | 20.0–25.5 V |
-| Max RPM | 0 (not commissioned — must be set via commissioning record) |
+| `OVER_CURRENT_SUSTAINED` | Current > 4.0 A for > 2000 ms |
+| `OVER_CURRENT_INSTANT` | Current > 5.0 A (instantaneous) |
+| `TEMP_STOP` | Housing temp > 60 °C |
+| `TEMP_RISE` | Housing − ambient > `temp_rise_stop_c` (disabled by default) |
+| `VIBRATION` | Vibration RMS > `vib_rms_stop_g` (disabled — not commissioned) |
+| `RPM_LOSS` | No Hall pulses while duty > 15% for > 1000 ms (stall or sensor disconnect) |
+| `VOLTAGE_LOW` | Bus voltage < 20.0 V |
+| `VOLTAGE_HIGH` | Bus voltage > 25.5 V |
+| `HEARTBEAT_LOST` | No backend heartbeat for > 2000 ms |
+| `SENSOR_INVALID` | Critical sensor invalid for > 500 ms |
+| `EXTERNAL_ESTOP` | GPIO 15 reads HIGH (NC contact open / wire broken) — only when `TORQVA_ESTOP_INPUT_WIRED=1` |
+| `RESET_FAULT` | Watchdog, brown-out or panic restart latched until intentional reset |
+| `OUTPUT_INIT_FAULT` | PWM initialisation failed; driver stays disabled |
+
+**Safety architecture (independent layers):**
+```
+Hardware E-stop / power relay  (not installed — designed only)
+        ↓
+Device firmware SafetyMonitor  (latching, deterministic, no ML)
+        ↓
+Backend Safety Supervisor      (deterministic rules, mints allowed actions)
+        ↓
+UI                             (display only, never source of safety decision)
+```
+
+### Default Safety Limits (`torqva_limits.h`)
+
+| Parameter | Default | Notes |
+|---|---|---|
+| `ramp_pct_per_s` | **30 %/s** | Max duty slew rate |
+| `max_duty_pct` | **70 %** | Absolute duty cap |
+| `current_stop_a` | **4.0 A** (sustained) | Over-current trip threshold |
+| `current_stop_ms` | **2000 ms** | Sustained duration before trip |
+| `current_inst_a` | **5.0 A** | Instantaneous trip (assumption — PSU limit unknown) |
+| `temp_warn_c` | **50 °C** | Warning threshold |
+| `temp_stop_c` | **60 °C** | Emergency stop |
+| `temp_rise_stop_c` | **0** (disabled) | Housing − ambient delta trip; ≤ 0 disables |
+| `vib_rms_stop_g` | **0** (not commissioned) | ≤ 0 disables imbalance tests |
+| `rpm_loss_duty_pct` | **15 %** | Duty above this with no Hall pulses → stall/sensor-loss trip |
+| `rpm_loss_ms` | **1000 ms** | Duration before `RPM_LOSS` trip |
+| `volt_min_v` | **20.0 V** | Low-voltage trip |
+| `volt_max_v` | **25.5 V** | High-voltage trip |
+| `heartbeat_timeout_ms` | **2000 ms** | Backend heartbeat dead-man timer |
+| `sensor_invalid_ms` | **500 ms** | Critical signal invalid for this long → `SENSOR_INVALID` trip |
+| `max_rpm` | **0** (not commissioned) | 0 means SET_SPEED rejected until a human approves a limit |
+
+> [!NOTE]
+> `max_rpm = 0` is the **not-commissioned** sentinel. Physical RPM setpoint commands are always rejected until a responsible person sets and approves a non-zero limit through the commissioning record.
 
 ### PlatformIO Environments
 
