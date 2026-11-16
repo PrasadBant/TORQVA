@@ -1,329 +1,655 @@
-# TORQVA — Project Overview (context brief)
+# TORQVA — Complete Project Overview
 
-> Written so the whole project can be understood from this one file, for example by pasting it into an AI assistant before discussing or planning work.
-> State as of 3 Nov 2026, branch `torqva/phase-0-audit` (GitHub `PrasadBant/TORQVA`): items 1–17 pushed (`09ee47e`); items 18–21 committed locally, not pushed; not merged to `main`. Facts below come from the code and tests in the repository.
-
----
-
-## 1. What TORQVA is
-
-TORQVA is a **"physical AI" platform for an electric DC motor test rig**. It reads sensors on a real motor through an ESP32-S3 board, shows the readings live in a web app, detects anomalies, ranks likely faults, predicts what a corrective action would do, recommends actions through a safety layer, and verifies whether the motor actually recovered.
-
-Its guiding principles (enforced by tests):
-- **Physical-device first.** The website opens in *Physical mode* and shows the real board. *Simulation mode* is a separate, explicitly chosen demo mode.
-- **Never invent data.** A missing or invalid sensor reads `UNAVAILABLE`, never 0. Simulated values are labelled `SIM`, measured `HW`/`MEASURED`, model outputs `PRED`/`DERIVED`.
-- **Safety before convenience.** Every motor command goes through authentication → role check → deterministic Safety Supervisor → commissioning and interlocks → firmware validation → device acknowledgement. An AI result can never authorise motion by itself.
-- **Honest status.** "Sent" is not "executed"; only a device acknowledgement counts. Hardware checks are never marked VERIFIED by software.
-
-**Current reality:** the hardware is **not ready for physical motor operation**. The AI layers (C1–C6) are developed and evaluated **in simulation only**; nothing has been validated on the physical motor yet.
-
-It began on 10 Oct 2026 as a rework of an older prototype called *Smart Motor Monitor* (Arduino sketch + TCP `MOTOR_ON/OFF` + simple dashboard), which is now **retired** and removed from the tree.
+> **Last updated:** 16 Nov 2026 · Branch `torqva/phase-0-audit` · Commit `8b4ac16` · GitHub `PrasadBant/TORQVA`
+>
+> This single file captures everything about the project: what it is, how it works, the full tech stack, hardware, firmware, backend, frontend, AI pipeline, test suite, API surface, and development status. Use it as the canonical briefing document.
 
 ---
 
-## 2. Hardware (the rig)
+## 1. What TORQVA Is
+
+TORQVA is a **physical-AI platform for a DC motor test rig**. It reads live sensors on a real RS-775 motor through an ESP32-S3 board, streams the data to a React web app, runs a full AI diagnostic pipeline (anomaly detection → fault hypothesis ranking → outcome prediction → decision gate → diagnostic tests → recovery verification → continuous learning), and allows an authenticated operator to issue motor commands through a multi-layer safety stack.
+
+### Core Design Principles
+
+| Principle | What it means in practice |
+|---|---|
+| **Physical-device first** | App opens in Physical mode; Simulation is an explicit, labelled opt-in |
+| **Never invent data** | Missing/invalid sensors show `UNAVAILABLE`, never `0`; every value carries a provenance badge (`MEASURED`, `DERIVED`, `SIM`, `CMD`, `PRED`) |
+| **Safety before convenience** | Every motor command: auth → role check → Safety Supervisor → commissioning → firmware validation → ack. AI never authorises motion alone |
+| **Honest status** | "Sent" ≠ "Executed". Only a device ack counts. Hardware items are never marked VERIFIED by software |
+| **Architectural isolation** | `physical/` and `simulation/` frontend pages never import each other; only `shared/` and `api.js` are shared |
+
+### What Works Today (Nov 2026)
+
+- **Physical mode**: live USB telemetry, full motor control (duty cycle + RPM setpoint), Hall-sensor tachometer (measurement only, never throttles motor), speed zone alarm, digital twin 3D view, firmware OTA manager
+- **Simulation mode**: full C1–C6 AI pipeline, analyst workspaces, scenario studio, counterfactual lab, decision receipts, attestation
+- **Both modes**: Diagnostic Workflow (one-click test → evidence → diagnosis → recommendation → authorize → verify), Recovery Verification (C5), Continuous Intelligence (C6), Performance Evaluation
+
+### What Is NOT Ready
+
+- Hardware E-stop circuit (designed but not installed or verified)
+- Physical C1 anomaly detection (trained on sim data; needs vibration RMS/harmonics the firmware doesn't yet measure)
+- Physical motor operation on the real rig beyond basic duty/speed commands (commissioning record must be completed by a human first)
+
+---
+
+## 2. Hardware
+
+### Motor Rig Components
 
 | Part | Role | ESP32-S3 GPIO |
 |---|---|---|
-| ESP32-S3 N16R8 | Controller, runs `esp32/torqva_fw` | — |
-| BTS7960 / IBT-2 | Motor driver (forward only: firmware never drives LPWM) | R_EN 18, L_EN 21, RPWM 38, LPWM 39 |
-| Hall sensor | Speed (rpm) | 9 |
-| INA219 | Current / voltage (separate I²C bus) | SDA 7, SCL 8 |
-| DS18B20 | Housing temperature (2nd sensor = ambient) | 6 |
-| ADXL345 | Raw acceleration (total incl. gravity — **not** vibration RMS) | SDA 16, SCL 17 |
-| SH1106 OLED | Display, annunciation only | SDA 4, SCL 5 |
-| LEDs, buzzer | Status annunciators (not safety functions) | 10–13, 14 |
-| E-stop monitor input | Normally-closed contact, monitoring only | 15 |
+| **ESP32-S3 N16R8** | Main controller | — |
+| **BTS7960 / IBT-2** | Motor driver (43 A, forward only; LPWM never driven) | R_EN 18, L_EN 21, RPWM 38, LPWM 39 |
+| **A3144 Hall sensor** | Shaft speed (rpm) via pulse timing — tachometer only, does not throttle motor | GPIO 9 |
+| **INA219** | DC bus voltage, current, power (W = V × I, labelled DERIVED) | SDA 7, SCL 8 (I²C bus 1) |
+| **DS18B20** | Motor housing temperature; second sensor = ambient (optional) | GPIO 6 (OneWire, 4.7 kΩ pull-up) |
+| **ADXL345** | Raw 3-axis acceleration (total incl. gravity — not vibration RMS) | SDA 16, SCL 17 (I²C bus 0) |
+| **SH1106 OLED** | Local 128×64 status display | SDA 4, SCL 5 (I²C bus 0) |
+| **LEDs (×4), Buzzer** | Sensor health annunciators (not safety functions) | GPIO 10–13, 14 |
+| **E-stop monitor input** | Normally-closed contact, monitoring only (not installed) | GPIO 15 |
 
-Not present / not configured: motor power relay, local reset button. The wiring is **unconfirmed** by a person (status frames report the wiring id as unverified). An independent hardware E-stop that removes driver power is designed but **not installed or verified**.
+> [!IMPORTANT]
+> The authoritative GPIO map is `esp32/torqva_fw/lib/torqva_core/pinmap.h`. The file `docs/hardware.md` shows an older revision and can disagree with `pinmap.h`. Where they differ, **`pinmap.h` wins**.
 
-Connection: **USB serial** (CH340/CH343, CP210x, FTDI or native USB), TORQVA device protocol version 1 (JSON lines: `status`, `fast` telemetry, commands with acknowledgements). The backend owns the serial port; the browser never touches it.
+### Connection
+
+USB serial (CH340/CH343, CP210x, FTDI, or native USB-CDC). The backend owns the serial port; the browser never touches it. Auto-connect activates when exactly one supported USB-serial device is present.
 
 ---
 
-## 3. Architecture
+## 3. System Architecture
 
 ```
-sensors -> ESP32-S3 firmware (esp32/torqva_fw) -> USB serial (TORQVA protocol 1) -> Python backend (FastAPI) -> REST + WebSocket -> React website
-website -> authenticated API -> role check -> Safety Supervisor -> command dispatcher -> USB -> firmware validation -> acknowledgement -> observed state
+sensors → ESP32-S3 firmware (esp32/torqva_fw)
+        → USB serial (TORQVA protocol v1, JSON lines)
+        → Python backend (FastAPI, serial_bridge.py)
+        → REST + WebSocket (/api/torqva/*)
+        → React website (Vite, http://localhost:5173)
+
+website → authenticated API → role check → Safety Supervisor
+        → command dispatcher → USB → firmware validation
+        → ACK → observed state
 ```
 
-Two separate data paths in the backend:
-1. **Physical path** — `serial_bridge.py` reads the board, keeps a device snapshot, runs interlocks and the command lifecycle; served at `/api/torqva/device/*` and the WebSocket `/api/torqva/ws`.
-2. **Simulation path** — `service.py` runs a deterministic motor simulator (`sim.py`) through the full AI pipeline (`pipeline.py`); served at `/api/torqva/status`, `/telemetry`, `/incidents`, `/predictions`, … Everything here is labelled `SIMULATED`.
+### Two Completely Separate Data Paths
 
-A third, physical-only path carries **firmware updates** (item 22, `docs/TORQVA_OTA_FIRMWARE_MANAGER.md`):
-- `firmware.py` validates and stores signed application images and runs deployments;
-- the serial bridge sends one authenticated `ota` request;
-- the ESP32-S3 downloads the image itself over HTTPS into its inactive OTA slot, verifies the ECDSA signature and SHA-256, restarts, and confirms only after first-boot self-tests (otherwise the bootloader rolls back).
+| Path | Source | Key module | Served at |
+|---|---|---|---|
+| **Physical** | Real ESP32-S3 board | `serial_bridge.py` | `/api/torqva/device/*`, WebSocket `/api/torqva/ws` |
+| **Simulation** | Deterministic motor simulator | `service.py`, `sim.py`, `pipeline.py` | `/api/torqva/status`, `/telemetry`, `/incidents`, … |
 
-The update path never sends a motion command and never enables physical control.
+A third path handles **firmware updates** (OTA): `firmware.py` stores signed images; the ESP32 downloads over HTTPS, verifies ECDSA + SHA-256, restarts, confirms after self-tests or rolls back automatically.
 
-### The AI layers (C1–C6)
+### AI Layers (C1–C6)
+
 | Layer | Module | What it does |
 |---|---|---|
-| **C1** Anomaly detection | `detection.py` | Self-learning baseline per operating-speed bin; anomaly score ÷ learned threshold |
-| Hypotheses | `hypotheses.py` | Ranks fault hypotheses (imbalance, looseness, overload, cooling failure, supply voltage, sensor fault) |
-| **C2** Predictions | `prediction.py` | Predicts the outcome of candidate actions at 30/60/120 s with 90 % conformal intervals; *unvalidated against physical experiments* |
-| **C3** Decision gate | `gate.py` | Deterministic, confidence-aware rules decide ACT / REQUEST_MORE_DATA / RUN_DIAGNOSTIC_TEST / SAFE_STOP / ESCALATE_HUMAN / SENSOR_UNRELIABLE; every decision logs its inputs |
-| **C4** Diagnostic tests | `diagnostics.py` | Tests T1 (speed step to 70 %), T3 (thermal observation), T4 (coast-down) chosen by information gain to separate hypotheses |
-| **C5** Recovery verification | `recovery.py` | Declares recovery only from fresh telemetry after the device acknowledged an action |
-| **C6** Learning | `learning.py`, `attestation.py` | Gated, versioned learning; operator-attested healthy reference for adaptive C1 |
-| Safety Supervisor | `supervisor.py` | Deterministic (no ML), mints the only actions the dispatcher accepts |
-| Unified workflow | `workflow.py` | One request chains C4 → C1 → C2 → C3 → C5 using the modules above (no model, gate or command path of its own); physical mode is blocked at validation |
+| **C1** Anomaly detection | `detection.py` | Per-speed-bin self-learning baseline; Mahalanobis anomaly score ÷ learned threshold |
+| **C1 Robust** (opt-in) | `c1_robust.py` | Adaptive baseline with trusted warm-up attestation; `UNFAMILIAR` verdict; default off |
+| **Hypotheses** | `hypotheses.py` | Bayesian ranking of 6 fault types: imbalance, looseness, overload, cooling failure, supply voltage, sensor fault |
+| **C2** Outcome prediction | `prediction.py` | Grey-box action-conditioned predictors; split-conformal 90% intervals; risk score |
+| **C2 Noise-aware** (opt-in) | `c2_robust.py` | Same point predictions; noise-aware intervals; explicit supported/unsupported/insufficiently-validated |
+| **C3** Decision gate | `gate.py` | Deterministic confidence-aware rules: ACT / REQUEST_MORE_DATA / RUN_DIAGNOSTIC_TEST / SAFE_STOP / ESCALATE_HUMAN / SENSOR_UNRELIABLE |
+| **C4** Diagnostic tests | `diagnostics.py` | T1 (speed step to 70%), T3 (thermal observation), T4 (coast-down); selected by information gain |
+| **C5** Recovery verification | `recovery.py` | Declares recovery only from fresh telemetry after device acknowledged an action |
+| **C6** Learning / attestation | `learning.py`, `attestation.py` | Gated versioned learning; operator-attested healthy references for adaptive C1 |
+| **Safety Supervisor** | `supervisor.py` | Deterministic, no ML; mints the only actions the dispatcher accepts |
+| **Unified workflow** | `workflow.py` | Chains C4→C1→C2→C3→C5 in one request; physical mode blocked at validation |
 
-For **physical** data, the backend currently reports every analysis layer as **NOT AVAILABLE** (C1 was trained on simulated data and needs vibration RMS and harmonics the firmware doesn't measure). The UI shows "WAITING FOR VALID PHYSICAL TELEMETRY" instead of results.
+> [!NOTE]
+> C1–C6 are developed and evaluated **in simulation only**. Physical AI analysis shows "WAITING FOR VALID PHYSICAL TELEMETRY" because C1 was trained on simulated data with vibration RMS, which the firmware doesn't yet measure.
 
 ### Persistence
-`store.py` is a small typed document store on **SQLite held in memory**: it is created fresh at every backend start, so there is no migration history, seed data or deployed database. Tables: `docs` (primary key `(kind, id)`, every row tagged SIMULATED / MEASURED / PREDICTED, kinds limited to the `KINDS` whitelist), `audit` (append-only, enforced by triggers) and `ref_versions` (immutable C6 reference versions). Simulation records are keyed by their simulation session (`S1/…`), physical workflow records by `PHYSICAL/…`, so the two never share a key. The file `backend/data/motor_monitor.db` belongs to the retired prototype and is not opened by any current code (section 10, item 7).
 
-### Firmware safety model (`esp32/torqva_fw`)
-Safety monitor with trips: over-current (sustained/instant), temperature stop/rise, vibration, rpm loss, voltage low/high, heartbeat lost, sensor invalid → latched EMERGENCY_STOP. Start interlocks require approved limits, E-stop circuit, authenticated session, and the explicit `TORQVA_CONTROL_ENABLED` build flag. Default limits (`torqva_limits.h`, restored 3 Nov): max duty 70 %, current stop 4 A (instant 5 A, an assumption until the PSU limit is known), temperature stop 60 °C, supply 20.0–25.5 V, heartbeat 2 s, sensor-invalid 500 ms, RPM loss 1 s, max rpm 0 (= not commissioned: no SET_SPEED until a human approves a limit). PlatformIO environments: `native` (host unit tests), `fitl` (firmware-in-the-loop CLI used by backend tests), `esp32s3` (native USB), `esp32s3_uart` (UART0).
+`store.py` — in-memory SQLite, created fresh at every backend start (no migration history). Tables: `docs` (primary key `(kind, id)`, every row tagged SIMULATED/MEASURED/PREDICTED), `audit` (append-only, enforced by DB triggers), `ref_versions` (immutable C6 reference versions). Simulation records keyed by session `S1/…`, physical records by `PHYSICAL/…` — the two namespaces never collide.
 
-### Users and roles
-Token-based auth (`TORQVA_TOKENS`, sha256 hashes; the API refuses everything if unset). Roles: **viewer** (read only, can request STOP), **operator** (start simulations, approve/reject proposed actions), **admin** (also physical START / speed, commissioning record, audit log). STOP is open to every signed-in role.
-
-### Commissioning
-A human record (`commissioning.py`): checklist items attested with written evidence, approved limits (versioned, history kept, confirm phrase required) and an explicit enable. It is audited and **never overrides the firmware interlocks**.
-
----
-
-## 4. Tech stack
-
-- **Frontend:** React 18, Vite 5, Recharts 2 (charts, lazy-loaded), Three.js 0.186 (Digital Twin 3D view, lazy-loaded, used directly without React Three Fiber), lucide-react icons, Vitest + Testing Library. Light/dark theme design system in one CSS file.
-- **Backend:** Python, FastAPI + uvicorn, pydantic 2, numpy, pyserial, an in-memory SQLite document store, pytest (cryptography for the secure-transport tests only).
-- **Firmware:** C++ (Arduino framework) via PlatformIO, host-tested core library `lib/torqva_core`.
-- **E2E:** playwright-core driving Google Chrome (opt-in scripts, not a project dependency; install with `npm install --no-save playwright-core`).
-
----
-
-## 5. Repository layout
+### Speed Classification & Alarm System
 
 ```
-README.md                      run / test / layout
-backend/
-  main.py                      FastAPI entry point (mounts /api/torqva)
-  README.md                    module map by responsibility
-  torqva/                      one flat Python package (42 modules):
-                               API & wiring · physical device & safety · AI pipeline C1–C6 · simulation · research studies
-  tests/                       pytest (708 tests in 37 files; numbered by phase p11…p29, plus the workbench, investigation, workflow and feature-audit suites); never opens a real port
-  tools/provision_device_key.py   per-device session key (offline)
-  data/                        local runtime data (git-ignored): commissioning.json, device_keys.json; legacy motor_monitor.db (retired prototype, unused)
-frontend/
-  scripts/dev.mjs              starts backend + website together; says which half stopped and why, and ends the whole process tree
-  src/torqva/TorqvaApp.jsx     app shell: sign-in, mode switch, navigation, polling
-  src/torqva/api.js            REST client (reads time out after 20 s; commands never do)
-  src/torqva/torqva.css, styles/   design system (tokens, light/dark), split into system, monitoring, analysis, assurance and twin-sim sheets
-  src/torqva/shared/           plain.js (rewrites internal layer ids in backend prose), alerts.jsx, the motor-condition badge and banner (components.jsx), UI primitives, the shared Disclosure (progressive disclosure) and the text helpers title / pct / fmtRpm / canControl (components.jsx), diagnostic vocabulary (diagnostics.js), charts (charts.jsx via lazyCharts.jsx), Digital Twin workspace (twin.jsx), component metadata (twinParts.js), 3D viewport (twin3d/: assembly, engine, quality governor, viewport, overlay layout) and the 2D fallback drawing (twinModel.jsx)
-  src/torqva/physical/         pages fed by the USB device stream: physical.jsx (dashboard), device.jsx (connection, motor control, commissioning), twin.jsx (Digital Twin data, read-only)
-  src/torqva/simulation/       pages fed by the simulator API: overview.jsx (Simulation Overview), scenario.jsx (Scenario Studio), pipeline.js, events.jsx, story.jsx,
-                               analyst workspaces diagnose.jsx (C1), tests.jsx (C4), predict.jsx (C2), intervene.jsx (C3) and workbench.js (their plan loader),
-                               pages.jsx (pipeline records and C5/C6 pages), c2c4.jsx, evaluation.jsx, lab.jsx, attestation.jsx, twin.jsx (Digital Twin data),
-                               adaptive.jsx, counterfactual.jsx, receipts.jsx, trace.jsx (investigation tools)
-  src/torqva/workflow/         workflow.jsx: the Diagnostic Workflow page, one component for both modes
-  src/tests/                   Vitest suites (233 tests in 20 files), incl. a layout guard and a no-C1–C6 guard over every page; fixtures/ holds responses recorded from the real backend
-  e2e/                         browser E2E scripts (app, twin, workflow, workbench, lab, c2c4, attestation, and the original torqva.e2e.mjs); not part of npm test
-esp32/torqva_fw/               supported firmware (platformio.ini, src/main.cpp, lib/torqva_core, tests)
-docs/
-  README.md                    index of current docs
-  TORQVA_*.md                  gap audit, hardware readiness, progress, architecture, security, wiring, E-stop, bring-up checklist, simulation evaluation
-  eval/                        committed evaluation artifacts (read by the backend at runtime)
-  history/                     retired Smart Motor Monitor reports (record only)
+IDLE    : drive is off / rpm < 50 rpm                  → silent
+NORMAL  : 1100–1500 rpm (nominal 1300 rpm)             → silent
+WARNING : 700–1099 rpm or 1501–1900 rpm               → 1 beep / 3 s (660 Hz)
+CRITICAL: < 700 rpm (stall) or > 1900 rpm (overspeed)  → 3 rapid beeps / 1.5 s (1200 Hz)
+UNKNOWN : drive active, Hall reading invalid/missing    → "SPEED UNAVAILABLE" banner (not "0 rpm CRITICAL")
 ```
 
-Rule kept by a test: `physical/` and `simulation/` never import each other (only `shared/` and `api.js`), so simulated data cannot leak into a physical-device page.
+The Hall sensor is a **pure tachometer** — it measures and displays speed but never throttles or stops the motor. The duty cycle slider and RPM setpoint are independent open-loop and closed-loop controls.
 
 ---
 
-## 6. How to run and test (Windows, PowerShell)
+## 4. Firmware (`esp32/torqva_fw`)
 
-The npm scripts live in `frontend/package.json`; there is no `package.json` at the repository root, so run them from `frontend/`.
+Built with PlatformIO (C++, Arduino framework). Host-tested core library at `lib/torqva_core/`.
+
+### Key Firmware Modules
+
+| Module | File | Role |
+|---|---|---|
+| Limits (versioned) | `torqva_limits.h` | Default safety limits; `max_rpm=0` = not commissioned |
+| Safety monitor | `safety.*` | Latching EMERGENCY_STOP trips |
+| Ramp / PI / drive | `control.*` | 30%/s slew, 70% duty cap, anti-windup, coast-only stop |
+| Command validator | `commands.*` | Type / range / TTL / sequence / auth; STOP never refused |
+| Test executor | `testexec.*` | T1/T3/T4 on-device; aborts on trip/link loss |
+| Protocol | `protocol.*` | JSON lines, allocation-free |
+| Device | `device.*` | Composes the above; hardware-agnostic `HalIn`/`HalOut` |
+| Simulated plant | `simplant.*` | Deterministic sim plant for firmware-in-the-loop tests |
+| Hardware HAL | `src/main.cpp`, `src/config_pins.h` | Compile-only; control disabled without `-DTORQVA_CONTROL_ENABLED=1` |
+
+### Safety Trips
+
+Over-current (sustained/instant) · temperature stop/rise · vibration · RPM loss · voltage low/high · heartbeat lost (2 s) · sensor invalid (500 ms) → latched EMERGENCY_STOP. Reset requires authorized command **and** local button.
+
+### Default Limits (restored 3 Nov 2026)
+
+| Limit | Value |
+|---|---|
+| Max duty | 70% |
+| Current stop | 4 A (instant 5 A) |
+| Temperature stop | 60 °C |
+| Supply voltage | 20.0–25.5 V |
+| Max RPM | 0 (not commissioned — must be set via commissioning record) |
+
+### PlatformIO Environments
+
+| Env | Use |
+|---|---|
+| `native` | Host unit tests (no hardware) |
+| `fitl` | Firmware-in-the-loop CLI for backend tests |
+| `esp32s3` | Native USB connector |
+| `esp32s3_uart` | UART0 / CH343 "UART" connector |
+
+### Wire Protocol (v1)
+
+**Host → Device** (one JSON object per line):
+```json
+{"id":7,"type":"SET_SPEED","p":1500,"p2":0,"p3":0,"ttl":5000,"age":0,"seq":12,"k":"<hmac-key>"}
+```
+
+**Device → Host**: `ack` (ACCEPTED|REJECTED|COMPLETED|ABORTED + reason), `fast` (10 Hz telemetry), `slow` (1 Hz), `status` (1 Hz + on change).
+
+Quality bitmask `q` per `fast` frame: bit 0 current, 1 voltage, 2 housing, 3 ambient, 4 rpm, 5 vibration. Clear bit = INVALID — the value is never displayed as a number.
+
+---
+
+## 5. Backend
+
+### Tech Stack
+
+- **Python 3.13**, FastAPI + Uvicorn, Pydantic v2, NumPy, PySerial
+- **In-memory SQLite** (no migrations, no deployed database)
+- **pytest** (800 tests in 37 files), `cryptography` (transport tests only)
+
+### Module Map (`backend/torqva/`, 42 modules)
+
+| Module | Responsibility |
+|---|---|
+| `api.py` | Main router; simulation pipeline endpoints; physical synthesis when bridge is connected |
+| `serial_bridge.py` | USB serial bridge; device snapshot; command lifecycle; Safety Supervisor integration; authenticated sessions |
+| `device_routes.py` | Physical device REST endpoints: status, history, commands, commissioning, OTA; physical C5/C6 endpoints |
+| `auth.py` | Bearer token auth (SHA-256 hashes); roles: viewer / operator / admin |
+| `schemas.py` | Pydantic models: Telemetry, Command, Ack, Hypothesis, Prediction, SafetyDecision, RecoveryAssessment, etc. |
+| `supervisor.py` | Deterministic Safety Supervisor |
+| `commissioning.py` | Human commissioning record: checklist items, versioned limits, enable |
+| `workflow.py` | Unified Diagnostic Workflow: C4→C1→C2→C3→C5 in one request |
+| `workbench.py` | Analyst workbench: multi-step test sequences on a simulator copy; trace, receipts, counterfactual |
+| `investigation.py` | Investigation trace, evidence sufficiency, adaptive testing, Decision Receipts |
+| `detection.py` | C1 anomaly detection (shipped baseline) |
+| `c1_robust.py` | C1 adaptive baseline with attestation (opt-in) |
+| `hypotheses.py` | Fault hypothesis Bayesian ranking |
+| `prediction.py` | C2 outcome prediction + conformal intervals |
+| `c2_robust.py` | C2 noise-aware variant (opt-in) |
+| `gate.py` | C3 decision gate |
+| `diagnostics.py` | C4 diagnostic test library |
+| `recovery.py` | C5 recovery verification |
+| `learning.py` | C6 learning case selection |
+| `attestation.py` | C6 operator-attested healthy reference versions |
+| `service.py` | Simulation orchestrator |
+| `sim.py` | Deterministic motor simulator |
+| `simdevice.py` | Simulated device state |
+| `store.py` | In-memory SQLite document store |
+| `pipeline.py` | Simulation pipeline coordinator |
+| `dispatch.py` | Command dispatcher (TTL, retries, ack tracking, idempotency) |
+| `evaluation.py` | Simulation evaluation run reader |
+| `firmware.py` | OTA firmware validation, signing, deployment |
+| `firmware_routes.py` | Firmware Manager REST endpoints |
+| `device_link.py` | Device connection state machine |
+| `device_transport.py` | Serial transport layer |
+| `device_protocol.py` | TORQVA protocol parser |
+| `device_keys.py` | Per-device session key management |
+| `autoconnect.py` | Auto-connect USB port scanner |
+| `physical_adapter.py` | Physical telemetry adapter for AI layers |
+| `incident.py` | Incident tracking |
+| `prediction.py` | C2 predictor |
+| `lab.py` | Research lab sessions |
+| `scenarios.py` | Simulation scenario definitions |
+| `c1_study.py`, `c2c4_study.py`, `c2cov_study.py`, `c4cal_study.py` | Research study harnesses (eval artifacts) |
+| `c1_robust.py`, `c2_robust.py`, `c4_robust.py` | Opt-in improved variants |
+| `generalization_study.py`, `c2_conditional.py` | Research modules |
+| `gate.py` | C3 decision gate |
+
+### Users & Roles
+
+| Role | Permissions |
+|---|---|
+| **viewer** | Read-only; can request STOP |
+| **operator** | Start simulations; approve/reject proposed actions |
+| **admin** | Physical START/speed; commissioning record; audit log |
+
+STOP is available to **every signed-in role** while the device is connected.
+
+### Authentication
+
+Token-based (`TORQVA_TOKENS` env var, SHA-256 hashes). The API **fails closed** without tokens — returns 401 to all requests. Local dev token auto-signs in as `local-dev / admin`.
+
+---
+
+## 6. Frontend
+
+### Tech Stack
+
+- **React 18**, Vite 5, Recharts 2 (lazy-loaded charts), Three.js 0.186 (3D Digital Twin, lazy-loaded)
+- **Lucide-react** icons, Vitest + Testing Library
+- Light/dark theme design system in CSS tokens (`torqva.css` → `styles/` split)
+
+### App Structure
+
+```
+frontend/src/torqva/
+├── TorqvaApp.jsx          # App shell: sign-in, mode switch, navigation, polling
+├── api.js                 # REST client (reads timeout 20s; commands never do)
+├── torqva.css / styles/   # Design tokens (system, monitoring, analysis, assurance, twin-sim)
+├── physical/              # Pages fed by USB device stream
+│   ├── physical.jsx       # Dashboard: status strip, speed alarm, motor control
+│   ├── device.jsx         # Connection, commissioning, interlocks
+│   ├── twin.jsx           # Physical digital twin data mapping
+│   ├── recovery.jsx       # C5 Recovery Verification (physical)
+│   ├── learning.jsx       # C6 Continuous Intelligence (physical)
+│   ├── evaluation.jsx     # Performance Evaluation (physical)
+│   ├── diagnostics.jsx    # Diagnostic pages (physical)
+│   └── firmware.jsx       # Firmware Manager
+├── simulation/            # Pages fed by simulator API
+│   ├── overview.jsx       # Simulation overview + scenario studio
+│   ├── scenario.jsx       # Scenario Studio
+│   ├── diagnose.jsx       # C1 Anomaly Detection analyst workspace
+│   ├── tests.jsx          # C4 Diagnostic Tests analyst workspace
+│   ├── predict.jsx        # C2 Failure Prediction analyst workspace
+│   ├── intervene.jsx      # C3 Action Recommendations analyst workspace
+│   ├── pages.jsx          # Pipeline records, C5/C6 pages
+│   ├── evaluation.jsx     # Simulation Performance Evaluation
+│   ├── lab.jsx            # Research Lab
+│   ├── attestation.jsx    # C6 Attestation
+│   ├── c2c4.jsx           # C2/C4 combined analyst view
+│   ├── trace.jsx          # Investigation trace
+│   ├── counterfactual.jsx # What-if analysis
+│   ├── receipts.jsx       # Decision receipts
+│   ├── adaptive.jsx       # Adaptive investigation
+│   └── twin.jsx           # Simulation digital twin data mapping
+├── workflow/
+│   └── workflow.jsx       # Diagnostic Workflow (both modes, one component)
+└── shared/
+    ├── components.jsx     # UI primitives, badges, banners, cards
+    ├── alerts.jsx         # Device/sim alert derivation
+    ├── diagnostics.js     # Diagnostic vocabulary
+    ├── charts.jsx         # Recharts wrappers (lazy via lazyCharts.jsx)
+    ├── twin.jsx           # Shared Digital Twin workspace
+    ├── twinModel.jsx      # 2D rig drawing (SVG/canvas fallback)
+    ├── twinParts.js       # Component metadata
+    ├── plain.js           # Rewrites internal layer IDs in backend prose
+    └── twin3d/            # Three.js 3D engine (loaded only on twin page)
+        ├── engine.js      # Render loop, camera, orbit controls
+        ├── assembly.js    # Procedural rig geometry
+        ├── quality.js     # Adaptive pixel ratio governor
+        ├── viewport.jsx   # React wrapper
+        └── overlay.js     # Marker/label DOM overlay
+```
+
+### Navigation Structure
+
+```
+Monitor
+  ├── Overview
+  ├── Live Monitor
+  └── Digital Twin
+
+Diagnose
+  ├── Diagnostic Workflow  ← (both modes, one click)
+  ├── Anomaly Detection
+  ├── Failure Prediction
+  ├── Action Recommendations
+  └── Diagnostic Investigation
+
+Intelligence
+  ├── Recovery Verification  (C5)
+  ├── Continuous Intelligence (C6)
+  └── Performance Evaluation
+
+Engineering
+  ├── Scenario Studio
+  └── Lab
+
+Device & Safety
+  ├── Device tab
+  ├── Connection & Readiness tab
+  ├── Safety & Commissioning tab  (physical mode only)
+  └── Firmware Manager  (#/firmware)
+```
+
+---
+
+## 7. Key Features In Detail
+
+### Physical Mode (Default)
+
+- **Status strip**: 4 tiles — device connection, safety/blockers, measured speed (Hall), system health
+- **Speed alarm**: zone-based with Web Audio API beeps (WARNING: 660 Hz / 3s; CRITICAL: 1200 Hz × 3 / 1.5s); mutable
+- **Motor Control panel**:
+  - Duty cycle (open loop) — direct PWM control, 0–100% with presets
+  - RPM setpoint (closed loop via Hall feedback) — nominal 0–3,000 rpm scale, extended 0–20,000 rpm toggle
+  - Auto-stop timer (5s / 10s / 30s / continuous)
+  - STOP always prominent, available to all signed-in roles
+  - Continuous Run Mode — dynamic speed changes without stopping
+- **Hall sensor** — tachometer only: measures and displays speed, never throttles or stops motor
+- **Live telemetry tiles**: RPM, current, housing temp, voltage, power, acceleration
+- **Device & Safety**: commissioning checklist, versioned limits, interlock groups (device connection, firmware/faults, E-stop, authorization, electrical limits, commissioning)
+
+### Simulation Mode (Demo)
+
+- Scenario Studio: 5 presets (healthy baseline, recoverable imbalance, analyst review, persistent overload) + custom
+- Full C1→C6 pipeline visible: anomaly scores, hypothesis bars, gate decisions, predictions with 90% intervals, test sequences, approval flow, C5 recovery verdict
+- Event timeline with numbered markers on live charts
+- Decision Receipts (SHA-256 digest, JSON export)
+- Counterfactual lab: run Continue/Reduce/STOP on separate simulator snapshots and compare with C2 predictions
+
+### Diagnostic Workflow (Both Modes)
+
+One-click workflow:
+1. Pick test pattern (T1 speed step / T3 thermal / T4 coast-down / speed-response sweep / adaptive)
+2. Choose policy: *ask me to authorize* (default) or *auto-execute when gate permits*
+3. Press **Run Diagnostic Workflow**
+4. Backend runs: test sequence → evidence → C1 diagnosis → C2 predictions → C3 routing → C5 verification
+5. UI shows 10 stages with real status/timestamps, evidence cards, recommended action, authorization, and verification
+
+Idempotency key prevents double-submit. Latest workflow restored after browser refresh.
+
+### Digital Twin
+
+- Interactive 3D model (Three.js, WebGL 2) with 2D SVG fallback
+- Components: RS-775 motor can/end-bell/bracket, shaft, hub/disc with magnet, Hall post, DS18B20 probe, ADXL345, INA219, BTS7960 with heatsink, ESP32-S3, OLED, 24V PSU, wiring, motor internals (magnets, armature, windings, commutator, brushes)
+- Tools: orbit/pan/zoom, isometric/front/side/top presets, orthographic, fit, focus, isolate, exploded view, section cut, technical edges, measurement callouts
+- Inspection panel: component name, sensor readings with provenance/freshness/status, links to Live Monitor
+- Shaft animates only from valid non-zero speed (1/40 rate, presentation only)
+- Part highlighted as alert only when source names it (invalid reading, firmware trip, or simulated fault)
+- Render-on-demand scheduler; lazy-loaded (only on twin page); adaptive pixel ratio during motion; recovered lost graphics context
+
+### Firmware Manager
+
+- Upload signed firmware images (admin only)
+- View release history and deployment status
+- Deploy over OTA: ESP32 downloads over HTTPS, verifies ECDSA + SHA-256, restarts, confirms after self-tests
+- OTA image URL carries a one-time token (`?t=`), answers 403 to all else
+
+---
+
+## 8. API Reference (`/api/torqva`, bearer token required)
+
+### Identity & Audit
+- `GET /me` — current token identity and role
+- `GET /audit` — append-only audit log (admin)
+
+### Physical Device
+- `GET /device/status` — full device snapshot
+- `GET /device/history` — telemetry history (last 2 min)
+- `GET /device/ports` — available USB ports
+- `GET /device/commands` — command log (this session)
+- `POST /device/connect` / `/disconnect`
+- `POST /device/commands` — STOP / START (duty%) / SET_SPEED (rpm) / RESET_ESTOP
+- `GET /device/commissioning` — commissioning record
+- `POST /device/commissioning/items/{id}` — attest a checklist item
+- `PUT /device/commissioning/limits` — set approved limits (versioned)
+- `POST /device/commissioning/enable` — enable physical operation
+- `WebSocket /ws` — live device stream (snap, commands, events)
+
+### Physical Intelligence (C5/C6)
+- `GET /recovery/physical` — live recovery status, 5 verification criteria, before/after telemetry
+- `POST /recovery/verify-physical` — operator trigger for re-verification
+- `GET /attestation/physical/candidates` — list physical C6 candidates
+- `GET /attestation/physical/candidates/{cid}` — full detail with 10 deterministic checks
+- `POST /attestation/physical/capture` — capture live telemetry snapshot as new candidate
+- `POST /attestation/physical/candidates/{cid}/attest|reject|revoke`
+- `GET /attestation/physical/references` — reference version registry
+- `POST /attestation/physical/references/{v}/activate|rollback`
+- `GET /attestation/physical/warmup` / `POST /warmup/start` / `POST /warmup/end`
+
+### Simulation Pipeline
+- `GET /status /telemetry /incidents /decisions /predictions /prediction-checks /commands /outcomes /cases /log`
+- `POST /simulation/start` / `/simulation/step`
+- `POST /approvals/approve` / `/approvals/reject`
+- `POST /commands/stop` / `/commands/reset-estop`
+
+### Diagnostic Workflow
+- `GET /workflow/patterns?mode=` — available test patterns
+- `GET /workflow/runs?mode=` — workflow run list
+- `GET /workflow/runs/{id}` — single run detail
+- `POST /workflow/runs` — start workflow (idempotency key)
+- `POST /workflow/runs/{id}/authorize` / `/cancel`
+
+### Analyst Workbench (simulation only)
+- `GET /simulation/workbench/plan` / `/predict?targets=` / `/trace` / `/receipts` / `/receipts/{id}` / `/counterfactual/{id}`
+- `POST /simulation/workbench/sequence` / `/adaptive` / `/counterfactual` / `/counterfactual/{id}/rerun` / `/request` / `/check`
+
+### Evaluation & Lab
+- `GET /evaluation/latest` / `/evaluation/c2c4`
+- `GET /lab/regimes` / `/lab/checklist` / `/lab/sessions*` / `/lab/experiments`
+
+### Attestation (C6, simulation)
+- `GET|POST /attestation/candidates*` / `/references*` / `/warmup*`
+
+### Firmware Manager
+- `GET /firmware/status /releases /releases/{rid} /deployments /deployments/{id}` (viewer)
+- `POST /firmware/releases` (upload, admin) / `POST /firmware/deployments` (deploy, admin)
+- `GET /firmware/ota/{rid}/manifest` / `/image` (device-facing, one-time token auth)
+
+---
+
+## 9. Test Suite
+
+| Suite | Count | Command |
+|---|---|---|
+| **Backend pytest** | **800 tests** (37 files) | `cd backend; python -m pytest -q` |
+| **Frontend Vitest** | **264 tests** (24 files) | `cd frontend; npx vitest run` |
+| **Firmware host tests** | **~130 tests** | `cd esp32/torqva_fw; python -m platformio test -e native` |
+
+### Backend Test Files (37 files)
+
+`test_torqva_api.py` · `test_torqva_attestation.py` · `test_torqva_c1.py` · `test_torqva_c1_robust.py` · `test_torqva_c2.py` · `test_torqva_c2c4.py` · `test_torqva_c3_c4.py` · `test_torqva_c5.py` · `test_torqva_c6.py` · `test_torqva_conformance.py` · `test_torqva_device_link.py` · `test_torqva_e2e.py` · `test_torqva_eval.py` · `test_torqva_feature_audit.py` · `test_torqva_firmware.py` · `test_torqva_incident.py` · `test_torqva_investigation.py` · `test_torqva_lab.py` · `test_direct_operator_control.py` · `test_torqva_physical_evaluation.py` · `test_torqva_physical_intelligence.py` · `test_torqva_safety.py` · `test_torqva_safety_restoration.py` · `test_torqva_workbench.py` · `test_torqva_workflow.py` · `test_torqva_p11.py` through `test_torqva_p29_physical_first.py` (phase series)
+
+### Key Test Invariants
+
+- `torqva_structure.test.js` — `physical/` ↔ `simulation/` isolation (no cross-imports)
+- `test_torqva_feature_audit.py` — no C1–C6 labels visible in any page or backend prose
+- `test_direct_operator_control.py` — Hall sensor never throttles motor; duty and RPM controls are independent
+
+---
+
+## 10. How to Run
+
+### Quick Start (Windows, PowerShell)
 
 ```powershell
+# Install
 cd frontend
 npm install
-npm run dev:sim     # SAFE, software only: backend + website, no USB port scanned or opened
-npm run dev         # with hardware: connects when exactly one board is plugged in; never unlocks interlocks or assumes a port
-# website: http://localhost:5173 (signs in automatically in development as local-dev / admin)
-# backend: http://127.0.0.1:8000/api/torqva   (API docs: http://127.0.0.1:8000/docs)
-
-npx vitest run      # frontend tests (244)
-npm run build       # production build (initial JavaScript ≈ 430 kB, measured 3 Nov; the 3D twin chunk, ≈ 648 kB, the analyst workspaces and the workflow page, ≈ 34 kB, load only when opened)
-node e2e/torqva-app.e2e.mjs        # browser E2E against `npm run dev:sim` (86 checks, incl. no C1–C6 on any page)
-node e2e/torqva-workflow.e2e.mjs   # one-click Diagnostic Workflow: pattern → diagnosis → speed recommendation → authorize → recovery verified; physical blocked (30 checks)
-node e2e/torqva-workbench.e2e.mjs  # analyst workspaces: Anomaly Detection → Diagnostic Investigation → Failure Prediction → Action Recommendations, against `npm run dev:sim` (47 checks)
-node e2e/torqva-twin.e2e.mjs       # Digital Twin E2E incl. the 3D viewport, against `npm run dev:sim` (44 checks)
-node e2e/torqva-routing.e2e.mjs    # URL routing: refresh, links, Back / Forward, mode never from the URL, nothing sent (15 checks)
-# torqva.e2e.mjs (30, fresh backend), lab (12), c2c4 (23) and attestation (32) sign in with a typed token and need a frontend without the automatic sign-in; see frontend/e2e/README.md
-node scripts/check-layer-ids.mjs   # no C1–C6 left in backend prose after the frontend wording layer (reads only)
-
 cd ../backend
 pip install -r requirements.txt
-python -m pytest -q                # backend tests (726 pass, 1 skipped, 3 Nov)
 
-cd ../esp32/torqva_fw
-python -m platformio test -e native      # firmware host tests (130, all pass on 3 Nov; host tests are not hardware validation; uploading is always a deliberate manual step)
+# Start (software only — safe, no hardware needed)
+cd frontend
+npm run dev:sim
+# → Backend: http://127.0.0.1:8000  (API docs: /docs)
+# → Frontend: http://localhost:5173  (auto-signed-in as admin in dev)
+
+# Start (with hardware — connects to one plugged-in ESP32-S3)
+npm run dev
 ```
 
-E2E scripts need `playwright-core` and Google Chrome. Never set `TORQVA_FORCE_UNLOCK` when running anything.
+### Environment Variables (backend)
+
+| Variable | Default | Description |
+|---|---|---|
+| `TORQVA_TOKENS` | (required) | Comma-separated SHA-256 hashes of bearer tokens |
+| `TORQVA_DEVICE_PORT` | auto | Pin a specific COM port |
+| `TORQVA_AUTOCONNECT` | `1` | Set `0` to disable auto-connect |
+| `TORQVA_C2_VARIANT` | `default` | Set `noise_aware` for opt-in C2 |
+
+> [!CAUTION]
+> `TORQVA_FORCE_UNLOCK` has been **removed**. Setting it changes nothing. Never set it.
+
+### Run Tests
+
+```powershell
+# Backend
+cd backend
+python -m pytest -q
+
+# Frontend
+cd frontend
+npx vitest run
+npm run build
+
+# Firmware
+cd esp32/torqva_fw
+python -m platformio test -e native
+
+# Browser E2E (needs Chrome + servers running)
+cd frontend
+node e2e/torqva-app.e2e.mjs
+node e2e/torqva-workflow.e2e.mjs
+node e2e/torqva-twin.e2e.mjs
+node e2e/torqva-workbench.e2e.mjs
+```
+
+### Firmware Upload (manual, deliberate)
+
+```powershell
+# Stop backend first (it holds the serial port)
+cd esp32/torqva_fw
+python -m platformio run -e esp32s3_uart -t upload --upload-port COM10
+```
 
 ---
 
-## 7. The website
+## 11. Git History (Recent Commits)
 
-Navigation groups (2 Nov): **Monitor** (Overview, Live Monitor, Digital Twin) · **Diagnose** (Diagnostic Workflow, Anomaly Detection, Failure Prediction, Action Recommendations, Diagnostic Investigation) · **Intelligence** (Recovery Verification, Continuous Intelligence, Performance Evaluation) · **Engineering** (Scenario Studio, Lab) · **Device & Safety** (one page with three tabs: Device (inventory, session, audit log); Connection & Readiness; Safety & Commissioning, physical mode only; plus **Firmware Manager**, the 15th page, `#/firmware`: release upload and validation, deployment and history, admin-only for upload and deploy; in simulation mode it shows a note and deploys nothing). Groups fold (a group holding the open page never does). Page ids are unchanged (`diagnostics`, `predictions`, `interventions`, `tests`, `recovery`, `learning`, `evaluation`); the former `control` and `devices` ids open the matching Device & Safety section. Internal layer ids (C1–C6) never appear in the interface: page labels use the product names, and `shared/plain.js` rewrites prose from the backend (reasons, notes, limitations) when it is received; bare ids used as keys and decision summaries (digest-signed) are left exactly as recorded.
-
-Every page leads with its main result or decision; advanced detail (traces, raw gate inputs, receipts, per-regime tables, audit trails, the pipeline's own records, connection counters) sits in labelled, keyboard-operable disclosures. A disclosure opens by itself when its content becomes relevant (a hold starts, a receipt is written) and never closes by itself. Safety blockers, STOP, approvals and simulation labels are never inside one.
-
-- **Physical mode (default):** status strip (connection, sensors, safety, motion), live measurement tiles, motor control panel (STOP always prominent; START/speed locked by named blockers), speed status with alarm, device history charts. An invalid Hall reading while the motor is driven shows **SPEED UNAVAILABLE** (with a warning tone), not "0 rpm CRITICAL"; power is labelled DERIVED (V × I), and a missing reading carries no provenance badge. AI pages show the honest waiting state.
-- **Simulation mode (demo):** start a scenario with an injected fault (severity, optional human approval), run/pause, and watch the full C1→C6 pipeline: anomaly scores, hypotheses, gate decisions, predictions, diagnostic tests, approvals, device acknowledgements, recovery verdicts. Everything is labelled SIMULATION.
-- **Diagnostic Workflow (both modes, one click):** pick a test pattern (T1 speed step, T3 thermal, T4 coast-down, a 100/70/85 % speed-response sweep, or adaptive), each shown with its sequence, dwell times, signals, expected observations and live prerequisites; choose the execution policy (*ask me to authorize*, the default, or *execute automatically when every gate permits*) and press **Run Diagnostic Workflow**. The page then shows ten stages with their real status and timestamps, the evidence (measured, derived and suspected kept apart), the diagnosis, a **Recommended action** card (target RPM against the current setpoint, the adjustment, why, the predicted outcome with its 90 % intervals, and every candidate with the reason it was or was not chosen), the authorization step, and verification that separates *accepted*, *executed*, *improvement observed* and *recovery verified (C5)*. A double click sends one request (idempotency key) and the latest workflow is restored after a browser refresh. In simulation a recommendation can be executed only when the scenario holds the pipeline's action for human approval; in an auto-approve scenario the pipeline acts by itself and the workflow says so instead of sending a second command. In physical mode the same page lists the real blockers and nothing can run.
-- **Analyst workflow (simulation mode, C1 → C4 → C2 → C3):** *AI Diagnostics* shows the operating condition, the C1 score in plain language (never turned into a probability), the ranked hypotheses with the features that favour or count against each one against its nearest rival (the hypothesis model's own per-feature log-likelihood), and the test with the highest expected information gain. *Diagnostic Tests* builds an ordered sequence (a multi-step RPM profile with dwell times, T1, T3, T4), runs it on a copy of the live simulated motor (the live run is untouched) and shows per-step target vs observed speed, current, voltage, power, temperature, vibration and C1 flags, speed-scaling exponents, the updated ranking and an outcome category (consistent with baseline, anomalous, hypothesis supported, inconclusive, invalid, aborted). *Predictions* compares Action A/B/C reduce-speed targets (suggested from the Safety Supervisor's envelope or typed) against continue and stop; every number is the predictor's output for exactly that target, and a changed or stale target cannot be selected. *Interventions* re-checks the selected action with the deterministic gate and the Supervisor and, only when both allow it and the pipeline is holding an action for human approval, sends it after an explicit confirmation; the lifecycle then shows acknowledgement and C5 separately. In physical mode the same pages show the device's analysis status, the tests as not runnable and the real motion blockers.
-- **Investigation tools (simulation mode):** an *investigation trace* on all four pages (Observation → Hypothesis → Diagnostic test → Prediction → Safety decision → Outcome), built from the run's own log and stored records, each event naming its source record; an *evidence-sufficiency* status (SUFFICIENT EVIDENCE, MORE EVIDENCE REQUIRED, INVALID INPUT, TEST NOT SUPPORTED, INCONCLUSIVE, defined by the gate's own confidence rule) and an *adaptive investigation* on C4 that picks the eligible test with the highest expected information gain, explains the alternatives and stops by stated rules; a *counterfactual experiment lab* on C2 that runs Continue, reduce targets and STOP on separate copies of one simulator snapshot for the same horizon, compares observed branch trajectories with the C2 predictions and re-runs exactly; and *Decision Receipts* on C3 for every analyst request (accepted or refused, with a frozen evidence snapshot and a SHA-256 digest) and every pipeline action (derived from its records), with a lifecycle read only from later records and a JSON export.
-- Evaluation shows the committed simulation evaluation runs, always labelled as simulation evidence.
-- **Digital Twin:** an interactive 3D model of the rig (Three.js, WebGL 2), with the 2D drawing as the fallback and as a choice. The procedural assembly has the RS-775 can, end bell, bracket, shaft, hub and disc with magnet, the Hall post, DS18B20 probe and clamp, ADXL345, INA219, BTS7960 with heat sink, ESP32-S3 board, OLED, 24 V supply and wiring, plus generic motor internals (magnets, armature, windings, commutator, brushes). Tools: orbit / pan / Ctrl + scroll zoom, isometric / front / side / top presets, orthographic projection, fit, focus, isolate, exploded view, a section through the motor axis and technical edges, plus markers, labels and measurement callouts that are DOM buttons (keyboard and screen-reader reachable). The inspection panel shows the component's name and function and each reading with value, unit, provenance (SIM / HW / DERIVED / CMD), freshness and status, the evidence linked to it, and a link to its trends on Live Monitor (the twin draws no trend of its own and fetches nothing: it renders the data stream it is given). Values come only from the mode's existing data mapping (missing = UNAVAILABLE, never 0). The shaft turns only from a valid, current, non-zero speed (1/40 rate, presentation only). A part is highlighted as an alert only when the source names it: an invalid reading, a firmware trip attributed to that sensor's reading, or (simulation only) the scenario's injected fault, labelled as ground truth. Rendering is on demand, the 3D code loads only on the twin page, a lost graphics context is recovered, and the page sends no commands. The geometry is illustrative, not CAD-accurate.
-- **Operations and device workspaces:** *Recovery* opens with the current recovery status and the next step (from the incident state and the latest C5 outcome only). *Learning* opens with the reference lifecycle (active reference, candidates by state, versions, warm-up hold), then candidates → attestation → versions. *Safety & Commissioning* (physical) opens with operating readiness and every blocker the backend reports, then the interlocks and the commissioning checklist (admin limit / enable forms in their own section). *Device* shows a one-line readiness summary linking there, with frame counters under Connection diagnostics. Simulation mode lists no physical control page: the simulated motor is run, stepped and stopped from Scenario Studio (Overview), and the Device page links there. Physical START, speed and STOP live on the physical Overview.
-- **Analyst experience (item 15):** a dark navy sidebar beside a light workspace (light is the default theme; dark stays one click away). On the simulation analyst pages (AI Diagnostics, Diagnostic Tests, Predictions, Interventions, Recovery) an *Investigation progress* bar shows the five steps in working order (C1 Detect & diagnose → C4 Test the hypothesis → C2 Predict outcomes → C3 Decide & authorize → C5 Verify recovery) with the backend's own stage state (complete, in progress, waiting, refused, failed, not reached, unavailable), the current step highlighted and its backend summary as visible text. Sidebar layer tags explain themselves (e.g. "C2 (outcome prediction)"). *Safety & Commissioning* shows the interlocks as a grouped checklist (device connection, firmware and faults, emergency stop, authorization, electrical limits, commissioning; unknown ids under "Other checks") with a pass count and next step per group; it stacks on phones. *AI Diagnostics* leads with the hypotheses, then assessment and next test, what is unknown and the readings; *Predictions* leads with the action comparison; *Recovery* puts verdicts and their criteria before the incident story. *Scenario Studio* has presets that only fill the form (healthy baseline, recoverable imbalance, analyst review, persistent overload) and one-line field explanations. *Live Monitor* has a signal filter and optional numbered event marks (logged pipeline events and the scenario's injection time, listed with their times).
-- Responsive (desktop to phone, drawer navigation below 860 px; wide tables scroll inside their card), light and dark themes, collapsible sidebar; text tokens meet WCAG 4.5:1 in both themes.
-
----
-
-## 8. Main API routes (`/api/torqva`, bearer token required)
-
-- **Identity & audit:** `GET /me`, `GET /audit` (admin)
-- **Simulation pipeline:** `GET /status /telemetry /incidents /decisions /predictions /prediction-checks /commands /outcomes /cases /log`; `POST /simulation/start`, `/simulation/step`, `/approvals/approve`, `/approvals/reject`, `/commands/stop`, `/commands/reset-estop`
-- **Unified diagnostic workflow (both modes, `backend/torqva/workflow.py`):** `GET /workflow/patterns?mode=`, `GET /workflow/runs?mode=`, `GET /workflow/runs/{id}` (viewer); `POST /workflow/runs` (one request: test → evidence → diagnosis → C2 → recommendation → C3 routing; `idempotency_key` makes a retried click return the same run), `POST /workflow/runs/{id}/authorize` and `/cancel` (operator). Physical workflows are blocked at validation and send nothing.
-- **Analyst workbench (simulation only):** `GET /simulation/workbench/plan`, `GET /simulation/workbench/predict?targets=…` (a pure read), `POST /simulation/workbench/check` (no side effect), `GET /simulation/workbench/trace`, `/receipts`, `/receipts/{id}`, `/counterfactual/{id}`; `POST /simulation/workbench/sequence`, `/adaptive`, `/counterfactual`, `/counterfactual/{id}/rerun` and `/request` (operator)
-- **Evaluation:** `GET /evaluation/latest`, `/evaluation/c2c4`
-- **Lab:** `/lab/regimes`, `/lab/checklist`, `/lab/sessions…` (create, checklist, run, reveal, reproduce), `/lab/experiments`
-- **Attestation (C6):** `/attestation/candidates…`, `/attestation/references…`, `/attestation/warmup…`
-- **Physical device:** `GET /device/status /device/history /device/ports /device/commands`; `POST /device/connect /device/disconnect /device/commands` (STOP / START / SET_SPEED); commissioning `GET /device/commissioning`, `POST /device/commissioning/items/{id}`, `PUT /device/commissioning/limits`, `POST /device/commissioning/enable`; WebSocket `/ws`
-- **Firmware Manager:** `GET /firmware/status /firmware/releases /firmware/releases/{rid} /firmware/deployments /firmware/deployments/{id}` (viewer); `POST /firmware/releases` (multipart upload) and `POST /firmware/deployments` (admin). Device-facing downloads `GET /firmware/ota/{rid}/manifest` and `/image` take no bearer token: they need the active deployment's one-time token (`?t=`), answer 403 to anything else, and are listed separately in the route audit.
-
----
-
-## 9. What was done recently (Oct–Nov 2026)
-
-Items 1–17 are committed and pushed to `torqva/phase-0-audit` (`09ee47e`, pushed 2 Nov). Items 18–21 are committed locally on the same branch (3 Nov) and **not pushed**. Item 22 is in the working tree (staged, **not committed**).
-
-1. **UI/UX redesign** (`7459daf`): new design system with refined light and dark themes, new shell/navigation (collapsible, mobile drawer), dashboards, charts, sign-in page.
-2. **Engineering pass** (`0473df3`): removed fabricated behaviour introduced by earlier commits:
-   - Diagnostic Tests page showed canned results and sent real START/SET_SPEED/STOP commands → now read-only, shows only backend results.
-   - Predictions page invented "hardware-verified" candidates with execute buttons → now backend predictions only, no motor buttons.
-   - Backend fed invented readings (fixed 24 V, default temperatures, made-up vibration) into the AI as MEASURED and marked all layers ACTIVE → restored honest behaviour.
-   - Evaluation relabelled simulation as hardware-validated → fixed; hard-coded "COM7" claims removed; a fake hardware "Emergency Coast Stop" (it only stopped the simulator) removed.
-   - Restored the missing speed input on Motor Control; commissioning form no longer submits hidden voltage limits or blank-as-zero values.
-   - Added a 20 s read timeout, fixed header overflow at tablet widths, and lazy-loaded charts (initial JavaScript 750 kB → 322 kB).
-   - Added `npm run dev:sim` (safe software-only development).
-3. **Repository restructure** (`0473df3`): frontend grouped into `shared/`, `physical/`, `simulation/`; retired docs moved to `docs/history/`; READMEs and a docs index added. Backend package kept flat on purpose.
-4. **Performance** (`975f47a`): faster model build and no per-second re-render of the whole app.
-5. **Digital Twin and honest labels** (`04c2c67`): the read-only Digital Twin page (section 7) for both modes; the physical dashboard's SPEED UNAVAILABLE state and DERIVED power label; a CMD provenance badge for commanded values; the older E2E scripts brought up to date (they start in simulation mode); a 390 px overflow fix on Attestation.
-
-6. **3D Digital Twin** (`80b027b`): the twin page renders the rig in 3D with Three.js (added to `package.json` by the user); the 2D drawing stays as the fallback (no WebGL 2, render error or lost context). Data mappings gained `freshness` and evidence-only `alerts`; no backend, firmware or API change.
-7. **3D twin smoothness** (`60eabbc`): fixed a render-loop explosion (camera damping queued extra frames inside a frame; a 2 s orbit took 279 s, now 4 s, longest task 3.8 s → 0) with a single-flight render-on-demand scheduler; fixed a memory leak on remount (one shared WebGL renderer, explicit OrbitControls listener removal; heap now plateaus around 11 MB); adaptive pixel ratio during motion (`twin3d/quality.js`); marker updates write the DOM only on change; new engine tests (`torqva_twin3d_engine.test.js`, 10 tests).
-
-8. **Simulation Mode redesign** (`6ce140f`): Simulation Overview laid out like the physical dashboard, Scenario Studio, the C1–C6 pipeline view, event timeline and incident story.
-9. **Analyst workflow** (`0e61ce3`): the C1 → C4 → C2 → C3 workspaces above, backed by `backend/torqva/workbench.py` (additive; simulation only). Multi-step tests run on a deep copy of the live simulated motor; evidence is fused only by the existing hypothesis model and learned C4 signatures (the T1 signature is applied only to a profile step pair that matches the conditions it was learned at); an analyst action can only replace the action the pipeline is holding for approval, is refused when C2 marks the prediction for that target unsupported or its predicted risk reaches the gate's stop threshold (the same rules the pipeline applies to itself), and then goes through `Orchestrator.approve()` → Safety Supervisor → dispatcher. `npm run dev:sim` now says which half stopped and why, never reports a killed dev server as success, and ends the whole Vite process tree on Windows. No firmware, physical command path or dependency change.
-10. **Investigation tools** (`0928f5e`): trace, evidence sufficiency and adaptive testing, counterfactual lab and Decision Receipts (`backend/torqva/investigation.py`, additions to `workbench.py`; simulation only). The acknowledgement of a speed command is never shown as execution: the simulated device reports completion only for STOP and tests.
-11. **Unified Diagnostic Workflow** (`4ef2383`): a new "Diagnostic Workflow" page (first item under Diagnostics, same layout in both modes) and `backend/torqva/workflow.py`. The operator picks a test pattern (T1, T3, T4, speed-response sweep, or adaptive) and presses **Run Diagnostic Workflow** once; the backend runs it on a copy of the live simulated motor (`workbench.run_sequence` / `run_adaptive`), assembles the evidence, diagnoses with the test-updated ranking (no ranking is used unless C1 has evidence of an anomaly), predicts every candidate with C2 (each with its own target, conditioned on that ranking and the live state), decides with `gate.decide` on `Orchestrator.gate_inputs(post=…)` and the pipeline's own C2 ranking (ties keep the pipeline's configured 70 % reduction; a lower speed is never preferred for its own sake), and routes the exact recommendation into the existing C3 path (`check_action` / `request_action`, or the always-available STOP path) under the chosen policy: *ask me to authorize* (default) or *execute automatically when every gate permits*. Verification reads the pipeline's own C5 outcome for that command. Explicit outcomes: no intervention needed, awaiting authorization/verification, improvement observed (not verified), recovery verified, condition persists, inconclusive, rejected, failed, expired, declined, superseded, not executable (e.g. the pipeline already acted in an auto-approve scenario: the workflow never sends a second command). Physical mode: blocked at VALIDATING because the firmware accepts only STOP/START/SET_SPEED (no test command) and C1 cannot consume its telemetry. Small supporting changes: `Orchestrator.gate_inputs` takes an optional ranking, `run_sequence`/`run_adaptive` take an optional `capture`, `Store.KINDS` gains `workflow`. No firmware, physical command path or dependency change.
-12. **Codebase and database cleanup** (`4ef2383`, 18 Oct): removed confirmed dead code only. Backend: 46 unused imports and 4 dead local values (pyflakes, each checked for re-exports); identical `_r` helper reused from `workbench.py`; the never-used `session` and `model_version` store kinds dropped from `Store.KINDS` (no code wrote or read them); unused `pydantic-settings` dropped from `requirements.txt`. Frontend: 10 unused imports, the unused `Tabs` component, 19 CSS classes with no reference (about 3 KB); `title`, `pct`, `fmtRpm` and `canControl` defined once in `shared/components.jsx` (the simulation modules re-export them, so imports did not change); package renamed `torqva-frontend`. `frontend/e2e/torqva.e2e.mjs` repaired (simulation mode, current STOP label, narrow-width nav), not deleted. The empty legacy `assets/` placeholder removed; `.tmp/`, `graphify-out/`, `.graphify_python` and `frontend/e2e-shots/` are now git-ignored (left on disk). The store is in-memory SQLite (no migrations, no deployed database); an integrity check on a store populated through the real API found no duplicates, no orphaned references, no fabricated recovery and working append-only triggers. No firmware, safety, auth or API behaviour change.
-
-13. **Page decluttering** (`150e12d`): progressive disclosure across the analyst pages. Interventions shows the held action (Approve / Reject) first; AI Diagnostics replaces the duplicated telemetry tiles with one readings line; Predictions, Diagnostic Tests, Evaluation, Recovery, Motor Control and Devices & Settings keep their key result visible and collapse the pipeline's own duplicate records, counterfactual lab, traces, per-regime tables and audit trail; Overview folds the new-scenario form once a run exists and Live Monitor keeps only the run controls and STOP. Shared `Disclosure` component; visible words fell 13–70 % per page with nothing removed. Vite no longer watches `e2e-shots/`.
-14. **Operations and engineering workspaces** (18–19 Oct): sidebar regrouped (Operations, Intelligence, Device & Safety, Engineering; the Device "USB" badge removed); Safety & Commissioning rebuilt around readiness and blockers (it previously hid everything and showed no interlocks); shared `ReadinessCard` / `InterlocksCard` used by it and Motor Control; Device readiness summary and Connection diagnostics; Learning ordered as the reference lifecycle; Recovery status line with the next step; Lab optional injection-record fields labelled with units (they are recorded only, never used by the simulator); `Disclosure` made open-only (a hold ending no longer folds the warm-up away); wide device tables scroll instead of clipping. Evaluation and Devices & Settings were reviewed and left unchanged (Devices & Settings has no editable settings to offer). The lab, c2c4 and attestation E2E scripts were updated only to open the sections they use. Follow-up cleanup: the backend `TORQVA_FORCE_UNLOCK` bypass removed (item 1 of section 10); the investigation trace now has one home, Interventions (with the receipts and pipeline records), and AI Diagnostics, Diagnostic Tests and Predictions link to it focused on their stage; Overview no longer embeds the trend charts Live Monitor owns; Live Monitor's raw last-8-windows table is a disclosure; Devices & Settings dropped its copy of the simulated device details (kept: the device inventory with links to Device and Overview, the session/application details and the admin audit trail); the Lab metadata fields are labelled as recorded metadata, not simulation controls; about 47 MB of regenerable logs and screenshots were deleted from `.tmp/` (credentials, `legacy_bench` and scripts kept). Feature removal (19 Oct): the simulation-mode *Motor Control* page (`MotorControlPage`, a second set of physical START / speed / STOP controls reachable only from simulation mode, where it could command a connected board) is deleted; simulation mode no longer lists the `control` page and a stale selection falls back to Overview, while physical mode keeps the same id as Safety & Commissioning; the Lab's imbalance mass and radius inputs (a physical-rig record in a simulation-only lab) are removed, Notes kept as recorded metadata and now shown in the session record; its commissioning, limits and interlock unit tests now run in physical mode, the five tests of controls that existed only on that page were removed with it;
-
-15. **Analyst experience redesign** (19 Oct): navy sidebar and light default theme; the shared `JourneyBar` (`simulation/journey.jsx`, states from `pipelineStages` only); grouped `InterlocksCard`; evidence-first ordering of AI Diagnostics, Predictions and Recovery; Scenario Studio presets and field hints (outside the labels, via `aria-describedby`); Live Monitor signal filter and numbered event marks (`eventMarks`, `TrendLines` `marks`); the trend axis keeps the chart's precision (vibration no longer repeats 0.07); three text tokens raised to WCAG 4.5:1 (`--tq-faint` in both themes, the dark sidebar headings). New tests cover the Physical Overview controls the deleted Motor Control page used to test (exact rejection reasons, a single SET_SPEED, operators and viewers limited to STOP), the journey bar, the interlock grouping, the presets and the Live Monitor filter and marks. Two E2E lessons: Playwright `has-text` is case-insensitive, so new visible or screen-reader text can capture an existing selector (the tag text "in one run" captured `button:has-text("Run")`), and a second `<nav>` element is matched by `nav button:has-text(...)`, so the bar uses `role="navigation"` on a `div`. No backend, API, firmware or safety change. Reviewed and left as they were: Interventions and Diagnostic Tests (already key step first) and the confirmations (every consequential action already has a two-step confirm; STOP stays one click). Not reworked yet: Digital Twin, Learning, Evaluation, Device and Devices & Settings beyond the shared styling.
-
-16. **Simulation and physical UI redesign** (`42a4ce6`, 1 Nov): the physical pages (dashboard, Device, Safety & Commissioning) and the simulation pages (Overview, Scenario Studio, the C1–C4 workspaces, Evaluation, Lab, attestation, Diagnostic Workflow) were restyled; shared alerts moved to `shared/alerts.jsx`, the C1 cards to `simulation/analysis.jsx` and the approval / C5 / C6 pages to `simulation/assurance.jsx`; `torqva.css` was split into `styles/` (system, monitoring, analysis, assurance, twin-sim). No backend, firmware or safety change. Frontend 227/227 in 16 files.
-
-17. **Analyst-first navigation, wording and content** (2 Nov): sidebar regrouped as in section 7 with product names; Device, Safety & Commissioning and Devices & Settings merged into Device & Safety (tabs Device; Connection & Readiness; Safety & Commissioning, physical mode only; the old `control` / `devices` ids open the matching tab); no C1–C6 in any label, heading or backend message (`shared/plain.js`, a unit guard over every page in both modes, the `torqva-app` E2E per page, and `frontend/scripts/check-layer-ids.mjs` against live backend responses); terms renamed (Investigation History, Evidence Quality, What-if Analysis, Decision Summary, Guided Investigation, Anomaly Severity, Analysis progress). One motor-condition vocabulary (Normal, Investigation Required, Action Verification, Critical, Unavailable): a banner with one next step on both Overviews and a compact badge in every other page head; the page head no longer repeats the sidebar group, and the top bar no longer shows the simulated-device pill. Simulation Overview leads with the condition, then key readings, predicted risk, analysis progress, the active incident and recent activity (its embedded Scenario Studio and sparkline tiles removed). Physical Overview gained the same banner (Unavailable unless the board latched a trip, which is Critical) and keeps its controls. Live Monitor shows the event timeline instead of a second set of run controls: Scenario Studio is the one place to configure, run, step and stop the simulator. The investigation bar runs Monitor → Investigate → Test → Understand → Act → Verify. About 90 page and card subtitles, notes and paragraphs were shortened or removed (algorithm explanations, restated headings, HTTP and implementation detail); notes that prevent a misreading (simulation is not hardware evidence, a prediction is not a measurement, an acknowledgement is not recovery) and every safety, interlock and commissioning text were kept. No backend, safety or API change. Frontend 230/230, build passes; browser E2E all eight suites pass (304 checks, see section 6), after updating their selectors to the current pages (several had been stale since `42a4ce6`).
-
-18. **Content audit and simplification** (3 Nov, working tree, not committed): page-by-page audit of all 14 pages in both modes, recorded in `docs/TORQVA_UI_CONTENT_AUDIT.md`. Scenario Studio's telemetry chart (a copy of Live Monitor) replaced by a *Run results* card (readings, then detected anomaly → likely cause → predicted outcome → recommended action → after the action, from the pipeline's own stage records); Live Monitor's raw windows table moved into a disclosure; Anomaly Detection lost its duplicated Top hypotheses card, the gate-verdict line and the algorithm walkthrough (Explainability tab is now Details); Diagnostic Investigation's Guided investigation is a disclosure; Performance Evaluation names its detectors (it showed `c1`, `global`, `legacy`) and drops "Phase 10/11/12", with run hashes behind *Run details and history*; Device tab dropped Application information and shows audit details as text, not JSON; shorter subtitles and notes on Digital Twin, Diagnostic Workflow, Failure Prediction, Recovery, Continuous Intelligence and Lab. Dead code removed: `SimControls`, `TelemetryPreview`, `DevicesPage`'s unused standalone tabs. Defects fixed: the committed unit C1–C6 guard and one physical "0 rpm" check contained literal backspace bytes instead of `\b` and could never fail (both fixed, guard now also catches lowercase); the physical Digital Twin listed "C1, C2, C4, C5: …" (now product names). No backend, firmware, safety or API change.
-
-19. **Serial error classification and firmware safety restoration** (3 Nov, two commits). `bd60dbc`: the serial open-error classifier (section 10 item 20). Then the eight firmware files changed by `319fb7b` were restored to their reviewed, tested parent version (detail and evidence per protection in `docs/TORQVA_FIRMWARE_SAFETY_RESTORATION.md`), and three backend leftovers of that commit were fixed: the Safety Supervisor received a fixed 24 V instead of the measured voltage, the sensor interlock ignored voltage, and a build sentinel was sent as the plaintext command key. The firmware-in-the-loop binary was rebuilt from the restored source. One test (`test_python_and_the_firmware_core_agree_on_proofs_session_id_and_command_macs`) took a counter above the bridge's own instead of a fixed 900001 that the clock-seeded counter had already passed; its assertions are unchanged. Nothing was flashed and no board was connected. Firmware host tests 130/130 (were 105/130), backend 726 passed, 0 failed, 1 skipped (were 5 failed).
-
-20. **URL routing and refresh** (3 Nov): `TorqvaApp.jsx` reads the page from the URL hash at load and on Back / Forward / a hand-edited URL, and writes it on navigation (a new page adds a history entry; a tab change or a correction replaces it). Unknown routes open Overview; the old `control` / `devices` / `connection` ids still open their Device & Safety tab. Unit tests reset the URL before each test. New: `src/tests/torqva_routing.test.jsx` (8) and `e2e/torqva-routing.e2e.mjs` (15). The browser suite found one bug before commit: a hand-edited URL to Safety & Commissioning in simulation mode showed the right tab but left the URL uncorrected.
-
-21. **Charts, tables and Digital Twin** (3 Nov, two commits, details in `docs/TORQVA_UI_CONTENT_AUDIT.md` sections 1a and 1b): shared chart rules (chart precision on axes and tooltips, units on the value axis, formatted intervals, missing values as gaps, prediction charts labelled as model estimates with a `now / +N s` horizon); the physical Overview's sparklines and their history poll removed; audit event kinds in product terms (the audit history showed "c2 ranking"); the `torqva-app` E2E id check reads rendered text in either case. Digital Twin: the component panel shows name, function, readings, evidence and a Live Monitor link; its trend chart and identity metadata are gone, and the twin makes no request of its own.
-
-22. **Firmware Manager: ESP32-S3 OTA upload, transfer and verification** (3–4 Nov, working tree, details in `docs/TORQVA_OTA_FIRMWARE_MANAGER.md`):
-- **Firmware:** `lib/torqva_core/ota.{h,cpp}` holds the update state machine, manifest and signature checks, self-test and boot outcome. `src/ota_esp32.{h,cpp}` is the platform layer (Wi-Fi and TLS from NVS, `Update` into the inactive slot, mbedTLS ECDSA P-256, `verifyRollbackLater`). `Device` checks the authenticated `ota` request and its own eligibility (stopped, speed measured and valid, no motor supply, no trip, no test). While an update runs, or a new image is unconfirmed, it refuses START / SET_SPEED / RUN_TEST; STOP always works.
-- **Partition table:** `default_8MB.csv` is pinned. It is the board's own default, so the layout does not change.
-- **Backend:** `firmware.py` and `firmware_routes.py`, plus `tools/sign_firmware.py` and `tools/provision_ota.py`. The image is checked for structure, chip, partition fit, SHA-256, ECDSA signature, downgrade and duplicates. Storage is file-based, with a history log. Deployments are admin-only, need typed confirmation and use one-time download tokens. `ota` / `ota_info` frames carry `seq`/`ts` in the shared sequence.
-- **Page:** Firmware Manager, sections A–H.
-- **Route audit:** firmware routes registered with their roles; the two device-download routes are listed as token-protected (403).
-- **Fixed during verification (4 Nov):** a `CONFIRMED` boot report seen before the deployment reached its restart could have been taken as success. It now counts only from `READY` on (regression test added).
-- **Not validated on hardware:** nothing was flashed, and the bench procedure (section 14 of the OTA document) has not been performed.
-
-Test status (4 Nov, after item 22; every number below comes from a run on the final working tree):
-
-| Area | Result |
+| Commit | Description |
 |---|---|
-| Backend | 770 passed, 0 failed, 0 skipped (including 42 firmware-manager tests and the 13 route-audit tests) |
-| Firmware host tests | 151/151 |
-| Builds | `esp32s3` (with and without a public key) and `esp32s3_uart` build |
-| Frontend | 257/257 in 23 files; build passes |
-| Browser E2E | ten suites, 342 checks: app 89, twin 46, workbench 47, workflow 30, routing 15 against `npm run dev:sim`; torqva 30, lab 12, c2c4 23, attestation 32, firmware 18 against a fresh token backend |
-| C1–C6 checks | the app suite's and the unit test's checks now include Firmware Manager |
+| `8b4ac16` | feat(intelligence): add live physical Recovery Verification and Continuous Intelligence workspaces |
+| `2508603` | feat(evaluation): add physical hardware performance evaluation with live streaming telemetry |
+| `2a0aa40` | feat(intelligence): enable continuous intelligence attestation and recovery verification for physical workflows |
+| `ad5955f` | fix(workflow): execute physical motor tests and enable live hardware workflow updates |
+| `2888673` | fix(control): prioritize direct duty control, restore 3k nominal UI with 20k ceiling, and debounce Hall sensor against noise |
+| `3e7682e` | fix(control): switch to pure feedforward drive so Hall sensor measures speed without slowing motor |
+| `d384090` | feat(limits): increase speed limit from 3000 to 20000 rpm across firmware, backend, and UI |
+| `2190daa` | fix(hall): debounce pulse drop, update minimum duty floor, and tone down zero-pulse alarm |
+| `8c62741` | fix(control): prevent motor stall on Hall sensor reading and auto-clear transient trips |
+| `3a6451a` | fix(safety): debounce sensor invalid trips against EMI and auto-reset cleared trips on motion command |
 
-Test status (3 Nov, after item 21; every number below was produced by a run on the final commit): frontend 244/244 in 22 files; build passes (initial JavaScript ≈ 430 kB; the older ≈ 368 kB figure in section 6 dates from an earlier build); browser E2E nine suites, 321 checks: app 86, twin 46, workbench 47, workflow 30, routing 15 against `npm run dev:sim`, and torqva 30, lab 12, c2c4 23, attestation 32 against a fresh token backend; `check-layer-ids` passes; 270-view sweep (every page and tab, both modes, light and dark, 390/768/1440 px): no horizontal overflow, no C1–C6; backend 726 passed, 0 failed, 1 skipped; firmware host tests 130/130. Physical operation remains blocked (section 10 item 2).
-
-Test status (3 Nov, after item 18): frontend 233/233 in 20 files; build passes; browser E2E all eight suites pass (304 checks: app 86, twin 44, workbench 47, workflow 30, torqva 30, lab 12, c2c4 23, attestation 32); `check-layer-ids` passes; a 270-view sweep (every page and tab, both modes, light and dark, 390/768/1440 px) found no horizontal overflow and no C1–C6. Backend and firmware not re-run (unchanged).
-
-Test status (3 Nov, after item 17): frontend 230/230 in 20 files; build passes; browser E2E 304 checks across all eight suites (2 Nov); `check-layer-ids` passes; `npm run dev:sim` starts cleanly (website on 5173, API on 8000). Backend and firmware were not re-run for item 17 (no backend or firmware change).
-
-Earlier test status (19 Oct, after item 15): frontend 209/209; build passes (initial JavaScript ≈ 368 kB; the workflow page is a chunk loaded on demand); browser E2E all seven suites pass: workflow 30/30, workbench 47/47, app 66/66, twin 44/44 against the software-only backend (re-run after the last change), and lab 12/12 (second attempt; Vite crashed in the first), c2c4 23/23 (noise-aware C2), attestation 32/32 (fresh backend) against a token backend (operator / viewer / admin, no device access) with Vite on 127.0.0.1:5173; the original torqva.e2e.mjs was 30/30 after item 13 and not re-run for item 14; no horizontal overflow at 1440 px (light) and 390 px (dark, every disclosure open) on the item-14 pages in both modes; backend 702 passed / 5 failed / 1 skipped (the same 5 firmware source checks; 22 of the passes are the workflow tests, 1 the force-unlock regression test); firmware host tests 105 passed / 25 failed (see section 10, item 2); store integrity check on an API-populated store: clean. Identical to the baseline taken before the cleanup.
+**Branch:** `torqva/phase-0-audit`  
+**Remote:** `origin/torqva/phase-0-audit` and `origin/main` (both up to date)
 
 ---
 
-## 10. Known issues and open decisions
+## 12. Project Phase Status
 
-1. **Fixed (14 and 18 Oct):** `npm run dev` no longer sets `TORQVA_FORCE_UNLOCK=1` or opens COM7, and the backend bypass itself is removed: the flag used to report the session as active, the limits as confirmed and the E-stop input as released, clear every blocker and even mint a Safety Supervisor approval after a refusal. It now has no effect (a regression test sets it and checks that every blocker, refusal and status is unchanged).
-2. **Restored in source (3 Nov, item 19):** the firmware protections relaxed in `319fb7b` (over-current, voltage, sensor-loss, RPM-loss and heartbeat trips, E-stop latch and reset, authentication, brown-out and boot-fault latching, ACCEPTED-only acks, uncommissioned speed limit) are back to the tested design, and the backend no longer feeds the Safety Supervisor a fixed 24 V. Firmware host tests 130/130 and backend 726/726 pass. See `docs/TORQVA_FIRMWARE_SAFETY_RESTORATION.md`. **Physical operation is still blocked**: host tests are not hardware validation, nothing was flashed, and the bring-up checklist (wiring, independent E-stop, key, commissioning, bench trip tests) is not done. The control-loop tuning and Hall filtering that `319fb7b` added were reverted with it and are open engineering decisions.
-3. The commissioning API requires both voltage limits (the silent 0–26 V defaults are gone; checked 3 Nov). Device autoconnect retries every 1 s (was 5 s).
-4. The speed status bands (normal 1100–1500 rpm around 1300) are a display choice, not approved limits.
-5. Physical AI is not possible yet: C1 needs vibration RMS and shaft-order harmonics the firmware doesn't compute; no physical baseline or held-out evaluation exists.
-6. Hardware readiness gaps: wiring unconfirmed, independent E-stop not installed, no secure (encrypted) device transport, no relay or reset button.
-7. Legacy data kept on purpose: `backend/data/motor_monitor.db` (untracked, ignored) is the retired prototype's SQLite file: 696 telemetry rows (including `live` hardware readings), 465 alerts and 58 baselines, integrity OK, no exact duplicates. No current code opens it; deleting or archiving it needs an explicit decision because it holds historical measurements. (The empty `assets/` placeholder was removed, `torqva.e2e.mjs` was repaired, and the package is now `torqva-frontend`.)
-8. **Resolved (3 Nov, item 20):** pages have URLs (`#/<page>`, `#/device/<tab>`): a refresh keeps the page, links open it directly, and Back / Forward work. A route only chooses what is shown; the mode is never read from the URL, Safety & Commissioning cannot be opened in simulation mode, and opening a route sends nothing. Hash routing was chosen over History API paths because the repository configures no server that would return `index.html` for a deep path (the backend does not serve the frontend; `npm run build` produces static files), and over a router library because the app has one level of pages.
-9. The simulator's in-memory history (`orch.buf`, `orch.scores`, `orch.log`) grows by one entry per simulated second without a limit. It is not capped yet because other records point into it by position (a running test's start index, the trace's and Decision Receipts' log entry numbers); a cap needs those references re-based first.
-10. The branch `torqva/phase-0-audit` is pushed (up to `09ee47e`) but not merged into `main` (no pull request yet).
-11. The 3D twin is illustrative: no CAD model or measurement of the real rig exists, so sensor positions, the disc size, wiring routes and the motor internals are typical, not this unit's. The rotation direction depends on unverified motor polarity. The twin shows no C2 prediction overlay because predictions are system-level, not tied to a component. Performance was measured in headless Chrome only; real-display frame rate and GPU time are unmeasured, and the first selection of a mechanical part still costs one ~12 ms frame.
-12. The analyst workflow's limits: C2 interval widths are calibrated per action, not per target speed; the outcome signatures and the predictor are learned in simulation; a test sequence runs on a copy, so a fault the scenario schedules for later is not applied in it (the result says so); an analyst can only execute when the scenario requires human approval and the pipeline holds an action. Physical diagnostics stay locked (no vibration RMS or harmonics from the firmware, no torque sensor).
-13. The Diagnostic Workflow's limits: its test runs on a copy of the live simulated motor, so the live decision gate (evaluated on the live run's ranking) can disagree with the test-informed recommendation, and execution is then blocked with that reason; a run on the copy takes about 0.03 s, so the page shows real stage timestamps rather than progress inside a test; workflow records are held in memory for the backend process; C2 risk is often 0.00 for every reduction target in the test scenarios, so targets A, B and C usually differ only in their predicted values and the pipeline's own 70 % target is kept.
-14. `.tmp/` (git-ignored, about 151 MB) was deleted on 2 Nov 2026 as regenerable scratch, without the hand review this item had asked for. It held what looked like a token (`op.tok`), key-provisioning material (`provision_rig1`) and a 134 MB `legacy_bench`; those are gone and not in Git. `backend/data/device_keys.json`, `commissioning.json` and `motor_monitor.db` were not touched. A frontend feature-removal pass (2 Nov) was undone at the user's request and kept as a git stash (`feature-removal (2 Nov)`); item 17 later replaced it. 103 tracked files have CRLF line endings in the working tree and the rest LF (Git stores LF either way); a `.gitattributes` would make this consistent.
-15. **Resolved (19 Oct):** Physical Overview's START / speed / STOP controls now have their own tests (two-step START, exact rejection reasons, a single SET_SPEED, STOP-only for operators and viewers).
-16. `torqva_twin3d_engine.test.js` is timing-sensitive: it failed twice in full runs while the machine was busy and passes alone and in every other full run.
-17. Claude Code may stop a long-running `npm run dev:sim` when the machine is low on memory; restart it with `npm run dev:sim` from `frontend/` when needed.
-18. If the process that started `npm run dev:sim` is killed from outside (for example a terminal or tool that ends only the npm wrapper), the launcher and its two servers keep running and hold ports 8000/5173; stop them before starting another. Separately, the Vite dev server crashes natively (Windows exit code 0xC0000409 / 3221226505) during browser E2E runs, repeatedly on 19 Oct (running the backend and Vite as separate processes let the suites finish); the launcher now reports it, the trigger is not identified (rapid screenshot writes into the watched folder did not reproduce it). It happened again four times on 2 Nov under Node 24.15.0; trying Node 22 LTS is a suggested, untested fix.
-19. Most pages' tables and charts were restyled and, in item 18, checked for duplicates and precision, but not redesigned.
-20. **Fixed (3 Nov, `bd60dbc`):** the serial open-error classifier's `winerror` patterns held literal backspace bytes, and Windows error 31 (device not functioning) was reported as access denied because Python maps it to `PermissionError`. The Windows error code now decides for codes 5, 2 and 31; unknown codes stay "could not be opened"; regression tests added. Open: error 121 (semaphore timeout) reads as a device error in pyserial's message form and as a timeout in a raw `OSError`; which help text is right is a wording decision.
+| Phase | Status |
+|---|---|
+| 1 — Firmware foundation | ✅ Done (host-tested; upload is a manual step) |
+| 2 — Software architecture | ✅ Done |
+| 3 — C1–C6 AI pipeline (simulation) | ✅ Done and evaluated |
+| 4 — Backend + data layer | ✅ Done for simulation; physical endpoint set added |
+| 5 — UI/UX | ✅ Done (physical + simulation, all 15 pages) |
+| 6 — Simulation research validation | ✅ Done (`docs/TORQVA_EVAL_SIM.md`) |
+| 7 — End-to-end software acceptance | ✅ Done in simulation |
+| 8 — C1 robustness (opt-in) | ✅ Done in simulation; not claimed for hardware |
+| 9 — C6 attestation | ✅ Done in simulation |
+| 10 — C2/C4 quality (opt-in) | ✅ Done in simulation |
+| Physical C5 Recovery Verification | ✅ Live physical endpoints and UI |
+| Physical C6 Continuous Intelligence | ✅ Live physical endpoints and UI |
+| Physical Performance Evaluation | ✅ Live streaming telemetry and UI |
+| Firmware OTA Manager | ✅ Done (upload, verify, deploy, rollback) |
+| **Hardware integration (physical motor operation)** | ⏳ Not started — requires commissioning record completion by a human |
 
-21. **Firmware Manager / OTA (item 22) is not hardware-validated:**
-    - The ESP32-S3 platform layer (Wi-Fi, TLS, `Update`, mbedTLS signature check, rollback) has only been compiled. The bench procedure in `docs/TORQVA_OTA_FIRMWARE_MANAGER.md` section 14 has not been performed.
-    - Boards running earlier firmware are not OTA-capable until one USB installation.
-    - There is no Secure Boot, flash encryption or eFuse anti-rollback (downgrade protection is software only), and none is enabled automatically.
-    - Device downloads need an HTTPS endpoint the board can reach (`TORQVA_OTA_PUBLIC_BASE_URL`).
-    - `MOTOR_POWER_CONNECTED` assumes the INA219 measures the motor supply bus.
-    - Deployments in progress live in memory, so a backend restart forgets one.
-    - OTA readiness does not change motor-operation readiness (item 2).
+---
 
-## 11. Likely next steps
+## 13. Known Gaps & Open Work
 
-- Firmware Manager bench test on a real ESP32-S3 with the motor power stage disconnected (`docs/TORQVA_OTA_FIRMWARE_MANAGER.md` section 14), by a qualified person.
+| Item | Status |
+|---|---|
+| Hardware E-stop circuit | Designed, not installed or wired |
+| Commissioning record | Checklist items need human attestation before physical motor operation |
+| Physical C1 anomaly detection | Blocked: needs vibration RMS + harmonics from firmware (not currently measured) |
+| Wiring verification | `pinmap.h` lists GPIO map; a human must verify physical connections match |
+| HTTPS / CORS tightening | Dev uses `*` CORS; production deployment needs proper origin config |
+| Token rotation / expiry | Static SHA-256 hashes; no expiry mechanism |
+| Rate limiting | No rate limiting on the API |
+| Physical motor power relay | Not installed (manual disconnect only) |
+| E2E test selector maintenance | Some E2E selectors go stale when UI text changes |
 
-- Hardware bring-up of the restored firmware (section 10 item 2): only by a qualified person, following the checklist; decide the control-loop tuning and Hall filtering first.
-- Open a pull request from `torqva/phase-0-audit` into `main`.
-- Continue the redesign on Digital Twin, Learning, Evaluation and Device & Safety, and the tables and charts of the remaining pages.
-- Decide whether to drop the `feature-removal (2 Nov)` stash (item 17 replaced it).
-- Decide what happens to `backend/data/motor_monitor.db` (keep, archive or delete; it holds historical live readings).
-- Hardware bring-up following `docs/TORQVA_HARDWARE_BRINGUP_CHECKLIST.md`: confirm wiring, install and verify the E-stop, commission limits, authenticated session.
-- Physical data path for AI: compute vibration RMS / harmonics in firmware, record labelled physical sessions, fit and evaluate C1 on real data, then C2/C4 matched-condition experiments.
-- Optional: CI workflow (tests + build), TypeScript migration of the frontend API layer.
+---
 
-## 12. Glossary
+## 14. Repository Layout
 
-- **Provenance badges:** `SIM` simulated · `HW`/`MEASURED` from the device · `PRED` prediction · `DERIVED` computed from other values · `CMD` a commanded value (e.g. setpoint), not a measurement.
-- **Incident:** an anomaly episode tracked by a state machine from detection to recovery or closure.
-- **FITL:** firmware-in-the-loop — the real firmware core compiled for the host and driven by backend tests.
-- **Interlock / blocker:** a named condition that keeps physical START/speed refused (e.g. DEVICE NOT CONNECTED, SAFETY LIMITS NOT APPROVED).
-- **Commissioning:** the human, evidence-backed record that approves limits and enables physical control.
+```
+TORQVA/
+├── README.md                        Quick-start and layout overview
+├── backend/
+│   ├── main.py                      FastAPI entry point
+│   ├── requirements.txt
+│   ├── README.md                    Backend module map by responsibility
+│   ├── torqva/                      42-module Python package (flat, no sub-packages)
+│   ├── tests/                       37 pytest files (800 tests)
+│   ├── tools/
+│   │   ├── provision_device_key.py  Per-device offline key provisioning
+│   │   ├── provision_ota.py         OTA certificate provisioning
+│   │   └── sign_firmware.py         Firmware ECDSA signing tool
+│   └── data/
+│       ├── commissioning.json       Live commissioning record (git-ignored)
+│       ├── device_keys.json         Per-device session keys (git-ignored)
+│       └── firmware/                OTA images and release registry
+├── frontend/
+│   ├── package.json
+│   ├── scripts/dev.mjs              Starts backend + frontend together (process tree managed)
+│   └── src/torqva/                  (see structure above)
+│       ├── physical/                8 files — physical device pages
+│       ├── simulation/              20 files — simulation AI pages
+│       ├── workflow/                1 file — Diagnostic Workflow (both modes)
+│       ├── shared/                  11 files + twin3d/ — shared UI primitives and Digital Twin
+│       ├── TorqvaApp.jsx            App shell
+│       └── api.js                   REST client (60 endpoints)
+├── esp32/torqva_fw/
+│   ├── platformio.ini               4 environments (native, fitl, esp32s3, esp32s3_uart)
+│   ├── src/main.cpp                 Hardware HAL entry point
+│   ├── lib/torqva_core/             Portable firmware core (C++)
+│   └── tests/                       Firmware host tests
+└── docs/
+    ├── README.md                    Docs index
+    ├── PROJECT_OVERVIEW.md          ← This file
+    ├── TORQVA_ARCHITECTURE.md       Architecture detail
+    ├── TORQVA_PROGRESS.md           Phase-by-phase session notes
+    ├── TORQVA_GAP_AUDIT.md          Outstanding gaps audit
+    ├── TORQVA_HARDWARE_READINESS.md Hardware readiness checklist
+    ├── TORQVA_HARDWARE_BRINGUP_CHECKLIST.md  Step-by-step bringup
+    ├── TORQVA_WIRING.md             Wiring reference
+    ├── TORQVA_ESTOP.md              E-stop circuit design
+    ├── TORQVA_OTA_FIRMWARE_MANAGER.md  OTA design and operation
+    ├── TORQVA_SECURITY_AUDIT.md     Security audit
+    ├── TORQVA_UI_CONTENT_AUDIT.md   Page-by-page UI content audit
+    ├── TORQVA_EVAL_SIM.md           Simulation evaluation methodology and results
+    ├── software.md                  Software detail reference
+    ├── hardware.md                  Hardware pin reference (see note in §2)
+    └── eval/                        Committed evaluation artifacts (read by backend at runtime)
+        ├── c1_phase8_*.json/gz      C1 robustness evaluation
+        ├── c2c4_phase10_*.json/gz   C2/C4 quality evaluation
+        └── c2cov_phase11_*.json     C2 coverage evaluation
+```
