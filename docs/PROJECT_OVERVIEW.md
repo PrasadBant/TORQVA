@@ -1,6 +1,6 @@
 # TORQVA — Complete Project Overview
 
-> **Last updated:** 16 Nov 2026 · Branch `torqva/phase-0-audit` · Commit `8b4ac16` · GitHub `PrasadBant/TORQVA`
+> **Last updated:** 17 Nov 2026 · Branch `torqva/phase-0-audit` · Commit `471a6e6` · GitHub `PrasadBant/TORQVA`
 >
 > This single file captures everything about the project: what it is, how it works, the full tech stack, hardware, firmware, backend, frontend, AI pipeline, test suite, API surface, and development status. Use it as the canonical briefing document.
 
@@ -376,10 +376,23 @@ UI                             (display only, never source of safety decision)
 
 | Env | Use |
 |---|---|
-| `native` | Host unit tests (no hardware) |
-| `fitl` | Firmware-in-the-loop CLI for backend tests |
-| `esp32s3` | Native USB connector |
-| `esp32s3_uart` | UART0 / CH343 "UART" connector |
+| `native` | Host unit tests (no hardware, no Arduino dependency) |
+| `fitl` | Firmware-in-the-loop CLI — real `torqva_core::Device` + SimPlant running on host; used by backend tests |
+| `esp32s3` | Native USB-CDC connector (`ARDUINO_USB_CDC_ON_BOOT=1`); Serial = chip's USB-CDC |
+| `esp32s3_uart` | CH343 "UART" connector (UART0); Serial = GPIO 43/44 |
+| `esp32s3_ota_led_v100` | OTA bench profile v1.0.0 — LED on GPIO 5, blink 500 ms, no motor hardware |
+| `esp32s3_ota_led_v110` | OTA bench profile v1.1.0 — LED blink 100 ms |
+| `esp32s3_ota_led_v111` | OTA bench profile v1.1.1 — adds Wi-Fi link (WebSocket/TLS to backend) |
+| `esp32s3_ota_led_v112` | OTA bench profile v1.1.2 — adds USB output non-blocking fix (`usb_out.cpp`) |
+
+> [!NOTE]
+> OTA bench profiles (`esp32s3_ota_led_*`) use a single LED on GPIO 5 and have **no motor hardware**. They are used to validate the OTA update path without a motor rig. `TORQVA_CONTROL_ENABLED` is intentionally absent — the firmware will not compile it if set in a bench profile.
+
+**Build flags of note:**
+- `-DTORQVA_CONTROL_ENABLED=1` — required to allow START / SET_SPEED commands; absent = motor commands rejected
+- `-DTORQVA_ESTOP_INPUT_WIRED=1` — absent by default; must be set only after E-stop circuit is physically installed and verified
+- `-DTORQVA_KEY=\"dev-key-change-me\"` — shared HMAC key; **must be changed** before any deployment
+- `-DTORQVA_DEVICE_ID=\"RIG-1\"` — device identifier reported in every status frame
 
 ### Wire Protocol (v1)
 
@@ -449,6 +462,37 @@ Quality bitmask `q` per `fast` frame: bit 0 current, 1 voltage, 2 housing, 3 amb
 | `c1_robust.py`, `c2_robust.py`, `c4_robust.py` | Opt-in improved variants |
 | `generalization_study.py`, `c2_conditional.py` | Research modules |
 | `gate.py` | C3 decision gate |
+
+### Commissioning Record (Live State — `backend/data/commissioning.json`)
+
+The commissioning record is the human-authorised gatekeeper for physical motor operation. Its live state:
+
+| Checklist Item | Status |
+|---|---|
+| `board_identity` — Board chip/module/revision confirmed | ❌ NOT VERIFIED |
+| `gpio38` — GPIO 38 / RPWM not shared with on-board RGB LED | ❌ NOT VERIFIED |
+| `wiring` — Physical wiring of all sensors, OLED, LEDs, driver confirmed | ❌ NOT VERIFIED |
+| `logic_levels` — All signals 3.3 V logic; motor supply never touches GPIO | ❌ NOT VERIFIED |
+| `psu_ratings` — PSU voltage and current limit set and confirmed | ❌ NOT VERIFIED |
+| `estop` — Independent hardware E-stop installed and verified | ❌ NOT VERIFIED |
+| `driver_default_off` — Driver EN/PWM pulled to OFF across reset | ❌ NOT VERIFIED |
+| `watchdog` — Watchdog timeout confirmed on target hardware | ❌ NOT VERIFIED |
+
+**Approved limits (version 2, approved by `local-dev`):**
+
+| Limit | Approved Value |
+|---|---|
+| Max current | 3.0 A |
+| Min voltage | 0.0 V (not set) |
+| Max voltage | 26.0 V |
+| Max temperature | 60 °C |
+| **Max RPM** | **20,000 rpm** |
+| Max duty | 100 % |
+
+Evidence: *"Operator approved max speed 20000 rpm for RS-775 motor direct testing"*
+
+> [!CAUTION]
+> `enable` is `null` — physical motor operation is **not enabled**. All 8 checklist items must be attested by a human before `enable` can be set. START and SET_SPEED remain blocked by commissioning interlocks regardless of approved limits.
 
 ### Users & Roles
 
@@ -676,21 +720,34 @@ Idempotency key prevents double-submit. Latest workflow restored after browser r
 
 ## 9. Test Suite
 
-| Suite | Count | Command |
+| Suite | Count | Run command |
 |---|---|---|
-| **Backend pytest** | **800 tests** (37 files) | `cd backend; python -m pytest -q` |
-| **Frontend Vitest** | **264 tests** (24 files) | `cd frontend; npx vitest run` |
+| **Backend pytest** | **800 tests** (44 files) | `cd backend; python -m pytest -q` |
+| **Frontend Vitest** | **264 tests** (26 files, 1 known flaky) | `cd frontend; npx vitest run` |
 | **Firmware host tests** | **~130 tests** | `cd esp32/torqva_fw; python -m platformio test -e native` |
 
-### Backend Test Files (37 files)
+> [!IMPORTANT]
+> Run Vitest from the **`frontend/`** directory, not the repo root. Running `npx --prefix frontend vitest run` from the root skips `vite.config.js` and loses the `environment: 'jsdom'` setting, causing all React tests to fail with `window is not defined`. This is a known path trap.
 
-`test_torqva_api.py` · `test_torqva_attestation.py` · `test_torqva_c1.py` · `test_torqva_c1_robust.py` · `test_torqva_c2.py` · `test_torqva_c2c4.py` · `test_torqva_c3_c4.py` · `test_torqva_c5.py` · `test_torqva_c6.py` · `test_torqva_conformance.py` · `test_torqva_device_link.py` · `test_torqva_e2e.py` · `test_torqva_eval.py` · `test_torqva_feature_audit.py` · `test_torqva_firmware.py` · `test_torqva_incident.py` · `test_torqva_investigation.py` · `test_torqva_lab.py` · `test_direct_operator_control.py` · `test_torqva_physical_evaluation.py` · `test_torqva_physical_intelligence.py` · `test_torqva_safety.py` · `test_torqva_safety_restoration.py` · `test_torqva_workbench.py` · `test_torqva_workflow.py` · `test_torqva_p11.py` through `test_torqva_p29_physical_first.py` (phase series)
+### Known Flaky Test
+
+`torqva_app.test.jsx > application shell behaviour (audit) > every page in both modes renders its own heading` — intermittently fails depending on lazy-loading timing in the test environment. All other 263 tests pass reliably.
+
+### Backend Test Files (44 files)
+
+`test_torqva_api.py` · `test_torqva_attestation.py` · `test_torqva_c1.py` · `test_torqva_c1_robust.py` · `test_torqva_c2.py` · `test_torqva_c2c4.py` · `test_torqva_c3_c4.py` · `test_torqva_c5.py` · `test_torqva_c6.py` · `test_torqva_conformance.py` · `test_torqva_device_link.py` · `test_torqva_e2e.py` · `test_torqva_eval.py` · `test_torqva_feature_audit.py` · `test_torqva_firmware.py` · `test_torqva_incident.py` · `test_torqva_investigation.py` · `test_torqva_lab.py` · `test_direct_operator_control.py` · `test_torqva_physical_evaluation.py` · `test_torqva_physical_intelligence.py` · `test_torqva_safety.py` · `test_torqva_safety_restoration.py` · `test_torqva_workbench.py` · `test_torqva_workflow.py` · `test_torqva_p11.py` · `test_torqva_p12.py` · `test_torqva_p13.py` · `test_torqva_p14_contract.py` · `test_torqva_p15a.py` · `test_torqva_p15b_transport.py` · `test_torqva_p15_quarantine.py` · `test_torqva_p16_serial.py` · `test_torqva_p17_serial_errors.py` · `test_torqva_p18_firmware_bringup.py` · `test_torqva_p19_pins.py` · `test_torqva_p20_telemetry.py` · `test_torqva_p21_legacy_retired.py` · `test_torqva_p23_serial_robustness.py` · `test_torqva_p24_commissioning.py` · `test_torqva_p27_auth_session.py` · `test_torqva_p27_physical_adapter.py` · `test_torqva_p29_physical_first.py`
+
+### Frontend Vitest Files (26 files)
+
+`torqva.test.jsx` · `torqva_api.test.js` · `torqva_app.test.jsx` · `torqva_attestation.test.jsx` · `torqva_c2c4.test.jsx` · `torqva_charts.test.jsx` · `torqva_device.test.jsx` · `torqva_firmware.test.jsx` · `torqva_investigation.test.jsx` · `torqva_journey.test.jsx` · `torqva_lab.test.jsx` · `torqva_live.test.jsx` · `torqva_physical.test.jsx` · `torqva_plain.test.js` · `torqva_routing.test.jsx` · `torqva_shell.test.jsx` · `torqva_sim_overview.test.jsx` · `torqva_structure.test.js` · `torqva_twin.test.jsx` · `torqva_twin3d.test.jsx` · `torqva_twin3d_engine.test.js` · `torqva_wifi_link.test.jsx` · `torqva_workbench.test.jsx` · `torqva_workflow.test.jsx`
 
 ### Key Test Invariants
 
-- `torqva_structure.test.js` — `physical/` ↔ `simulation/` isolation (no cross-imports)
-- `test_torqva_feature_audit.py` — no C1–C6 labels visible in any page or backend prose
+- `torqva_structure.test.js` — `physical/` ↔ `simulation/` isolation (no cross-imports ever)
+- `torqva_feature_audit` (backend) — no C1–C6 labels visible in any page or backend prose
 - `test_direct_operator_control.py` — Hall sensor never throttles motor; duty and RPM controls are independent
+- `test_torqva_p19_pins.py` — every required GPIO is assigned; none uses a reserved ESP32-S3 N16R8 pin
+- `test_torqva_p21_legacy_retired.py` — legacy sketch text (`MOTOR_ON`, `MOTOR_OFF`, old TCP endpoints) is rejected; cannot enter physical mode via old protocol
 
 ---
 
@@ -765,6 +822,8 @@ python -m platformio run -e esp32s3_uart -t upload --upload-port COM10
 
 | Commit | Description |
 |---|---|
+| `471a6e6` | docs: expand PROJECT_OVERVIEW with full hardware details |
+| `84f2a54` | docs: rewrite PROJECT_OVERVIEW.md with complete Nov 2026 state |
 | `8b4ac16` | feat(intelligence): add live physical Recovery Verification and Continuous Intelligence workspaces |
 | `2508603` | feat(evaluation): add physical hardware performance evaluation with live streaming telemetry |
 | `2a0aa40` | feat(intelligence): enable continuous intelligence attestation and recovery verification for physical workflows |
@@ -777,7 +836,7 @@ python -m platformio run -e esp32s3_uart -t upload --upload-port COM10
 | `3a6451a` | fix(safety): debounce sensor invalid trips against EMI and auto-reset cleared trips on motion command |
 
 **Branch:** `torqva/phase-0-audit`  
-**Remote:** `origin/torqva/phase-0-audit` and `origin/main` (both up to date)
+**Remote:** `origin/torqva/phase-0-audit` and `origin/main` (both up to date as of `471a6e6`)
 
 ---
 
