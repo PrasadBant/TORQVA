@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Gauge, Thermometer, Waves, Zap, Plug, History } from 'lucide-react';
 import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, PageHead, AlertPanel, ChartPanel, MetricList, DataTable, SourceTag, LinkButton, Disclosure } from '../shared/components.jsx';
 import { Sparkline, TrendLines } from '../shared/lazyCharts.jsx';
@@ -8,6 +8,10 @@ import { TEST_SPECS } from '../shared/diagnostics.js';
 import { isPhysOf, samplesOf } from './simdata.js';
 import { plainLabel } from '../shared/plain.js';
 import { EventTimeline } from './events.jsx';
+import { CopySummaryButton } from '../shared/recording.jsx';
+import { TelemetryWindowControl, windowName } from '../shared/windows.jsx';
+import { useAlarmContext, RpmAlarmBanner } from '../shared/alarmContext.jsx';
+import { LimitsPanel } from '../shared/limits.jsx';
 
 export { TEST_SPECS };
 export { FAULTS, canControl };
@@ -60,12 +64,11 @@ const SIG = {
   voltage: ['Supply voltage', 'V', 2, 'var(--tq-sig-voltage)', Plug],
 };
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-const windowName = (r) => (r === 'all' ? 'all windows (≤300)' : `last ${Number(r) < 120 ? `${r} s` : `${Number(r) / 60} min`}`);
 
 export function LivePage({ d, role, actions, running, setRunning, busy, error, stale, deviceLive, device, isPhys: isPhysProp, stepSeconds, go }) {
   const isPhys = isPhysProp ?? isPhysOf(d);
   const provKind = isPhys ? 'MEASURED' : 'SIMULATED';
-  const [range, setRange] = useState('all');
+  const [range, setRange] = useState(60);
   const [shown, setShown] = useState(() => new Set(SIGNALS.map(([k]) => k)));
   const [withEvents, setWithEvents] = useState(false);
   const toggle = (k) => setShown((x) => { const n = new Set(x); if (n.has(k)) { if (n.size > 1) n.delete(k); } else n.add(k); return n; });   // at least one chart stays visible
@@ -75,14 +78,23 @@ export function LivePage({ d, role, actions, running, setRunning, busy, error, s
   const s = d.status || {};
   const data = useMemo(() => {
     const base = all.map((x) => ({ ...x, score: x.score == null || x.score <= 0 ? null : Number(x.score.toFixed(3)) }));
-    if (range === 'all' || !base.length) return base;
-    const cut = base[base.length - 1].t - Number(range);
+    if (!base.length) return base;
+    const windowSec = Number(range) || 60;
+    const cut = base[base.length - 1].t - windowSec;
     return base.filter((x) => x.t >= cut);
   }, [all, range]);
   const marks = useMemo(() => (withEvents ? eventMarks(d, data) : []), [withEvents, d, data]);
   const last = data[data.length - 1]; const w = s.last_window;
   const missing = ['rpm', 'housing', 'vib_rms', 'current'].filter((k) => w && (w[k] === null || w[k] === undefined));
   const physical = (deviceOn && device.snap.origin === 'physical_device') || isPhys;
+  const invalid = w && w.valid === false;
+  const latest = (k) => (invalid ? null : num(w?.[k]));          // an invalid window is unavailable, never a number
+  const currentRpm = latest('rpm');
+  const { evaluate } = useAlarmContext();
+  useEffect(() => {
+    evaluate({ rpm: currentRpm, isRunning: running || isPhys, valid: !invalid && currentRpm !== null });
+  }, [currentRpm, running, isPhys, invalid, evaluate]);
+
   const selector = deviceOn ? (
     <div className="tq-seg" role="group" aria-label="Data source">
       <button className="tq-btn" aria-pressed={source === 'simulation'} onClick={() => setSource('simulation')}>Simulation</button>
@@ -92,8 +104,6 @@ export function LivePage({ d, role, actions, running, setRunning, busy, error, s
     return (<><PageHead title="Live Monitor" sub="Readings reported by the connected device over USB serial; stale data is marked, never shown as live." right={<Pill tone={physical ? 'ok' : 'warn'}>{physical ? 'PHYSICAL DEVICE' : 'DEVICE (FIRMWARE SIMULATION MODE)'}</Pill>} />
       <div className="tq-toolbar"><span className="tq-toolbar-label">Source</span>{selector}</div>{deviceLive}</>);
   }
-  const invalid = w && w.valid === false;
-  const latest = (k) => (invalid ? null : num(w?.[k]));          // an invalid window is unavailable, never a number
   const V = latest('voltage'); const I = latest('current');
   const power = V !== null && I !== null ? V * I : null;
   const foot = `${windowName(range)} · simulation time${last ? ` t = ${fmt(last.t, 0)} s` : ''}`;
@@ -110,16 +120,15 @@ export function LivePage({ d, role, actions, running, setRunning, busy, error, s
     <>
       <PageHead title="Live Monitor" sub={isPhys ? 'Measured readings from the physical device.' : 'Simulated readings and trends.'}
         right={<><ProvBadge kind={provKind} />{stale ? <Pill tone="crit">stale</Pill> : <Pill tone={isPhys ? 'ok' : running ? 'ok' : 'off'}>{isPhys ? 'live HW' : running ? 'running' : 'paused'}</Pill>}</>} />
+      <RpmAlarmBanner rpm={currentRpm} />
       <div className="tq-toolbar tq-mon-toolbar">
         {selector && <><span className="tq-toolbar-label">Source</span>{selector}</>}
-        <span className="tq-toolbar-label">Time range</span>
-        <div className="tq-seg" role="group" aria-label="Time range">
-          {RANGES.map(([k, name]) => <button key={k} className="tq-btn" aria-pressed={range === k} onClick={() => setRange(k)}>{name}</button>)}
-        </div>
+        <TelemetryWindowControl seconds={range} onChange={setRange} role={role} />
         <span className="tq-toolbar-label">Signals</span>
         <div className="tq-seg" role="group" aria-label="Charts shown" data-testid="live-signals">
           {SIGNALS.map(([k, name]) => <button key={k} type="button" className="tq-btn" aria-pressed={shown.has(k)} onClick={() => toggle(k)}>{name}</button>)}
         </div>
+        <CopySummaryButton mode={isPhys ? 'PHYSICAL' : 'SIMULATION'} />
         <label className="tq-check tq-small"><input type="checkbox" checked={withEvents} onChange={(e) => setWithEvents(e.target.checked)} data-testid="live-events" /> Mark analysis events on the charts</label>
       </div>
       {withEvents && <p className="tq-small tq-muted" data-testid="live-marks">{marks.length ? <>Marked on the charts: {marks.map((m) => <span key={m.n} className="tq-mark-key"><strong>{m.n}</strong> {m.label} (t = {fmt(m.t, 0)} s)</span>)}</> : 'No pipeline event falls inside this time window.'}</p>}
@@ -199,6 +208,7 @@ export function DevicesPage({ d, user, role, rows, auditError, device, go, runni
             <dt>Token storage</dt><dd>this browser tab only</dd></dl>
         </Card>
       </div>
+      <LimitsPanel role={role} />
       <div className="tq-mt">
         <Card title="Audit history (append-only)" id="c-aud" sub={admin && rows?.length > 30 ? `Latest 30 of ${rows.length} entries` : null}>
           {!admin ? <Empty>The audit log is visible to admins only.</Empty> : (<>

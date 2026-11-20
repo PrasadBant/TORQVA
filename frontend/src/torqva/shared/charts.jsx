@@ -2,7 +2,7 @@
 // through lazyCharts.jsx instead of delaying the sign-in page and the physical dashboard, which draw no chart.
 // Shared rules: axis ticks and tooltips use the chart's own precision (`digits`), the unit sits at the top of the value axis, a missing value
 // stays a gap (no line is drawn through it), and a prediction is always dashed with its interval shaded, never drawn like a measurement.
-import React, { useId } from 'react';
+import React, { useId, useState } from 'react';
 import { LineChart, Line, ComposedChart, AreaChart, Area, XAxis, YAxis, Tooltip, Legend, ReferenceLine, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { AXIS, GRID, TOOLTIP, LEGEND } from './components.jsx';
 
@@ -32,16 +32,107 @@ export function Sparkline({ data, dataKey, color, height }) {
   );
 }
 
+/** Inspector Popover for Click-to-Inspect (Feature 6) */
+export function ChartInspectPopover({ point, onClose }) {
+  if (!point) return null;
+  const isWall = typeof point.t === 'number' && point.t > 1000000000;
+  const timeStr = isWall ? new Date(point.t * 1000).toLocaleTimeString() : `t = ${Number(point.t).toFixed(1)} s`;
+
+  return (
+    <div
+      className="tq-chart-inspect-popover"
+      data-testid="chart-inspect-popover"
+      style={{
+        position: 'absolute',
+        top: '8px',
+        right: '12px',
+        background: 'var(--tq-surface-3, #1e293b)',
+        border: '1px solid var(--tq-border, #475569)',
+        borderRadius: '6px',
+        padding: '8px 12px',
+        fontSize: '0.8rem',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+        zIndex: 10,
+        minWidth: '170px',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', gap: '8px' }}>
+        <span className="tq-num" style={{ fontWeight: 600, color: 'var(--tq-text-muted, #94a3b8)' }}>{timeStr}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span
+            className="tq-pill"
+            data-testid="inspect-quality-badge"
+            style={{
+              padding: '1px 5px',
+              fontSize: '0.7rem',
+              borderRadius: '4px',
+              background: point.quality === 'VALID' ? 'rgba(16,185,129,0.2)' : point.quality === 'STALE' ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.2)',
+              color: point.quality === 'VALID' ? '#10b981' : point.quality === 'STALE' ? '#f59e0b' : '#ef4444',
+            }}
+          >
+            {point.quality}
+          </span>
+          <button
+            type="button"
+            className="tq-iconbtn"
+            onClick={onClose}
+            aria-label="Close inspector"
+            style={{ width: '18px', height: '18px', padding: 0, border: 'none', background: 'transparent', cursor: 'pointer', color: 'inherit' }}
+          >
+            ×
+          </button>
+        </div>
+      </div>
+      <div>
+        <strong>{point.name}: </strong>
+        <span className="tq-num" data-testid="inspect-value-text">{point.formatted}{point.formatted !== 'UNAVAILABLE' && point.unit ? ` ${point.unit}` : ''}</span>
+      </div>
+    </div>
+  );
+}
+
 /** Telemetry over simulation time (seconds). */
 // `marks`: optional event lines [{ t, at, n, label }]: numbered, drawn at `at` (an existing sample time, as the x axis is categorical); the caller lists what each number is.
 export function TrendLines({ data, lines, height, yDomain, digits = 2, unit = '', marks = [] }) {
+  const [inspected, setInspected] = useState(null);
+
+  const handleClick = (e) => {
+    if (!e || !e.activePayload || !e.activePayload.length) return;
+    const item = e.activePayload[0];
+    const rawVal = item.value;
+    const tVal = e.activeLabel ?? item.payload?.t;
+    const isMissing = rawVal === null || rawVal === undefined || Number.isNaN(rawVal);
+    const isStale = !!item.payload?.stale;
+    const quality = isMissing ? 'UNAVAILABLE' : isStale ? 'STALE' : 'VALID';
+    setInspected({
+      t: tVal,
+      val: rawVal,
+      formatted: isMissing ? 'UNAVAILABLE' : fixed(rawVal, digits),
+      unit,
+      name: item.name || 'Value',
+      quality,
+    });
+  };
+
   return (
-    <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={data} margin={{ top: unit ? 22 : 6, right: 10, bottom: 0, left: 0 }}><CartesianGrid {...GRID} /><XAxis dataKey="t" minTickGap={28} tickFormatter={(x) => `${Math.round(x)}s`} {...AXIS} /><YAxis domain={yDomain || ['auto', 'auto']} width={54} tickFormatter={(v) => fixed(v, digits, true)} label={unitLabel(unit)} {...AXIS} axisLine={false} />
-        <Tooltip {...TOOLTIP} formatter={(v) => tipValue(v, digits, unit)} labelFormatter={(x) => `t = ${Math.round(x)} s`} /><Legend {...LEGEND} />{lines.map((l) => <Line key={l.key} dataKey={l.key} name={l.name} stroke={l.color} strokeDasharray={l.dash} strokeWidth={l.dash ? 1.5 : 2} dot={false} activeDot={{ r: 3.5, strokeWidth: 0 }} isAnimationActive={false} connectNulls={false} />)}
-      {marks.map((m, i) => <ReferenceLine key={`${m.t}-${m.label}`} x={m.at ?? m.t} stroke="var(--tq-muted)" strokeDasharray="3 3" label={{ value: String(m.n ?? i + 1), position: i % 2 ? 'insideBottomRight' : 'insideTopRight', fill: 'var(--tq-text-2)', fontSize: 11, fontWeight: 600 }} />)}
+    <div style={{ position: 'relative', width: '100%', height }}>
+      {inspected && <ChartInspectPopover point={inspected} onClose={() => setInspected(null)} />}
+      <ResponsiveContainer width="100%" height={height}>
+        <LineChart data={data} onClick={handleClick} margin={{ top: unit ? 22 : 6, right: 10, bottom: 0, left: 0 }}>
+          <CartesianGrid {...GRID} />
+          <XAxis dataKey="t" minTickGap={28} tickFormatter={(x) => `${Math.round(x)}s`} {...AXIS} />
+          <YAxis domain={yDomain || ['auto', 'auto']} width={54} tickFormatter={(v) => fixed(v, digits, true)} label={unitLabel(unit)} {...AXIS} axisLine={false} />
+          <Tooltip {...TOOLTIP} formatter={(v) => tipValue(v, digits, unit)} labelFormatter={(x) => `t = ${Math.round(x)} s`} />
+          <Legend {...LEGEND} />
+          {lines.map((l) => (
+            <Line key={l.key} dataKey={l.key} name={l.name} stroke={l.color} strokeDasharray={l.dash} strokeWidth={l.dash ? 1.5 : 2} dot={false} activeDot={{ r: 4.5, strokeWidth: 0, cursor: 'pointer' }} isAnimationActive={false} connectNulls={false} />
+          ))}
+          {marks.map((m, i) => (
+            <ReferenceLine key={`${m.t}-${m.label}`} x={m.at ?? m.t} stroke="var(--tq-muted)" strokeDasharray="3 3" label={{ value: String(m.n ?? i + 1), position: i % 2 ? 'insideBottomRight' : 'insideTopRight', fill: 'var(--tq-text-2)', fontSize: 11, fontWeight: 600 }} />
+          ))}
         </LineChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
@@ -69,15 +160,40 @@ export function ResponseChart({ data, height, yDomain, digits = 1, unit = '' }) 
   );
 }
 
-/** Device history over wall-clock time. Gaps (null) stay gaps. */
+/** Device history over wall-clock time. Gaps (null) stay gaps. Supports Click-to-Inspect. */
 export function HistoryChart({ data, name, height, color = 'var(--tq-chart-1)', digits = 2, unit = '' }) {
+  const [inspected, setInspected] = useState(null);
+
+  const handleClick = (e) => {
+    if (!e || !e.activePayload || !e.activePayload.length) return;
+    const item = e.activePayload[0];
+    const rawVal = item.value;
+    const tVal = e.activeLabel ?? item.payload?.t;
+    const isMissing = rawVal === null || rawVal === undefined || Number.isNaN(rawVal);
+    const isStale = !!item.payload?.stale;
+    const quality = isMissing ? 'UNAVAILABLE' : isStale ? 'STALE' : 'VALID';
+    setInspected({
+      t: tVal,
+      val: rawVal,
+      formatted: isMissing ? 'UNAVAILABLE' : fixed(rawVal, digits),
+      unit,
+      name: item.name || name || 'Value',
+      quality,
+    });
+  };
+
   return (
-    <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={data} margin={{ top: unit ? 22 : 6, right: 10, bottom: 0, left: 0 }}><CartesianGrid {...GRID} />
-        <XAxis dataKey="t" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(x) => new Date(x * 1000).toLocaleTimeString()} minTickGap={40} {...AXIS} />
-        <YAxis width={54} domain={['auto', 'auto']} tickFormatter={(v) => fixed(v, digits, true)} label={unitLabel(unit)} {...AXIS} axisLine={false} />
-        <Tooltip labelFormatter={(x) => new Date(x * 1000).toLocaleTimeString()} formatter={(v) => tipValue(v, digits, unit)} {...TOOLTIP} />
-        <Line dataKey="v" name={name} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 3.5, strokeWidth: 0 }} isAnimationActive={false} connectNulls={false} />
-      </LineChart></ResponsiveContainer>
+    <div style={{ position: 'relative', width: '100%', height }}>
+      {inspected && <ChartInspectPopover point={inspected} onClose={() => setInspected(null)} />}
+      <ResponsiveContainer width="100%" height={height}>
+        <LineChart data={data} onClick={handleClick} margin={{ top: unit ? 22 : 6, right: 10, bottom: 0, left: 0 }}>
+          <CartesianGrid {...GRID} />
+          <XAxis dataKey="t" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(x) => new Date(x * 1000).toLocaleTimeString()} minTickGap={40} {...AXIS} />
+          <YAxis width={54} domain={['auto', 'auto']} tickFormatter={(v) => fixed(v, digits, true)} label={unitLabel(unit)} {...AXIS} axisLine={false} />
+          <Tooltip labelFormatter={(x) => new Date(x * 1000).toLocaleTimeString()} formatter={(v) => tipValue(v, digits, unit)} {...TOOLTIP} />
+          <Line dataKey="v" name={name} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 4.5, strokeWidth: 0, cursor: 'pointer' }} isAnimationActive={false} connectNulls={false} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   );
 }

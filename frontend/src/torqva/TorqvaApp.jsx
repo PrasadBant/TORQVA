@@ -9,6 +9,8 @@ import { JourneyBar } from './simulation/journey.jsx';
 import { useDeviceStream, DevicePage, DeviceCard, DeviceLive } from './physical/device.jsx';
 import { ModeSwitch, PhysicalBanner, PhysicalOverview, PhysicalLive, PhysicalAiPage, PhysicalSafetyPage, physHealth } from './physical/physical.jsx';
 import { AlertsMenu, deviceAlerts, simAlerts } from './shared/alerts.jsx';
+import { RecordingIndicator } from './shared/recording.jsx';
+import { AlarmProvider } from './shared/alarmContext.jsx';
 import './torqva.css';
 import './styles/system.css';
 import './styles/monitoring.css';
@@ -475,67 +477,70 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     : null;
   const alerts = physicalMode ? deviceAlerts(device) : simAlerts(d, stale);
   return (
-    <div className={`tq-shell ${theme === 'light' ? 'tq-theme-light' : 'tq-theme-dark'} ${navOpen ? 'tq-nav-open' : ''} ${collapsed && !compact ? 'tq-nav-collapsed' : ''}`.replace(/\s+/g, ' ').trim()}>
-      <div className="tq-body">
-        <nav className="tq-sidebar" id="tq-nav" aria-label="TORQVA sections" ref={navRef} inert={drawerHidden ? '' : undefined}>
-          <div className="tq-brand"><Logo /><span className="tq-brand-name"><strong>TORQVA</strong><small>AI Motor Diagnostics</small></span></div>
-          {NAV_GROUPS.map((grp, gi) => {
-            const single = grp.items.length === 1;
-            // A group folds only when it does not hold the open page, so the active page is always visible.
-            const shut = !single && folded.includes(grp.heading) && !grp.items.some(([k]) => k === view);
-            return (
-              <div className="tq-navgroup" key={grp.heading}>
-                {single ? <p className="tq-navgroup-label" id={`tq-ng-${gi}`}>{grp.heading}</p>
-                  : <button type="button" className="tq-navgroup-label tq-navgroup-btn" id={`tq-ng-${gi}`} aria-expanded={!shut} aria-label={`Show or hide ${grp.heading}`} onClick={() => toggleGroup(grp.heading)}>
-                    <span>{grp.heading}</span><ChevronDown size={13} aria-hidden="true" className="tq-navgroup-chev" /></button>}
-                {!shut && <ul aria-labelledby={`tq-ng-${gi}`}>{grp.items.map(([k]) => { const { label, Icon } = navItem(k); return (
-                  <li key={k}><button className={`tq-nav ${view === k ? 'active' : ''}`} aria-current={view === k ? 'page' : undefined} onClick={() => go(k)} title={collapsed && !compact ? label : undefined}>
-                    <Icon size={16} aria-hidden="true" /><span className="tq-nav-label">{label}</span></button></li>); })}</ul>}
-              </div>); })}
-          <div className="tq-sidebar-foot">
-            <button type="button" className="tq-collapse-btn" onClick={toggleCollapsed} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-pressed={collapsed}>
-              {collapsed ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}<span>{collapsed ? 'Expand' : 'Collapse'}</span>
-            </button>
+    <AlarmProvider>
+      <div className={`tq-shell ${theme === 'light' ? 'tq-theme-light' : 'tq-theme-dark'} ${navOpen ? 'tq-nav-open' : ''} ${collapsed && !compact ? 'tq-nav-collapsed' : ''}`.replace(/\s+/g, ' ').trim()}>
+        <div className="tq-body">
+          <nav className="tq-sidebar" id="tq-nav" aria-label="TORQVA sections" ref={navRef} inert={drawerHidden ? '' : undefined}>
+            <div className="tq-brand"><Logo /><span className="tq-brand-name"><strong>TORQVA</strong><small>AI Motor Diagnostics</small></span></div>
+            {NAV_GROUPS.map((grp, gi) => {
+              const single = grp.items.length === 1;
+              // A group folds only when it does not hold the open page, so the active page is always visible.
+              const shut = !single && folded.includes(grp.heading) && !grp.items.some(([k]) => k === view);
+              return (
+                <div className="tq-navgroup" key={grp.heading}>
+                  {single ? <p className="tq-navgroup-label" id={`tq-ng-${gi}`}>{grp.heading}</p>
+                    : <button type="button" className="tq-navgroup-label tq-navgroup-btn" id={`tq-ng-${gi}`} aria-expanded={!shut} aria-label={`Show or hide ${grp.heading}`} onClick={() => toggleGroup(grp.heading)}>
+                      <span>{grp.heading}</span><ChevronDown size={13} aria-hidden="true" className="tq-navgroup-chev" /></button>}
+                  {!shut && <ul aria-labelledby={`tq-ng-${gi}`}>{grp.items.map(([k]) => { const { label, Icon } = navItem(k); return (
+                    <li key={k}><button className={`tq-nav ${view === k ? 'active' : ''}`} aria-current={view === k ? 'page' : undefined} onClick={() => go(k)} title={collapsed && !compact ? label : undefined}>
+                      <Icon size={16} aria-hidden="true" /><span className="tq-nav-label">{label}</span></button></li>); })}</ul>}
+                </div>); })}
+            <div className="tq-sidebar-foot">
+              <button type="button" className="tq-collapse-btn" onClick={toggleCollapsed} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-pressed={collapsed}>
+                {collapsed ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}<span>{collapsed ? 'Expand' : 'Collapse'}</span>
+              </button>
+            </div>
+          </nav>
+          <button type="button" className="tq-scrim" tabIndex={-1} aria-hidden="true" onClick={() => setNavOpen(false)} />
+          <div className="tq-content">
+            <div className="tq-sticky">
+              {physicalMode ? <PhysicalBanner snap={device.snap} /> : <SimulationBanner mode={mode} physical={device.snap?.origin === 'physical_device' && device.snap?.handshake === true} />}
+              {physicalMode && device.unreachable && (
+                <div className="tq-conn" role="alert" data-testid="conn-warning"><WifiOff size={16} aria-hidden="true" /><strong>Backend unreachable.</strong>
+                  <span>Device readings shown are the last ones received and are not live. Start the backend and this page recovers automatically.</span></div>)}
+              {stale && !physicalMode && (
+                <div className="tq-conn" role="alert" data-testid="conn-warning"><WifiOff size={16} aria-hidden="true" /><strong>Backend unreachable.</strong>
+                  <span>Values shown are STALE{lastOk ? <> (last updated <SecondsAgo since={lastOk} /> s ago)</> : ''} and are not live. Start the backend and this page recovers automatically.</span></div>)}
+              <header className="tq-top">
+                <button type="button" className="tq-iconbtn tq-menu-btn" data-testid="nav-toggle" aria-label="Open navigation" aria-expanded={navOpen} aria-controls="tq-nav" onClick={() => setNavOpen(true)}>
+                  <Menu size={18} aria-hidden="true" /></button>
+                <span className="tq-top-logo"><Logo size={26} /></span>
+                <div className="tq-ctx tq-ctx-mode" data-testid="top-mode" title={physicalMode ? 'Physical Hardware Mode' : 'Software Simulator Mode'}>
+                  <span className={`tq-ctx-icon tq-${physicalMode ? (modeCtx.tone === 'ok' ? 'info' : modeCtx.tone) : 'sim'}`} aria-hidden="true">{physicalMode ? <Usb size={17} /> : <FlaskConical size={17} />}</span>
+                  <span className="tq-ctx-text"><strong>{modeCtx.title}</strong><span className="tq-env-text">{modeCtx.text}</span></span>
+                </div>
+                {physicalMode && (
+                  <div className="tq-ctx tq-ctx-device" data-testid="top-device">
+                    <span className={`tq-ctx-dot tq-${devCtx.tone}`} aria-hidden="true" /><span className="tq-ctx-text"><strong>{devCtx.title}</strong>{devCtx.text && <span>{devCtx.text}</span>}</span>
+                  </div>)}
+                <span className="tq-grow" />
+                <RecordingIndicator physicalMode={physicalMode} role={user.role} />
+                <ModeSwitch mode={appMode} onChange={changeMode} />
+                <AlertsMenu alerts={alerts} go={go} />
+                <button type="button" className="tq-iconbtn" onClick={toggleTheme} aria-label="Toggle theme" title={theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Cockpit Theme'}>
+                  {theme === 'dark' ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}</button>
+                <button type="button" className="tq-iconbtn" onClick={() => go('devices')} aria-label="Inventory, session and audit log" title="Inventory, session and audit log"><Settings size={16} aria-hidden="true" /></button>
+                <span className="tq-user" title={`${user.user} · ${user.role}`}><span className="tq-avatar" aria-hidden="true">{String(user.user || '?').slice(0, 1)}</span><span className="tq-user-name tq-user-badge">{user.user} · {user.role}</span></span>
+                <button type="button" className="tq-iconbtn" onClick={() => { setToken(''); setUser(null); setRunning(false); }} aria-label="Sign out" title="Sign out"><LogOut size={16} aria-hidden="true" /></button>
+              </header>
+            </div>
+            <main className="tq-main">
+              <h1 className="tq-sr">{NAV.find((n) => n[0] === view)[1]}</h1>
+              <NavContext.Provider value={{ icon: current.Icon, condition: view === 'overview' ? null : physicalMode ? physHealth(device.snap) : simHealth(d, running, stale) }}><div className="tq-view" key={`${appMode}-${view}`}>{!physicalMode && JOURNEY_VIEWS.has(view) && <JourneyBar d={d} view={view} go={go} />}{pages[view]}</div></NavContext.Provider>
+            </main>
           </div>
-        </nav>
-        <button type="button" className="tq-scrim" tabIndex={-1} aria-hidden="true" onClick={() => setNavOpen(false)} />
-        <div className="tq-content">
-          <div className="tq-sticky">
-            {physicalMode ? <PhysicalBanner snap={device.snap} /> : <SimulationBanner mode={mode} physical={device.snap?.origin === 'physical_device' && device.snap?.handshake === true} />}
-            {physicalMode && device.unreachable && (
-              <div className="tq-conn" role="alert" data-testid="conn-warning"><WifiOff size={16} aria-hidden="true" /><strong>Backend unreachable.</strong>
-                <span>Device readings shown are the last ones received and are not live. Start the backend and this page recovers automatically.</span></div>)}
-            {stale && !physicalMode && (
-              <div className="tq-conn" role="alert" data-testid="conn-warning"><WifiOff size={16} aria-hidden="true" /><strong>Backend unreachable.</strong>
-                <span>Values shown are STALE{lastOk ? <> (last updated <SecondsAgo since={lastOk} /> s ago)</> : ''} and are not live. Start the backend and this page recovers automatically.</span></div>)}
-            <header className="tq-top">
-              <button type="button" className="tq-iconbtn tq-menu-btn" data-testid="nav-toggle" aria-label="Open navigation" aria-expanded={navOpen} aria-controls="tq-nav" onClick={() => setNavOpen(true)}>
-                <Menu size={18} aria-hidden="true" /></button>
-              <span className="tq-top-logo"><Logo size={26} /></span>
-              <div className="tq-ctx tq-ctx-mode" data-testid="top-mode" title={physicalMode ? 'Physical Hardware Mode' : 'Software Simulator Mode'}>
-                <span className={`tq-ctx-icon tq-${physicalMode ? (modeCtx.tone === 'ok' ? 'info' : modeCtx.tone) : 'sim'}`} aria-hidden="true">{physicalMode ? <Usb size={17} /> : <FlaskConical size={17} />}</span>
-                <span className="tq-ctx-text"><strong>{modeCtx.title}</strong><span className="tq-env-text">{modeCtx.text}</span></span>
-              </div>
-              {physicalMode && (
-                <div className="tq-ctx tq-ctx-device" data-testid="top-device">
-                  <span className={`tq-ctx-dot tq-${devCtx.tone}`} aria-hidden="true" /><span className="tq-ctx-text"><strong>{devCtx.title}</strong>{devCtx.text && <span>{devCtx.text}</span>}</span>
-                </div>)}
-              <span className="tq-grow" />
-              <ModeSwitch mode={appMode} onChange={changeMode} />
-              <AlertsMenu alerts={alerts} go={go} />
-              <button type="button" className="tq-iconbtn" onClick={toggleTheme} aria-label="Toggle theme" title={theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Cockpit Theme'}>
-                {theme === 'dark' ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}</button>
-              <button type="button" className="tq-iconbtn" onClick={() => go('devices')} aria-label="Inventory, session and audit log" title="Inventory, session and audit log"><Settings size={16} aria-hidden="true" /></button>
-              <span className="tq-user" title={`${user.user} · ${user.role}`}><span className="tq-avatar" aria-hidden="true">{String(user.user || '?').slice(0, 1)}</span><span className="tq-user-name tq-user-badge">{user.user} · {user.role}</span></span>
-              <button type="button" className="tq-iconbtn" onClick={() => { setToken(''); setUser(null); setRunning(false); }} aria-label="Sign out" title="Sign out"><LogOut size={16} aria-hidden="true" /></button>
-            </header>
-          </div>
-          <main className="tq-main">
-            <h1 className="tq-sr">{NAV.find((n) => n[0] === view)[1]}</h1>
-            <NavContext.Provider value={{ icon: current.Icon, condition: view === 'overview' ? null : physicalMode ? physHealth(device.snap) : simHealth(d, running, stale) }}><div className="tq-view" key={`${appMode}-${view}`}>{!physicalMode && JOURNEY_VIEWS.has(view) && <JourneyBar d={d} view={view} go={go} />}{pages[view]}</div></NavContext.Provider>
-          </main>
         </div>
       </div>
-    </div>
+    </AlarmProvider>
   );
 }

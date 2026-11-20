@@ -24,6 +24,7 @@ import { Card, Empty, Pill, ProvBadge, PageHead, SourceTag, LinkButton, Disclosu
 import { MotorModel } from './twinModel.jsx';
 import { COMPONENT, KIND_LABEL, STRUCTURE_IDS, SPIN_SCALE } from './twinParts.js';
 import { webgl2Available } from './twin3d/support.js';
+import { RpmAlarmBanner } from './alarmContext.jsx';
 
 const TwinViewport = lazy(() => import('./twin3d/viewport.jsx'));
 
@@ -414,6 +415,7 @@ export function DigitalTwin({ model, go, aside }) {
   return (
     <div className="tq-tw" data-testid="twin-page" data-source={model.source}>
       {head}
+      <RpmAlarmBanner rpm={model.motion?.rpm} />
       <TwinStatusBar model={model} />
       <Kpis model={model} onSelect={setSelected} selected={selected} />
       <div className="tq-tw-work">

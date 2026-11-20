@@ -4,6 +4,8 @@ import { api } from '../api.js';
 import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, useNavContext, PageHead, StatTile, StatGrid, AlertPanel, BlockedReason, LinkButton, CheckList, StepTracker, DataTable, SourceTag, ConditionBanner } from '../shared/components.jsx';
 import { DeviceLive, CommissioningCard, canOperate, STATE_TONE, ReadinessCard, InterlocksCard, interlockGroups, groupStatus, toComm, toIlk, readingOf, ago, clock, transportOf } from './device.jsx';
 import { TEST_SPECS } from '../shared/diagnostics.js';
+import { LimitsPanel } from '../shared/limits.jsx';
+import { useAlarmContext } from '../shared/alarmContext.jsx';
 
 const WAITING = 'WAITING FOR VALID PHYSICAL TELEMETRY';
 const isLive = (snap) => !!(snap?.handshake && snap?.origin === 'physical_device');
@@ -101,12 +103,28 @@ function useAlarm(zone) {
 }
 
 // ── Speed Status banner ───────────────────────────────────────────────────────
-export function SpeedStatus({ rpm, isRunning, muted, onToggleMute }) {
+export function SpeedStatus({ rpm, isRunning, muted: propMuted, onToggleMute }) {
+  const alarm = useAlarmContext();
+  const isMuted = propMuted !== undefined ? (propMuted || alarm.muted) : alarm.muted;
   const zone = classifyRpm(rpm, isRunning);
   const known = zone !== 'UNKNOWN' && rpm !== null && rpm !== undefined;
   const noPulsesSeen = isRunning && rpm !== null && rpm !== undefined && Number(rpm) === 0;
-  useAlarm(noPulsesSeen || muted ? 'IDLE' : zone);
+
+  useEffect(() => {
+    alarm.evaluate({ rpm, isRunning, valid: known });
+  }, [rpm, isRunning, known, alarm]);
+
+  useAlarm(noPulsesSeen || isMuted ? 'IDLE' : zone);
   const meta = ZONE_META[zone];
+
+  const handleMuteToggle = () => {
+    if (onToggleMute) onToggleMute();
+    if (alarm.muted) {
+      alarm.unmute();
+    } else {
+      alarm.mute(10);
+    }
+  };
 
   return (
     <>
@@ -117,13 +135,13 @@ export function SpeedStatus({ rpm, isRunning, muted, onToggleMute }) {
         <span className="tq-speed-desc">
           {noPulsesSeen
             ? 'Motor drive active — waiting for Hall speed pulses (warning only — motor is not stopped by speed)'
-            : (zone === 'CRITICAL' && Number(rpm) > 1900)
-            ? `Speed advisory: ${Number(rpm).toFixed(0)} rpm (warning only — motor is not stopped by speed)`
+            : (alarm.active || (zone === 'CRITICAL' && Number(rpm) > 1900))
+            ? `Speed advisory: ${Number(rpm).toFixed(0)} rpm (advisory limit ${alarm.threshold} rpm; clears < ${alarm.clearThreshold} rpm)`
             : meta.desc}
         </span>
         <span className="tq-speed-bands">{'Normal 1100–1500 · Warn 700–1099/1501–1900 · Crit <700/>1900'}</span>
-        <button type="button" className="tq-btn tq-ghost" onClick={onToggleMute} aria-pressed={muted} title={muted ? 'Unmute alarms' : 'Mute alarms'}>
-          {muted ? <><BellOff size={14} aria-hidden="true" /> Muted</> : <><Bell size={14} aria-hidden="true" /> Alarm on</>}
+        <button type="button" className="tq-btn tq-ghost" onClick={handleMuteToggle} aria-pressed={isMuted} title={isMuted ? 'Unmute alarms' : 'Mute alarms for 10 seconds'}>
+          {isMuted ? <><BellOff size={14} aria-hidden="true" /> {alarm.muteRemaining > 0 ? `Muted (${alarm.muteRemaining}s)` : 'Muted'}</> : <><Bell size={14} aria-hidden="true" /> Alarm on</>}
         </button>
       </div>
       {noPulsesSeen && (
@@ -835,6 +853,7 @@ export function PhysicalSafetyPage({ stream, role, go, embedded = false }) {
 
       <div className="tq-mt"><ReadinessCard snap={snap} go={go} /></div>
       <div className="tq-mt"><InterlocksCard snap={snap} go={go} /></div>
+      <LimitsPanel role={role} />
       <div className="tq-mt"><CommissioningCard role={role} expanded /></div>
       <Card title="Command history" id="p-hist" icon={History} className="tq-mt" sub="Motor commands this session">
         <DataTable caption="Device command history" testid="cmd-history" rows={(commands || []).slice(0, 20)} rowKey={(c) => c.id} empty="No commands requested in this session."

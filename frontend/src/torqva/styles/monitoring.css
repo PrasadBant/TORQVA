@@ -93,3 +93,72 @@
 .tq-ov-health-text strong { display: block; font-size: 20px; line-height: 1.25; color: var(--tq-text); }
 .tq-ov-health-text p { margin: 2px 0 0; color: var(--tq-text-2, var(--tq-muted)); font-size: 13.5px; }
 @media (max-width: 640px) { .tq-ov-health { flex-wrap: wrap; } .tq-ov-health .tq-btn { width: 100%; justify-content: center; } }
+
+/* Recording indicator in header */
+.tq-rec-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--tq-surface-2, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--tq-border, rgba(255, 255, 255, 0.12));
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--tq-text, #f8fafc);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.tq-rec-indicator:hover {
+  background: var(--tq-surface-3, rgba(255, 255, 255, 0.1));
+}
+.tq-rec-indicator.active {
+  border-color: rgba(239, 68, 68, 0.6);
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+.tq-rec-dot {
+  font-size: 0.8rem;
+  color: var(--tq-text-muted, #94a3b8);
+}
+.tq-rec-dot.pulsing {
+  color: #ef4444;
+  animation: tq-pulse 1s ease-in-out infinite;
+}
+
+/* Modal scrim for recording sessions popup */
+.tq-modal-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+.tq-modal {
+  background: var(--tq-surface, #0f172a);
+  border: 1px solid var(--tq-border, #334155);
+  border-radius: 10px;
+  padding: 1.25rem;
+  color: var(--tq-text, #f8fafc);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+}
+.tq-theme-light .tq-modal {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+.tq-theme-light .tq-rec-indicator {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #1e293b;
+}
+.tq-theme-light .tq-chart-inspect-popover {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+

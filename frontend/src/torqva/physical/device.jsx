@@ -4,6 +4,9 @@ import { plainify } from '../shared/plain.js';
 import { api, getToken, ApiError } from '../api.js';
 import { Card, Empty, ErrorBox, Pill, fmt, title, PageHead, CardLink, Disclosure, AlertPanel, LinkButton, MetricList, ChartPanel, DataTable, SourceTag } from '../shared/components.jsx';
 import { HistoryChart } from '../shared/lazyCharts.jsx';
+import { TelemetryWindowControl } from '../shared/windows.jsx';
+import { CopySummaryButton } from '../shared/recording.jsx';
+import { useAlarmContext, RpmAlarmBanner } from '../shared/alarmContext.jsx';
 
 const defaultWs = (import.meta.env && import.meta.env.MODE === 'test') ? null : (url) => new WebSocket(url);
 export const canOperate = () => true;
@@ -320,6 +323,12 @@ export function DeviceLive({ stream }) {
   const stale = snap && !snap.telemetry_fresh;
   const vals = snap?.values || {};
   const provOf = (p) => (o.physical ? p : 'SIMULATED');
+  const rpmReading = readingOf(vals.rpm);
+  const isRunning = snap?.state === 2 || snap?.state === 'RUNNING' || (snap?.state_label && snap.state_label.includes('RUNNING')) || (rpmReading !== null && rpmReading > 50);
+  const { evaluate } = useAlarmContext();
+  useEffect(() => {
+    evaluate({ rpm: rpmReading, isRunning, valid: vals.rpm?.valid !== false && rpmReading !== null });
+  }, [rpmReading, isRunning, vals.rpm, evaluate]);
   const rows = useMemo(() => {
     const m = new Map();
     for (const k of SAMPLE_KEYS) for (const [t, v] of series[k] || []) { const r = m.get(t) || { t }; r[k] = v; m.set(t, r); }
@@ -328,11 +337,10 @@ export function DeviceLive({ stream }) {
   const n = (v, d) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : fmt(v, d));
   return (
     <div className="tq-stack tq-mon-live">
+      <RpmAlarmBanner rpm={rpmReading} />
       <div className="tq-toolbar">
-        <span className="tq-toolbar-label">Time range</span>
-        <div className="tq-seg" role="group" aria-label="Time range">
-          {RANGES.map(([s, name]) => <button key={s} type="button" className="tq-btn" aria-pressed={seconds === s} onClick={() => setSeconds(s)}>{name}</button>)}
-        </div>
+        <TelemetryWindowControl seconds={seconds} onChange={setSeconds} />
+        <CopySummaryButton mode="PHYSICAL" />
         <span className="tq-grow" />
         <SourceTag kind={stale && snap?.handshake ? 'STALE' : o.physical ? 'PHYSICAL' : snap?.handshake ? 'SIMULATED' : 'UNKNOWN'} />
       </div>

@@ -30,6 +30,7 @@ esp32/firmware/*/build/
 *.db
 *.sqlite3
 data/*.db
+sessions/
 
 # IDE & OS Junk
 .vscode/
