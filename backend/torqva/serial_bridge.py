@@ -32,6 +32,7 @@ from enum import Enum
 from typing import Any, Callable, Deque, Dict, List, Optional
 
 from .physical_adapter import analysis_status, compute_physical_diagnostics
+from .recording import recorder
 from .schemas import ActionType, Connection, DecisionVerdict, DeviceSafetyState, Mode, ProposalSource, ProposedAction, Role
 from .supervisor import ApprovedAction, SafetySupervisor, SupervisorContext, SupervisorLimits
 
@@ -251,6 +252,7 @@ class DeviceModel:
             self.values["setpoint"] = {"value": f["sp"], "valid": True, "device_ts_ms": ts, "received_at": now, "origin": "device_command_state"}
             self.history.append({"t": wall, "device_ts_ms": ts, **{k: (self.values[k]["value"]) for k in ("rpm", "current", "voltage", "power", "duty")},
                                  "housing": (self.values.get("housing") or {}).get("value")})
+            recorder.record_reading({"t": wall, **self.values})
         elif f["t"] == "accel":
             ok = f["ok"] == 1
             self.accel = {"valid": ok, "x_g": f.get("ax") if ok else None, "y_g": f.get("ay") if ok else None, "z_g": f.get("az") if ok else None,
@@ -347,11 +349,19 @@ class DeviceModel:
 
     def history_series(self, signal: str, seconds: float, wall_now: float) -> List[List[Any]]:
         if signal == "acceleration":
-            return [[t, m] for t, m in self.accel_history if t >= wall_now - seconds]       # total magnitude (g, gravity included); None = invalid
+            pts = [[t, m] for t, m in self.accel_history if t >= wall_now - seconds]       # total magnitude (g, gravity included); None = invalid
+            if len(pts) > 400:
+                from .decimation import decimate_min_max
+                return decimate_min_max(pts, max_points=400)
+            return pts
         if signal not in ("rpm", "current", "voltage", "power", "duty", "housing"):
             raise ValueError("unsupported signal")
         lo = wall_now - seconds
-        return [[h["t"], h.get(signal)] for h in self.history if h["t"] >= lo]          # None = invalid reading: a gap in the chart, never a zero
+        pts = [[h["t"], h.get(signal)] for h in self.history if h["t"] >= lo]          # None = invalid reading: a gap in the chart, never a zero
+        if len(pts) > 400:
+            from .decimation import decimate_min_max
+            return decimate_min_max(pts, max_points=400)
+        return pts
 
 
 # --------------------------------------------------------------------------------------------------------------- command lifecycle
@@ -1221,6 +1231,7 @@ class DeviceBridge:
                 params["rpm"] = params["target_rpm"]
             elif "target" in params:
                 params["rpm"] = params["target"]
+        recorder.notify_drive_command("PHYSICAL", action, params)
         rec = self._record(action, params, user, role)
         if action not in ("STOP", "START", "SET_SPEED", "RESET_ESTOP"):
             return self._reject(rec, ["UNSUPPORTED_COMMAND"])

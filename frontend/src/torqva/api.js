@@ -172,4 +172,14 @@ export const api = {
   attPhysicalWarmup: () => req('/attestation/physical/warmup'),
   attPhysicalWarmupStart: (body) => req('/attestation/physical/warmup/start', { method: 'POST', body }),
   attPhysicalWarmupEnd: () => req('/attestation/physical/warmup/end', { method: 'POST' }),
+  // Session recording (CSV recording, events, summary, export)
+  recordingStatus: () => req('/recording/status'),
+  recordingStart: (mode = 'PHYSICAL') => req(`/recording/start?mode=${encodeURIComponent(mode)}`, { method: 'POST' }),
+  recordingStop: () => req('/recording/stop', { method: 'POST' }),
+  recordingSessions: () => req('/recording/sessions'),
+  recordingSession: (sid) => req(`/recording/sessions/${encodeURIComponent(sid)}`),
+  recordingSessionSummary: (sid) => req(`/recording/sessions/${encodeURIComponent(sid)}/summary`),
+  recordingSummary: () => req('/recording/summary'),
+  recordingExportUrl: (sid) => `${BASE}/recording/sessions/${encodeURIComponent(sid)}/export`,
+  resetHistory: () => req('/history/reset', { method: 'POST' }),
 };

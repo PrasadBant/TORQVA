@@ -14,6 +14,7 @@ from .attestation import AttestationService
 from .serial_bridge import DeviceBridge
 from .evaluation import build_models
 from .pipeline import Orchestrator, PipelineConfig
+from .recording import recorder
 from .schemas import Hypothesis, Mode, Role
 from .sim import MotorSim
 from .simdevice import SimDevice
@@ -88,6 +89,7 @@ class SimulationService:
                          "human_approval_required": hardware_like_approval}
         self._injected = False
         self.running = True
+        recorder.notify_drive_command("SIMULATION", "SET_SPEED", {"target_rpm": setpoint_rpm}, config=self.scenario)
         return self.scenario
 
     def step(self, n: int = 1) -> int:
@@ -104,6 +106,21 @@ class SimulationService:
                     self._injected = True
                 self.orch.step()
                 done += 1
+                if self.orch.buf:
+                    w = self.orch.buf[-1]
+                    sc = self.orch.scores[-1] if self.orch.scores else None
+                    recorder.record_reading({
+                        "t": w.t,
+                        "rpm": w.rpm,
+                        "current": w.current,
+                        "voltage": w.voltage,
+                        "power": w.voltage * w.current,
+                        "housing": w.housing,
+                        "duty": w.duty,
+                        "vib_rms": w.vib_rms,
+                        "score": (sc.value / sc.threshold) if (sc and sc.value is not None and sc.threshold) else None,
+                        "score_status": sc.status if sc else "",
+                    })
         return done
 
     # ---------------- views (all tagged SIMULATED) ----------------

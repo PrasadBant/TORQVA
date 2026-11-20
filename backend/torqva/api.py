@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from .attestation import AttestationError
 from .auth import Principal, TokenAuth
+from .recording import recorder
 from .schemas import ActionType, ProposalSource, ProposedAction, Role
 from .service import SimulationService
 
@@ -798,6 +799,65 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
     @r.post("/attestation/references/rollback")
     def att_rollback(body: ReasonIn, p: Principal = Depends(need(Role.OPERATOR))):
         return _att(lambda: att.rollback(service.orch, p.user, p.role, body.reason))
+
+    # ---------------- session recording (Feature 4 & 7) ----------------
+    @r.get("/recording/status")
+    def get_recording_status(p: Principal = Depends(need(Role.VIEWER))):
+        return recorder.get_status()
+
+    @r.post("/recording/start")
+    def start_recording(mode: Optional[str] = "MANUAL", p: Principal = Depends(need(Role.OPERATOR))):
+        sid = recorder.start_session(mode, trigger="operator_manual")
+        audit(p, "recording_started", session_id=sid)
+        return {"ok": True, "session_id": sid}
+
+    @r.post("/recording/stop")
+    def stop_recording(p: Principal = Depends(need(Role.OPERATOR))):
+        res = recorder.stop_session()
+        audit(p, "recording_stopped", session_id=(res or {}).get("session_id"))
+        return {"ok": True, "session": res}
+
+    @r.get("/recording/sessions")
+    def list_recording_sessions(p: Principal = Depends(need(Role.VIEWER))):
+        return recorder.list_sessions()
+
+    @r.get("/recording/sessions/{sid}")
+    def get_recording_session(sid: str, p: Principal = Depends(need(Role.VIEWER))):
+        meta = recorder.get_session_meta(sid)
+        if not meta:
+            raise HTTPException(404, f"Session {sid} not found")
+        return meta
+
+    @r.get("/recording/sessions/{sid}/summary")
+    def get_recording_session_summary(sid: str, p: Principal = Depends(need(Role.VIEWER))):
+        return recorder.get_session_summary(sid)
+
+    @r.get("/recording/summary")
+    def get_active_summary(p: Principal = Depends(need(Role.VIEWER))):
+        return recorder.get_session_summary()
+
+    @r.get("/recording/sessions/{sid}/export")
+    def export_recording_session(sid: str, p: Principal = Depends(need(Role.VIEWER))):
+        data = recorder.export_session_zip(sid)
+        if not data:
+            raise HTTPException(404, f"Session {sid} export failed")
+        from fastapi.responses import Response
+        return Response(
+            content=data,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="torqva_session_{sid}.zip"'}
+        )
+
+    @r.post("/history/reset")
+    def reset_history(p: Principal = Depends(need(Role.OPERATOR))):
+        if service.bridge and service.bridge.model:
+            service.bridge.model.history.clear()
+            service.bridge.model.accel_history.clear()
+        if service.orch:
+            service.orch.buf.clear()
+            service.orch.scores.clear()
+        audit(p, "session_history_reset", user=p.user)
+        return {"ok": True, "message": "Session history and telemetry buffers cleared"}
 
     # ---------------- audit (admin) ----------------
     @r.get("/audit")
