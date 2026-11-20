@@ -1,6 +1,6 @@
 # TORQVA — Complete Project Overview
 
-> **Last updated:** 17 Nov 2026 · Branch `torqva/phase-0-audit` · Commit `471a6e6` · GitHub `PrasadBant/TORQVA`
+> **Last updated:** 20 Nov 2026 · Branch `torqva/phase-0-audit` · GitHub `PrasadBant/TORQVA`
 >
 > This single file captures everything about the project: what it is, how it works, the full tech stack, hardware, firmware, backend, frontend, AI pipeline, test suite, API surface, and development status. Use it as the canonical briefing document.
 
@@ -22,9 +22,17 @@ TORQVA is a **physical-AI platform for a DC motor test rig**. It reads live sens
 
 ### What Works Today (Nov 2026)
 
-- **Physical mode**: live USB telemetry, full motor control (duty cycle + RPM setpoint), Hall-sensor tachometer (measurement only, never throttles motor), speed zone alarm, digital twin 3D view, firmware OTA manager
-- **Simulation mode**: full C1–C6 AI pipeline, analyst workspaces, scenario studio, counterfactual lab, decision receipts, attestation
-- **Both modes**: Diagnostic Workflow (one-click test → evidence → diagnosis → recommendation → authorize → verify), Recovery Verification (C5), Continuous Intelligence (C6), Performance Evaluation
+- **Physical mode & live rig**:
+  - Live USB-serial bridge to ESP32-S3 (`RIG-1`, firmware `3.0.1-dev`, wire protocol v1) over COM10.
+  - Streaming 10 Hz fast telemetry frames (rpm, voltage, current, power, duty) and 1 Hz status frames.
+  - Direct operator motor control: open-loop PWM duty cycle (0–100%) with quick presets, plus closed-loop target speed (nominal 0–3,000 rpm, toggleable to 0–20,000 rpm ceiling).
+  - Hall sensor operates strictly as a tachometer to measure and note shaft speed without throttling, slowing down, or stalling the motor.
+  - Speed zone advisory system with Web Audio API alerts (Normal, Warning, Critical) that advise operators without cutting power unexpectedly.
+  - Complete Physical Intelligence workspace: **Recovery Verification** (`#/recovery`), **Continuous Intelligence** (`#/learning`), and **Performance Evaluation** (`#/evaluation`) all streaming live `MEASURED` hardware data.
+  - Interactive 3D Digital Twin (Three.js WebGL 2) mapping live hardware state onto procedural motor assembly without false fault alerts.
+  - Firmware OTA Manager (`#/firmware`) with multi-partition rollback and signed release deployment.
+- **Simulation mode**: full C1–C6 AI pipeline, analyst workspaces (Anomaly Detection, Diagnostic Investigation, Failure Prediction, Action Recommendations), scenario studio, counterfactual lab, decision receipts, attestation.
+- **Unified Diagnostic Workflow**: one-click automated diagnosis and verification pipeline (`#/workflow`) operational across both physical and simulation modes.
 
 ### What Is NOT Ready
 
@@ -822,6 +830,7 @@ python -m platformio run -e esp32s3_uart -t upload --upload-port COM10
 
 | Commit | Description |
 |---|---|
+| `65098eb` | docs: update PROJECT_OVERVIEW with live commissioning status, OTA bench profiles, and accurate test suite counts |
 | `471a6e6` | docs: expand PROJECT_OVERVIEW with full hardware details |
 | `84f2a54` | docs: rewrite PROJECT_OVERVIEW.md with complete Nov 2026 state |
 | `8b4ac16` | feat(intelligence): add live physical Recovery Verification and Continuous Intelligence workspaces |
@@ -836,7 +845,7 @@ python -m platformio run -e esp32s3_uart -t upload --upload-port COM10
 | `3a6451a` | fix(safety): debounce sensor invalid trips against EMI and auto-reset cleared trips on motion command |
 
 **Branch:** `torqva/phase-0-audit`  
-**Remote:** `origin/torqva/phase-0-audit` and `origin/main` (both up to date as of `471a6e6`)
+**Remote:** `origin/torqva/phase-0-audit` and `origin/main` (both up to date as of `65098eb`)
 
 ---
 
