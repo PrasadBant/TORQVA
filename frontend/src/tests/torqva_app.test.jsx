@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import TorqvaApp from '../torqva/TorqvaApp.jsx';
 import { setToken } from '../torqva/api.js';
@@ -116,7 +116,10 @@ describe('redesigned application shell', () => {
 describe('application shell behaviour (audit)', () => {
   // The full sidebar, in order: one entry per page in both modes (Device & Safety holds the device, safety and audit sections).
   const NAV_SIM = ['Overview', 'Live Monitor', 'Digital Twin', 'Diagnostic Workflow', 'Anomaly Detection', 'Failure Prediction', 'Action Recommendations', 'Diagnostic Investigation', 'Recovery Verification', 'Continuous Intelligence', 'Performance Evaluation', 'Scenario Studio', 'Lab', 'Device & Safety', 'Firmware Manager'];
-  const navButton = (n) => screen.getByRole('button', { name: new RegExp(`^${n}$`) });
+  const navButton = (n) => {
+    const nav = screen.getByRole('navigation', { name: /TORQVA sections/i });
+    return within(nav).getByRole('button', { name: new RegExp(`^${n}$`) });
+  };
   const simCalls = () => fetch.mock.calls.map(([u]) => String(u)).filter((u) => /\/api\/torqva\/(status|telemetry|simulation)/.test(u)).length;
 
   it('every page in both modes renders its own heading (no blank page, no silent fallback to another screen)', async () => {
