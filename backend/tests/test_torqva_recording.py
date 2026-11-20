@@ -188,3 +188,28 @@ def test_recording_api_endpoints(tmp_path, monkeypatch):
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/zip"
     assert len(r.content) > 100
+
+    # Report HTML
+    r = client.get(f"/api/torqva/recording/sessions/{sid}/report", headers=headers)
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert "TORQVA Session Report" in r.text
+    assert sid in r.text
+
+    # Limits Panel API (Feature 1)
+    r = client.get("/api/torqva/limits", headers=headers)
+    assert r.status_code == 200
+    limits_data = r.json()
+    assert "duty" in limits_data["limits"]
+    assert "rpm" in limits_data["limits"]
+    assert "current" in limits_data["limits"]
+
+    # Update limit
+    r = client.put("/api/torqva/limits", json={"key": "rpm", "value": 2500, "enabled": True}, headers=headers)
+    assert r.status_code == 200
+    assert r.json()["limit"]["value"] == 2500
+
+    # Reset limits
+    r = client.post("/api/torqva/limits/reset", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["limits"]["rpm"]["value"] == 3000.0

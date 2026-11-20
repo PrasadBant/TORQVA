@@ -181,5 +181,10 @@ export const api = {
   recordingSessionSummary: (sid) => req(`/recording/sessions/${encodeURIComponent(sid)}/summary`),
   recordingSummary: () => req('/recording/summary'),
   recordingExportUrl: (sid) => `${BASE}/recording/sessions/${encodeURIComponent(sid)}/export`,
+  recordingReportUrl: (sid) => `${BASE}/recording/sessions/${encodeURIComponent(sid)}/report`,
   resetHistory: () => req('/history/reset', { method: 'POST' }),
+  // Limits configuration (Feature 1)
+  getLimits: () => req('/limits'),
+  updateLimit: (key, value, enabled) => req('/limits', { method: 'PUT', body: { key, value, enabled } }),
+  resetLimits: () => req('/limits/reset', { method: 'POST' }),
 };

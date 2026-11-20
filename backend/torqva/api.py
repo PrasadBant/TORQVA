@@ -10,11 +10,14 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
 from .attestation import AttestationError
 from .auth import Principal, TokenAuth
+from .limits_manager import limits_mgr
 from .recording import recorder
+from .report import generate_html_report
 from .schemas import ActionType, ProposalSource, ProposedAction, Role
 from .service import SimulationService
 
@@ -841,12 +844,48 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
         data = recorder.export_session_zip(sid)
         if not data:
             raise HTTPException(404, f"Session {sid} export failed")
-        from fastapi.responses import Response
         return Response(
             content=data,
             media_type="application/zip",
             headers={"Content-Disposition": f'attachment; filename="torqva_session_{sid}.zip"'}
         )
+
+    @r.get("/recording/sessions/{sid}/report", response_class=HTMLResponse)
+    def get_recording_session_report(sid: str, p: Principal = Depends(need(Role.VIEWER))):
+        try:
+            html = generate_html_report(sid, base_dir=recorder.base_dir)
+            return HTMLResponse(content=html)
+        except FileNotFoundError:
+            raise HTTPException(404, f"Session {sid} not found")
+        except Exception as e:
+            raise HTTPException(500, f"Error generating report: {e}")
+
+    # ---------------- limits panel (Feature 1) ----------------
+    @r.get("/limits")
+    def get_limits(p: Principal = Depends(need(Role.VIEWER))):
+        return limits_mgr.get_limits()
+
+    @r.put("/limits")
+    def update_limit(body: Dict[str, Any], p: Principal = Depends(need(Role.OPERATOR))):
+        key = body.get("key")
+        if not key:
+            raise HTTPException(400, "Missing 'key' in update payload")
+        value = body.get("value")
+        enabled = body.get("enabled")
+        try:
+            updated = limits_mgr.update_limit(key=key, value=value, enabled=enabled, user=p.user)
+            audit(p, "limit_updated", key=key, value=value, enabled=enabled)
+            return {"ok": True, "limit": updated}
+        except KeyError as ke:
+            raise HTTPException(404, str(ke))
+        except ValueError as ve:
+            raise HTTPException(422, str(ve))
+
+    @r.post("/limits/reset")
+    def reset_limits(p: Principal = Depends(need(Role.OPERATOR))):
+        res = limits_mgr.reset_defaults(user=p.user)
+        audit(p, "limits_reset_defaults")
+        return res
 
     @r.post("/history/reset")
     def reset_history(p: Principal = Depends(need(Role.OPERATOR))):
