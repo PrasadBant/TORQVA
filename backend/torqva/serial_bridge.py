@@ -244,10 +244,24 @@ class DeviceModel:
         if f["t"] == "fast":
             self.last_fast_rx = now
             ts = f["ts"]
-            self._set("rpm", f["rpm"], bool(q & Q_BITS["rpm"]), ts, now)
-            self._set("current", f["i"], bool(q & Q_BITS["current"]), ts, now)
-            self._set("voltage", f["v"], bool(q & Q_BITS["voltage"]), ts, now)
-            self._set("power", f["p"], bool(q & Q_BITS["current"] and q & Q_BITS["voltage"]), ts, now)     # derived by the firmware: valid only if both inputs are
+            rpm_raw = f.get("rpm")
+            rpm_valid = bool(q & Q_BITS["rpm"]) and rpm_raw is not None and math.isfinite(rpm_raw) and (0.0 <= rpm_raw <= 30000.0)
+            self._set("rpm", float(rpm_raw) if rpm_valid else None, rpm_valid, ts, now)
+
+            curr_raw = f.get("i")
+            curr_valid = bool(q & Q_BITS["current"]) and curr_raw is not None and math.isfinite(curr_raw) and (-1.0 <= curr_raw <= 40.0)
+            self._set("current", float(curr_raw) if curr_valid else None, curr_valid, ts, now)
+
+            volt_raw = f.get("v")
+            volt_valid = bool(q & Q_BITS["voltage"]) and volt_raw is not None and math.isfinite(volt_raw) and (0.0 <= volt_raw <= 60.0)
+            self._set("voltage", float(volt_raw) if volt_valid else None, volt_valid, ts, now)
+
+            if curr_valid and volt_valid:
+                p_val = round(float(volt_raw) * float(curr_raw), 2)
+                self._set("power", p_val, True, ts, now)
+            else:
+                self._set("power", None, False, ts, now)
+
             self.values["duty"] = {"value": f["duty"], "valid": True, "device_ts_ms": ts, "received_at": now, "origin": "device_command_state"}
             self.values["setpoint"] = {"value": f["sp"], "valid": True, "device_ts_ms": ts, "received_at": now, "origin": "device_command_state"}
             self.history.append({"t": wall, "device_ts_ms": ts, **{k: (self.values[k]["value"]) for k in ("rpm", "current", "voltage", "power", "duty")},
@@ -255,14 +269,20 @@ class DeviceModel:
             recorder.record_reading({"t": wall, **self.values})
         elif f["t"] == "accel":
             ok = f["ok"] == 1
-            self.accel = {"valid": ok, "x_g": f.get("ax") if ok else None, "y_g": f.get("ay") if ok else None, "z_g": f.get("az") if ok else None,
-                          "magnitude_g": f.get("mag") if ok else None, "received_at": now, "received_unix": wall, "device_ts_ms": f["ts"]}
-            self.accel_history.append((wall, f.get("mag") if ok else None))
+            mag_raw = f.get("mag")
+            mag_valid = ok and mag_raw is not None and math.isfinite(mag_raw) and (0.0 <= mag_raw <= 50.0)
+            self.accel = {"valid": mag_valid, "x_g": f.get("ax") if mag_valid else None, "y_g": f.get("ay") if mag_valid else None, "z_g": f.get("az") if mag_valid else None,
+                          "magnitude_g": float(mag_raw) if mag_valid else None, "received_at": now, "received_unix": wall, "device_ts_ms": f["ts"]}
+            self.accel_history.append((wall, float(mag_raw) if mag_valid else None))
         elif f["t"] == "slow":
-            self._set("housing", f["housing"], bool(q & Q_BITS["housing"]), f["ts"], now)
-            amb_ok = bool(q & Q_BITS["ambient"])
+            h_raw = f.get("housing")
+            h_valid = bool(q & Q_BITS["housing"]) and h_raw is not None and math.isfinite(h_raw) and (-40.0 <= h_raw <= 180.0)
+            self._set("housing", float(h_raw) if h_valid else None, h_valid, f["ts"], now)
+
+            amb_raw = f.get("ambient")
+            amb_ok = bool(q & Q_BITS["ambient"]) and amb_raw is not None and math.isfinite(amb_raw) and (-40.0 <= amb_raw <= 100.0)
             if amb_ok:
-                self._set("ambient", f["ambient"], True, f["ts"], now)
+                self._set("ambient", float(amb_raw), True, f["ts"], now)
             else:
                 self.values["ambient"] = {
                     "value": None, "valid": False, "device_ts_ms": f["ts"],
