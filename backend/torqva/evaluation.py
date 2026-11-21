@@ -64,7 +64,7 @@ def build_models(c2_variant: str = "control"):
     hm = HypothesisModel()
     samples = {h: [] for h in HYPS}
     for h in HYPS:
-        for sev in (0.3, 0.5, 0.8):
+        for sev in (0.2, 0.4, 0.6, 0.8):
             for seed in (101, 102):
                 for sp in (1200, 1800):
                     samples[h] += zs_for(h, sev, seed, sp)[-20:]
