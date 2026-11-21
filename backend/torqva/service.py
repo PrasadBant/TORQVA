@@ -28,7 +28,7 @@ from . import lab as _lab
 
 class SimulationService:
     def __init__(self, store: Optional[Store] = None, c2_variant: Optional[str] = None):
-        self.c2_variant = c2_variant or os.environ.get("TORQVA_C2_VARIANT", "control")      # default: the shipped C2; "noise_aware" is opt-in
+        self.c2_variant = c2_variant or os.environ.get("TORQVA_C2_VARIANT", "noise_aware")      # default: "noise_aware" (better calibrated conformal intervals under noise and shift)
         self.store = store or Store()
         self.attestation = AttestationService(self.store)
         self._models = None

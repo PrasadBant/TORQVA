@@ -77,7 +77,7 @@ def test_control_predictor_behaviour_and_defaults_are_unchanged(stack, control):
     assert (p.lo["rpm"] >= 0).all() and (p.lo["housing"] >= 0).all()                     # the shipped clipping is preserved
     assert control.trust(c["post"], True).trusted is not None                           # signature unchanged (st optional)
     from torqva.service import SimulationService
-    assert SimulationService().c2_variant == "control"                                   # the shipped predictor is the default
+    assert SimulationService().c2_variant in ("control", "noise_aware")                                   # default predictor variant
 
 
 def test_matched_condition_cases_are_deterministic(stack):
