@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Usb, Octagon, Play, ShieldCheck, ShieldAlert, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, Lock, HeartPulse, SlidersHorizontal, History, ClipboardCheck, Info } from 'lucide-react';
 import { api } from '../api.js';
 import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, useNavContext, PageHead, StatTile, StatGrid, AlertPanel, BlockedReason, LinkButton, CheckList, StepTracker, DataTable, SourceTag, ConditionBanner } from '../shared/components.jsx';
-import { DeviceLive, CommissioningCard, canOperate, STATE_TONE, ReadinessCard, InterlocksCard, interlockGroups, groupStatus, toComm, toIlk, readingOf, ago, clock, transportOf, isOverrideActive, setOverrideActive } from './device.jsx';
+import { DeviceLive, CommissioningCard, canOperate, STATE_TONE, ReadinessCard, InterlocksCard, interlockGroups, groupStatus, toComm, toIlk, readingOf, ago, clock, transportOf } from './device.jsx';
 import { TEST_SPECS } from '../shared/diagnostics.js';
 import { LimitsPanel } from '../shared/limits.jsx';
 import { useAlarmContext } from '../shared/alarmContext.jsx';
@@ -378,12 +378,10 @@ export function MotionPanel({ stream, role, go }) {
   const [confirm, setConfirm] = useState(false);
   const [err, setErr] = useState(null);
   const [last, setLast] = useState(null);
-  const [overrideBlockers, setOverrideBlockers] = useState(() => isOverrideActive());
   const live = isLive(snap);
-  const rawBlockers = snap?.control_blockers || [];
-  const blockers = overrideBlockers ? [] : rawBlockers;
+  const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
   const blocked = blockers.length > 0;
-  const operator = overrideBlockers ? true : (role ? role === 'admin' : true);
+  const operator = role ? role === 'admin' : true;
   const connected = snap && ['CONNECTED', 'STALE'].includes(snap.connection) && snap.handshake;
   const maxDuty = snap?.control_limits?.max_duty_pct ?? 100;
   const maxRpm = snap?.control_limits?.max_rpm ?? 20000;
@@ -446,24 +444,7 @@ export function MotionPanel({ stream, role, go }) {
 
   return (
     <Card title="Motor Control" id="p-motion" icon={SlidersHorizontal} className="tq-mon-motion" sub="Direct operator motor control."
-      right={
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-          <button
-            type="button"
-            className={`tq-btn tq-small ${overrideBlockers ? 'tq-primary' : 'tq-ghost'}`}
-            style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-            onClick={() => {
-              const next = !overrideBlockers;
-              setOverrideBlockers(next);
-              setOverrideActive(next);
-            }}
-            data-testid="toggle-override-blockers"
-          >
-            {overrideBlockers ? '🔓 Blockers Bypassed' : '🔒 Blockers Enforced'}
-          </button>
-          <Pill tone={motor === 'RUNNING' ? 'ok' : motor === 'STOPPED' ? 'info' : 'off'}>{motor}</Pill>
-        </div>
-      }>
+      right={<Pill tone={motor === 'RUNNING' ? 'ok' : motor === 'STOPPED' ? 'info' : 'off'}>{motor}</Pill>}>
       {/* 1. MOTOR STATE FIRST */}
       <div className="tq-motor-state-box" data-testid="motor-state">
         <div className="tq-motor-state-header">
@@ -821,9 +802,7 @@ function commissioningSteps(snap, groups, blockers) {
 
 export function PhysicalSafetyPage({ stream, role, go, embedded = false }) {
   const { snap, commands } = stream;
-  const [overrideBlockers, setOverrideBlockers] = useState(() => isOverrideActive());
-  const rawBlockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
-  const blockers = overrideBlockers ? [] : rawBlockers;
+  const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
   const groups = interlockGroups(snap?.interlocks);
   const steps = commissioningSteps(snap, groups, blockers);
   const checks = groupItems(snap, (g) => <button type="button" className="tq-linkbtn" onClick={() => toIlk(g.key)}>Details</button>);
@@ -836,44 +815,10 @@ export function PhysicalSafetyPage({ stream, role, go, embedded = false }) {
   return (
     <>
       {!embedded && <PageHead title="Safety & Commissioning" sub="Check every safety requirement before motor operation is permitted. The operating controls are on the Overview."
-        right={
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              type="button"
-              className={`tq-btn tq-small ${overrideBlockers ? 'tq-primary' : 'tq-ghost'}`}
-              style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
-              onClick={() => {
-                const next = !overrideBlockers;
-                setOverrideBlockers(next);
-                setOverrideActive(next);
-              }}
-              data-testid="toggle-safety-override"
-            >
-              {overrideBlockers ? '🔓 Blockers Bypassed' : '🔒 Blockers Enforced'}
-            </button>
-            <Pill tone={overrideBlockers ? 'ok' : blockers.length ? 'stop' : 'warn'}>
-              {overrideBlockers ? 'NO BLOCKER REPORTED' : blockers.length ? 'OPERATION BLOCKED' : 'NO BLOCKER REPORTED'}
-            </Pill>
-          </div>
-        } />}
+        right={<Pill tone={blockers.length ? 'stop' : 'warn'}>{blockers.length ? 'OPERATION BLOCKED' : 'NO BLOCKER REPORTED'}</Pill>} />}
       {blockers.length ? (
         <AlertPanel tone="stop" testid="safety-alert" title={`System not ready — ${blockers.length} blocking issue${blockers.length > 1 ? 's' : ''} must be resolved`}
-          action={
-            <div style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
-              <button
-                type="button"
-                className="tq-btn tq-primary"
-                onClick={() => {
-                  setOverrideBlockers(true);
-                  setOverrideActive(true);
-                }}
-                data-testid="btn-remove-all-blockers"
-              >
-                🔓 Remove All Blockers
-              </button>
-              <button type="button" className="tq-btn" onClick={toId('c-ready')}>View all blockers</button>
-            </div>
-          }>
+          action={<button type="button" className="tq-btn" onClick={toId('c-ready')}>View all blockers</button>}>
           <p>The backend reports: <strong>{blockers[0]}</strong>{blockers.length > 1 ? ` and ${blockers.length - 1} more` : ''}. Physical motion stays blocked until it reports none.</p>
         </AlertPanel>
       ) : (
