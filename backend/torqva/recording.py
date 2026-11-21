@@ -235,7 +235,15 @@ class SessionRecorder:
             # Check if non-zero drive requested
             duty = params.get("duty_pct", params.get("duty", 0))
             rpm = params.get("rpm", params.get("target_rpm", 0))
-            if float(duty or 0) > 0 or float(rpm or 0) > 0:
+            try:
+                f_duty = float(duty or 0)
+            except (ValueError, TypeError):
+                f_duty = 0.0
+            try:
+                f_rpm = float(rpm or 0)
+            except (ValueError, TypeError):
+                f_rpm = 0.0
+            if f_duty > 0 or f_rpm > 0:
                 if not self.is_active():
                     self.start_session(mode, config=config, trigger="drive_command")
                 self.record_event("DRIVE_COMMAND", "COMMAND", f"Action: {action}, duty: {duty}%, rpm: {rpm}")

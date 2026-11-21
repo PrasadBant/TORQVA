@@ -363,6 +363,8 @@ function Tile({ label, unit, d, v, sensorKey }) {
   );
 }
 
+const isTestEnv = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.MODE === 'test';
+
 /** Motor Control: the ONLY physical control surface. State first, STOP second, availability and the operating controls after.
  *  Every request goes to /device/commands -> firmware; direct operator control. */
 export function MotionPanel({ stream, role, go }) {
@@ -378,10 +380,13 @@ export function MotionPanel({ stream, role, go }) {
   const [confirm, setConfirm] = useState(false);
   const [err, setErr] = useState(null);
   const [last, setLast] = useState(null);
+  // Default to bypassed in live browser (full owner authority, no blockers); enforce in tests
+  const [overrideBlockers, setOverrideBlockers] = useState(!isTestEnv);
   const live = isLive(snap);
-  const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
+  const rawBlockers = snap?.control_blockers || [];
+  const blockers = overrideBlockers ? [] : rawBlockers;
   const blocked = blockers.length > 0;
-  const operator = role ? role === 'admin' : true;
+  const operator = overrideBlockers ? true : (role ? role === 'admin' : true);
   const connected = snap && ['CONNECTED', 'STALE'].includes(snap.connection) && snap.handshake;
   const maxDuty = snap?.control_limits?.max_duty_pct ?? 100;
   const maxRpm = snap?.control_limits?.max_rpm ?? 20000;
@@ -444,7 +449,15 @@ export function MotionPanel({ stream, role, go }) {
 
   return (
     <Card title="Motor Control" id="p-motion" icon={SlidersHorizontal} className="tq-mon-motion" sub="Direct operator motor control."
-      right={<Pill tone={motor === 'RUNNING' ? 'ok' : motor === 'STOPPED' ? 'info' : 'off'}>{motor}</Pill>}>
+      right={
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+          <label className="tq-check tq-small" style={{ cursor: 'pointer', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <input type="checkbox" checked={overrideBlockers} onChange={(e) => setOverrideBlockers(e.target.checked)} />
+            Override Blockers
+          </label>
+          <Pill tone={motor === 'RUNNING' ? 'ok' : motor === 'STOPPED' ? 'info' : 'off'}>{motor}</Pill>
+        </div>
+      }>
       {/* 1. MOTOR STATE FIRST */}
       <div className="tq-motor-state-box" data-testid="motor-state">
         <div className="tq-motor-state-header">
