@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 from .schemas import Provenance
 
 C1_REQUIRED = ("rpm", "voltage", "current", "power", "housing", "ambient", "vib_rms", "v1x", "v2x", "v3x", "vhf")
+MEASURED_C1_REQUIRED = ("rpm", "voltage", "current", "power", "housing")
 
 
 @dataclass
@@ -53,6 +54,18 @@ def c1_window(w: Optional[PhysicalWindow]) -> Optional[Dict[str, float]]:
     if w is None or c1_gaps(w):
         return None
     return {k: float(w.values[k]) for k in C1_REQUIRED}                 # pragma: no cover  (unreachable until a vibration measurement exists)
+
+
+def measured_c1_gaps(w: PhysicalWindow) -> List[str]:
+    """Inputs that the measured physical C1 detector needs which this window cannot supply."""
+    return [k for k in MEASURED_C1_REQUIRED if not w.valid.get(k, False)]
+
+
+def measured_c1_window(w: Optional[PhysicalWindow]) -> Optional[Dict[str, float]]:
+    """C1 input vector from real measured signals (rpm, current, voltage, power, housing) without requiring unmeasured vibration RMS."""
+    if w is None or measured_c1_gaps(w):
+        return None
+    return {k: float(w.values[k]) for k in MEASURED_C1_REQUIRED}
 
 
 WAITING = "WAITING FOR VALID PHYSICAL TELEMETRY"
@@ -110,12 +123,18 @@ def compute_physical_diagnostics(snapshot: Dict[str, Any], model: Optional[Any] 
     ambient_val = (vals.get("ambient") or {}).get("value")
     ambient = float(ambient_val) if ambient_val is not None and math.isfinite(ambient_val) else 25.0
 
-    # Acceleration & dynamic vibration magnitude
+    # Acceleration & dynamic vibration magnitude (optional ADXL345 input)
     accel = vals.get("acceleration") or {}
-    mag = accel.get("value") if isinstance(accel, dict) else None
-    if mag is None or not math.isfinite(mag):
-        mag = 1.0
-    vib_dynamic = max(0.01, abs(mag - 1.0))
+    has_accel = bool(isinstance(accel, dict) and accel.get("valid") and isinstance(accel.get("value"), (int, float)) and math.isfinite(accel["value"]))
+    if has_accel:
+        mag = float(accel["value"])
+        vib_dynamic = max(0.01, abs(mag - 1.0))
+        z_vib = max(0.0, (vib_dynamic - 0.08) / 0.15)
+        w_vib_score = 0.35 * min(3.0, z_vib)
+    else:
+        vib_dynamic = 0.05
+        z_vib = 0.0
+        w_vib_score = 0.0
 
     # Speed tracking error
     if sp > 100 and rpm > 50:
@@ -130,14 +149,14 @@ def compute_physical_diagnostics(snapshot: Dict[str, Any], model: Optional[Any] 
     delta_t = max(0.0, housing - ambient)
     z_temp = max(0.0, (housing - 35.0) / 10.0)
 
-    # Vibration deviation (nominal dynamic vibration < 0.1 g)
-    z_vib = max(0.0, (vib_dynamic - 0.08) / 0.15)
-
     # Voltage deviation
     z_voltage = 1.0 if (voltage < 8.0 or voltage > 28.0) else 0.0
 
-    # Total C1 anomaly score (1.0 = threshold)
-    score = 0.18 + 0.35 * min(3.0, z_vib) + 0.35 * min(3.0, z_current) + 0.30 * min(3.0, z_temp) + 0.20 * min(3.0, z_rpm) + 0.40 * z_voltage
+    # Total C1 anomaly score (1.0 = threshold): works on measured signals (rpm, current, voltage, temp) even without vibration RMS
+    if has_accel:
+        score = 0.18 + w_vib_score + 0.35 * min(3.0, z_current) + 0.30 * min(3.0, z_temp) + 0.20 * min(3.0, z_rpm) + 0.40 * z_voltage
+    else:
+        score = 0.18 + 0.45 * min(3.0, z_current) + 0.35 * min(3.0, z_temp) + 0.25 * min(3.0, z_rpm) + 0.45 * z_voltage
     score = round(score, 2)
     anomalous = bool(score >= 1.0)
 
