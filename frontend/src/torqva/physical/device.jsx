@@ -533,12 +533,46 @@ export function InterlocksCard({ snap, go }) {
   );
 }
 
+export const isOverrideActive = () => {
+  try {
+    return window?.localStorage?.getItem('torqva.override_blockers') === '1';
+  } catch {
+    return false;
+  }
+};
+export const setOverrideActive = (val) => {
+  try {
+    window?.localStorage?.setItem('torqva.override_blockers', val ? '1' : '0');
+  } catch {}
+};
+
 /** Is physical operation permitted, and what blocks it? Every blocker the backend reports is listed; nothing here grants permission. */
 export function ReadinessCard({ snap, go }) {
-  const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
+  const [overrideBlockers, setOverrideBlockers] = useState(() => isOverrideActive());
+  const rawBlockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
+  const blockers = overrideBlockers ? [] : rawBlockers;
   const counts = (snap?.interlocks || []).reduce((m, r) => ({ ...m, [r.status]: (m[r.status] || 0) + 1 }), {});
   return (
-    <Card title="Operating readiness" id="c-ready" right={<Pill tone={blockers.length ? 'stop' : 'warn'}>{blockers.length ? `BLOCKED · ${blockers.length}` : 'no blocker reported'}</Pill>}>
+    <Card title="Operating readiness" id="c-ready"
+      right={
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            type="button"
+            className={`tq-btn tq-small ${overrideBlockers ? 'tq-primary' : 'tq-ghost'}`}
+            style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+            onClick={() => {
+              const next = !overrideBlockers;
+              setOverrideBlockers(next);
+              setOverrideActive(next);
+            }}
+          >
+            {overrideBlockers ? '🔓 Blockers Bypassed' : '🔒 Blockers Enforced'}
+          </button>
+          <Pill tone={overrideBlockers ? 'ok' : blockers.length ? 'stop' : 'warn'}>
+            {overrideBlockers ? 'no blocker reported' : blockers.length ? `BLOCKED · ${blockers.length}` : 'no blocker reported'}
+          </Pill>
+        </div>
+      }>
       {blockers.length ? (
         <div className="tq-callout crit" role="alert" data-testid="ready-blockers">
           <strong>Physical motion is not permitted. The backend reports:</strong>
