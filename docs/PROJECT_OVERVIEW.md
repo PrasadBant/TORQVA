@@ -1,6 +1,6 @@
 # TORQVA — Complete Project Overview
 
-> **Last updated:** 20 Nov 2026 · Branch `torqva/phase-0-audit` · GitHub `PrasadBant/TORQVA`
+> **Last updated:** 21 Nov 2026 · Branch `torqva/phase-0-audit` · GitHub `PrasadBant/TORQVA`
 >
 > This single file captures everything about the project: what it is, how it works, the full tech stack, hardware, firmware, backend, frontend, AI pipeline, test suite, API surface, and development status. Use it as the canonical briefing document.
 
@@ -31,6 +31,14 @@ TORQVA is a **physical-AI platform for a DC motor test rig**. It reads live sens
   - Complete Physical Intelligence workspace: **Recovery Verification** (`#/recovery`), **Continuous Intelligence** (`#/learning`), and **Performance Evaluation** (`#/evaluation`) all streaming live `MEASURED` hardware data.
   - Interactive 3D Digital Twin (Three.js WebGL 2) mapping live hardware state onto procedural motor assembly without false fault alerts.
   - Firmware OTA Manager (`#/firmware`) with multi-partition rollback and signed release deployment.
+- **7 Enhanced Operational Features (Physical & Simulation)**:
+  - **Feature 4 (CSV Telemetry Recording)**: Crash-safe session recording into `sessions/<date_mode>/` with `readings.csv` (units in headers, `_valid` quality flags per sensor), `events.csv`, and `session.json` with SHA-256 cryptographic hashes. Auto-starts on first motor drive command. Top-bar indicator `● REC` with elapsed time display and session dialog.
+  - **Feature 7 (Copy Summary)**: One-click formatted summary copy on Live Monitor & session popover (duration, peak rpm, peak current, max temp, data quality % valid) with clipboard fallback and visual confirmation.
+  - **Feature 6 (Click-to-Inspect)**: Clicking any data point on telemetry charts displays exact timestamp, signal value, unit, and quality provenance status (`VALID`, `STALE`, `UNAVAILABLE`).
+  - **Feature 3 (Telemetry Windows & Decimation)**: Selectable time windows (`1s`, `10s`, `30s`, `60s`, `3min`, `5min`, default `60s`) with min/max decimation preserving peaks/valleys and true telemetry gaps without smoothing. Audited operator/admin **Reset History** action.
+  - **Feature 2 (3000 RPM Advisory Alarm)**: Advisory-only alarm firing strictly on valid Hall tachometer data $\ge 3000$ RPM, clearing with hysteresis at $< 2900$ RPM. Flags `SPEED UNAVAILABLE` when pulses drop while driving. 10-second auto-expiring mute timer shared across Twin, Status Strip, and Live Monitor.
+  - **Feature 1 (Limits Panel)**: Operational and safety limits management under **Device & Safety** with individual ON/OFF toggle switches, numeric threshold inputs, validation bounds, defaults matching `torqva_limits.h`, and an immutable audit change log table.
+  - **Feature 5 (Report + ZIP Export)**: Standalone HTML run report generated from session folder, plus complete ZIP export bundle containing `readings.csv`, `events.csv`, `session.json`, `checksums.sha256`, and `report.html`.
 - **Simulation mode**: full C1–C6 AI pipeline, analyst workspaces (Anomaly Detection, Diagnostic Investigation, Failure Prediction, Action Recommendations), scenario studio, counterfactual lab, decision receipts, attestation.
 - **Unified Diagnostic Workflow**: one-click automated diagnosis and verification pipeline (`#/workflow`) operational across both physical and simulation modes.
 
@@ -470,6 +478,10 @@ Quality bitmask `q` per `fast` frame: bit 0 current, 1 voltage, 2 housing, 3 amb
 | `c1_robust.py`, `c2_robust.py`, `c4_robust.py` | Opt-in improved variants |
 | `generalization_study.py`, `c2_conditional.py` | Research modules |
 | `gate.py` | C3 decision gate |
+| `recording.py` | Crash-safe session telemetry recorder (`readings.csv`, `events.csv`, `session.json`, `checksums.sha256`) |
+| `decimation.py` | Min/max downsampling preserving extreme peaks, valleys, and true telemetry gaps |
+| `limits_manager.py` | Centralized operational/safety limits manager & audit change log (`torqva_limits.h` defaults) |
+| `report.py` | Standalone HTML session report generator reconstructed from session disk directories |
 
 ### Commissioning Record (Live State — `backend/data/commissioning.json`)
 
@@ -565,7 +577,11 @@ frontend/src/torqva/
     ├── components.jsx     # UI primitives, badges, banners, cards
     ├── alerts.jsx         # Device/sim alert derivation
     ├── diagnostics.js     # Diagnostic vocabulary
-    ├── charts.jsx         # Recharts wrappers (lazy via lazyCharts.jsx)
+    ├── charts.jsx         # Recharts wrappers with Click-to-Inspect (lazy via lazyCharts.jsx)
+    ├── recording.jsx      # RecordingIndicator (● REC dot, timer, session manager) & CopySummaryButton
+    ├── windows.jsx        # TelemetryWindowControl (1s, 10s, 30s, 60s, 3min, 5min) & history reset
+    ├── alarmContext.jsx   # 3000 RPM Advisory Alarm (Hall-only, hysteresis clear @ 2900, 10s mute)
+    ├── limits.jsx         # LimitsPanel (ON/OFF toggles, numeric inputs, audit change log)
     ├── twin.jsx           # Shared Digital Twin workspace
     ├── twinModel.jsx      # 2D rig drawing (SVG/canvas fallback)
     ├── twinParts.js       # Component metadata
@@ -663,6 +679,47 @@ Idempotency key prevents double-submit. Latest workflow restored after browser r
 - Deploy over OTA: ESP32 downloads over HTTPS, verifies ECDSA + SHA-256, restarts, confirms after self-tests
 - OTA image URL carries a one-time token (`?t=`), answers 403 to all else
 
+### Operational & Telemetry Features (Physical & Simulation)
+
+1. **CSV Telemetry Recording (Feature 4)**:
+   - Automated or manual session recording into `sessions/<YYYYMMDD_HHMMSS_mode>/`.
+   - `readings.csv`: Header row defines explicit physical units: `t_s`, `rpm`, `rpm_valid`, `current_a`, `current_valid`, `voltage_v`, `voltage_valid`, `duty_pct`, `duty_valid`, `temp_c`, `temp_valid`. Invalid or missing values are written empty (never 0 or interpolated) with matching `_valid=0` flags.
+   - `events.csv`: Append-only chronological system and motion events with wall time, event name, and metadata details.
+   - `session.json`: Complete snapshot of system configuration, operator identity, duration, reading count, and SHA-256 cryptographic hashes of all files in the session.
+   - Crash-safe atomic writes using `os.fsync`. Auto-starts on first motor drive command.
+   - Frontend `RecordingIndicator` in the top header with a pulsing red dot `● REC [MM:SS]`, duration timer, and modal dialog to inspect past sessions, stop recording, or download archives.
+
+2. **Copy Summary (Feature 7)**:
+   - Dedicated `CopySummaryButton` on Live Monitor (both physical and simulation) and inside the recording session modal.
+   - Computes and formats session metrics: `Duration (s)`, `Peak Speed (rpm)`, `Peak Current (A)`, `Max Temp (°C)`, and `Data Quality (% valid, invalid count)`.
+   - Copies clean multi-line summary to system clipboard with fallback and displays a 2-second "Copied!" confirmation.
+
+3. **Click-to-Inspect (Feature 6)**:
+   - Interactive data point inspection on Recharts telemetry lines (`TrendLines` and `HistoryChart`).
+   - Clicking any point displays a non-blocking popover badge containing exact timestamp, sensor signal name, numeric value with physical units, and data quality provenance badge (`VALID`, `STALE`, `UNAVAILABLE`). Dismissable via close button.
+
+4. **Telemetry Windows & Min/Max Decimation (Feature 3)**:
+   - Shared `TelemetryWindowControl` supporting `1s | 10s | 30s | 60s | 3min | 5min` durations (default `60s`).
+   - Server-side downsampling algorithm (`backend/torqva/decimation.py`) retaining critical signal peaks, valleys, and sensor disconnection gaps without artificial smoothing.
+   - Telemetry frames older than 2 seconds are strictly marked `STALE`.
+   - Audited operator/admin **Reset History** button that clears view buffers and session history via `POST /api/torqva/history/reset` without stopping physical or simulated drives.
+
+5. **3000 RPM Advisory Speed Alarm (Feature 2)**:
+   - Advisory-only speed alarm backed by `AlarmProvider` in `frontend/src/torqva/shared/alarmContext.jsx`.
+   - Triggers strictly on valid measured Hall pulses $\ge 3000$ RPM; clears with 100 RPM hysteresis at $< 2900$ RPM.
+   - If motor drive is running but Hall pulses are missing or invalid, immediately flags `SPEED UNAVAILABLE` with warning tone.
+   - Includes a 10-second auto-expiring mute with visual countdown timer.
+   - Shared state across Digital Twin, Status Strip, and Live Monitor. Strictly never authorises or commands motor shutdown.
+
+6. **Limits Panel (Feature 1)**:
+   - Centralized limits configuration sourced from `torqva_limits.h` defaults: duty cycle (70%), speed (3000 rpm), sustained current (4.0 A), temperature (60 °C), min DC voltage (20.0 V), max DC voltage (25.5 V), stall timeout (1000 ms), heartbeat (2000 ms).
+   - Frontend `LimitsPanel` mounted under **Device & Safety** with individual ON/OFF toggle switches, numeric inputs with range constraints, and a "Reset to Defaults" button.
+   - Immutable audit change log records timestamp, user, parameter, old/new value, and old/new enabled state.
+
+7. **HTML Report & ZIP Export (Feature 5)**:
+   - Standalone HTML run report generator (`backend/torqva/report.py`) rebuilding an executive report directly from session disk folders, complete with summary KPI tiles, events table, configuration snapshot, and cryptographic SHA-256 integrity verification.
+   - Full ZIP export bundle (`GET /api/torqva/recording/sessions/{sid}/export`) packaging `readings.csv`, `events.csv`, `session.json`, `checksums.sha256`, and `report.html`.
+
 ---
 
 ## 8. API Reference (`/api/torqva`, bearer token required)
@@ -724,30 +781,49 @@ Idempotency key prevents double-submit. Latest workflow restored after browser r
 - `POST /firmware/releases` (upload, admin) / `POST /firmware/deployments` (deploy, admin)
 - `GET /firmware/ota/{rid}/manifest` / `/image` (device-facing, one-time token auth)
 
+### Telemetry Session Recording (Feature 4 & 5)
+- `GET /recording/status` — active recording status, session ID, duration, reading count
+- `POST /recording/start?mode=` — start recording session (operator/admin)
+- `POST /recording/stop` — stop recording session (operator/admin)
+- `GET /recording/sessions` — list all recorded sessions on disk
+- `GET /recording/sessions/{sid}` — metadata and SHA-256 manifest of a specific session
+- `GET /recording/sessions/{sid}/summary` — calculated metrics (duration, peak speed, peak current, max temp, quality %)
+- `GET /recording/summary` — metrics for active or latest recording session
+- `GET /recording/sessions/{sid}/export` — download ZIP archive (`readings.csv`, `events.csv`, `session.json`, `checksums.sha256`, `report.html`)
+- `GET /recording/sessions/{sid}/report` — rendered standalone HTML run report
+
+### Telemetry Decimation & History (Feature 3)
+- `POST /history/reset` — audited operator/admin action to reset telemetry view buffers and session history
+
+### Limits Management (Feature 1)
+- `GET /limits` — operational limits configuration and audit change log
+- `PUT /limits` — update limit value or enabled toggle (operator/admin, audited)
+- `POST /limits/reset` — reset all limits to `torqva_limits.h` defaults (operator/admin, audited)
+
 ---
 
 ## 9. Test Suite
 
 | Suite | Count | Run command |
 |---|---|---|
-| **Backend pytest** | **800 tests** (44 files) | `cd backend; python -m pytest -q` |
-| **Frontend Vitest** | **264 tests** (26 files, 1 known flaky) | `cd frontend; npx vitest run` |
+| **Backend pytest** | **804 tests** (45 files) | `cd backend; python -m pytest -q` |
+| **Frontend Vitest** | **278 tests** (25 files, 0 flaky) | `cd frontend; npx vitest run` |
 | **Firmware host tests** | **~130 tests** | `cd esp32/torqva_fw; python -m platformio test -e native` |
 
 > [!IMPORTANT]
 > Run Vitest from the **`frontend/`** directory, not the repo root. Running `npx --prefix frontend vitest run` from the root skips `vite.config.js` and loses the `environment: 'jsdom'` setting, causing all React tests to fail with `window is not defined`. This is a known path trap.
 
-### Known Flaky Test
+### Flaky Test Resolution
 
-`torqva_app.test.jsx > application shell behaviour (audit) > every page in both modes renders its own heading` — intermittently fails depending on lazy-loading timing in the test environment. All other 263 tests pass reliably.
+The previously intermittent test in `torqva_app.test.jsx` (*every page in both modes renders its own heading*) was **permanently resolved** by scoping navigation button queries within `within(screen.getByRole('navigation', { name: /TORQVA sections/i }))`. This completely eliminated DOM collisions with action buttons inside rendered views without relying on retries or timeouts.
 
-### Backend Test Files (44 files)
+### Backend Test Files (45 files)
 
-`test_torqva_api.py` · `test_torqva_attestation.py` · `test_torqva_c1.py` · `test_torqva_c1_robust.py` · `test_torqva_c2.py` · `test_torqva_c2c4.py` · `test_torqva_c3_c4.py` · `test_torqva_c5.py` · `test_torqva_c6.py` · `test_torqva_conformance.py` · `test_torqva_device_link.py` · `test_torqva_e2e.py` · `test_torqva_eval.py` · `test_torqva_feature_audit.py` · `test_torqva_firmware.py` · `test_torqva_incident.py` · `test_torqva_investigation.py` · `test_torqva_lab.py` · `test_direct_operator_control.py` · `test_torqva_physical_evaluation.py` · `test_torqva_physical_intelligence.py` · `test_torqva_safety.py` · `test_torqva_safety_restoration.py` · `test_torqva_workbench.py` · `test_torqva_workflow.py` · `test_torqva_p11.py` · `test_torqva_p12.py` · `test_torqva_p13.py` · `test_torqva_p14_contract.py` · `test_torqva_p15a.py` · `test_torqva_p15b_transport.py` · `test_torqva_p15_quarantine.py` · `test_torqva_p16_serial.py` · `test_torqva_p17_serial_errors.py` · `test_torqva_p18_firmware_bringup.py` · `test_torqva_p19_pins.py` · `test_torqva_p20_telemetry.py` · `test_torqva_p21_legacy_retired.py` · `test_torqva_p23_serial_robustness.py` · `test_torqva_p24_commissioning.py` · `test_torqva_p27_auth_session.py` · `test_torqva_p27_physical_adapter.py` · `test_torqva_p29_physical_first.py`
+`test_torqva_api.py` · `test_torqva_recording.py` · `test_torqva_attestation.py` · `test_torqva_c1.py` · `test_torqva_c1_robust.py` · `test_torqva_c2.py` · `test_torqva_c2c4.py` · `test_torqva_c3_c4.py` · `test_torqva_c5.py` · `test_torqva_c6.py` · `test_torqva_conformance.py` · `test_torqva_device_link.py` · `test_torqva_e2e.py` · `test_torqva_eval.py` · `test_torqva_feature_audit.py` · `test_torqva_firmware.py` · `test_torqva_incident.py` · `test_torqva_investigation.py` · `test_torqva_lab.py` · `test_direct_operator_control.py` · `test_torqva_physical_evaluation.py` · `test_torqva_physical_intelligence.py` · `test_torqva_safety.py` · `test_torqva_safety_restoration.py` · `test_torqva_workbench.py` · `test_torqva_workflow.py` · `test_torqva_p11.py` · `test_torqva_p12.py` · `test_torqva_p13.py` · `test_torqva_p14_contract.py` · `test_torqva_p15a.py` · `test_torqva_p15b_transport.py` · `test_torqva_p15_quarantine.py` · `test_torqva_p16_serial.py` · `test_torqva_p17_serial_errors.py` · `test_torqva_p18_firmware_bringup.py` · `test_torqva_p19_pins.py` · `test_torqva_p20_telemetry.py` · `test_torqva_p21_legacy_retired.py` · `test_torqva_p23_serial_robustness.py` · `test_torqva_p24_commissioning.py` · `test_torqva_p27_auth_session.py` · `test_torqva_p27_physical_adapter.py` · `test_torqva_p29_physical_first.py`
 
-### Frontend Vitest Files (26 files)
+### Frontend Vitest Files (25 files)
 
-`torqva.test.jsx` · `torqva_api.test.js` · `torqva_app.test.jsx` · `torqva_attestation.test.jsx` · `torqva_c2c4.test.jsx` · `torqva_charts.test.jsx` · `torqva_device.test.jsx` · `torqva_firmware.test.jsx` · `torqva_investigation.test.jsx` · `torqva_journey.test.jsx` · `torqva_lab.test.jsx` · `torqva_live.test.jsx` · `torqva_physical.test.jsx` · `torqva_plain.test.js` · `torqva_routing.test.jsx` · `torqva_shell.test.jsx` · `torqva_sim_overview.test.jsx` · `torqva_structure.test.js` · `torqva_twin.test.jsx` · `torqva_twin3d.test.jsx` · `torqva_twin3d_engine.test.js` · `torqva_wifi_link.test.jsx` · `torqva_workbench.test.jsx` · `torqva_workflow.test.jsx`
+`torqva.test.jsx` · `torqva_features.test.jsx` · `torqva_api.test.js` · `torqva_app.test.jsx` · `torqva_attestation.test.jsx` · `torqva_c2c4.test.jsx` · `torqva_charts.test.jsx` · `torqva_device.test.jsx` · `torqva_firmware.test.jsx` · `torqva_investigation.test.jsx` · `torqva_journey.test.jsx` · `torqva_lab.test.jsx` · `torqva_live.test.jsx` · `torqva_physical.test.jsx` · `torqva_plain.test.js` · `torqva_routing.test.jsx` · `torqva_shell.test.jsx` · `torqva_sim_overview.test.jsx` · `torqva_structure.test.js` · `torqva_twin.test.jsx` · `torqva_twin3d.test.jsx` · `torqva_twin3d_engine.test.js` · `torqva_wifi_link.test.jsx` · `torqva_workbench.test.jsx` · `torqva_workflow.test.jsx`
 
 ### Key Test Invariants
 
@@ -830,6 +906,11 @@ python -m platformio run -e esp32s3_uart -t upload --upload-port COM10
 
 | Commit | Description |
 |---|---|
+| `5cf5a53` | feat(ui): 7 features UI integration (csv recording, copy summary, click-to-inspect, telemetry windows, 3000 rpm alarm, limits panel, report export) |
+| `21dbb9d` | feat(api): report html endpoint, limits CRUD endpoints, and api client bindings |
+| `10c720b` | feat(backend): session recording, min/max decimation, limits manager, and report generation |
+| `4601941` | fix(test): scope navigation buttons within nav element to eliminate flakiness |
+| `c609dc0` | docs: update PROJECT_OVERVIEW with live ESP32-S3 rig connection status and physical control features |
 | `65098eb` | docs: update PROJECT_OVERVIEW with live commissioning status, OTA bench profiles, and accurate test suite counts |
 | `471a6e6` | docs: expand PROJECT_OVERVIEW with full hardware details |
 | `84f2a54` | docs: rewrite PROJECT_OVERVIEW.md with complete Nov 2026 state |
@@ -845,7 +926,7 @@ python -m platformio run -e esp32s3_uart -t upload --upload-port COM10
 | `3a6451a` | fix(safety): debounce sensor invalid trips against EMI and auto-reset cleared trips on motion command |
 
 **Branch:** `torqva/phase-0-audit`  
-**Remote:** `origin/torqva/phase-0-audit` and `origin/main` (both up to date as of `65098eb`)
+**Remote:** `origin/torqva/phase-0-audit` and `origin/main`
 
 ---
 
@@ -867,6 +948,7 @@ python -m platformio run -e esp32s3_uart -t upload --upload-port COM10
 | Physical C6 Continuous Intelligence | ✅ Live physical endpoints and UI |
 | Physical Performance Evaluation | ✅ Live streaming telemetry and UI |
 | Firmware OTA Manager | ✅ Done (upload, verify, deploy, rollback) |
+| **7 Operational Features (Fullstack)** | ✅ Done (CSV recording, copy summary, click-to-inspect, telemetry windows, 3000 rpm alarm, limits panel, report export) |
 | **Hardware integration (physical motor operation)** | ⏳ Not started — requires commissioning record completion by a human |
 
 ---
@@ -896,8 +978,8 @@ TORQVA/
 │   ├── main.py                      FastAPI entry point
 │   ├── requirements.txt
 │   ├── README.md                    Backend module map by responsibility
-│   ├── torqva/                      42-module Python package (flat, no sub-packages)
-│   ├── tests/                       37 pytest files (800 tests)
+│   ├── torqva/                      46-module Python package (flat, no sub-packages)
+│   ├── tests/                       45 pytest files (804 tests)
 │   ├── tools/
 │   │   ├── provision_device_key.py  Per-device offline key provisioning
 │   │   ├── provision_ota.py         OTA certificate provisioning
@@ -913,9 +995,9 @@ TORQVA/
 │       ├── physical/                8 files — physical device pages
 │       ├── simulation/              20 files — simulation AI pages
 │       ├── workflow/                1 file — Diagnostic Workflow (both modes)
-│       ├── shared/                  11 files + twin3d/ — shared UI primitives and Digital Twin
+│       ├── shared/                  15 files + twin3d/ — shared UI primitives, limits, alarm, recording, windows, twin
 │       ├── TorqvaApp.jsx            App shell
-│       └── api.js                   REST client (60 endpoints)
+│       └── api.js                   REST client (73 endpoints)
 ├── esp32/torqva_fw/
 │   ├── platformio.ini               4 environments (native, fitl, esp32s3, esp32s3_uart)
 │   ├── src/main.cpp                 Hardware HAL entry point
