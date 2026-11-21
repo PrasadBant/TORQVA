@@ -190,7 +190,17 @@ export class TwinEngine {
     this.ro?.observe(this.host);
     this.io = typeof IntersectionObserver !== 'undefined' ? new IntersectionObserver(([en]) => { this.visible = en.isIntersecting; this.rect = null; if (this.visible) { this.last = null; this.invalidate(); } }) : null;
     this.io?.observe(this.host);
-    this.onVis = () => { if (!document.hidden) { this.last = null; this.invalidate(); } };
+    this.onVis = () => {
+      if (document.hidden) {
+        if (this.raf) {
+          cancelAnimationFrame(this.raf);
+          this.raf = 0;
+        }
+      } else {
+        this.last = null;
+        this.invalidate();
+      }
+    };
     document.addEventListener('visibilitychange', this.onVis);
     this.onScroll = () => { this.rect = null; };                  // the canvas moved on screen: re-read its rectangle on the next pointer event
     window.addEventListener('scroll', this.onScroll, { capture: true, passive: true });
@@ -274,8 +284,9 @@ export class TwinEngine {
     for (const l of this.edgeCache.values()) l.material.color.set(l.userData.sel ? theme.accent : theme.edge);
     this.applyHighlight(); this.invalidate();
   }
-  setOptions({ explode, isolate, cutaway, edges, ortho, inset }) {
+  setOptions({ explode, isolate, cutaway, edges, ortho, inset, lowPower }) {
     const s = this.state;
+    if (lowPower !== undefined && lowPower !== s.lowPower) { s.lowPower = !!lowPower; this.lowPower = !!lowPower; this.invalidate(); }
     if (inset !== undefined && inset !== this.inset) { this.inset = inset; if (!this.userMoved) this.view(this.preset || 'iso', { instant: this.frames === 0 }); }
     if (explode !== undefined && (explode ? 1 : 0) !== s.explodeTarget) { s.explodeTarget = explode ? 1 : 0; this.explodeSeq = this.moveSeq; if (this.reduced) this.applyExplode(s.explodeTarget); }
     if (isolate !== undefined && isolate !== s.isolate) { s.isolate = isolate; this.applyIsolation(true); }
@@ -541,7 +552,14 @@ export class TwinEngine {
   // ---------------------------------------------------------------- loop
 
   frame(now) {
-    if (this.disposed || this.lost) return;
+    if (this.disposed || this.lost || (typeof document !== 'undefined' && document.hidden)) return;
+    if (this.lowPower && this.last != null) {
+      const minInterval = 1000 / 30 - 2; // ~30 fps cap in low-power mode
+      if (now - this.last < minInterval) {
+        this.schedule();
+        return;
+      }
+    }
     const dt = this.last == null ? 0 : (now - this.last) / 1000;
     this.last = now;
     let active = false;                                               // finite motion: tween, damping, explode

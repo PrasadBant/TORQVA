@@ -3,7 +3,7 @@
 // motion, and it never fetches, computes a reading or sends a command. Markers and callouts are real DOM buttons, so every part stays reachable by
 // keyboard and screen reader; their positions are written straight to the DOM on each rendered frame (no React render per frame).
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { RotateCcw, Maximize, Tag, MapPin, Gauge, Scissors, Focus, Expand, Layers, PenTool, AlertTriangle, Box } from 'lucide-react';
+import { RotateCcw, Maximize, Tag, MapPin, Gauge, Scissors, Focus, Expand, Layers, PenTool, AlertTriangle, Box, Zap } from 'lucide-react';
 import { TwinEngine, PRESETS } from './engine.js';
 import { layoutCallouts } from './overlay.js';
 import { ProvBadge } from '../components.jsx';
@@ -49,7 +49,7 @@ export default function TwinViewport({ items, selected, onSelect, motion, freshn
   const [hint, setHint] = useState(false);
   const [preset, setPreset] = useState('iso');
   const wide = typeof window === 'undefined' || window.innerWidth >= 760;
-  const [opts, setOpts] = useState({ labels: !wide, markers: true, overlays: wide, isolate: false, explode: false, cutaway: false, edges: false, ortho: false });
+  const [opts, setOpts] = useState({ labels: !wide, markers: true, overlays: wide, isolate: false, explode: false, cutaway: false, edges: false, ortho: false, lowPower: false });
   selRef.current = selected; optsRef.current = opts;
   const byId = Object.fromEntries(items.map((i) => [i.id, i]));
   const itemsRef = useRef(byId); itemsRef.current = byId;
@@ -186,6 +186,7 @@ export default function TwinViewport({ items, selected, onSelect, motion, freshn
           <Tool icon={Tag} label="Part labels" short="Labels" on={opts.labels} onClick={() => set('labels')} testid="t3-labels" />
           <Tool icon={Gauge} label="Measurement callouts" short="Readouts" on={opts.overlays} onClick={() => set('overlays')} testid="t3-overlays" />
           <Tool icon={PenTool} label="Technical edges" short="Edges" on={opts.edges} onClick={() => set('edges')} testid="t3-edges" />
+          <Tool icon={Zap} label="Low-power mode (30 fps cap)" short="Low Power" on={opts.lowPower} onClick={() => set('lowPower')} testid="t3-lowpower" />
         </div>
         <div className="tq-t3-group" role="group" aria-label="Inspect">
           <Tool icon={Box} label="Isolate the selected part" short="Isolate" on={opts.isolate} disabled={!selected && !opts.isolate} title={selected ? 'Show only the selected part' : 'Select a part first'} onClick={() => set('isolate')} testid="t3-isolate" />
