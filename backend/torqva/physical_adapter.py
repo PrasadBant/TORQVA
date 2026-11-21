@@ -275,6 +275,9 @@ def compute_physical_diagnostics(snapshot: Dict[str, Any], model: Optional[Any] 
     return {
         "c1": {
             "status": "ACTIVE",
+            "tier": "EXPERIMENTAL (SIMULATION TRAINED, UNVALIDATED ON HARDWARE)",
+            "experimental": True,
+            "validation_note": "EXPERIMENTAL (SIMULATION TRAINED, UNVALIDATED ON HARDWARE): Baseline derived from simulation physics; not validated against labelled hardware damage runs.",
             "score": score,
             "score_over_threshold": score,
             "anomalous": anomalous,

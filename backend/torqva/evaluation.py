@@ -40,7 +40,7 @@ CFG = {"bin_width": 300, "percentile": 99.5, "severities": SEVERITIES, "test_spe
 
 
 # ------------------------------------------------------------------ model building (TRAIN sessions only)
-def build_models(c2_variant: str = "control"):
+def build_models(c2_variant: str = "noise_aware"):
     det, tt = AdaptiveBaselineDetector(), ThermalTracker()      # bit-identical to BaselineDetector until a session reference is set
     sim = MotorSim(0)
     data = []
@@ -184,7 +184,10 @@ def eval_hypotheses(det, tt, hm, dm):
                     rows.append({"truth": h.value, "sev": sev, "decided": True, "top": p.top.value, "top_p": round(p.top_p, 3)})
     out = {"decided": n_dec, "not_decided_no_anomaly_evidence": n_nodec, "top1_accuracy": n_corr / max(n_dec, 1),
            "random_baseline": 1 / len(HYPS), "confident_decisions": n_conf,
-           "false_confident_rate": n_false_conf / max(n_conf, 1), "confusion": {"order": [h.value for h in HYPS], "matrix": conf.tolist()}}
+           "false_confident_rate": n_false_conf / max(n_conf, 1),
+           "false_confident_rate_all_decided": n_false_conf / max(n_dec, 1),
+           "denominator_note": f"confident_decisions={n_conf}, total_decided={n_dec}. false_confident_rate is n_false_conf/confident_decisions; false_confident_rate_all_decided is n_false_conf/total_decided.",
+           "confusion": {"order": [h.value for h in HYPS], "matrix": conf.tolist()}}
     # Before vs after a diagnostic test, on genuinely ambiguous pairs (prior split between the two candidates)
     pairs = [((Hypothesis.IMBALANCE, Hypothesis.LOOSENESS), "T1"), ((Hypothesis.OVERLOAD, Hypothesis.COOLING_FAILURE), "T4")]
     out["test_value"] = {}
@@ -407,6 +410,99 @@ def eval_c5(det, tt):
             "correct_non_recoveries": tn}
 
 
+# ------------------------------------------------------------------ compound faults, gradual recovery, & held-out generalization
+def eval_held_out_generalization(det, tt, hm, dm, pred):
+    """Held-out validation on unseen seeds, unseen speeds, compound faults, and gradual recovery."""
+    compound_results = []
+    pairs = [
+        (Hypothesis.OVERLOAD, 0.5, Hypothesis.LOOSENESS, 0.4),
+        (Hypothesis.SUPPLY_VOLTAGE, 0.6, Hypothesis.IMBALANCE, 0.3),
+        (Hypothesis.COOLING_FAILURE, 0.7, Hypothesis.OVERLOAD, 0.4),
+    ]
+    for h1, s1, h2, s2 in pairs:
+        for seed in (8401, 8402, 8403):
+            sim = MotorSim(seed)
+            sim.set_setpoint(1650)
+            sim.run(60)
+            sim.inject(h1, s1)
+            sim.inject(h2, s2)
+            ws = sim.run(60)
+            zs, flagged = _evidence(det, tt, ws)
+            detected = flagged >= 5
+            post = hm.posterior(zs[-15:]) if len(zs) >= 5 else None
+            top2 = [h for h, _ in sorted(post.probs.items(), key=lambda x: x[1], reverse=True)[:2]] if post else []
+            hit = any(h in (h1, h2) for h in top2)
+            compound_results.append({
+                "faults": f"{h1.value}+{h2.value}", "seed": seed, "detected": detected,
+                "top": post.top.value if post else None, "hit_top2": hit
+            })
+
+    gradual_cases = []
+    for seed in range(8501, 8506):
+        sim = MotorSim(seed)
+        sim.set_setpoint(1500)
+        sim.run(60)
+        sim.inject(Hypothesis.OVERLOAD, 0.7)
+        sim.run(30)
+        sim.t = 100.0
+        sim.set_setpoint(1260)
+        for step in range(30):
+            sim.inject(Hypothesis.OVERLOAD, 0.7 * (1.0 - (step + 1) / 30.0))
+            sim.run(1)
+        sim.inject(None)
+        ws = sim.run(370)
+        cmd = CommandRecord(1, ActionType.REDUCE_SPEED, "SET_SPEED", {}, "x", "SIMULATION", 99.0, 5000)
+        cmd.status = CommandStatus.COMPLETED
+        cmd.acked_at = 100.0
+        a = assess(cmd, ws, det, tt, ws[-1].t)
+        gradual_cases.append({
+            "seed": seed, "outcome": a.outcome.value,
+            "success": a.outcome == RecoveryOutcome.RECOVERED
+        })
+
+    noisy_cases = []
+    for h in HYPS:
+        for sev in (0.35, 0.75):
+            for seed in (9101, 9102, 9103):
+                _, ws = warm_session(h, sev, seed, 1650, post_s=40 if h != Hypothesis.COOLING_FAILURE else 600, regime="noisy")
+                zs, _ = _evidence(det, tt, ws)
+                if len(zs) >= 5:
+                    post = hm.posterior(zs[-15:])
+                    st = StateSummary.from_windows(ws)
+                    p = pred.predict(post, st, "CONTINUE_MONITORING", 0.0, 120)
+                    noisy_cases.append(p.status != "supported")
+    abstain_rate = float(np.mean(noisy_cases)) if noisy_cases else 0.0
+
+    disjoint_dec = disjoint_corr = 0
+    for h in HYPS:
+        for sev in (0.15, 0.35, 0.75):
+            for seed in (8401, 8402):
+                for sp in (1425, 1725):
+                    _, ws = warm_session(h, sev, seed, sp, post_s=40 if h != Hypothesis.COOLING_FAILURE else 600)
+                    zs, _ = _evidence(det, tt, ws)
+                    if len(zs) >= 8:
+                        p = hm.posterior(zs[-15:])
+                        disjoint_dec += 1
+                        disjoint_corr += (p.top == h)
+
+    return {
+        "compound_faults": {
+            "cases": len(compound_results),
+            "detection_rate": float(np.mean([r["detected"] for r in compound_results])),
+            "top2_accuracy": float(np.mean([r["hit_top2"] for r in compound_results])),
+        },
+        "gradual_recovery": {
+            "cases": len(gradual_cases),
+            "success_rate": float(np.mean([c["success"] for c in gradual_cases])),
+        },
+        "c2_noisy_abstain_rate": round(abstain_rate, 3),
+        "disjoint_benchmark": {
+            "decided": disjoint_dec,
+            "top1_accuracy": round(disjoint_corr / max(disjoint_dec, 1), 3),
+        }
+    }
+
+
 # ------------------------------------------------------------------ driver
 def git_sha() -> str:
     try:
@@ -417,8 +513,11 @@ def git_sha() -> str:
 
 def run_all() -> Dict:
     t0 = time.time()
-    det, tt, hm, dm, pred, sizes = build_models()
+    det, tt, hm, dm, pred_noise_aware, sizes = build_models("noise_aware")
+    _, _, _, _, pred_control, _ = build_models("control")
     glob = build_global_detector(tt)
+    c2_noise = eval_c2(det, tt, hm, pred_noise_aware)
+    c2_ctrl = eval_c2(det, tt, hm, pred_control)
     res = {
         "schema": "EvaluationRun/1",
         "data_provenance": "SIMULATED",
@@ -427,16 +526,19 @@ def run_all() -> Dict:
         "config_hash": hashlib.sha256(json.dumps(CFG, sort_keys=True, default=str).encode()).hexdigest()[:12],
         "config": json.loads(json.dumps(CFG, default=str)),
         "model_versions": {"baseline_detector": det.version, "hypothesis_model": hm.version, "diagnostics": dm.version,
-                           "predictor": pred.version},
+                           "predictor": pred_noise_aware.version, "c2_default": "noise_aware"},
         "train_dataset": sizes,
         "test_protocol": "test sessions use seeds and speeds disjoint from training; labels hidden until scoring",
         "measured": {"status": "NO MEASURED DATA: no real labelled sessions recorded yet"},
         "c1": eval_c1(det, tt, glob),
         "hypotheses": eval_hypotheses(det, tt, hm, dm),
-        "c2": eval_c2(det, tt, hm, pred),
+        "c2": c2_noise,
+        "c2_noise_aware": c2_noise,
+        "c2_control": c2_ctrl,
         "c5": eval_c5(det, tt),
+        "held_out_generalization": eval_held_out_generalization(det, tt, hm, dm, pred_noise_aware),
         "regimes": eval_regimes(det, tt, {"uncalibrated": (det._extras["hm_uncalibrated"], False), "calibrated_ood": (hm, False),
-                                       "calibrated_ood_pair_rule": (hm, True)}, dm, pred),
+                                       "calibrated_ood_pair_rule": (hm, True)}, dm, pred_control),
         "calibration": det._extras["calibration"],
     }
     res["runtime_s"] = round(time.time() - t0, 1)

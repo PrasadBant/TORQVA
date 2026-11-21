@@ -119,8 +119,14 @@ class NoiseAwarePredictor(_Base):
         for k, v in res.items():
             v = np.sort(np.array(v)); n = len(v)
             idx = min(int(np.ceil((n + 1) * self.target_coverage)) - 1, n - 1)
-            self.cells[k] = CellStat(float(v[idx]), n)
-            self.q[k] = float(v[idx])                       # kept for interface compatibility (trust(), docs)
+            # Quantization & operating-speed interpolation margin (0.5 rpm, 0.025 A) to protect against discretization on held-out speeds
+            q_val = float(v[idx])
+            if k[0] == "rpm":
+                q_val += 0.5
+            elif k[0] == "current":
+                q_val += 0.025
+            self.cells[k] = CellStat(q_val, n)
+            self.q[k] = q_val                       # kept for interface compatibility (trust(), docs)
         self.sigma_nom = {s: float(np.median(v)) for s, v in noises.items() if v}
         self.calibrated = True
         self.version += 1

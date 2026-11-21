@@ -45,7 +45,7 @@ TORQVA is a **physical-AI platform for a DC motor test rig**. It reads live sens
 ### What Is NOT Ready
 
 - Hardware E-stop circuit (designed but not installed or verified)
-- Physical C1 anomaly detection (trained on sim data; needs vibration RMS/harmonics the firmware doesn't yet measure)
+- Physical C1 anomaly detection: labelled EXPERIMENTAL (simulation-trained, unvalidated on physical hardware). Operates on real measured signals (rpm, current, voltage, temperature) without requiring vibration RMS.
 - Physical motor operation on the real rig beyond basic duty/speed commands (commissioning record must be completed by a human first)
 
 ---

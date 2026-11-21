@@ -27,13 +27,22 @@ Detection (fraction of 9 runs detected; "–" = none):
 Reading: the operating-point-aware baseline catches imbalance and overload at ≈5 % severity, where the original fixed thresholds need ≥80 % and a speed-blind baseline needs 10–20 %. Caveats: the fixed thresholds were never tuned for this simulator, so "fixed thresholds miss it" mainly shows they are blunt, and the supply-voltage fault is hard for C1 until it is large. Healthy false alarms are slightly higher than the speed-blind baseline (0.26 % vs 0.02 %) — a real trade-off, not a win on every axis.
 
 ## Hypotheses (144 decisions, 6 classes, random = 16.7 %)
-- Top-1 accuracy **95.1 %**. Confident decisions (≥0.70, margin ≥0.30): 143, of which **7 were wrong: false-confident rate 4.9 %** — this is too high for an autonomous ACT and is the main thing to improve. Errors: looseness → sensor-fault ×3, sensor-fault → looseness ×3, imbalance → sensor-fault ×1; overload, cooling failure and supply voltage were perfect.
+- Top-1 accuracy **98.6 %** (142 of 144 correct). Confident decisions (≥0.70, margin ≥0.30): 144 out of 144 decided, of which **2 were wrong: false-confident rate 1.4 %** (down from previous 4.9 %). Note on denominators: all 144 runs were decided and confident (`n_conf = 144`, `n_dec = 144`). Errors: only 2 sensor-fault runs called looseness; imbalance, looseness, overload, cooling failure, and supply voltage were 100 % correct.
 - Diagnostic test value on genuinely ambiguous pairs (prior split 50/50, n = 10 each): imbalance vs looseness with T1: 50 % → 100 %; overload vs cooling failure with T4: 50 % → 100 %. The sim's separation is cleaner than reality will be; real tests must re-fit these signatures (the looseness speed-exponent is a modelling assumption).
 
 ## C2 intervention outcome prediction (48 held-out scenarios × 3 actions) — *Intervention Outcome Prediction (unvalidated)*
+- **Default Variant: `noise_aware` conformal predictor** (enabled in `SimulationService` and evaluated against baseline control).
 - Beats the persistence baseline on every signal for REDUCE_SPEED and STOP (e.g. rpm MAE 4 vs 525; vibration 0.008 g vs 0.055 g), and on housing temperature even when continuing (0.10 °C vs 1.46 °C). For CONTINUE on rpm/vibration/current it equals persistence (nothing changes).
-- 90 % conformal intervals: mean coverage **88.1 %** (target 90 %), **worst cell 58 %** — slightly under-covering under shift in severity/speed. The trust check currently demands mean ≥ 80 % and no cell < 50 %.
+- 90 % conformal intervals:
+  - **`noise_aware` default: mean coverage 94.3 % (target 90 %), worst-cell coverage 81.3 %** (raised from 58.3 % baseline control).
+  - Baseline `control`: mean coverage 88.1 %, worst-cell coverage 58.3 %.
 - Ranking vs measured best action (9 limit-approaching scenarios): **matched in 6 of 9, but in 3 of those all actions were equal on limit-exceedance**, so the informative agreement is weaker than "6/9" suggests. Not a validation: that needs Intervention Outcome Experiments on the rig.
+
+## Held-out generalization & compound faults
+- **Compound Faults (9 scenarios, dual simultaneous faults)**: 100 % C1 detection rate; 100 % top-2 candidate accuracy (the true faults are captured in the top-2 ranked candidates).
+- **Gradual C5 Recovery (5 scenarios, 30 s linear ramp down)**: 100 % declared recovered upon settling, 0 % premature declaration during ramp down.
+- **Disjoint Benchmark (seeds 8401..8402, unseen speeds 1425/1725 rpm, severities 0.15/0.35/0.75)**: Top-1 accuracy **97.2 %** on unseen operating points.
+- **Physical C1 Anomaly Detection**: Tagged **EXPERIMENTAL (SIMULATION TRAINED, UNVALIDATED ON HARDWARE)**. Uses measured signals (rpm, current, voltage, temperature) with optional acceleration magnitude without requiring firmware vibration RMS.
 
 ## C5 recovery verification (40 cases, half truly cleared)
 Recovery declared in 20/20 true recoveries; **0 false recovery declarations; 0 missed recoveries**. Easy because the simulated "cleared" condition is binary; real marginal recoveries will be harder.
