@@ -77,6 +77,7 @@ class SessionRecorder:
         self._events_writer = None
         self.sample_count: int = 0
         self.event_count: int = 0
+        self._last_flush_wall: float = 0.0
 
     def is_active(self) -> bool:
         return self.active_session_id is not None
@@ -205,12 +206,15 @@ class SessionRecorder:
 
         self._readings_writer.writerow(row)
         self.sample_count += 1
-        # Crash-safe flush
-        self._readings_file.flush()
-        try:
-            os.fsync(self._readings_file.fileno())
-        except OSError:
-            pass
+        now_w = time.time()
+        # Buffer disk writes: flush & fsync every 25 samples (~2.5s at 10 Hz) or every 2.0s wall clock
+        if self.sample_count % 25 == 0 or (now_w - self._last_flush_wall) >= 2.0:
+            self._readings_file.flush()
+            try:
+                os.fsync(self._readings_file.fileno())
+            except OSError:
+                pass
+            self._last_flush_wall = now_w
 
     def record_event(self, event_type: str, level: str, details: str) -> None:
         """Write one event record to events.csv."""
