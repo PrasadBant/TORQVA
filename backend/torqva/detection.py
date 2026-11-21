@@ -19,6 +19,7 @@ MIN_TRAIN = 30
 # construction) must not make ordinary measurement noise look like a many-sigma event.
 ABS_SCALE_FLOOR = {"thermal_resid": 0.3, "voltage": 0.05, "duty": 0.3, "i_per_krpm": 0.01}
 REL_SCALE_FLOOR = 0.03
+REL_SCALE_FLOORS = {"voltage": 0.012, "duty": 0.01}
 
 
 @dataclass
@@ -86,7 +87,7 @@ class BaselineDetector:
         keep = np.all(np.abs(X - med) < 4.0 * mad, axis=1)          # trim gross outliers
         Xk = X[keep] if keep.sum() >= self.min_train else X
         mean = Xk.mean(axis=0)
-        floor = np.array([max(ABS_SCALE_FLOOR.get(f, 0.0), REL_SCALE_FLOOR * abs(m)) for f, m in zip(FEATURES, mean)])
+        floor = np.array([max(ABS_SCALE_FLOOR.get(f, 0.0), REL_SCALE_FLOORS.get(f, REL_SCALE_FLOOR) * abs(m)) for f, m in zip(FEATURES, mean)])
         std = np.maximum(Xk.std(axis=0), floor) + 1e-6
         Z = (Xk - mean) / std
         cov = np.cov(Z, rowvar=False)
