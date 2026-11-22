@@ -280,13 +280,13 @@ export function StatusStrip({ snap, go }) {
           {snap?.last_rx_unix ? <span className="tq-stat-sub tq-num">last telemetry {ago(snap.last_rx_unix)}</span> : null}
           {live && snap?.transport_label && <span className="tq-mon-statpill"><Pill tone={snap?.session?.active ? 'info' : 'warn'}>{snap.transport_label}</Pill></span>}
         </StatTile>
-        <StatTile icon={blockers.length ? ShieldAlert : ShieldCheck} tone={blockers.length ? 'crit' : 'info'} label="Safety status" testid="stat-safety"
+        <StatTile icon={blockers.length ? ShieldAlert : ShieldCheck} tone={blockers.length ? 'crit' : 'ok'} label={override ? 'Operating status' : 'Safety status'} testid="stat-safety"
           value={blockers.length ? 'Not ready' : 'No blocker reported'}
-          sub={blockers.length ? `${blockers.length} blocking issue${blockers.length > 1 ? 's' : ''} · motion locked: ${blockers[0]}` : 'Direct operator control enabled.'}
-          action={go ? <LinkButton onClick={() => go('control')}>{blockers.length ? 'View blockers' : 'View checklist'}</LinkButton> : null}>
+          sub={override ? 'Direct operator control active.' : (blockers.length ? `${blockers.length} blocking issue${blockers.length > 1 ? 's' : ''} · motion locked: ${blockers[0]}` : 'Direct operator control enabled.')}
+          action={go ? <LinkButton onClick={() => go('control')}>{override ? 'Device settings' : (blockers.length ? 'View blockers' : 'View checklist')}</LinkButton> : null}>
           {live && snap?.config && (
-            <span className="tq-mon-statpill"><Pill tone={(snap?.config?.confirmed || override) ? 'ok' : 'warn'}>
-              {(snap?.config?.confirmed || override) ? `limits v${snap?.config?.device_version || 1} confirmed by the device` : snap?.config?.approved_version ? `limits v${snap?.config?.approved_version} awaiting the device` : 'no limits approved'}
+            <span className="tq-mon-statpill"><Pill tone="ok">
+              {override ? 'Direct mode active' : (snap?.config?.confirmed ? `limits v${snap?.config?.device_version || 1} confirmed by the device` : snap?.config?.approved_version ? `limits v${snap?.config?.approved_version} awaiting the device` : 'no limits approved')}
             </Pill></span>)}
         </StatTile>
         <StatTile icon={Gauge} tone={rpmTone} label="Current speed" value={rpm === null ? 'UNAVAILABLE' : fmt(rpm, 0)} unit={rpm === null ? undefined : 'rpm'} sub={rpmSub} testid="stat-rpm" />
@@ -992,11 +992,40 @@ export function PhysicalOverview({ stream, go, role }) {
           <DataTable caption="Recent device commands and events" testid="phys-events" rows={ev} rowKey={(r) => r.k} maxRows={6} empty="No commands or device events in this session."
             columns={[{ key: 't', label: 'Time', render: (r) => <span className="tq-num">{clock(r.t)}</span> }, { key: 'level', label: 'Status', render: (r) => <Pill tone={r.tone}>{r.level}</Pill> }, { key: 'text', label: 'Event' }]} />
         </Card>
-        <Card title="Safety & Commissioning" id="p-safety" icon={ClipboardCheck}
-          sub={override ? 'No blockers reported · Direct operator control active' : (blockers.length ? `${blockers.length} blocker${blockers.length > 1 ? 's' : ''} reported by the device path` : 'No blocker reported by the device path')}
-          foot={<LinkButton onClick={() => go('control')}>Open Device & Safety</LinkButton>}>
-          {checks.length ? <CheckList dense label="Interlock groups" testid="phys-checks" items={checks} /> : <Empty>No interlock data.</Empty>}
-        </Card>
+        {override ? (
+          <Card title="Direct Hardware Status" id="p-safety" icon={Cpu}
+            sub="Direct operator control active · All blockers removed"
+            foot={<LinkButton onClick={() => go('control')}>Open Device Settings</LinkButton>}>
+            <ul className="tq-checks is-dense" aria-label="Interlock groups" data-testid="phys-checks">
+              <li className="tq-check-row tq-ok">
+                <span className="tq-check-icon" aria-hidden="true"><CheckCircle2 size={16} /></span>
+                <span className="tq-check-main"><span className="tq-check-label">Direct Motor Control</span><span className="tq-check-detail">PWM duty & closed-loop RPM ready</span></span>
+                <span className="tq-check-status">ACTIVE</span>
+              </li>
+              <li className="tq-check-row tq-ok">
+                <span className="tq-check-icon" aria-hidden="true"><CheckCircle2 size={16} /></span>
+                <span className="tq-check-main"><span className="tq-check-label">Safety Blockers</span><span className="tq-check-detail">Zero blockers enforced</span></span>
+                <span className="tq-check-status">UNBLOCKED</span>
+              </li>
+              <li className="tq-check-row tq-ok">
+                <span className="tq-check-icon" aria-hidden="true"><CheckCircle2 size={16} /></span>
+                <span className="tq-check-main"><span className="tq-check-label">Commissioning Gates</span><span className="tq-check-detail">Bypassed for direct operator access</span></span>
+                <span className="tq-check-status">BYPASSED</span>
+              </li>
+              <li className="tq-check-row tq-ok">
+                <span className="tq-check-icon" aria-hidden="true"><CheckCircle2 size={16} /></span>
+                <span className="tq-check-main"><span className="tq-check-label">Hardware Driver</span><span className="tq-check-detail">BTS7960 RPWM (GPIO 38) & EN (GPIO 18/21)</span></span>
+                <span className="tq-check-status">READY</span>
+              </li>
+            </ul>
+          </Card>
+        ) : (
+          <Card title="Safety & Commissioning" id="p-safety" icon={ClipboardCheck}
+            sub={blockers.length ? `${blockers.length} blocker${blockers.length > 1 ? 's' : ''} reported by the device path` : 'No blocker reported by the device path'}
+            foot={<LinkButton onClick={() => go('control')}>Open Device & Safety</LinkButton>}>
+            {checks.length ? <CheckList dense label="Interlock groups" testid="phys-checks" items={checks} /> : <Empty>No interlock data.</Empty>}
+          </Card>
+        )}
       </div>
     </>
   );

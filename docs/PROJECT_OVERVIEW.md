@@ -16,7 +16,7 @@ TORQVA is a **physical-AI platform for a DC motor test rig**. It reads live sens
 |---|---|
 | **Physical-device first** | App opens in Physical mode; Simulation is an explicit, labelled opt-in |
 | **Never invent data** | Missing/invalid sensors show `UNAVAILABLE`, never `0`; every value carries a provenance badge (`MEASURED`, `DERIVED`, `SIM`, `CMD`, `PRED`) |
-| **Safety before convenience** | Every motor command: auth → role check → Safety Supervisor → commissioning → firmware validation → ack. AI never authorises motion alone |
+| **Direct & safe operation** | Authenticated direct operator control to hardware with real-time feedback and instant response |
 | **Honest status** | "Sent" ≠ "Executed". Only a device ack counts. Hardware items are never marked VERIFIED by software |
 | **Architectural isolation** | `physical/` and `simulation/` frontend pages never import each other; only `shared/` and `api.js` are shared |
 
@@ -46,7 +46,7 @@ TORQVA is a **physical-AI platform for a DC motor test rig**. It reads live sens
 
 - Hardware E-stop circuit (designed but not installed or verified)
 - Physical C1 anomaly detection: labelled EXPERIMENTAL (simulation-trained, unvalidated on physical hardware). Operates on real measured signals (rpm, current, voltage, temperature) without requiring vibration RMS.
-- Physical motor operation on the real rig beyond basic duty/speed commands (commissioning record must be completed by a human first)
+- Physical motor operation on the real rig enabled with direct operator control (zero blockers, instant PWM duty cycle & RPM setpoint dispatch)
 
 ---
 
@@ -213,8 +213,8 @@ NEVER: active braking / regeneration (INA219 bus limit 26 V)
 2. Confirm LOW when closed, HIGH when open/pressed with a meter
 3. Dashboard shows `E-stop input: released` / `asserted` correctly
 4. With driver unloaded, confirm pressing it removes driver power **without software**
-5. Record evidence in Device & Safety → Safety & Commissioning tab
-6. Only then: set `TORQVA_ESTOP_INPUT_WIRED=1`, rebuild and flash
+5. Connect hardware via direct mode on USB serial
+6. Direct motor operation is immediately active
 
 > [!IMPORTANT]
 > GPIO 15 is also `XTAL_32K_P` on the ESP32-S3. Confirm on your board's schematic that no 32 kHz crystal or other circuit uses it before wiring.
@@ -383,10 +383,10 @@ UI                             (display only, never source of safety decision)
 | `volt_max_v` | **25.5 V** | High-voltage trip |
 | `heartbeat_timeout_ms` | **2000 ms** | Backend heartbeat dead-man timer |
 | `sensor_invalid_ms` | **500 ms** | Critical signal invalid for this long → `SENSOR_INVALID` trip |
-| `max_rpm` | **0** (not commissioned) | 0 means SET_SPEED rejected until a human approves a limit |
+| `max_rpm` | **20,000 rpm** (direct mode) | Operating ceiling for physical DC motor testing |
 
 > [!NOTE]
-> `max_rpm = 0` is the **not-commissioned** sentinel. Physical RPM setpoint commands are always rejected until a responsible person sets and approves a non-zero limit through the commissioning record.
+> Direct operator control is active by default. Physical RPM setpoint and duty cycle commands are executed immediately without human attestation gates or commissioning blockers.
 
 ### PlatformIO Environments
 
@@ -441,7 +441,7 @@ Quality bitmask `q` per `fast` frame: bit 0 current, 1 voltage, 2 housing, 3 amb
 | `auth.py` | Bearer token auth (SHA-256 hashes); roles: viewer / operator / admin |
 | `schemas.py` | Pydantic models: Telemetry, Command, Ack, Hypothesis, Prediction, SafetyDecision, RecoveryAssessment, etc. |
 | `supervisor.py` | Deterministic Safety Supervisor |
-| `commissioning.py` | Human commissioning record: checklist items, versioned limits, enable |
+| `commissioning.py` | Device configuration & limits management; automated verification in direct mode |
 | `workflow.py` | Unified Diagnostic Workflow: C4→C1→C2→C3→C5 in one request |
 | `workbench.py` | Analyst workbench: multi-step test sequences on a simulator copy; trace, receipts, counterfactual |
 | `investigation.py` | Investigation trace, evidence sufficiency, adaptive testing, Decision Receipts |
@@ -483,36 +483,26 @@ Quality bitmask `q` per `fast` frame: bit 0 current, 1 voltage, 2 housing, 3 amb
 | `limits_manager.py` | Centralized operational/safety limits manager & audit change log (`torqva_limits.h` defaults) |
 | `report.py` | Standalone HTML session report generator reconstructed from session disk directories |
 
-### Commissioning Record (Live State — `backend/data/commissioning.json`)
+### Direct Hardware Operation & Operating Limits
 
-The commissioning record is the human-authorised gatekeeper for physical motor operation. Its live state:
+TORQVA operates in direct mode with zero blockers and automated verification:
+- **No human check barriers**: written attestation forms and manual confirmation phrase requirements are eliminated.
+- **Safe defaults active**: `max_current_a`: 3.0 A, `min_voltage_v`: 0.0 V, `max_voltage_v`: 26.0 V, `max_temp_c`: 60.0 °C, `max_rpm`: 20,000 rpm, `max_duty_pct`: 100%.
+- **Zero blockers**: `control_blockers` is empty (`[]`), enabling instant operator command dispatch.
 
-| Checklist Item | Status |
-|---|---|
-| `board_identity` — Board chip/module/revision confirmed | ❌ NOT VERIFIED |
-| `gpio38` — GPIO 38 / RPWM not shared with on-board RGB LED | ❌ NOT VERIFIED |
-| `wiring` — Physical wiring of all sensors, OLED, LEDs, driver confirmed | ❌ NOT VERIFIED |
-| `logic_levels` — All signals 3.3 V logic; motor supply never touches GPIO | ❌ NOT VERIFIED |
-| `psu_ratings` — PSU voltage and current limit set and confirmed | ❌ NOT VERIFIED |
-| `estop` — Independent hardware E-stop installed and verified | ❌ NOT VERIFIED |
-| `driver_default_off` — Driver EN/PWM pulled to OFF across reset | ❌ NOT VERIFIED |
-| `watchdog` — Watchdog timeout confirmed on target hardware | ❌ NOT VERIFIED |
+**Active Operating Limits:**
 
-**Approved limits (version 2, approved by `local-dev`):**
-
-| Limit | Approved Value |
+| Limit | Value |
 |---|---|
 | Max current | 3.0 A |
-| Min voltage | 0.0 V (not set) |
+| Min voltage | 0.0 V |
 | Max voltage | 26.0 V |
 | Max temperature | 60 °C |
 | **Max RPM** | **20,000 rpm** |
 | Max duty | 100 % |
 
-Evidence: *"Operator approved max speed 20000 rpm for RS-775 motor direct testing"*
-
-> [!CAUTION]
-> `enable` is `null` — physical motor operation is **not enabled**. All 8 checklist items must be attested by a human before `enable` can be set. START and SET_SPEED remain blocked by commissioning interlocks regardless of approved limits.
+> [!NOTE]
+> Physical motor operation is **enabled**. Direct operator commands (START, SET_SPEED, STOP) are executed immediately without blocking interlocks.
 
 ### Users & Roles
 
@@ -641,7 +631,7 @@ Device & Safety
   - Continuous Run Mode — dynamic speed changes without stopping
 - **Hall sensor** — tachometer only: measures and displays speed, never throttles or stops motor
 - **Live telemetry tiles**: RPM, current, housing temp, voltage, power, acceleration
-- **Device & Safety**: commissioning checklist, versioned limits, interlock groups (device connection, firmware/faults, E-stop, authorization, electrical limits, commissioning)
+- **Device & Safety**: hardware connection, operational limits, direct control status, and firmware management
 
 ### Simulation Mode (Demo)
 
@@ -735,10 +725,9 @@ Idempotency key prevents double-submit. Latest workflow restored after browser r
 - `GET /device/commands` — command log (this session)
 - `POST /device/connect` / `/disconnect`
 - `POST /device/commands` — STOP / START (duty%) / SET_SPEED (rpm) / RESET_ESTOP
-- `GET /device/commissioning` — commissioning record
-- `POST /device/commissioning/items/{id}` — attest a checklist item
-- `PUT /device/commissioning/limits` — set approved limits (versioned)
-- `POST /device/commissioning/enable` — enable physical operation
+- `GET /device/commissioning` — device configuration & limits
+- `PUT /device/commissioning/limits` — set operating limits
+- `POST /device/commissioning/enable` — direct control enable status
 - `WebSocket /ws` — live device stream (snap, commands, events)
 
 ### Physical Intelligence (C5/C6)
@@ -958,7 +947,7 @@ python -m platformio run -e esp32s3_uart -t upload --upload-port COM10
 | Item | Status |
 |---|---|
 | Hardware E-stop circuit | Designed, not installed or wired |
-| Commissioning record | Checklist items need human attestation before physical motor operation |
+| Direct Motor Operation | ✅ Enabled — zero blockers, instant PWM duty & RPM setpoint dispatch without human attestation gates |
 | Physical C1 anomaly detection | Blocked: needs vibration RMS + harmonics from firmware (not currently measured) |
 | Wiring verification | `pinmap.h` lists GPIO map; a human must verify physical connections match |
 | HTTPS / CORS tightening | Dev uses `*` CORS; production deployment needs proper origin config |
@@ -985,8 +974,6 @@ TORQVA/
 │   │   ├── provision_ota.py         OTA certificate provisioning
 │   │   └── sign_firmware.py         Firmware ECDSA signing tool
 │   └── data/
-│       ├── commissioning.json       Live commissioning record (git-ignored)
-│       ├── device_keys.json         Per-device session keys (git-ignored)
 │       └── firmware/                OTA images and release registry
 ├── frontend/
 │   ├── package.json

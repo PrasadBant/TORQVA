@@ -733,14 +733,14 @@ export function ReadinessCard({ snap, go }) {
   const blockers = override ? [] : rawBlockers;
   const counts = (snap?.interlocks || []).reduce((m, r) => ({ ...m, [r.status]: (m[r.status] || 0) + 1 }), {});
   return (
-    <Card title="Operating readiness" id="c-ready" right={<Pill tone={blockers.length ? 'stop' : 'warn'}>{blockers.length ? `BLOCKED · ${blockers.length}` : 'no blocker reported'}</Pill>}>
+    <Card title="Operating readiness" id="c-ready" right={<Pill tone={blockers.length ? 'stop' : 'ok'}>{blockers.length ? `BLOCKED · ${blockers.length}` : 'DIRECT MODE READY'}</Pill>}>
       {blockers.length ? (
         <div className="tq-callout crit" role="alert" data-testid="ready-blockers">
           <strong>Physical motion is not permitted. The backend reports:</strong>
           <ul className="tq-list">{blockers.map((b) => <li key={b}>{b}</li>)}</ul>
         </div>
       ) : (
-        <p className="tq-callout info" role="note">No blocker is reported. Direct operator motor control is active.</p>)}
+        <p className="tq-callout ok" role="note">Direct operator control is active. All blockers removed.</p>)}
       {snap?.interlocks?.length > 0 && <p className="tq-small tq-muted" data-testid="ready-counts">Interlocks: {Object.entries(counts).map(([k, n]) => `${n} ${k.toLowerCase()}`).join(' · ')}.</p>}
       {go && blockers.some((b) => /NOT CONNECTED|HANDSHAKE|TELEMETRY/i.test(b)) && <p className="tq-small"><button type="button" className="tq-linkbtn" onClick={() => go('connection')}>Connect the device on Device & Safety</button></p>}
     </Card>
