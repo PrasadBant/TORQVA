@@ -670,6 +670,19 @@ export function InterlocksCard({ snap, go }) {
   );
 }
 
+export const isOverrideActive = () => {
+  try {
+    return window?.localStorage?.getItem('torqva.override_blockers') === '1';
+  } catch {
+    return false;
+  }
+};
+export const setOverrideActive = (val) => {
+  try {
+    window?.localStorage?.setItem('torqva.override_blockers', val ? '1' : '0');
+  } catch {}
+};
+
 /** Is physical operation permitted, and what blocks it? Every blocker the backend reports is listed; nothing here grants permission. */
 export function ReadinessCard({ snap, go }) {
   const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
