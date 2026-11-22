@@ -4,7 +4,7 @@ import React from 'react';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import { vi, describe, it, expect, afterEach } from 'vitest';
 import { simTwin, SimTwinPage } from '../torqva/simulation/twin.jsx';
 import { physTwin, PhysTwinPage } from '../torqva/physical/twin.jsx';
@@ -198,16 +198,22 @@ describe('twin pages', () => {
     const calls = record();
     const go = vi.fn();
     const { unmount } = render(<PhysTwinPage stream={{ snap: CONNECTED, unreachable: false }} go={go} />);
-    fireEvent.click(screen.getByTestId('twin-hot-hall'));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('twin-hot-hall'));
+    });
     const d = screen.getByTestId('twin-detail');
     expect(within(d).getByTestId('twin-reading-rpm')).toBeInTheDocument();
     expect(screen.queryByTestId('twin-trend')).toBeNull();                         // no second copy of the Live Monitor trend
     expect(screen.queryByTestId('twin-ident')).toBeNull();                         // no internal id or placement metadata
-    fireEvent.click(within(d).getByTestId('twin-to-live'));
+    await act(async () => {
+      fireEvent.click(within(d).getByTestId('twin-to-live'));
+    });
     expect(go).toHaveBeenCalledWith('live');
-    fireEvent.click(screen.getByTestId('twin-close'));
-    fireEvent.click(screen.getByTestId('twin-hot-temp'));
-    await new Promise((r) => { setTimeout(r, 50); });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('twin-close'));
+      fireEvent.click(screen.getByTestId('twin-hot-temp'));
+      await new Promise((r) => { setTimeout(r, 50); });
+    });
     unmount();
     expect(calls.filter(([, u]) => u.includes('/device/history'))).toEqual([]);
   });

@@ -1,7 +1,7 @@
 // Wireless device link in the UI: the active transport comes only from the backend's record of it (snapshot.transport); a Wi-Fi socket is not a
 // working device link until the per-device-key handshake completed; a closed link is Disconnected, never "connected once".
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import { DevicePage, transportOf } from '../torqva/physical/device.jsx';
 
@@ -24,8 +24,10 @@ describe('wireless device link', () => {
     expect(transportOf(undefined)).toBeNull();
   });
 
-  it('Device & Safety shows Connected — Wi-Fi, the authentication state and the link details', () => {
-    render(<DevicePage stream={stream(wifi)} role="viewer" embedded />);
+  it('Device & Safety shows Connected — Wi-Fi, the authentication state and the link details', async () => {
+    await act(async () => {
+      render(<DevicePage stream={stream(wifi)} role="viewer" embedded />);
+    });
     expect(screen.getByTestId('conn-head')).toHaveTextContent('Connected — Wi-Fi');
     expect(screen.getByTestId('conn-method')).toHaveTextContent('Wi-Fi');
     expect(screen.getByTestId('conn-auth')).toHaveTextContent('yes');
@@ -33,21 +35,27 @@ describe('wireless device link', () => {
     expect(screen.getByTestId('wifi-link-details')).toHaveTextContent('Connection attempts');
   });
 
-  it('a USB link says USB', () => {
-    render(<DevicePage stream={stream(usb)} role="viewer" embedded />);
+  it('a USB link says USB', async () => {
+    await act(async () => {
+      render(<DevicePage stream={stream(usb)} role="viewer" embedded />);
+    });
     expect(screen.getByTestId('conn-head')).toHaveTextContent('Connected — USB');
     expect(screen.getByTestId('dev-conn')).toHaveTextContent('Port COM10');
   });
 
-  it('a link that is not yet authenticated never says the device is authenticated', () => {
-    render(<DevicePage stream={stream({ ...wifi, session: { state: 'wait_challenge', active: false } })} role="viewer" embedded />);
+  it('a link that is not yet authenticated never says the device is authenticated', async () => {
+    await act(async () => {
+      render(<DevicePage stream={stream({ ...wifi, session: { state: 'wait_challenge', active: false } })} role="viewer" embedded />);
+    });
     expect(screen.getByTestId('conn-head')).toHaveTextContent('Wi-Fi (authenticating)');
     expect(screen.getByTestId('conn-auth')).toHaveTextContent('no');
   });
 
-  it('after the link closed the device is Disconnected and no transport is claimed', () => {
-    render(<DevicePage stream={stream({ ...wifi, connection: 'DISCONNECTED', handshake: false, transport: null, session: { active: false },
-      wifi_link: { ...wifi.wifi_link, active: false, events: [...wifi.wifi_link.events, { at: 1793814900, kind: 'disconnected', remote: '10.177.25.41', reason: 'closed by the device' }] } })} role="viewer" embedded />);
+  it('after the link closed the device is Disconnected and no transport is claimed', async () => {
+    await act(async () => {
+      render(<DevicePage stream={stream({ ...wifi, connection: 'DISCONNECTED', handshake: false, transport: null, session: { active: false },
+        wifi_link: { ...wifi.wifi_link, active: false, events: [...wifi.wifi_link.events, { at: 1793814900, kind: 'disconnected', remote: '10.177.25.41', reason: 'closed by the device' }] } })} role="viewer" embedded />);
+    });
     expect(screen.getByTestId('conn-head')).toHaveTextContent('Disconnected');
     expect(screen.getByTestId('conn-head')).not.toHaveTextContent('Wi-Fi');
     expect(screen.getByTestId('conn-method')).toHaveTextContent('none');

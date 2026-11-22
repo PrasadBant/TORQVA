@@ -54,6 +54,7 @@ def test_single_operator_direct_control():
 
     svc = SimulationService()
     bridge: DeviceBridge = svc.bridge
+    bridge.direct_mode = True
 
     app = FastAPI()
     app.include_router(create_router(svc, auth))

@@ -15,7 +15,8 @@ from typing import Any, Dict, List, Optional
 KINDS = ("incident", "decision", "prediction", "command", "outcome", "case",
          "lab_session", "experiment", "attestation_candidate", "reference_state", "prediction_check",
          "diagnostic_run", "counterfactual", "decision_receipt",           # simulation-only analyst workbench records
-         "workflow")                                                         # unified diagnostic workflow (workflow.py), either mode
+         "workflow",                                                         # unified diagnostic workflow (workflow.py), either mode
+         "telemetry_history")
 
 
 class StaleRevision(Exception):
@@ -128,3 +129,23 @@ class Store:
         with self._lock:
             rows = self._db.execute("SELECT body FROM ref_versions ORDER BY version").fetchall()
         return [json.loads(b) for (b,) in rows]
+
+    # ---------- persisted telemetry, incidents, and commands across restarts (namespaced) ----------
+    def persist_telemetry(self, namespace: str, session_id: str, series_data: Dict[str, Any], provenance: str) -> None:
+        """Persist a telemetry snapshot or history buffer under namespace ('PHYSICAL' or 'SIM')."""
+        doc_id = f"{namespace}/{session_id}"
+        self.put("telemetry_history", doc_id, series_data, provenance)
+
+    def get_telemetry(self, namespace: str, session_id: str) -> Optional[Dict[str, Any]]:
+        return self.get("telemetry_history", f"{namespace}/{session_id}")
+
+    def persist_incident(self, namespace: str, incident_id: str, details: Dict[str, Any], provenance: str) -> None:
+        """Persist safety/anomaly incident under namespace ('PHYSICAL' or 'SIM')."""
+        doc_id = f"{namespace}/{incident_id}"
+        self.put("incident", doc_id, details, provenance)
+
+    def persist_command(self, namespace: str, cmd_id: str, details: Dict[str, Any], provenance: str) -> None:
+        """Persist command log entry under namespace ('PHYSICAL' or 'SIM')."""
+        doc_id = f"{namespace}/{cmd_id}"
+        self.put("command", doc_id, details, provenance)
+

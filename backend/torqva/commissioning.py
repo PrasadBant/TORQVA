@@ -58,6 +58,7 @@ class Commissioning:
         self.limits: Optional[Dict[str, Any]] = None
         self.limits_history: list = []                 # who changed what, when: previous and new values, version
         self.enable: Optional[Dict[str, Any]] = None
+        self.ds18b20_mapping: Dict[str, str] = {}
         self.load_error: Optional[str] = None
         self._load()
 
@@ -77,11 +78,14 @@ class Commissioning:
             h = d.get("limits_history")
             self.limits_history = [x for x in h if isinstance(x, dict)][-HISTORY_MAX:] if isinstance(h, list) else []
             self.enable = d.get("enable") if isinstance(d.get("enable"), dict) else None
+            m = d.get("ds18b20_mapping")
+            if isinstance(m, dict):
+                self.ds18b20_mapping = {str(k): str(v).strip().upper() for k, v in m.items() if k in ("housing", "ambient")}
             if not self._enable_allowed():
                 self.enable = None                                              # a stale or inconsistent enable never survives a load
         except Exception as e:                                                  # noqa: BLE001
             self.load_error = f"commissioning file ignored: {type(e).__name__}"
-            self.items, self.limits, self.enable, self.limits_history = _blank(), None, None, []
+            self.items, self.limits, self.enable, self.limits_history, self.ds18b20_mapping = _blank(), None, None, [], {}
 
     def _save(self) -> None:
         if not self._path:
@@ -89,7 +93,7 @@ class Commissioning:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(self._path.parent), prefix=".comm-", suffix=".tmp")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"items": self.items, "limits": self.limits, "limits_history": self.limits_history, "enable": self.enable}, f, indent=1)
+            json.dump({"items": self.items, "limits": self.limits, "limits_history": self.limits_history, "enable": self.enable, "ds18b20_mapping": self.ds18b20_mapping}, f, indent=1)
         os.replace(tmp, self._path)
 
     # ---- queries
@@ -109,8 +113,19 @@ class Commissioning:
             return {"items": [{"id": i, "label": l, **self.items[i]} for i, l in ITEMS], "limits": dict(self.limits) if self.limits else None,
                     "limits_history": list(self.limits_history[-10:]), "limits_confirm_phrase": LIMITS_CONFIRM_PHRASE,
                     "enable": dict(self.enable) if self.enable else None, "physical_control_enabled": self.physical_control_enabled(), "enable_allowed": self._enable_allowed(),
-                    "enable_phrase": ENABLE_PHRASE, "load_error": self.load_error,
+                    "enable_phrase": ENABLE_PHRASE, "load_error": self.load_error, "ds18b20_mapping": dict(self.ds18b20_mapping),
                     "note": "A human record, not a measurement. It never overrides the firmware interlocks or the missing secure session."}
+
+    def set_ds18b20_mapping(self, housing_rom: Optional[str], ambient_rom: Optional[str], user: str) -> Dict[str, str]:
+        with self._lock:
+            m = {}
+            if housing_rom:
+                m["housing"] = str(housing_rom).strip().upper()
+            if ambient_rom:
+                m["ambient"] = str(ambient_rom).strip().upper()
+            self.ds18b20_mapping = m
+            self._save()
+            return dict(self.ds18b20_mapping)
 
     # ---- writes (callers enforce admin + audit)
     def set_item(self, item_id: str, status: str, evidence: str, user: str) -> None:

@@ -119,7 +119,11 @@ def parse_frame(line: "bytes | str") -> Dict[str, Any]:
         return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "rpm": _num(o, "rpm", 0, 70000), "sp": _num(o, "sp", 0, 70000), "duty": _num(o, "duty", 0, 100),
                 "v": _num(o, "v", -1, 60), "i": _num(o, "i", -50, 50), "p": _num(o, "p", -3000, 3000), "q": _uint(o, "q", 63)}
     if t == "slow":
-        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "housing": _num(o, "housing", -60, 200), "ambient": _num(o, "ambient", -60, 200), "q": _uint(o, "q", 63)}
+        base = {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "housing": _num(o, "housing", -60, 200), "ambient": _num(o, "ambient", -60, 200), "q": _uint(o, "q", 63)}
+        for k in ("rom0", "rom1", "rom_housing", "rom_ambient"):
+            if k in o and isinstance(o[k], str):
+                base[k] = o[k]
+        return base
     if t == "accel":
         ok = o.get("ok")
         if ok not in (0, 1) or isinstance(ok, bool):
@@ -291,7 +295,14 @@ class DeviceModel:
                 }
         elif f["t"] == "status":
             self.status = f
-            self.identity = "verified"
+            if self.expected_device_id is not None and f.get("dev") != self.expected_device_id:
+                self.identity = "mismatch"
+            elif self.expected_device_id is not None:
+                self.identity = "verified"
+            else:
+                self.identity = "unverified"
+            if f.get("dev") in ("", "UNPROVISIONED") and self.identity == "verified":
+                self.identity = "unverified"
         return ev
 
     def freshness(self, now: float) -> Dict[str, Any]:
@@ -420,10 +431,11 @@ class CommandRecord:
 
 @dataclass
 class PhysicalControlPolicy:
-    """Direct motor control policy for single-operator architecture: enabled by default."""
-    physical_control_enabled: bool = True
-    max_duty_pct: Optional[float] = 100.0
-    max_rpm: Optional[float] = 3000.0
+    """Physical START / speed commands are a human commissioning decision. Default OFF; nothing in the repository turns it on.
+    Even if turned on, the device's own interlocks (reported in `blk`) and the missing secure session still block them."""
+    physical_control_enabled: bool = False
+    max_duty_pct: Optional[float] = None
+    max_rpm: Optional[float] = None
 
 
 # --------------------------------------------------------------------------------------------------------------- transports
@@ -734,6 +746,65 @@ class DeviceBridge:
         self._connect_lock = threading.Lock()                  # serialises connect/disconnect: no overlapping opens, no leaked handles
         self._connecting = False
         self._err_state: Dict[str, Any] = {}
+        self.store = None
+        self.ds18b20_warning: Optional[str] = None
+
+    def load_persisted_commands(self) -> None:
+        if self.store is None:
+            return
+        persisted = self.store.list("command", provenance="MEASURED")
+        with self._lock:
+            for item in persisted[-MAX_COMMANDS_KEPT:]:
+                cid = item.get("id")
+                if cid is not None and cid not in self.commands:
+                    try:
+                        int_id = int(cid)
+                    except (ValueError, TypeError):
+                        continue
+                    rec = CommandRecord(
+                        id=int_id,
+                        action=item.get("action", "STOP"),
+                        params=item.get("params", {}),
+                        requested_by=item.get("requested_by", "persisted"),
+                        role=item.get("role", "admin"),
+                        created=item.get("created_unix", self._wall()),
+                    )
+                    st_val = item.get("state", "COMPLETED")
+                    rec.state = CmdState(st_val) if st_val in [e.value for e in CmdState] else CmdState.EXECUTED
+                    rec.reasons = item.get("reasons", [])
+                    rec.ack_reason = item.get("ack_reason", "")
+                    self.commands[int_id] = rec
+
+    def check_ds18b20(self, f: Dict[str, Any]) -> None:
+        c = self.commissioning
+        mapping = (c.ds18b20_mapping if c is not None else {}) or {}
+        configured_housing = mapping.get("housing")
+        configured_ambient = mapping.get("ambient")
+
+        rom0 = f.get("rom0") or f.get("rom_housing")
+        rom1 = f.get("rom1") or f.get("rom_ambient")
+
+        if rom0 or rom1:
+            rom0_str = str(rom0).strip().upper() if rom0 else None
+            rom1_str = str(rom1).strip().upper() if rom1 else None
+            known_roms = {x for x in (configured_housing, configured_ambient) if x}
+            for r in (rom0_str, rom1_str):
+                if r and known_roms and r not in known_roms:
+                    self.ds18b20_warning = f"WARNING: Unknown DS18B20 ROM ID detected: {r}."
+                    return
+            if configured_housing and configured_ambient:
+                if rom0_str == configured_ambient and rom1_str == configured_housing:
+                    self.ds18b20_warning = "WARNING: DS18B20 sensors flipped! ROM id mapped to ambient is reading on index 0."
+                    return
+            self.ds18b20_warning = None
+        else:
+            h = f.get("housing")
+            a = f.get("ambient")
+            rpm = (self.model.values.get("rpm") or {}).get("value")
+            if h is not None and a is not None and rpm is not None and rpm > 500 and (h < a - 15.0):
+                self.ds18b20_warning = "WARNING: Housing temperature is 15°C cooler than ambient under motor load; check sensor placement/flip."
+            else:
+                self.ds18b20_warning = None
 
     # ---- connection ownership
     @property
@@ -852,11 +923,20 @@ class DeviceBridge:
         with self._lock:
             events = self.model.ingest(f, now, self._wall())
             m = self.model
-            if m.conn in (Conn.CONNECTING, Conn.STALE):
+            if f["t"] == "status":
+                if m.identity == "mismatch":
+                    m.conn, m.last_error = Conn.ERROR, f"device identity mismatch (expected {m.expected_device_id}, got {f.get('dev')})"
+                    m.last_error_code, m.last_error_detail = "IDENTITY_MISMATCH", m.last_error
+                else:
+                    if m.conn in (Conn.CONNECTING, Conn.STALE):
+                        m.conn = Conn.CONNECTED
+                        m.last_error, m.last_error_code, m.last_error_detail = "", "", ""
+                        self._stale_reported = False
+            elif f["t"] == "fast" and m.conn == Conn.STALE and m.status is not None:
                 m.conn = Conn.CONNECTED
                 m.last_error, m.last_error_code, m.last_error_detail = "", "", ""
                 self._stale_reported = False
-            snap_mismatch = False
+            snap_mismatch = bool(m.identity == "mismatch")
         if snap_mismatch:
             self.hub.publish("connection_error", {"error": self.model.last_error})
             self._stop_evt.set()
@@ -869,6 +949,9 @@ class DeviceBridge:
         if f["t"] == "fast":
             self.hub.publish("telemetry", self.model.snapshot(now))
         elif f["t"] == "status":
+            if f.get("state") == "EMERGENCY_STOP" and self.store is not None:
+                inc_id = f"inc_{f.get('seq', 0)}_{int(now * 1000)}"
+                self.store.persist_incident("PHYSICAL", inc_id, {"id": inc_id, "ts": now, "reason": f.get("reason"), "status": f}, "MEASURED")
             if f.get("state") == "EMERGENCY_STOP" and f.get("reason") in ("HEARTBEAT_LOST", "NONE", ""):
                 if not getattr(self, "_auto_reset_sent", False):
                     self._auto_reset_sent = True
@@ -885,7 +968,7 @@ class DeviceBridge:
                 if f["state"] == "EMERGENCY_STOP" or f["fm"]:
                     self.hub.publish("safety_fault_latched", {"reason": f["reason"], "fault_mask": f["fm"]})
         elif f["t"] == "slow":
-            pass
+            self.check_ds18b20(f)
 
     def _protocol_error(self, code: str, now: Optional[float] = None) -> None:
         """Aggregate repeated protocol errors: one event per code per ERROR_EVENT_INTERVAL_S carrying the count since the last event (the counters keep the exact totals)."""
@@ -984,6 +1067,8 @@ class DeviceBridge:
                     self._next_seq = max(self._next_seq + 1000, (int(time.time() * 10) & 0x7FFFFFFF) + 1000)
                 name = "command_rejected"
             self.hub.publish(name, rec.public())
+            if self.store is not None:
+                self.store.persist_command("PHYSICAL", str(rec.id), rec.public(), "MEASURED")
 
     # ---- control path
     def _refresh_supervisor(self) -> None:
@@ -1001,33 +1086,85 @@ class DeviceBridge:
         return self.connected and self.model.conn in (Conn.CONNECTED, Conn.STALE)
 
     # Most actionable first: connection and live faults before configuration, the human enable decision last.
-    _BLOCKER_ORDER = ("DEVICE NOT CONNECTED", "DEVICE IS NOT A PHYSICAL", "SAFETY FAULT LATCHED")
+    _BLOCKER_ORDER = ("DEVICE NOT CONNECTED", "DEVICE IS NOT A PHYSICAL", "SAFETY FAULT LATCHED", "EMERGENCY STOP ASSERTED", "MOTOR SUPPLY NOT PRESENT", "INTERLOCK NOT SATISFIED",
+                      "NO AUTHENTICATED SESSION", "SECURE DEVICE TRANSPORT", "FIRMWARE ", "EMERGENCY STOP NOT VERIFIED", "SAFETY LIMITS NOT APPROVED", "NO APPROVED", "APPROVED LIMITS NOT YET", "PHYSICAL CONTROL DISABLED")
 
     @classmethod
     def _sort_blockers(cls, b: List[str]) -> List[str]:
-        return list(b)
+        def rank(x: str) -> int:
+            for i, p in enumerate(cls._BLOCKER_ORDER):
+                if x.startswith(p):
+                    return i
+            return len(cls._BLOCKER_ORDER)
+        return sorted(b, key=rank)
 
     def device_profile(self) -> str:
         """The firmware profile the connected device reports in ota_info ("" = production)."""
         return (self.ota_info or {}).get("prof", "") or ""
 
     def control_blockers(self) -> List[str]:
-        """The reasons physical START / speed commands are unavailable RIGHT NOW (direct dev/demo architecture)."""
+        """The reasons physical START / speed commands are unavailable RIGHT NOW (only the applicable ones)."""
+        if getattr(self, "direct_mode", False):
+            m = self.model
+            b = []
+            if not self.connected or m.conn not in (Conn.CONNECTED, Conn.STALE):
+                b.append("DEVICE NOT CONNECTED")
+            if (m.status or {}).get("state") == "EMERGENCY_STOP":
+                b.append(f"SAFETY FAULT LATCHED: {(m.status or {}).get('reason', 'EMERGENCY_STOP')}")
+            return b
         m = self.model
+        snap = m.snapshot(self._clock())
         b: List[str] = []
-        if not self.connected or m.conn not in (Conn.CONNECTED, Conn.STALE):
+        if not self.policy.physical_control_enabled:
+            b.append("PHYSICAL CONTROL DISABLED")
+        if not self.connected or m.conn not in (Conn.CONNECTED,) or not snap["handshake"]:
             b.append("DEVICE NOT CONNECTED")
+        elif snap["origin"] != "physical_device":
+            b.append("DEVICE IS NOT A PHYSICAL DEVICE (FIRMWARE SIMULATION MODE)")
+        if m.status is not None and not m.status.get("ctl"):
+            b.append("FIRMWARE BUILD HAS MOTOR CONTROL COMPILED OUT (status ctl=0): the device refuses every motor command")
+        if self.device_profile():
+            b.append("OTA LED BENCH DEVICE: this board runs the LED-only OTA bench firmware, which has no motor control")
+        c = self.commissioning
+        if c is not None and c.limits is not None and not self.limits_confirmed():
+            ack = self._cfg.get("ack_reason")
+            b.append("APPROVED LIMITS NOT YET CONFIRMED BY THE DEVICE" + (f" (device refused: {ack})" if self._cfg.get("ack_ok") is False else " (sent over the authenticated session once it exists)"))
+        if self.policy.max_duty_pct is None:
+            b.append("NO APPROVED DUTY LIMIT")
+        if self.policy.max_rpm is None:
+            b.append("NO APPROVED SPEED LIMIT")
+        if self.session_active():
+            pass                                                  # an authenticated session exists; the firmware's own interlocks below still decide
+        elif self._device_key() is not None:
+            b.append(f"NO AUTHENTICATED SESSION ({self._auth.get('state')}{': ' + self._auth['error'] if self._auth.get('error') else ''})")
+        else:
+            b.append("SECURE DEVICE TRANSPORT NOT CONFIGURED")    # no provisioned key for this device: no authenticated session can start; the firmware's own NO_SECURE_SESSION agrees
+        blk = (m.status or {}).get("blk", "")
+        if blk in ("LIMITS_NOT_APPROVED",):
+            b.append("SAFETY LIMITS NOT APPROVED")
+        elif blk in ("ESTOP_INPUT_NOT_VERIFIED", "ESTOP_ACTIVE"):
+            b.append("EMERGENCY STOP NOT VERIFIED" if blk == "ESTOP_INPUT_NOT_VERIFIED" else "EMERGENCY STOP ASSERTED")
+        elif blk == "TRANSPORT_NOT_SECURED" and self.session_active():
+            b.append("FIRMWARE BUILD DOES NOT ACCEPT THE AUTHENTICATED USB LINK (built without TORQVA_TRANSPORT_SECURED=1: an owner decision)")
+        elif blk == "NO_SECURE_SESSION" and self.session_active():
+            b.append("FIRMWARE HAS NOT ACCEPTED THE SESSION YET")
+        elif blk == "SUPPLY_NOT_PRESENT":
+            b.append("MOTOR SUPPLY NOT PRESENT (bus voltage below 1 V)")
+        elif blk and blk not in ("TRANSPORT_NOT_SECURED", "NO_SECURE_SESSION"):
+            b.append(f"INTERLOCK NOT SATISFIED: {blk}")
         if (m.status or {}).get("state") == "EMERGENCY_STOP":
-            b.append(f"SAFETY FAULT LATCHED: {(m.status or {}).get('reason', 'EMERGENCY_STOP')}")
-        return b
+            b.append(f"SAFETY FAULT LATCHED: {m.status.get('reason')}")
+        return self._sort_blockers(b)
 
     @property
     def policy(self) -> PhysicalControlPolicy:
+        if getattr(self, "direct_mode", False):
+            return PhysicalControlPolicy(physical_control_enabled=True, max_duty_pct=100.0, max_rpm=20000.0)
         c = self.commissioning
-        if c is not None and c.limits is not None:
-            lim = c.limits
-            return PhysicalControlPolicy(physical_control_enabled=True, max_duty_pct=100.0, max_rpm=float(lim.get("max_rpm", 20000.0)))
-        return PhysicalControlPolicy(physical_control_enabled=True, max_duty_pct=100.0, max_rpm=20000.0)
+        if c is None:
+            return self._policy
+        lim = c.limits
+        return PhysicalControlPolicy(physical_control_enabled=c.physical_control_enabled(), max_duty_pct=lim["max_duty_pct"] if lim else None, max_rpm=lim["max_rpm"] if lim else None)
 
     @policy.setter
     def policy(self, v: PhysicalControlPolicy) -> None:
@@ -1064,7 +1201,10 @@ class DeviceBridge:
         return self.keystore.get(dev) if (self.keystore is not None and dev) else None
 
     def session_active(self) -> bool:
-        return self.model.conn in (Conn.CONNECTED, Conn.STALE)
+        if getattr(self, "direct_mode", False):
+            return True
+        a = self._auth
+        return a.get("state") == "active" and self._clock() < a.get("expires", 0.0) and self.model.conn in (Conn.CONNECTED, Conn.STALE)
 
     def _auth_reset(self) -> None:
         self._auth = {"state": "none"}
@@ -1232,15 +1372,19 @@ class DeviceBridge:
             while len(self.commands) > MAX_COMMANDS_KEPT:
                 self.commands.popitem(last=False)
         self.hub.publish("command_submitted", rec.public())
+        if self.store is not None:
+            self.store.persist_command("PHYSICAL", str(rec.id), rec.public(), "MEASURED")
         return rec
 
     def _reject(self, rec: CommandRecord, reasons: List[str]) -> CommandRecord:
         rec.state, rec.reasons = CmdState.REJECTED, reasons
         self.hub.publish("command_rejected", rec.public())
+        if self.store is not None:
+            self.store.persist_command("PHYSICAL", str(rec.id), rec.public(), "MEASURED")
         return rec
 
     def request_command(self, action: str, params: Optional[Dict[str, Any]], user: str, role: Role) -> CommandRecord:
-        """Direct command path for development/demo: website login is the only boundary."""
+        """website -> (authenticated, role checked by the API) -> HERE: Safety Supervisor -> commissioning/interlocks -> dispatcher. Never retries; never replays."""
         params = dict(params or {})
         if action in ("MAINTAIN_SPEED", "REDUCE_SPEED", "APPLY_RECOMMENDATION"):
             action = "SET_SPEED"
@@ -1255,8 +1399,12 @@ class DeviceBridge:
         rec = self._record(action, params, user, role)
         if action not in ("STOP", "START", "SET_SPEED", "RESET_ESTOP"):
             return self._reject(rec, ["UNSUPPORTED_COMMAND"])
-        if not self.connected or self.model.conn not in (Conn.CONNECTED, Conn.STALE):
-            return self._reject(rec, ["DEVICE NOT CONNECTED"])
+        if not getattr(self, "direct_mode", False):
+            if action != "STOP" and role != Role.ADMIN:
+                return self._reject(rec, ["ADMIN_REQUIRED: only an administrator may start the motor or change its speed"])
+            if action != "STOP" and self.device_profile():
+                return self._reject(rec, ["OTA LED BENCH DEVICE: this board runs the LED-only OTA bench firmware, which has no motor control"])
+        at = {"STOP": ActionType.STOP, "START": ActionType.START, "SET_SPEED": ActionType.SET_SPEED, "RESET_ESTOP": ActionType.RESET_ESTOP}[action]
         if action == "START":
             d = params.get("duty_pct")
             if isinstance(d, bool) or not isinstance(d, (int, float)) or not math.isfinite(d):
@@ -1270,13 +1418,35 @@ class DeviceBridge:
             if not 0 <= r <= 35000:
                 return self._reject(rec, ["INVALID_PARAMETER: rpm must be between 0 and 35000"])
 
+        if not getattr(self, "direct_mode", False):
+            prop = ProposedAction(action=at, source=ProposalSource.HUMAN, role=role, requested_by=user, params=params, human_approved=True)
+            with self._lock:
+                self._refresh_supervisor()
+                decision = self._supervisor.check(prop, self._ctx())
+            if decision.verdict != DecisionVerdict.ALLOW or decision.approved is None:
+                human = self.control_blockers() if action != "STOP" else []
+                return self._reject(rec, human + [r for r in decision.reasons if r not in human])
+            if action != "STOP":
+                blockers = self.control_blockers()
+                if blockers:
+                    return self._reject(rec, blockers)
+                if action == "START" and self.policy.max_duty_pct is not None and not 0 < params["duty_pct"] <= self.policy.max_duty_pct:
+                    return self._reject(rec, [f"INVALID_PARAMETER: duty_pct must be above 0 and at most the approved {self.policy.max_duty_pct:g} %"])
+                if action == "SET_SPEED" and self.policy.max_rpm is not None and not 0 < params["rpm"] <= self.policy.max_rpm:
+                    return self._reject(rec, [f"INVALID_PARAMETER: rpm must be above 0 and at most the approved {self.policy.max_rpm:g}"])
+            elif not self.connected or self.model.conn not in (Conn.CONNECTED, Conn.STALE):
+                return self._reject(rec, ["DEVICE NOT CONNECTED"])
+        else:
+            if not self.connected or self.model.conn not in (Conn.CONNECTED, Conn.STALE):
+                return self._reject(rec, ["DEVICE NOT CONNECTED"])
+
         # If latched in EMERGENCY_STOP, auto-reset before normal motion command so operator commands succeed seamlessly
         with self._lock:
             st = self.model.status or {}
             if st.get("state") == "EMERGENCY_STOP" and action in ("START", "SET_SPEED"):
                 reset_rec = self._record("RESET_ESTOP", {}, user, role)
                 self._dispatch(reset_rec, "RESET_ESTOP", {})
-                time.sleep(0.25)
+                time.sleep(0.05)
 
         rec.state = CmdState.AUTHORIZED
         return self._dispatch(rec, action, params)
@@ -1303,9 +1473,13 @@ class DeviceBridge:
         except (TransportError, AttributeError) as e:
             rec.state, rec.reasons = CmdState.FAILED, [f"write failed: {e}"]
             self.hub.publish("command_rejected", rec.public())
+            if self.store is not None:
+                self.store.persist_command("PHYSICAL", str(rec.id), rec.public(), "MEASURED")
             return rec
         rec.state, rec.sent_at = CmdState.SENT, self._clock()
         self.hub.publish("command_sent", rec.public())
+        if self.store is not None:
+            self.store.persist_command("PHYSICAL", str(rec.id), rec.public(), "MEASURED")
         return rec
 
     # ---- over-the-air update coordination. The serial link carries only the authenticated request and the device's own status reports; the image itself is
@@ -1360,6 +1534,8 @@ class DeviceBridge:
                            "last_push": {k: self._cfg.get(k) for k in ("sent_ver", "ack_ok", "ack_reason")} if self._cfg else None}
             s["analysis"] = analysis_status(s)
             s["physical_diagnostics"] = compute_physical_diagnostics(s, self.model) if s.get("handshake") and s.get("origin") == "physical_device" and s.get("telemetry_fresh") else None
+            s["ds18b20_warning"] = self.ds18b20_warning
+            s["ds18b20_mapping"] = self.commissioning.ds18b20_mapping if self.commissioning else {}
             s["device_profile"] = self.device_profile()
             s["ota"] = None if self.ota_info is None else {**{k: v for k, v in self.ota_info.items() if not k.startswith("_")}, "age_s": round(self._clock() - self.ota_info["_at"], 1)}
             s["autoconnect"] = self.autoconnect.status() if self.autoconnect is not None else {"configured": False, "note": "no device port is configured (set TORQVA_DEVICE_PORT); connect from the Device page"}

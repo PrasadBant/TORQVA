@@ -90,6 +90,8 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
     @r.get("/device/ports")
     def device_ports(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         """Lists serial ports without opening any of them."""
+        if not p.at_least(Role.ADMIN) and not getattr(bridge, "direct_mode", False):
+            raise HTTPException(403, "requires role admin")
         try:
             from serial.tools import list_ports
         except ImportError:
@@ -98,6 +100,8 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
 
     @r.post("/device/connect")
     def device_connect(body: ConnectIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        if not p.at_least(Role.ADMIN) and not getattr(bridge, "direct_mode", False):
+            raise HTTPException(403, "requires role admin")
         if not _PORT.match(body.port):
             raise HTTPException(422, "unsupported port name")
         if bridge.connected:
@@ -119,6 +123,8 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
 
     @r.post("/device/disconnect")
     def device_disconnect(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        if not p.at_least(Role.ADMIN) and not getattr(bridge, "direct_mode", False):
+            raise HTTPException(403, "requires role admin")
         audit(p, "device_disconnect")
         if bridge.autoconnect is not None:
             bridge.autoconnect.pause()                              # an operator disconnect is respected: no automatic reconnect until an operator connects again
@@ -127,6 +133,9 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
 
     @r.post("/device/commands")
     def device_command(body: CommandIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        if body.action != "STOP" and not p.at_least(Role.ADMIN) and not getattr(bridge, "direct_mode", False):
+            audit(p, "denied", needed="admin", action=body.action)
+            raise HTTPException(403, "requires role admin")
         params: Dict[str, Any] = {}
         if body.duty_pct is not None:
             params["duty_pct"] = body.duty_pct

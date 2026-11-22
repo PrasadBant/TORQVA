@@ -38,6 +38,8 @@ class SimulationService:
         self._n = 0
         from .commissioning import Commissioning
         self.bridge = DeviceBridge(expected_device_id=os.environ.get("TORQVA_EXPECTED_DEVICE_ID") or None)   # USB serial bridge: never connects by itself
+        self.bridge.store = self.store
+        self.bridge.load_persisted_commands()
         from .device_keys import KeyStore
         self.bridge.keystore = KeyStore(os.environ.get("TORQVA_DEVICE_KEYS_FILE") or str(Path(__file__).resolve().parents[1] / "data" / "device_keys.json"))
         self.bridge.commissioning = Commissioning(os.environ.get("TORQVA_COMMISSIONING_FILE") or str(Path(__file__).resolve().parents[1] / "data" / "commissioning.json"))

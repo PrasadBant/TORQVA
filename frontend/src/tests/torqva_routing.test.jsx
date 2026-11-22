@@ -93,7 +93,9 @@ describe('URL routing in the app', () => {
   it('opening a route sends no command and starts nothing', async () => {
     for (const h of ['#/scenario', '#/interventions', '#/workflow', '#/device/connection']) {
       const { unmount } = await open(h);
-      await new Promise((r) => setTimeout(r, 50));
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 60));
+      });
       expect(posts, h).toEqual([]);
       unmount(); vi.unstubAllGlobals(); setToken('');
     }
