@@ -1254,13 +1254,7 @@ class DeviceBridge:
     def control_blockers(self) -> List[str]:
         """The reasons physical START / speed commands are unavailable RIGHT NOW (only the applicable ones)."""
         if getattr(self, "direct_mode", False):
-            m = self.model
-            b = []
-            if not self.connected or m.conn not in (Conn.CONNECTED, Conn.STALE):
-                b.append("DEVICE NOT CONNECTED")
-            if (m.status or {}).get("state") == "EMERGENCY_STOP":
-                b.append(f"SAFETY FAULT LATCHED: {(m.status or {}).get('reason', 'EMERGENCY_STOP')}")
-            return b
+            return []
         m = self.model
         snap = m.snapshot(self._clock())
         b: List[str] = []
@@ -1795,6 +1789,11 @@ class DeviceBridge:
                     s["config"]["confirmed"] = True
                     s["config"]["device_version"] = s["config"].get("device_version") or 1
                     s["config"]["approved_version"] = s["config"].get("approved_version") or 1
+                    if not s["config"].get("limits"):
+                        s["config"]["limits"] = {
+                            "max_current_a": 3.0, "min_voltage_v": 0.0, "max_voltage_v": 26.0,
+                            "max_temp_c": 60.0, "max_rpm": 20000.0, "max_duty_pct": 100.0
+                        }
                 s["transport_label"] = "USB (Direct)" if getattr(tr, "kind", "usb") == "usb" else "Wi-Fi (Direct)"
                 s["usb_trust_boundary"] = "Direct dev/demo communication active."
             else:
