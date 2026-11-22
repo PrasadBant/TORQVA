@@ -8,7 +8,7 @@ import copy
 import os
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from .attestation import AttestationService
 from .serial_bridge import DeviceBridge
@@ -27,9 +27,12 @@ from . import lab as _lab
 
 
 class SimulationService:
-    def __init__(self, store: Optional[Store] = None, c2_variant: Optional[str] = None):
+    def __init__(self, store: Optional[Union[Store, str, Path]] = None, c2_variant: Optional[str] = None):
         self.c2_variant = c2_variant or os.environ.get("TORQVA_C2_VARIANT", "noise_aware")      # default: "noise_aware" (better calibrated conformal intervals under noise and shift)
-        self.store = store or Store()
+        if isinstance(store, (str, Path)):
+            self.store = Store(str(store))
+        else:
+            self.store = store or Store()
         self.attestation = AttestationService(self.store)
         self._models = None
         self.orch: Optional[Orchestrator] = None

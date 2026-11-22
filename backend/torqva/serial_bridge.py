@@ -909,9 +909,6 @@ class DeviceBridge:
             self._protocol_error(e.code)
             return
         if f["t"] in ("auth_ch", "auth_ok", "auth_err"):
-            with self._lock:
-                if self._auth.get("state") not in ("wait_challenge", "wait_ok"):
-                    return
             self._on_auth_frame(f, now)
             return
         if f["t"] == "cfg_ack":
@@ -1083,7 +1080,13 @@ class DeviceBridge:
             self._supervisor, self._sup_limits = SafetySupervisor(want), want
 
     def _hardware_control_enabled(self) -> bool:
-        return self.connected and self.model.conn in (Conn.CONNECTED, Conn.STALE)
+        if getattr(self, "direct_mode", False):
+            return self.connected and self.model.conn in (Conn.CONNECTED, Conn.STALE)
+        c = self.commissioning
+        if c is None or not c.physical_control_enabled():
+            return False
+        snap = self.model.snapshot(self._clock())
+        return bool(snap["handshake"] and snap["origin"] == "physical_device")
 
     # Most actionable first: connection and live faults before configuration, the human enable decision last.
     _BLOCKER_ORDER = ("DEVICE NOT CONNECTED", "DEVICE IS NOT A PHYSICAL", "SAFETY FAULT LATCHED", "EMERGENCY STOP ASSERTED", "MOTOR SUPPLY NOT PRESENT", "INTERLOCK NOT SATISFIED",
@@ -1225,8 +1228,27 @@ class DeviceBridge:
             return False
 
     def _auth_tick(self, now: float) -> None:
-        """Direct control mode: device authentication handshake is not required."""
-        return
+        """Starts (or renews, only while the drive is idle: a new hello ends the session and stops motion) the authenticated session. Never replays any command."""
+        with self._lock:
+            m = self.model
+            key = self._device_key()
+            a = self._auth
+            if a.get("state") == "active" and a.get("restarts") != m.counters["restarts"]:
+                self._auth_reset(); a = self._auth                       # the device rebooted: its session is gone
+            if key is None or m.conn != Conn.CONNECTED or self._transport is None:
+                return
+            st = a.get("state")
+            if st in ("wait_challenge", "wait_ok") and now - a["t0"] > self.AUTH_STEP_TIMEOUT_S:
+                self._auth_fail("timed out waiting for the device"); return
+            idle = (m.status or {}).get("drive") == "IDLE"
+            due = st == "none" or (st == "failed" and now >= self._auth_next) or (st == "active" and idle and now > a["expires"] - 30.0)
+            if not due:
+                return
+            cn = secrets.token_hex(16)
+            self._auth = {"state": "wait_challenge", "cn": cn, "t0": now, "dev": m.status["dev"], "restarts": m.counters["restarts"]}
+        if not self._send_line({"t": "hello", "cn": cn}):
+            with self._lock:
+                self._auth_fail("write failed")
 
     # ---- runtime limits: the human-approved record is pushed over the authenticated session and confirmed by the device (status "cfg" = accepted version)
     CFG_RETRY_S = 3.0
@@ -1271,8 +1293,12 @@ class DeviceBridge:
 
     def _heartbeat_tick(self, now: float) -> None:
         a, st = self._auth, self.model.status or {}
-        if self.model.conn != Conn.CONNECTED or self._transport is None or st.get("ctl") != 1:
-            return
+        if not getattr(self, "direct_mode", False):
+            if a.get("state") != "active" or now >= a.get("expires", 0.0) or not st.get("ctl") or self.model.conn != Conn.CONNECTED or self._transport is None:
+                return
+        else:
+            if self.model.conn != Conn.CONNECTED or self._transport is None or not st.get("ctl"):
+                return
         if now - self._hb_last < self.HEARTBEAT_INTERVAL_S:
             return
         with self._lock:
@@ -1282,12 +1308,12 @@ class DeviceBridge:
             self._next_id = (self._next_id + 1) & 0x7FFFFFFF or 1
             self._hb_last = now
             self._hb_ids.append(cid)
-            key = self.command_key or "dev-key-change-me"
             if a.get("sid") and a.get("sk"):
                 canon = f"{cid}|HEARTBEAT|0.000|0.000|0.000|5000|{seq}|0|{a['sid']}"
                 mac = hmac.new(a["sk"], canon.encode(), hashlib.sha256).hexdigest()[:32]
                 payload = {"id": cid, "type": "HEARTBEAT", "p": 0, "p2": 0, "p3": 0, "ttl": 5000, "age": 0, "seq": seq, "k": "", "sid": a["sid"], "m": mac}
             else:
+                key = self.command_key or "dev-key-change-me"
                 payload = {"id": cid, "type": "HEARTBEAT", "p": 0, "p2": 0, "p3": 0, "ttl": 5000, "age": 0, "seq": seq, "k": key}
         self._send_line(payload)
 
@@ -1334,18 +1360,41 @@ class DeviceBridge:
         self._send_line(out)
 
     def interlocks(self) -> List[Dict[str, str]]:
-        """Every interlock status for physical motion (simplified dev/demo architecture)."""
+        """Every interlock for physical motion with an honest status: VERIFIED | BLOCKED | NOT VERIFIED | UNAVAILABLE.
+        Hardware facts (E-stop circuit, reset-safe driver, watchdog on target) are NEVER 'VERIFIED' here: no software evidence can establish them, and not knowing of a failure is not verification."""
         m = self.model
         now = self._clock()
         snap = m.snapshot(now)
         hs = bool(snap["handshake"])
-        V, U = "VERIFIED", "UNAVAILABLE"
+        st = m.status or {}
+        blk = st.get("blk", "")
+        V, B, N, U = "VERIFIED", "BLOCKED", "NOT VERIFIED", "UNAVAILABLE"
+        sens = snap["sensor_status"]
+        es = int((m.status or {}).get("es", 0))
+        core = [sens.get(k, "unavailable") for k in ("current", "voltage", "housing", "rpm")]
+        if not hs:
+            sensors = (U, "no device handshake")
+        elif all(x == "valid" for x in core):
+            sensors = (V, "current, voltage, housing temperature and rpm are valid and fresh")
+        else:
+            sensors = (B, ", ".join(f"{k}: {sens.get(k, 'unavailable')}" for k in ("current", "voltage", "housing", "rpm") if sens.get(k) != "valid"))
+        fault_ok = hs and st.get("state") != "EMERGENCY_STOP" and not st.get("fm")
         rows = [
-            ("identity", "Device connection", (V, f"Device {snap.get('device_id') or 'RIG-1'} connected directly") if hs else (U, "no device connected")),
-            ("handshake", "Communication channel", (V, "Direct dev/demo communication active") if hs else (U, "channel closed")),
-            ("telemetry", "Telemetry stream", (V, "telemetry stream active") if hs and snap.get("telemetry_fresh") else (V if hs else U, "ready")),
-            ("controls", "Motor controls", (V, "Direct motor operation enabled") if hs else (U, "device not connected")),
-            ("ota", "Firmware deployment", (V, "OTA direct deployment ready") if hs else (U, "device not connected")),
+            ("identity", "Device identity verified", (U, "no device handshake") if not hs else (B, "identity mismatch") if m.identity == "mismatch" else (V, "device id matches the expected id") if m.identity == "verified" else (N, f"device id {st.get('dev')!r} is not provisioned/checked against an expected id")),
+            ("handshake", "Handshake valid", (V, f"protocol {st.get('proto')}, firmware {st.get('fw')}") if hs else (U, "no valid status frame received")),
+            ("telemetry", "Telemetry fresh", (V, "fast frames are arriving") if hs and snap["telemetry_fresh"] else (B if hs else U, "telemetry is stale" if hs else "no device")),
+            ("sensors", "Sensors valid", sensors),
+            ("limits", "Approved operating limits present", (U, "no device handshake") if not hs else (V, f"limits v{self.device_cfg_version()} approved by the operator and accepted by the device over the authenticated session") if self.limits_confirmed() else (B, "the operator has approved limits but the device has not confirmed them yet" if (self.commissioning is not None and self.commissioning.limits is not None) else "no operating limits approved (enter them in Safety & Commissioning)")),
+            ("session", "Authenticated session established", (V, f"mutual challenge-response with the per-device key; session {self._auth.get('sid')}, expires in {max(0, int(self._auth.get('expires', 0) - now))} s; AUTHENTICATED USB - UNENCRYPTED: authenticated, integrity-protected and replay-protected; not confidential; valid only for a direct USB link to a local PC") if self.session_active() else (B, f"no authenticated session ({self._auth.get('state')}{': ' + self._auth['error'] if self._auth.get('error') else ''})" if self._device_key() is not None else "no provisioned key for this device: the USB link is unauthenticated")),
+            ("supervisor", "Safety Supervisor permits physical action", (B, "the serial bridge never enables hardware control in the supervisor")),
+            ("commissioning", "Commissioning enabled", (V, "enabled by an admin after every checklist item was attested") if self.policy.physical_control_enabled else (B, "physical control is disabled (human commissioning decision)")),
+            ("board", "Board identity and GPIO 38 checked", self._both(self._attested("board_identity", "board"), self._attested("gpio38", "GPIO 38 check"))),
+            ("wiring", "Wiring and logic levels confirmed", self._both(self._attested("wiring", "wiring"), self._attested("logic_levels", "logic levels"))),
+            ("psu", "Supply and motor ratings reviewed", self._attested("psu_ratings", "ratings")),
+            ("estop", "Emergency-stop circuit verified", (B, "emergency stop asserted") if blk == "ESTOP_ACTIVE" else (B, f"the monitoring input (GPIO 15) reads {DeviceModel.ESTOP_LABELS[1]}: an open or unconnected input counts as an emergency stop") if es == 1 else self._attested("estop", "E-stop", (f"this firmware build does not enforce the monitoring input yet (input: {DeviceModel.ESTOP_LABELS.get(es)}); it needs a build with TORQVA_ESTOP_INPUT_WIRED=1 after the independent circuit is installed and verified. The ESP32 input alone never stops the motor power") if blk == "ESTOP_INPUT_NOT_VERIFIED" else "")),
+            ("driver", "Reset-safe driver circuitry verified", self._attested("driver_default_off", "pull-downs")),
+            ("watchdog", "Watchdog requirement verified", self._attested("watchdog", "watchdog")),
+            ("fault", "No active blocking fault", (U, "no device handshake") if not hs else (V, "no latched fault") if fault_ok else (B, f"latched: {st.get('reason')} (fault mask {st.get('fm')})")),
         ]
         return [{"id": i, "label": l, "status": v[0], "detail": v[1]} for i, l, v in rows]
 
@@ -1546,8 +1595,14 @@ class DeviceBridge:
             s["wifi_link"] = self.link.status() if getattr(self, "link", None) is not None else None
             s["physical_control_enabled"] = self.policy.physical_control_enabled
             s["control_limits"] = {"max_duty_pct": self.policy.max_duty_pct, "max_rpm": self.policy.max_rpm, "direction": "forward only (the firmware never drives LPWM)"}
-            s["transport_label"] = "USB (Direct)" if getattr(tr, "kind", "usb") == "usb" else "Wi-Fi (Direct)"
-            s["usb_trust_boundary"] = "Direct dev/demo communication active."
+            if getattr(self, "direct_mode", False):
+                s["transport_label"] = "USB (Direct)" if getattr(tr, "kind", "usb") == "usb" else "Wi-Fi (Direct)"
+                s["usb_trust_boundary"] = "Direct dev/demo communication active."
+            else:
+                s["transport_label"] = ("AUTHENTICATED USB - UNENCRYPTED" if self.session_active() else "USB - NO AUTHENTICATED SESSION")
+                s["usb_trust_boundary"] = ("AUTHENTICATED USB - UNENCRYPTED: per-device key, HMAC-authenticated session and commands, replay protection and expiry; NOT encrypted. Valid only for a direct USB connection to a controlled local PC, "
+                                           "never for network-exposed or USB-over-IP links." if self.session_active() else
+                                           "No authenticated session: the USB link is unauthenticated and unencrypted and is treated as inside the host's physical trust boundary; motion commands are refused.")
             es_v = int((self.model.status or {}).get("es", 0)) if self.model.status else None
             s["estop_input"] = {"pin": "GPIO 15 (NC contact to GND, pull-up)", "state": es_v, "label": DeviceModel.ESTOP_LABELS.get(es_v) if es_v is not None else None, "note": "Monitoring only: the ESP32 input alone never stops motor power; an independent hardware circuit is required."}
             return s

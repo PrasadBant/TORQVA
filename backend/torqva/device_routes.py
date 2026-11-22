@@ -88,10 +88,8 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         return {"signal": signal, "seconds": seconds, "points": pts, "note": "null = invalid reading (a gap), never zero", "origin": bridge.snapshot()["origin"]}
 
     @r.get("/device/ports")
-    def device_ports(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+    def device_ports(p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
         """Lists serial ports without opening any of them."""
-        if not p.at_least(Role.ADMIN) and not getattr(bridge, "direct_mode", False):
-            raise HTTPException(403, "requires role admin")
         try:
             from serial.tools import list_ports
         except ImportError:
@@ -99,10 +97,8 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         return {"ports": [{"device": x.device, "description": x.description} for x in list_ports.comports()][:64]}
 
     @r.post("/device/connect")
-    def device_connect(body: ConnectIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
-        if not p.at_least(Role.ADMIN) and not getattr(bridge, "direct_mode", False):
-            raise HTTPException(403, "requires role admin")
-        if not _PORT.match(body.port):
+    def device_connect(p: Principal = Depends(need(Role.ADMIN)), body: ConnectIn = None) -> Dict[str, Any]:
+        if body is None or not _PORT.match(body.port):
             raise HTTPException(422, "unsupported port name")
         if bridge.connected:
             raise HTTPException(409, "a serial connection is already open")
@@ -244,7 +240,7 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         return bridge.commissioning.snapshot()
 
     @r.post("/device/commissioning/items/{item_id}")
-    def commissioning_item(item_id: str, body: ItemIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+    def commissioning_item(item_id: str, body: ItemIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
         audit(p, "commissioning_item", item=item_id, status=body.status)
         try:
             bridge.commissioning.set_item(item_id, body.status, body.evidence, p.user)
@@ -253,7 +249,7 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         return bridge.commissioning.snapshot()
 
     @r.put("/device/commissioning/limits")
-    def commissioning_limits(body: LimitsIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+    def commissioning_limits(body: LimitsIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
         audit(p, "commissioning_limits", limits=body.model_dump(exclude={"evidence", "confirm"}))
         try:
             bridge.commissioning.set_limits(body.model_dump(exclude={"evidence", "confirm"}), body.evidence, p.user, body.confirm)
@@ -262,7 +258,7 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         return bridge.commissioning.snapshot()
 
     @r.post("/device/commissioning/enable")
-    def commissioning_enable(body: EnableIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+    def commissioning_enable(body: EnableIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
         audit(p, "commissioning_enable", enabled=body.enabled)
         try:
             bridge.commissioning.set_enable(body.enabled, body.confirm, p.user)
@@ -982,11 +978,14 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
                 await websocket.send_text(item)
 
         async def watchdog():
+            t0 = asyncio.get_running_loop().time()
             while True:
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(0.5)
                 current = getattr(bridge, "_transport", None) is tr
                 if not current:
                     return "replaced or disconnected by the backend"
+                if asyncio.get_running_loop().time() - t0 > dl.LINK_AUTH_TIMEOUT_S and not await asyncio.to_thread(bridge.session_active):
+                    return "no authenticated session (device key handshake did not complete)"
 
         async def receiver():
             while True:

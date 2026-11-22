@@ -58,6 +58,20 @@ ROLE = {
     ("GET", "/firmware/status"): "viewer", ("GET", "/firmware/releases"): "viewer", ("GET", "/firmware/releases/{rid}"): "viewer",
     ("POST", "/firmware/releases"): "admin", ("POST", "/firmware/deployments"): "admin", ("GET", "/firmware/deployments"): "viewer",
     ("GET", "/firmware/deployments/{dep_id}"): "viewer",
+    ("GET", "/limits"): "viewer", ("PUT", "/limits"): "operator", ("POST", "/limits/reset"): "operator",
+    ("POST", "/recording/start"): "operator", ("POST", "/recording/stop"): "operator", ("GET", "/recording/status"): "viewer",
+    ("GET", "/recording/summary"): "viewer", ("GET", "/recording/sessions"): "viewer", ("GET", "/recording/sessions/{sid}"): "viewer",
+    ("GET", "/recording/sessions/{sid}/summary"): "viewer", ("GET", "/recording/sessions/{sid}/export"): "viewer",
+    ("GET", "/recording/sessions/{sid}/report"): "viewer",
+    ("GET", "/device/diagnostics"): "viewer", ("POST", "/device/test/run"): "operator",
+    ("GET", "/evaluation/physical"): "viewer", ("POST", "/history/reset"): "operator",
+    ("GET", "/recovery/physical"): "viewer", ("POST", "/recovery/verify-physical"): "operator",
+    ("GET", "/attestation/physical/candidates"): "viewer", ("GET", "/attestation/physical/candidates/{cid}"): "viewer",
+    ("GET", "/attestation/physical/references"): "viewer", ("GET", "/attestation/physical/warmup"): "viewer",
+    ("POST", "/attestation/physical/candidates/{cid}/attest"): "operator", ("POST", "/attestation/physical/candidates/{cid}/reject"): "operator",
+    ("POST", "/attestation/physical/candidates/{cid}/revoke"): "operator", ("POST", "/attestation/physical/references/{version}/activate"): "operator",
+    ("POST", "/attestation/physical/references/rollback"): "operator", ("POST", "/attestation/physical/warmup/start"): "operator",
+    ("POST", "/attestation/physical/warmup/end"): "operator", ("POST", "/attestation/physical/capture"): "operator",
 }
 # Device-facing OTA downloads: the ESP32 cannot hold a bearer token, so these take a single-use deployment token in the
 # query string instead and refuse anything else with 403. They are listed here deliberately, never in ROLE.

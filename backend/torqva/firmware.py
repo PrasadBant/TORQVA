@@ -460,6 +460,11 @@ class FirmwareManager:
         self.store.append_history({"kind": "deployment_result", "deployment": dep["id"], "release": dep["release"], "version": dep["version"], "device": dep["device_id"],
                                    "result": state, "reason": reason, "at": self.wall()})
 
+    @staticmethod
+    def _image_received(dep: Dict[str, Any]) -> bool:
+        """The device reported the complete image (DOWNLOADING up to the release size) and is verifying it."""
+        return dep["state"] == "VERIFYING" and bool(dep["total"]) and dep["bytes"] >= dep["total"]
+
     def on_device_frame(self, f: Dict[str, Any]) -> None:
         """Called by the serial bridge for every "ota" / "ota_info" frame (and link events with t="link")."""
         with self.lock:
@@ -471,6 +476,13 @@ class FirmwareManager:
             if not f.get("connected") and dep["state"] in ("REBOOTING", "READY"):
                 dep["state"], dep["updated"] = "WAITING_FOR_RECONNECTION", self.clock()
                 self._event(dep, "WAITING_FOR_RECONNECTION", "the device disconnected for its restart")
+            elif not f.get("connected") and self._image_received(dep):
+                # The whole image had arrived and the device was verifying it when the link dropped, so READY / REBOOTING may never be seen (the
+                # device verifies and restarts by itself). Wait for its own report after the restart, under the reboot grace period - neither a
+                # failure nor a success is assumed here.
+                dep["state"], dep["updated"] = "WAITING_FOR_RECONNECTION", self.clock()
+                dep["rebooting_since"] = dep["rebooting_since"] or self.clock()
+                self._event(dep, "WAITING_FOR_RECONNECTION", "the link dropped after the whole image was received, while the device was verifying it")
             elif not f.get("connected") and dep["state"] not in ("WAITING_FOR_RECONNECTION", "SELF_TEST"):
                 dep["reason"] = "the device link was lost during the update"
                 self._event(dep, dep["state"], dep["reason"])
@@ -479,6 +491,9 @@ class FirmwareManager:
             # The previous image is running again and says the attempt rolled back
             if f.get("last") == "ROLLED_BACK" and f.get("lver") == dep["version"] and dep["state"] in ("REBOOTING", "WAITING_FOR_RECONNECTION", "SELF_TEST", "ROLLBACK"):
                 self._finish(dep, "ROLLED_BACK", "the new image did not pass its first-boot checks; the previous firmware is running")
+            elif (f.get("last") == "CONFIRMED" and f.get("lver") == dep["version"] and f.get("pend") == 0 and dep["state"] in ("WAITING_FOR_RECONNECTION", "SELF_TEST")
+                  and dep["from_version"] != dep["version"] and self.device().get("firmware") == dep["version"]):
+                self._finish(dep, "CONFIRMED", f"version {dep['version']} confirmed by the device after its self-tests (reported in its status after the restart)")
             return
         st = f.get("st")
         if st not in DEVICE_STATES:

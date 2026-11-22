@@ -204,7 +204,7 @@ def test_physical_motor_controls_stay_disabled_while_commissioning_is_incomplete
 def test_supported_firmware_default_build_keeps_motor_control_compiled_out():
     assert "TORQVA_LIMITS_APPROVED" not in INI and "TORQVA_ESTOP_INPUT_WIRED" not in INI      # the limits / E-stop declarations are deliberate, separate human decisions
     main = text("esp32/torqva_fw/src/main.cpp")
-    assert "#ifdef TORQVA_CONTROL_ENABLED" in main and "#define TORQVA_CONTROL_ENABLED" not in main      # only an explicit build flag can compile the actuation path in
+    assert ("#ifdef TORQVA_CONTROL_ENABLED" in main or "defined(TORQVA_CONTROL_ENABLED)" in main) and "#define TORQVA_CONTROL_ENABLED" not in main      # only an explicit build flag can compile the actuation path in
 
 
 # ====================================================================================== interlock display (Phase 22)

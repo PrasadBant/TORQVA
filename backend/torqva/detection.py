@@ -19,7 +19,7 @@ MIN_TRAIN = 30
 # construction) must not make ordinary measurement noise look like a many-sigma event.
 ABS_SCALE_FLOOR = {"thermal_resid": 0.3, "voltage": 0.05, "duty": 0.3, "i_per_krpm": 0.01}
 REL_SCALE_FLOOR = 0.03
-REL_SCALE_FLOORS = {"voltage": 0.012, "duty": 0.01}
+REL_SCALE_FLOORS = {}
 
 
 @dataclass

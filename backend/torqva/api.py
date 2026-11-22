@@ -215,8 +215,8 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
             raise HTTPException(404, "no evaluation run found")
         runs.sort(key=lambda t: (t[0], t[1]))
         n, name, run = runs[-1]
-        return {"file": name, "run": run, "selection": "highest run number in the file name", "available_runs": [
-            {"file": nm, "git_sha": r.get("git_sha"), "config_hash": r.get("config_hash"), "runtime_s": r.get("runtime_s"), "has_regimes": "regimes" in r} for _, nm, r in runs]}
+        return {"file": name, "run": run, "selection": "highest run number in the file name", "available_runs": sorted([
+            {"file": nm, "git_sha": r.get("git_sha"), "config_hash": r.get("config_hash"), "runtime_s": r.get("runtime_s"), "has_regimes": "regimes" in r} for _, nm, r in runs], key=lambda x: x["file"])}
 
     @r.get("/evaluation/c2c4")
     def evaluation_c2c4(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:

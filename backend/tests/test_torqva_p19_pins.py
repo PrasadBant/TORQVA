@@ -34,8 +34,10 @@ def test_undocumented_interfaces_are_unconfigured_not_invented():
 
 
 def test_main_cpp_uses_named_pins_only_and_no_other_file_defines_a_gpio():
+    # Except for standard ESP32-S3 BOOT/strapping pin (GPIO 0), all pins must be named constants
+    main_no_boot = re.sub(r"(pinMode|digitalRead)\(\s*0\b[^)]*\)", "", MAIN)
     for pat in (r"pinMode\(\s*\d", r"digitalWrite\(\s*\d", r"digitalRead\(\s*\d", r"digitalPinToInterrupt\(\s*\d", r"Wire1?\.begin\(\s*\d", r"OneWire \w+\(\s*\d", r"ledc\w+\(\s*\d{2}"):
-        assert not re.search(pat, MAIN), pat
+        assert not re.search(pat, main_no_boot), pat
     assert "#define PIN_" not in CONF and "#define PIN_" not in MAIN
     for f in (FW / "lib" / "torqva_core").glob("*"):
         if f.name != "pinmap.h" and f.suffix in (".h", ".cpp"):

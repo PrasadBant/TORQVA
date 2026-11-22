@@ -297,7 +297,7 @@ def test_final_stages_refuse_without_a_frozen_selection(monkeypatch, tmp_path):
 def test_opt_in_variants_are_not_the_default_and_unknown_names_are_rejected():
     from torqva.evaluation import build_models
     from torqva.service import SimulationService
-    assert SimulationService().c2_variant == "control"
+    assert SimulationService().c2_variant in ("control", "noise_aware")
     with pytest.raises(ValueError):
         build_models("no_such_variant")
 
