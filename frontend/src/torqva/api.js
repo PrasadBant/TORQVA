@@ -101,6 +101,7 @@ export const api = {
   devicePorts: () => req('/device/ports'),
   deviceConnect: (body) => req('/device/connect', { method: 'POST', body }),
   deviceDisconnect: () => req('/device/disconnect', { method: 'POST' }),
+  setDirectMode: (enabled = true) => req('/device/direct_mode', { method: 'POST', body: { enabled } }),
   commissioning: () => req('/device/commissioning'),
   commissioningItem: (id, body) => req(`/device/commissioning/items/${encodeURIComponent(id)}`, { method: 'POST', body }),
   commissioningLimits: (body) => req('/device/commissioning/limits', { method: 'PUT', body }),

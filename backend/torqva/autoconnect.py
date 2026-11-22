@@ -18,8 +18,8 @@ from typing import Any, Callable, Dict, Optional
 from .serial_bridge import DeviceBridge, SerialTransport, TransportError
 
 log = logging.getLogger("torqva.autoconnect")
-# vendor ids of the USB-serial bridges / native USB used by ESP32 boards. A port is only ever opened if its USB vendor id is on this list.
-KNOWN_VIDS = {0x1A86, 0x10C4, 0x0403, 0x303A}
+# vendor ids of the USB-serial bridges / native USB used by ESP32 boards and common microcontrollers.
+KNOWN_VIDS = {0x1A86, 0x10C4, 0x0403, 0x303A, 0x067B, 0x04D8, 0x0483, 0x2E8A, 0x2341}
 _PORT = re.compile(r"^(COM[0-9]{1,3}|/dev/(tty|cu)[A-Za-z0-9._-]{1,40})$")
 
 
@@ -69,6 +69,14 @@ class AutoConnector:
         port = self.port
         if port is None:
             self.candidates = [p for p in self._lister() if _PORT.match(p)]
+            if len(self.candidates) == 0 and self._lister is _list_usb_ports:
+                try:
+                    from serial.tools import list_ports
+                    all_coms = [p.device for p in list_ports.comports() if _PORT.match(p.device)]
+                    if len(all_coms) == 1:
+                        self.candidates = all_coms
+                except Exception:
+                    pass
             if len(self.candidates) != 1:
                 self.last_error = None if not self.candidates else "several USB-serial devices are present; choose one on the Device page"
                 return False

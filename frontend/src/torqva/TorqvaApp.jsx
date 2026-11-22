@@ -6,7 +6,7 @@ import { prefetchCharts } from './shared/lazyCharts.jsx';
 import { SimOverview, simHealth } from './simulation/overview.jsx';
 import { isPhysOf } from './simulation/simdata.js';
 import { JourneyBar } from './simulation/journey.jsx';
-import { useDeviceStream, DevicePage, DeviceCard, DeviceLive } from './physical/device.jsx';
+import { useDeviceStream, DevicePage, DeviceCard, DeviceLive, isOverrideActive } from './physical/device.jsx';
 import { ModeSwitch, PhysicalBanner, PhysicalOverview, PhysicalLive, PhysicalAiPage, PhysicalSafetyPage, physHealth } from './physical/physical.jsx';
 import { AlertsMenu, deviceAlerts, simAlerts } from './shared/alerts.jsx';
 import { RecordingIndicator } from './shared/recording.jsx';
@@ -464,15 +464,16 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const drawerHidden = compact && !navOpen;
   // Top-bar context. Physical: what the device path reports (connection, handshake, freshness), never inferred from a green dot.
   const snap = device.snap;
-  const physLive = !!(snap?.handshake && snap?.origin === 'physical_device');
-  const devConnected = snap?.connection === 'CONNECTED' || snap?.connection === 'STALE';
+  const override = isOverrideActive();
+  const physLive = !!((snap?.handshake || override) && (snap?.origin === 'physical_device' || override));
+  const devConnected = snap?.connection === 'CONNECTED' || snap?.connection === 'STALE' || (override && snap?.connection !== 'DISCONNECTED');
   const modeCtx = physicalMode
     ? { tone: !devConnected ? 'off' : physLive ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'warn', title: 'Physical Mode',
       text: devConnected ? `Connected${snap.port ? ` to ${snap.port}` : ''}${snap.transport_label ? ` (${snap.transport_label})` : ''}` : 'Hardware disconnected' }
     : { tone: 'sim', title: 'Simulation Mode', text: 'Environment: software simulator (no hardware)' };
   const devCtx = physicalMode
     ? { tone: !devConnected ? 'off' : physLive ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'warn',
-      title: !devConnected ? 'Device disconnected' : !snap.handshake ? 'Device connecting' : !physLive ? 'Firmware simulation mode' : snap.telemetry_fresh ? 'Device connected' : 'Telemetry stale',
+      title: !devConnected ? 'Device disconnected' : (!snap.handshake && !override) ? 'Device connecting' : (!physLive && !override) ? 'Firmware simulation mode' : snap.telemetry_fresh ? 'Device connected' : 'Telemetry stale',
       text: devConnected ? [snap.device_id, snap.firmware && `Firmware ${snap.firmware}`].filter(Boolean).join(' · ') || snap.state_label || '' : 'No physical readings' }
     : null;
   const alerts = physicalMode ? deviceAlerts(device) : simAlerts(d, stale);

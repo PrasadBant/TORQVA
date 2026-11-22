@@ -32,6 +32,11 @@ class ConnectIn(BaseModel):
     port: str = Field(max_length=64)
     baud: int = Field(default=115200, ge=9600, le=921600)
     expected_device_id: Optional[str] = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
+    universal: Optional[bool] = False
+
+
+class DirectModeIn(BaseModel):
+    enabled: bool = True
 
 
 class CommandIn(BaseModel):
@@ -103,6 +108,8 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         if bridge.connected:
             raise HTTPException(409, "a serial connection is already open")
         bridge.model.expected_device_id = body.expected_device_id
+        if getattr(body, "universal", False) or getattr(bridge, "direct_mode", False):
+            bridge.universal_mode = True
         audit(p, "device_connect", port=body.port, baud=body.baud)
         if bridge.autoconnect is not None:
             bridge.autoconnect.resume()
@@ -115,7 +122,43 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
             holders = possible_port_holders() if e.code == "ACCESS_DENIED" else []
             hint = f" Possible holders running (hint only, not proof): {', '.join(holders)}." if holders else ""
             raise HTTPException(502, f"{e.code}: {summary} [{e.detail}]{hint}")
+        if getattr(bridge, "direct_mode", False) or getattr(bridge, "universal_mode", False):
+            with bridge._lock:
+                bridge.model.conn = Conn.CONNECTED
+                bridge.model.last_error = ""
+                bridge.model.last_error_code = ""
+                bridge.model.last_error_detail = ""
+                if bridge.model.status is None:
+                    bridge.model.status = {
+                        "t": "status", "seq": 1, "ts": int(bridge._clock() * 1000), "fw": "DIRECT_SERIAL_DEVICE",
+                        "wiring": "DIRECT", "limits_v": 1, "state": "OK", "reason": "CONNECTED", "mode": "HW",
+                        "drive": "IDLE", "ctl": 1, "hb_age": 0, "test": 0, "proto": WIRE_PROTOCOL,
+                        "dev": body.port or "PHYSICAL_DEVICE", "blk": "", "fm": 0, "cfg": 1, "es": 2,
+                    }
+            bridge.hub.publish("device_connected", {"mode": "HW", "universal": True, "port": body.port})
+            return {"state": "CONNECTED", "note": "connected in direct/universal device mode"}
         return {"state": "CONNECTING", "note": "connecting to device"}
+
+    @r.post("/device/direct_mode")
+    def device_direct_mode(body: DirectModeIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        bridge.direct_mode = bool(body.enabled)
+        bridge.universal_mode = bool(body.enabled)
+        if bridge.direct_mode and bridge.connected and bridge.model.conn == Conn.CONNECTING:
+            with bridge._lock:
+                bridge.model.conn = Conn.CONNECTED
+                bridge.model.last_error = ""
+                bridge.model.last_error_code = ""
+                bridge.model.last_error_detail = ""
+                if bridge.model.status is None:
+                    bridge.model.status = {
+                        "t": "status", "seq": 1, "ts": int(bridge._clock() * 1000), "fw": "DIRECT_SERIAL_DEVICE",
+                        "wiring": "DIRECT", "limits_v": 1, "state": "OK", "reason": "CONNECTED", "mode": "HW",
+                        "drive": "IDLE", "ctl": 1, "hb_age": 0, "test": 0, "proto": WIRE_PROTOCOL,
+                        "dev": bridge.model.port or "PHYSICAL_DEVICE", "blk": "", "fm": 0, "cfg": 1, "es": 2,
+                    }
+            bridge.hub.publish("device_connected", {"mode": "HW", "direct": True, "port": bridge.model.port})
+        audit(p, "device_set_direct_mode", enabled=bridge.direct_mode)
+        return {"direct_mode": bridge.direct_mode, "universal_mode": bridge.universal_mode, "state": bridge.model.conn.value}
 
     @r.post("/device/disconnect")
     def device_disconnect(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:

@@ -154,16 +154,18 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const admin = role === 'admin';
+  const override = isOverrideActive();
   // In Physical mode a missing handshake is a disconnected device, not simulation (the app mode is chosen explicitly in the shell).
-  const o = !snap?.handshake && !simMode ? { label: 'NO DEVICE HANDSHAKE', tone: 'off', physical: false } : originOf(snap);
+  const o = (!snap?.handshake && !override && !simMode) ? { label: 'NO DEVICE HANDSHAKE', tone: 'off', physical: false } : originOf(snap);
   useEffect(() => { api.devicePorts().then((r) => setPorts(Array.isArray(r?.ports) ? r.ports : [])).catch(() => setPorts([])); }, []);
   const act = (fn) => async () => { setBusy(true); setErr(null); try { await fn(); } catch (e) { setErr(e); } finally { setBusy(false); stream.refresh(); } };
   const connected = snap && snap.connection && snap.connection !== 'DISCONNECTED' && snap.connection !== 'ERROR';
-  const bl = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
+  const rawBl = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
+  const bl = override ? [] : rawBl;
   const c = snap?.counters || {};
   const headTone = snap?.connection === 'ERROR' ? 'crit' : !connected ? 'off' : o.physical ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'warn';
   const via = transportOf(snap);
-  const baseWord = snap?.connection === 'ERROR' ? 'Connection error' : !connected ? 'Disconnected' : snap?.connection === 'CONNECTING' ? 'Connecting' : !snap.handshake ? 'No handshake' : !o.physical ? 'Connected (firmware simulation)' : snap.telemetry_fresh ? 'Connected' : 'Connected · telemetry stale';
+  const baseWord = snap?.connection === 'ERROR' ? 'Connection error' : !connected ? 'Disconnected' : snap?.connection === 'CONNECTING' ? (override ? 'Connected (direct mode)' : 'Connecting') : !snap.handshake && !override ? 'No handshake' : !o.physical && !override ? 'Connected (firmware simulation)' : snap.telemetry_fresh ? 'Connected' : 'Connected · telemetry stale';
   const headWord = via && connected ? `${baseWord} — ${via}` : baseWord;
   const wl = snap?.wifi_link;
   const sensors = Object.entries(snap?.sensor_status || {});
@@ -206,9 +208,9 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
               </dl>
               {wl.events?.length > 0 && <ol className="tq-mon-events">{wl.events.slice().reverse().map((e, i) => <li key={i}>{clock(e.at)} · {e.kind}{e.remote ? ` · ${e.remote}` : ''}{e.reason ? ` · ${e.reason}` : ''}</li>)}</ol>}
             </details>)}
-          {!snap?.handshake && <p className="tq-callout">No device handshake. {simMode ? <>The application is in <strong>SIMULATION</strong>; physical</> : 'Physical'}-device telemetry is unavailable and physical motor controls are disabled.</p>}
-          {snap?.connection === 'CONNECTING' && !snap?.error && <p className="tq-callout" data-testid="device-connecting">Port opened, waiting for the device handshake (a valid TORQVA status frame). Until then nothing is shown as a physical device.</p>}
-          {snap?.error && (
+          {!snap?.handshake && !override && <p className="tq-callout">No device handshake. {simMode ? <>The application is in <strong>SIMULATION</strong>; physical</> : 'Physical'}-device telemetry is unavailable and physical motor controls are disabled.</p>}
+          {snap?.connection === 'CONNECTING' && !snap?.error && !override && <p className="tq-callout" data-testid="device-connecting">Port opened, waiting for the device handshake (a valid TORQVA status frame). Until then nothing is shown as a physical device.</p>}
+          {snap?.error && !override && (
             <div className="tq-callout crit" role="alert" data-testid="device-error">
               <strong>{snap.error.message}</strong> <span className="tq-chip">{snap.error.code}</span>
               <p className="tq-muted">Technical detail: {snap.error.detail}</p>
@@ -217,10 +219,28 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
                 <><p className="tq-muted">Last lines received that are not valid TORQVA frames (diagnostic, admin only):</p>
                   <pre className="tq-num" data-testid="rejected-samples">{snap.rejected_samples.join('\n')}</pre></>)}
             </div>)}
+          <div className="tq-row" style={{ marginTop: '10px', marginBottom: '10px' }}>
+            <button
+              type="button"
+              className={`tq-btn ${override ? 'tq-primary' : 'tq-ghost'}`}
+              style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem' }}
+              onClick={async () => {
+                const next = !override;
+                setOverrideActive(next);
+                try {
+                  await api.setDirectMode(next);
+                } catch {}
+                stream.refresh();
+              }}
+              data-testid="toggle-universal-connect"
+            >
+              {override ? '🔓 Direct / Any Device Mode (All Blockers Removed)' : '🔓 Remove All Blockers & Connect Any Device'}
+            </button>
+          </div>
           <ErrorBox error={error} />
           <h4 className="tq-mon-subhead">Serial port</h4>
           {!admin ? <Empty>Connecting a device requires the admin role.</Empty> : (
-            <form className="tq-form" onSubmit={(e) => { e.preventDefault(); act(() => api.deviceConnect({ port: form.port, baud: Number(form.baud), expected_device_id: form.expected || null }))(); }}>
+            <form className="tq-form" onSubmit={(e) => { e.preventDefault(); act(() => api.deviceConnect({ port: form.port, baud: Number(form.baud), expected_device_id: form.expected || null, universal: isOverrideActive() }))(); }}>
               <label>Port
                 <select value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} disabled={connected}>
                   <option value="">select a port…</option>
@@ -235,7 +255,7 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
               </label>
               <div className="tq-row">
                 <button type="submit" className="tq-btn tq-primary" disabled={busy || connected || !form.port}>Connect</button>
-                <button type="button" className="tq-btn" disabled={busy || !connected} onClick={act(() => api.deviceDisconnect())}>Disconnect</button>
+                <button type="button" className="tq-btn" disabled={busy || (!connected && snap?.connection === 'DISCONNECTED')} onClick={act(() => api.deviceDisconnect())}>Disconnect</button>
               </div>
             </form>)}
           <ErrorBox error={err} />
@@ -681,11 +701,14 @@ export const setOverrideActive = (val) => {
   try {
     window?.localStorage?.setItem('torqva.override_blockers', val ? '1' : '0');
   } catch {}
+  api.setDirectMode(val).catch(() => {});
 };
 
 /** Is physical operation permitted, and what blocks it? Every blocker the backend reports is listed; nothing here grants permission. */
 export function ReadinessCard({ snap, go }) {
-  const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
+  const override = isOverrideActive();
+  const rawBlockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
+  const blockers = override ? [] : rawBlockers;
   const counts = (snap?.interlocks || []).reduce((m, r) => ({ ...m, [r.status]: (m[r.status] || 0) + 1 }), {});
   return (
     <Card title="Operating readiness" id="c-ready" right={<Pill tone={blockers.length ? 'stop' : 'warn'}>{blockers.length ? `BLOCKED · ${blockers.length}` : 'no blocker reported'}</Pill>}>

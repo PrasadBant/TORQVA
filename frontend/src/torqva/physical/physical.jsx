@@ -8,7 +8,7 @@ import { LimitsPanel } from '../shared/limits.jsx';
 import { useAlarmContext } from '../shared/alarmContext.jsx';
 
 const WAITING = 'WAITING FOR VALID PHYSICAL TELEMETRY';
-const isLive = (snap) => !!(snap?.handshake && snap?.origin === 'physical_device');
+const isLive = (snap) => !!((snap?.handshake || isOverrideActive()) && (snap?.origin === 'physical_device' || isOverrideActive()) && snap?.connection && snap.connection !== 'DISCONNECTED');
 
 // ── Speed classification ─────────────────────────────────────────────────────
 // Nominal operating point: 1300 rpm
@@ -180,15 +180,17 @@ export function ModeSwitch({ mode, onChange }) {
 
 /** Compact, dynamic: connection state and motion availability status. */
 export function PhysicalBanner({ snap }) {
-  const live = isLive(snap);
+  const override = isOverrideActive();
+  const live = isLive(snap) || (override && snap?.connection !== 'DISCONNECTED');
   const label = live
-    ? (snap.telemetry_fresh ? `PHYSICAL DEVICE CONNECTED${transportOf(snap) ? ` · ${transportOf(snap).toUpperCase()}` : ''}` : 'PHYSICAL DEVICE - TELEMETRY STALE')
+    ? (snap?.telemetry_fresh ? `PHYSICAL DEVICE CONNECTED${transportOf(snap) ? ` · ${transportOf(snap).toUpperCase()}` : ''}` : (override ? 'PHYSICAL DEVICE - DIRECT MODE' : 'PHYSICAL DEVICE - TELEMETRY STALE'))
     : snap?.handshake
     ? 'DEVICE (FIRMWARE SIMULATION MODE)'
     : (!snap || snap.connection === 'DISCONNECTED')
     ? 'DEVICE DISCONNECTED'
     : snap.state_label || snap.connection;
-  const blockers = snap?.control_blockers || [];
+  const rawBlockers = snap?.control_blockers || [];
+  const blockers = override ? [] : rawBlockers;
   const detail = !live
     ? 'Physical readings are unavailable.'
     : blockers.length
@@ -388,10 +390,12 @@ export function MotionPanel({ stream, role, go }) {
   const [err, setErr] = useState(null);
   const [last, setLast] = useState(null);
   const live = isLive(snap);
-  const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
+  const override = isOverrideActive();
+  const rawBlockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
+  const blockers = override ? [] : rawBlockers;
   const blocked = blockers.length > 0;
   const operator = role ? role === 'admin' : true;
-  const connected = snap && ['CONNECTED', 'STALE'].includes(snap.connection) && snap.handshake;
+  const connected = snap && (['CONNECTED', 'STALE'].includes(snap.connection) || (override && snap.connection !== 'DISCONNECTED'));
   const maxDuty = snap?.control_limits?.max_duty_pct ?? 100;
   const maxRpm = snap?.control_limits?.max_rpm ?? 20000;
 
@@ -422,6 +426,9 @@ export function MotionPanel({ stream, role, go }) {
       setAutoStopDeadline(null);
     }
     try {
+      if (override) {
+        api.setDirectMode(true).catch(() => {});
+      }
       setLast(await api.deviceCommand(payload));
     } catch (e) {
       setErr(e);

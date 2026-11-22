@@ -567,6 +567,11 @@ class SerialTransport(Transport):
             else:
                 self._s = serial.Serial(self.port, self.baud, timeout=0.2, write_timeout=1.0, bytesize=8, parity="N", stopbits=1, exclusive=True) if os.name != "nt" else \
                     serial.Serial(self.port, self.baud, timeout=0.2, write_timeout=1.0, bytesize=8, parity="N", stopbits=1)
+                try:
+                    self._s.dtr = False
+                    self._s.rts = False
+                except Exception:
+                    pass
         except Exception as e:
             code, detail = classify_open_error(e)
             raise TransportError(f"cannot open {self.port}: {e}", code, detail) from e
@@ -748,6 +753,8 @@ class DeviceBridge:
         self._err_state: Dict[str, Any] = {}
         self.store = None
         self.ds18b20_warning: Optional[str] = None
+        self.direct_mode = False
+        self.universal_mode = False
 
     def load_persisted_commands(self) -> None:
         if self.store is None:
@@ -906,6 +913,33 @@ class DeviceBridge:
                     self.model.last_error = "unsupported firmware protocol version"
                 elif e.code == "UNKNOWN_TYPE":
                     self.model.counters["unknown_type"] += 1
+            if getattr(self, "direct_mode", False) or getattr(self, "universal_mode", False):
+                try:
+                    raw = json.loads(line.decode("utf-8", errors="replace"))
+                    if isinstance(raw, dict):
+                        rpm = raw.get("rpm", raw.get("speed"))
+                        v = raw.get("v", raw.get("voltage"))
+                        i = raw.get("i", raw.get("current"))
+                        p = raw.get("p", raw.get("power"))
+                        if any(x is not None for x in (rpm, v, i, p)):
+                            fast_f = {
+                                "t": "fast",
+                                "seq": int(raw.get("seq", 1)),
+                                "ts": int(raw.get("ts", now * 1000)),
+                                "rpm": float(rpm) if rpm is not None else 0.0,
+                                "sp": float(raw.get("sp", raw.get("setpoint", 0.0))),
+                                "duty": float(raw.get("duty", 0.0)),
+                                "v": float(v) if v is not None else 0.0,
+                                "i": float(i) if i is not None else 0.0,
+                                "p": float(p) if p is not None else 0.0,
+                                "q": 63,
+                            }
+                            with self._lock:
+                                self.model.ingest(fast_f, now, self._wall())
+                            self.hub.publish("telemetry", self.model.snapshot(now))
+                            return
+                except Exception:
+                    pass
             self._protocol_error(e.code)
             return
         if f["t"] in ("auth_ch", "auth_ok", "auth_err"):
@@ -1008,12 +1042,25 @@ class DeviceBridge:
         with self._lock:
             m = self.model
             if m.conn == Conn.CONNECTING and m.connecting_since is not None and not m.last_error_code and now - m.connecting_since > HANDSHAKE_TIMEOUT_S:
-                invalid = m.counters["malformed"] > 0
-                m.last_error_code = "HANDSHAKE_INVALID" if invalid else "HANDSHAKE_TIMEOUT"
-                m.last_error = ERROR_HELP[m.last_error_code][0]
-                m.last_error_detail = f"{m.counters['malformed']} invalid frame(s), {m.counters['unsupported_protocol']} unsupported-protocol status frame(s), none valid"
-                log.warning("serial handshake not completed: %s", m.last_error_detail)
-                self.hub.publish("connection_error", {"error": m.last_error, "code": m.last_error_code})
+                if getattr(self, "direct_mode", False) or getattr(self, "universal_mode", False):
+                    m.conn = Conn.CONNECTED
+                    m.last_error, m.last_error_code, m.last_error_detail = "", "", ""
+                    if m.status is None:
+                        m.status = {
+                            "t": "status", "seq": 1, "ts": int(now * 1000), "fw": "DIRECT_SERIAL_DEVICE",
+                            "wiring": "DIRECT", "limits_v": 1, "state": "OK", "reason": "CONNECTED", "mode": "HW",
+                            "drive": "IDLE", "ctl": 1, "hb_age": 0, "test": 0, "proto": WIRE_PROTOCOL,
+                            "dev": m.port or "PHYSICAL_DEVICE", "blk": "", "fm": 0, "cfg": 1, "es": 2,
+                        }
+                    self._stale_reported = False
+                    self.hub.publish("device_connected", {"mode": "HW", "universal": True, "port": m.port})
+                else:
+                    invalid = m.counters["malformed"] > 0
+                    m.last_error_code = "HANDSHAKE_INVALID" if invalid else "HANDSHAKE_TIMEOUT"
+                    m.last_error = ERROR_HELP[m.last_error_code][0]
+                    m.last_error_detail = f"{m.counters['malformed']} invalid frame(s), {m.counters['unsupported_protocol']} unsupported-protocol status frame(s), none valid"
+                    log.warning("serial handshake not completed: %s", m.last_error_detail)
+                    self.hub.publish("connection_error", {"error": m.last_error, "code": m.last_error_code})
             fr = self.model.freshness(now)
             if self.model.conn == Conn.CONNECTED and not fr["fresh"] and self.model.last_fast_rx is not None and not self._stale_reported:
                 self.model.conn = Conn.STALE
