@@ -97,6 +97,89 @@ export function CopySummaryButton({ mode = 'PHYSICAL', customSummary = null, cla
   );
 }
 
+/** Reusable side-by-side run comparison table */
+export function RunComparisonTable({ compareIds, sessions, notes }) {
+  if (!compareIds || compareIds.length !== 2) return null;
+  return (
+    <div className="tq-card" style={{ padding: '12px', marginBottom: '16px', background: 'var(--tq-surface-2, rgba(255,255,255,0.06))', borderRadius: '6px' }} data-testid="run-comparison-view">
+      <h4 style={{ margin: '0 0 8px 0', fontSize: '0.9rem' }}>Side-by-Side Run Comparison</h4>
+      <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ borderBottom: '1px solid var(--tq-border, #334155)', textAlign: 'left' }}>
+            <th style={{ padding: '6px' }}>Metric</th>
+            {compareIds.map((cid) => (
+              <th key={cid} style={{ padding: '6px' }}>
+                <code>{cid.slice(-12)}</code> ({sessions.find((s) => s.session_id === cid)?.mode || '—'})
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr style={{ borderBottom: '1px solid var(--tq-border, #334155)' }}>
+            <td style={{ padding: '6px', fontWeight: 600 }}>Duration</td>
+            {compareIds.map((cid) => (
+              <td key={cid} style={{ padding: '6px' }}>
+                {formatDuration(sessions.find((s) => s.session_id === cid)?.duration_s)}
+              </td>
+            ))}
+          </tr>
+          <tr style={{ borderBottom: '1px solid var(--tq-border, #334155)' }}>
+            <td style={{ padding: '6px', fontWeight: 600 }}>Points Recorded</td>
+            {compareIds.map((cid) => (
+              <td key={cid} style={{ padding: '6px' }}>
+                {sessions.find((s) => s.session_id === cid)?.readings_count || 0}
+              </td>
+            ))}
+          </tr>
+          <tr style={{ borderBottom: '1px solid var(--tq-border, #334155)' }}>
+            <td style={{ padding: '6px', fontWeight: 600 }}>Notes</td>
+            {compareIds.map((cid) => (
+              <td key={cid} style={{ padding: '6px' }}>
+                {notes?.[cid] || <span className="tq-muted">No notes</span>}
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Reusable quick note editor */
+export function SessionNoteEditor({ sessionId, initialText = '', onSave, onCancel }) {
+  const [text, setText] = useState(initialText);
+  return (
+    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+      <input
+        type="text"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        style={{ fontSize: '0.75rem', padding: '2px 4px', width: '110px' }}
+        placeholder="Add note…"
+        aria-label={`Note for session ${sessionId}`}
+      />
+      <button
+        type="button"
+        className="tq-btn tq-primary"
+        style={{ padding: '2px 6px', fontSize: '0.75rem' }}
+        onClick={() => onSave(sessionId, text)}
+      >
+        Save
+      </button>
+      {onCancel && (
+        <button
+          type="button"
+          className="tq-btn tq-ghost"
+          style={{ padding: '2px 6px', fontSize: '0.75rem' }}
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Header Recording Indicator and Sessions Manager Modal */
 export function RecordingIndicator({ physicalMode = false, role = 'operator' }) {
   const [status, setStatus] = useState({ active: false, session_id: null, readings_count: 0, duration_s: 0 });
@@ -105,6 +188,26 @@ export function RecordingIndicator({ physicalMode = false, role = 'operator' }) 
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [selectedSummary, setSelectedSummary] = useState(null);
   const [actionError, setActionError] = useState(null);
+  const [notes, setNotes] = useState(() => {
+    try { return JSON.parse(window.localStorage.getItem('torqva.session_notes') || '{}'); } catch { return {}; }
+  });
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [noteText, setNoteText] = useState('');
+  const [compareIds, setCompareIds] = useState([]);
+  const [showCompare, setShowCompare] = useState(false);
+
+  const saveNote = (sessionId, text) => {
+    const updated = { ...notes, [sessionId]: text };
+    setNotes(updated);
+    try { window.localStorage.setItem('torqva.session_notes', JSON.stringify(updated)); } catch {}
+    setEditingNoteId(null);
+  };
+
+  const toggleCompare = (id) => {
+    if (compareIds.includes(id)) setCompareIds(compareIds.filter((x) => x !== id));
+    else if (compareIds.length < 2) setCompareIds([...compareIds, id]);
+    else setCompareIds([compareIds[1], id]);
+  };
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -251,11 +354,29 @@ export function RecordingIndicator({ physicalMode = false, role = 'operator' }) 
 
               {/* Past Sessions List */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <h4 style={{ margin: 0 }}>Recorded Sessions</h4>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <h4 style={{ margin: 0 }}>Recorded Sessions</h4>
+                  {compareIds.length === 2 && (
+                    <button
+                      type="button"
+                      className="tq-btn tq-primary"
+                      style={{ padding: '3px 8px', fontSize: '0.75rem' }}
+                      onClick={() => setShowCompare(!showCompare)}
+                      data-testid="btn-toggle-compare"
+                    >
+                      {showCompare ? 'Hide Comparison' : 'Compare 2 Runs'}
+                    </button>
+                  )}
+                </div>
                 <button type="button" className="tq-btn tq-ghost" onClick={loadSessions} disabled={loadingSessions} style={{ padding: '4px 8px' }}>
                   <RefreshCw size={13} className={loadingSessions ? 'spin' : ''} /> Refresh
                 </button>
               </div>
+
+              {/* Side-by-side Run Comparison */}
+              {showCompare && compareIds.length === 2 && (
+                <RunComparisonTable compareIds={compareIds} sessions={sessions} notes={notes} />
+              )}
 
               <div data-testid="recording-sessions-list" style={{ maxHeight: '240px', overflowY: 'auto', border: '1px solid var(--tq-border, #334155)', borderRadius: '6px' }}>
                 {sessions.length === 0 ? (
@@ -266,16 +387,26 @@ export function RecordingIndicator({ physicalMode = false, role = 'operator' }) 
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid var(--tq-border, #334155)', textAlign: 'left', background: 'rgba(255,255,255,0.02)' }}>
+                        <th style={{ padding: '8px', width: '30px' }}>Comp</th>
                         <th style={{ padding: '8px' }}>Session / Date</th>
                         <th style={{ padding: '8px' }}>Mode</th>
                         <th style={{ padding: '8px' }}>Points</th>
                         <th style={{ padding: '8px' }}>Duration</th>
+                        <th style={{ padding: '8px' }}>Notes</th>
                         <th style={{ padding: '8px', textAlign: 'right' }}>Exports</th>
                       </tr>
                     </thead>
                     <tbody>
                       {sessions.map((s) => (
                         <tr key={s.session_id} style={{ borderBottom: '1px solid var(--tq-border, #334155)' }}>
+                          <td style={{ padding: '8px' }}>
+                            <input
+                              type="checkbox"
+                              checked={compareIds.includes(s.session_id)}
+                              onChange={() => toggleCompare(s.session_id)}
+                              aria-label={`Select session ${s.session_id} for comparison`}
+                            />
+                          </td>
                           <td style={{ padding: '8px' }}>
                             <code style={{ fontSize: '0.8rem' }}>{s.session_id}</code>
                           </td>
@@ -284,6 +415,29 @@ export function RecordingIndicator({ physicalMode = false, role = 'operator' }) 
                           </td>
                           <td style={{ padding: '8px' }}>{s.readings_count || 0}</td>
                           <td style={{ padding: '8px' }}>{formatDuration(s.duration_s)}</td>
+                          <td style={{ padding: '8px' }}>
+                            {editingNoteId === s.session_id ? (
+                              <div style={{ display: 'inline-flex', gap: '4px' }}>
+                                <input
+                                  type="text"
+                                  value={noteText}
+                                  onChange={(e) => setNoteText(e.target.value)}
+                                  style={{ fontSize: '0.75rem', padding: '2px 4px', width: '100px' }}
+                                  placeholder="Add note…"
+                                />
+                                <button type="button" className="tq-btn tq-primary" style={{ padding: '2px 6px', fontSize: '0.75rem' }} onClick={() => saveNote(s.session_id, noteText)}>Save</button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                className="tq-linkbtn tq-small"
+                                onClick={() => { setEditingNoteId(s.session_id); setNoteText(notes[s.session_id] || ''); }}
+                                style={{ fontSize: '0.75rem' }}
+                              >
+                                {notes[s.session_id] ? notes[s.session_id] : '+ Add note'}
+                              </button>
+                            )}
+                          </td>
                           <td style={{ padding: '8px', textAlign: 'right' }}>
                             <div style={{ display: 'inline-flex', gap: '6px' }}>
                               <a
