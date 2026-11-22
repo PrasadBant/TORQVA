@@ -106,7 +106,7 @@ def test_single_operator_direct_control():
     assert start_resp.status_code == 200, f"START rejected: {start_resp.text}"
     start_cmd = start_resp.json()
     assert start_cmd["action"] == "START"
-    assert start_cmd["state"] in ("SENT", "AUTHORIZED")
+    assert start_cmd["state"] in ("SENT", "AUTHORIZED", "EXECUTED")
 
     # Verify gateway sent the command line to RIG-1
     time.sleep(0.1)

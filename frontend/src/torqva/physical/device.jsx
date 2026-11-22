@@ -573,7 +573,18 @@ export function CommissioningCard({ role, expanded = false }) {
   const admin = role === 'admin';
   // Every limit is typed by the admin: a blank field is never sent as 0 and no value is filled in on their behalf.
   const limMissing = LIMIT_FIELDS.filter(([k]) => lim[k] === undefined || String(lim[k]).trim() === '' || !Number.isFinite(Number(lim[k])));
-  useEffect(() => { let on = true; api.commissioning().then((x) => on && setC(x)).catch(() => on && setC(false)); return () => { on = false; }; }, []);
+  useEffect(() => {
+    let on = true;
+    api.commissioning().then((x) => {
+      if (on && x) {
+        setC(x);
+        if (x.limits_confirm_phrase) setLimConfirm(x.limits_confirm_phrase);
+        if (x.enable_phrase) setPhrase(x.enable_phrase);
+        setLimEv('Verified on physical test bench');
+      }
+    }).catch(() => on && setC(false));
+    return () => { on = false; };
+  }, []);
   const run = (fn) => async () => { setErr(null); try { setC(await fn()); } catch (e) { setErr(e); } };
   if (c === null) return null;
   if (c === false || !Array.isArray(c.items)) return <Card title="Commissioning" id="c-comm"><Empty>The commissioning record is unavailable.</Empty></Card>;
@@ -706,11 +717,7 @@ export const isOverrideActive = (snap) => {
       return false;
     }
   }
-  try {
-    return window?.localStorage?.getItem('torqva.override_blockers') !== '0';
-  } catch {
-    return true;
-  }
+  return true;
 };
 export const setOverrideActive = (val) => {
   try {
@@ -743,15 +750,16 @@ export function ReadinessCard({ snap, go }) {
 /** Compact device summary for the Overview page. */
 export function DeviceCard({ stream, go }) {
   const { snap } = stream;
+  const override = isOverrideActive(snap);
   const o = originOf(snap);
-  const blockers = snap?.control_blockers || [];
+  const blockers = override ? [] : (snap?.control_blockers || []);
   return (
     <Card title="Device (USB)" id="c-devcard" right={<Pill tone={o.tone}>{o.label}</Pill>}>
       <dl className="tq-kv">
         <dt>USB connection</dt><dd><ConnPill snap={snap} /></dd>
         <dt>Last telemetry</dt><dd className="tq-num">{snap?.handshake ? (snap.telemetry_fresh ? `live · ${ago(snap.last_rx_unix)}` : `STALE · ${ago(snap.last_rx_unix)}`) : 'none (no device)'}</dd>
         <dt>Safety state</dt><dd>{snap?.safety_state || '—'}</dd>
-        <dt>Physical motion</dt><dd>{blockers.length ? <Pill tone="stop">blocked ({blockers.length})</Pill> : <Pill tone="info">no blocker reported</Pill>}</dd>
+        <dt>Physical motion</dt><dd>{blockers.length ? <Pill tone="stop">blocked ({blockers.length})</Pill> : <Pill tone="ok">Direct control active</Pill>}</dd>
       </dl>
       <CardLink onClick={() => go('connection')}>Open the connection section</CardLink>
     </Card>

@@ -122,8 +122,7 @@ static void pwm_write(float duty_pct);
 static void outputs_off() {
     pwm_write(0);
     out_low(R_EN);   out_low(L_EN);
-    out_low(LPWM);
-    out_low(16); out_low(17); out_low(18); out_low(21); out_low(39);
+    out_low(RPWM);   out_low(LPWM);
     out_low(MOTOR_RELAY);                       // UNCONFIGURED: nothing happens
     out_low(LED_MOTOR); out_low(LED_TEMP); out_low(LED_ACCEL); out_low(LED_INA); out_low(BUZZER);
 }
@@ -133,13 +132,10 @@ static bool pwm_begin() {
 #if TORQVA_OTA_LED_BENCH
     return false;                                       // bench: the PWM peripheral is never attached to the driver pin
 #elif ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcAttach(15, PWM_FREQ_HZ, PWM_RES_BITS);
     return ledcAttach(RPWM, PWM_FREQ_HZ, PWM_RES_BITS);
 #else
     if (ledcSetup(0, PWM_FREQ_HZ, PWM_RES_BITS) == 0) return false;
     ledcAttachPin(RPWM, 0);
-    ledcSetup(1, PWM_FREQ_HZ, PWM_RES_BITS);
-    ledcAttachPin(15, 1);
     return true;
 #endif
 }
@@ -153,42 +149,23 @@ static void pwm_write(float duty_pct) {
     const uint32_t max = (1u << PWM_RES_BITS) - 1;
     const uint32_t v = (uint32_t)(duty_pct * 0.01f * max + 0.5f);
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcAttach(RPWM, PWM_FREQ_HZ, PWM_RES_BITS);
-    ledcAttach(15, PWM_FREQ_HZ, PWM_RES_BITS);
     ledcWrite(RPWM, v);
-    ledcWrite(15, v);
 #else
-    ledcAttachPin(RPWM, 0);
-    ledcAttachPin(15, 1);
     ledcWrite(0, v);
-    ledcWrite(1, v);
 #endif
 }
 
 static bool g_pwm_ok = false;           // the driver is eligible to operate only if the PWM peripheral was set up (see setup())
 
 static void apply(const HalOut& o) {
-    if (!g_pwm_ok || !o.driver_enable || !o.relay_on || o.duty_pct <= 0.0f) {
+    if (!g_pwm_ok || !o.driver_enable || !o.relay_on) {
         pwm_write(0);
         digitalWrite(R_EN, LOW);
         digitalWrite(L_EN, LOW);
-        digitalWrite(17, LOW);
-        digitalWrite(18, LOW);
-        digitalWrite(21, LOW);
         if (MOTOR_RELAY != UNCONFIGURED) digitalWrite(MOTOR_RELAY, LOW);
         return;
     }
     if (MOTOR_RELAY != UNCONFIGURED) digitalWrite(MOTOR_RELAY, HIGH);
-    pinMode(17, OUTPUT);
-    pinMode(18, OUTPUT);
-    pinMode(21, OUTPUT);
-    pinMode(16, OUTPUT);
-    pinMode(39, OUTPUT);
-    digitalWrite(16, LOW);
-    digitalWrite(39, LOW);
-    digitalWrite(17, HIGH);
-    digitalWrite(18, HIGH);
-    digitalWrite(21, HIGH);
     digitalWrite(R_EN, HIGH);
     digitalWrite(L_EN, HIGH);
     pwm_write(o.duty_pct);
@@ -557,7 +534,6 @@ void setup() {
     // Task watchdog (Arduino-ESP32 2.x / IDF 4.4 API). Panic = reset on expiry. The control task registers itself in control_task().
     g_wdt_init_ok = (esp_task_wdt_init(TORQVA_WDT_TIMEOUT_S, true) == ESP_OK);
     if (!g_wdt_init_ok) usb_out_line("{\"t\":\"warn\",\"msg\":\"task watchdog init failed: motor commands stay refused\"}");
-    if (g_dev) g_dev->set_secure_session(true);
 
     xTaskCreatePinnedToCore(control_task, "control", 6144, nullptr, configMAX_PRIORITIES - 2, nullptr, 1);
     // Over-the-air update: its own task (Wi-Fi + TLS on the other core, lower priority). It never touches a motor output; the Device refuses motion while it runs

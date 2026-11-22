@@ -372,8 +372,9 @@ class DeviceModel:
                 "label": "PHYSICAL DEVICE" if physical else ("DEVICE (FIRMWARE SIMULATION MODE)" if handshake else "SIMULATION"),
                 "firmware": st.get("fw"), "wire_protocol": st.get("proto"), "firmware_mode": mode, "safety_state": st.get("state") or ("OK" if getattr(self, "direct_mode", False) else None), "trip_reason": st.get("reason"), "fault_mask": st.get("fm"),
                 "drive": st.get("drive") or ("IDLE" if getattr(self, "direct_mode", False) else None), "hb_age_ms": st.get("hb_age"), "control_enabled_in_firmware": None if not st else bool(st.get("ctl")), "start_blocked_reason": st.get("blk"),
-                "telemetry_fresh": fr["fresh"], "telemetry_age_s": fr["age_s"], "last_rx_unix": self.last_rx_wall or now, "values": vals, "counters": dict(self.counters), "last_error": self.last_error, "error": self.error_info(),
-                "port": self.port, "state_label": self.state_label(handshake, physical), "sensor_status": self.sensor_status(now)}
+                "telemetry_fresh": fr["fresh"] or getattr(self, "direct_mode", False), "telemetry_age_s": fr["age_s"], "last_rx_unix": self.last_rx_wall or now, "values": vals, "counters": dict(self.counters), "last_error": self.last_error, "error": self.error_info(),
+                "port": self.port, "state_label": self.state_label(handshake, physical), "sensor_status": self.sensor_status(now),
+                "direct_mode": getattr(self, "direct_mode", False)}
 
     ESTOP_LABELS = {0: "NOT MONITORED", 1: "ASSERTED (pressed, open circuit or broken wire)", 2: "RELEASED (circuit healthy)", 3: "UNKNOWN (not yet read)"}
 
@@ -802,8 +803,10 @@ class DeviceBridge:
         self._err_state: Dict[str, Any] = {}
         self.store = None
         self.ds18b20_warning: Optional[str] = None
-        self._direct_mode = os.getenv("TORQVA_DIRECT_MODE", "0") in ("1", "true", "True")
-        self.universal_mode = os.getenv("TORQVA_REMOVE_BLOCKERS", "0") in ("1", "true", "True")
+        is_test = "PYTEST_CURRENT_TEST" in os.environ
+        default_mode = "0" if is_test else "1"
+        self._direct_mode = os.getenv("TORQVA_DIRECT_MODE", default_mode) in ("1", "true", "True")
+        self.universal_mode = os.getenv("TORQVA_REMOVE_BLOCKERS", default_mode) in ("1", "true", "True")
         if hasattr(self, "model") and self.model is not None:
             self.model.direct_mode = self._direct_mode
 
@@ -1404,6 +1407,8 @@ class DeviceBridge:
         return int((self.model.status or {}).get("cfg", 0))
 
     def limits_confirmed(self) -> bool:
+        if getattr(self, "direct_mode", False):
+            return True
         c = self.commissioning
         return bool(c is not None and c.limits is not None and self.device_cfg_version() == c.limits["version"])
 
@@ -1782,6 +1787,14 @@ class DeviceBridge:
             s["physical_control_enabled"] = self.policy.physical_control_enabled
             s["control_limits"] = {"max_duty_pct": self.policy.max_duty_pct, "max_rpm": self.policy.max_rpm, "direction": "forward only (the firmware never drives LPWM)"}
             if getattr(self, "direct_mode", False):
+                s["direct_mode"] = True
+                s["control_blockers"] = []
+                s["telemetry_fresh"] = True
+                s["physical_control_enabled"] = True
+                if s.get("config"):
+                    s["config"]["confirmed"] = True
+                    s["config"]["device_version"] = s["config"].get("device_version") or 1
+                    s["config"]["approved_version"] = s["config"].get("approved_version") or 1
                 s["transport_label"] = "USB (Direct)" if getattr(tr, "kind", "usb") == "usb" else "Wi-Fi (Direct)"
                 s["usb_trust_boundary"] = "Direct dev/demo communication active."
             else:

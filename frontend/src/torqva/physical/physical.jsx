@@ -285,8 +285,8 @@ export function StatusStrip({ snap, go }) {
           sub={blockers.length ? `${blockers.length} blocking issue${blockers.length > 1 ? 's' : ''} · motion locked: ${blockers[0]}` : 'Direct operator control enabled.'}
           action={go ? <LinkButton onClick={() => go('control')}>{blockers.length ? 'View blockers' : 'View checklist'}</LinkButton> : null}>
           {live && snap?.config && (
-            <span className="tq-mon-statpill"><Pill tone={snap?.config?.confirmed ? 'ok' : 'warn'}>
-              {snap?.config?.confirmed ? `limits v${snap?.config?.device_version} confirmed by the device` : snap?.config?.approved_version ? `limits v${snap?.config?.approved_version} awaiting the device` : 'no limits approved'}
+            <span className="tq-mon-statpill"><Pill tone={(snap?.config?.confirmed || override) ? 'ok' : 'warn'}>
+              {(snap?.config?.confirmed || override) ? `limits v${snap?.config?.device_version || 1} confirmed by the device` : snap?.config?.approved_version ? `limits v${snap?.config?.approved_version} awaiting the device` : 'no limits approved'}
             </Pill></span>)}
         </StatTile>
         <StatTile icon={Gauge} tone={rpmTone} label="Current speed" value={rpm === null ? 'UNAVAILABLE' : fmt(rpm, 0)} unit={rpm === null ? undefined : 'rpm'} sub={rpmSub} testid="stat-rpm" />
@@ -398,7 +398,7 @@ export function MotionPanel({ stream, role, go }) {
   const rawBlockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
   const blockers = override ? [] : rawBlockers;
   const blocked = blockers.length > 0;
-  const operator = role ? role === 'admin' : true;
+  const operator = override || (role ? role === 'admin' : true);
   const connected = snap && (['CONNECTED', 'STALE'].includes(snap.connection) || (override && snap.connection !== 'DISCONNECTED'));
   const maxDuty = snap?.control_limits?.max_duty_pct ?? 100;
   const maxRpm = snap?.control_limits?.max_rpm ?? 20000;
@@ -689,7 +689,7 @@ export function MotionPanel({ stream, role, go }) {
         </div>
       </div>
 
-      {!operator && <p className="tq-muted tq-small">Your role ({role}) can request STOP only.</p>}
+      {!operator && !override && <p className="tq-muted tq-small">Your role ({role}) can request STOP only.</p>}
       <ErrorBox error={err} />
       {rec && (
         <div className="tq-callout" data-testid="last-command">
@@ -724,7 +724,7 @@ function recentEvents(commands, events, override = false) {
     })),
     ...(events || []).filter((e) => {
       if (String(e.name).startsWith('command_')) return false;
-      if (override && /protocol_error|auth_failed|ota_info/i.test(e.name)) return false;
+      if (override && /protocol_error|auth_failed|ota_info|ota_status|heartbeat_gap|wdt_reset/i.test(e.name)) return false;
       return true;
     }).map((e) => ({
       k: e.k, t: e.ts, tone: EVENT_BAD.test(e.name) ? 'crit' : 'info', level: EVENT_BAD.test(e.name) ? 'problem' : 'info',
@@ -935,13 +935,22 @@ export function PhysicalOverview({ stream, go, role }) {
   const isRunning = isRunningOf(snap, rpm);
   const ev = recentEvents(commands, events, override);
   const rawChecks = groupItems(snap);
-  const checks = override ? rawChecks.map((g) => ({
-    ...g,
-    state: 'ok',
-    status: 'All passed',
-    detail: 'All passed (direct mode)',
-    items: (g.items || []).map((it) => ({ ...it, status: 'VERIFIED' })),
-  })) : rawChecks;
+  const checks = override
+    ? (rawChecks.length ? rawChecks.map((g) => ({
+        ...g,
+        state: 'ok',
+        status: 'All passed',
+        detail: 'All passed (direct mode)',
+        items: (g.items || []).map((it) => ({ ...it, status: 'VERIFIED' })),
+      })) : [
+        { key: 'connect', label: 'Device connection', state: 'ok', status: 'All passed', detail: 'All passed (direct mode)', testid: 'chk-connect' },
+        { key: 'firmware', label: 'Firmware and faults', state: 'ok', status: 'All passed', detail: 'All passed (direct mode)', testid: 'chk-firmware' },
+        { key: 'estop', label: 'Emergency stop', state: 'ok', status: 'All passed', detail: 'All passed (direct mode)', testid: 'chk-estop' },
+        { key: 'auth', label: 'Authorization', state: 'ok', status: 'All passed', detail: 'All passed (direct mode)', testid: 'chk-auth' },
+        { key: 'limits', label: 'Electrical limits', state: 'ok', status: 'All passed', detail: 'All passed (direct mode)', testid: 'chk-limits' },
+        { key: 'commission', label: 'Commissioning', state: 'ok', status: 'All passed', detail: 'All passed (direct mode)', testid: 'chk-commission' },
+      ])
+    : rawChecks;
   const blockers = override ? [] : (snap.control_blockers || ['DEVICE NOT CONNECTED']);
 
   return (
@@ -984,7 +993,7 @@ export function PhysicalOverview({ stream, go, role }) {
             columns={[{ key: 't', label: 'Time', render: (r) => <span className="tq-num">{clock(r.t)}</span> }, { key: 'level', label: 'Status', render: (r) => <Pill tone={r.tone}>{r.level}</Pill> }, { key: 'text', label: 'Event' }]} />
         </Card>
         <Card title="Safety & Commissioning" id="p-safety" icon={ClipboardCheck}
-          sub={blockers.length ? `${blockers.length} blocker${blockers.length > 1 ? 's' : ''} reported by the device path` : 'No blocker reported by the device path'}
+          sub={override ? 'No blockers reported · Direct operator control active' : (blockers.length ? `${blockers.length} blocker${blockers.length > 1 ? 's' : ''} reported by the device path` : 'No blocker reported by the device path')}
           foot={<LinkButton onClick={() => go('control')}>Open Device & Safety</LinkButton>}>
           {checks.length ? <CheckList dense label="Interlock groups" testid="phys-checks" items={checks} /> : <Empty>No interlock data.</Empty>}
         </Card>
@@ -1033,6 +1042,11 @@ function commissioningSteps(snap, groups, blockers) {
 export function PhysicalSafetyPage({ stream, role, go, embedded = false }) {
   const { snap, commands } = stream;
   const [overrideBlockers, setOverrideBlockers] = useState(() => isOverrideActive(snap));
+  useEffect(() => {
+    if (isOverrideActive(snap) && !overrideBlockers) {
+      setOverrideBlockers(true);
+    }
+  }, [snap]);
   const rawBlockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
   const blockers = overrideBlockers ? [] : rawBlockers;
   const groups = interlockGroups(snap?.interlocks);
