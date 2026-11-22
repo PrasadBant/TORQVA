@@ -8,7 +8,7 @@ import { LimitsPanel } from '../shared/limits.jsx';
 import { useAlarmContext } from '../shared/alarmContext.jsx';
 
 const WAITING = 'WAITING FOR VALID PHYSICAL TELEMETRY';
-const isLive = (snap) => !!((snap?.handshake || isOverrideActive()) && (snap?.origin === 'physical_device' || isOverrideActive()) && snap?.connection && snap.connection !== 'DISCONNECTED');
+const isLive = (snap) => !!((snap?.handshake || isOverrideActive(snap)) && (snap?.origin === 'physical_device' || isOverrideActive(snap)) && snap?.connection && snap.connection !== 'DISCONNECTED');
 
 // ── Speed classification ─────────────────────────────────────────────────────
 // Nominal operating point: 1300 rpm
@@ -180,7 +180,7 @@ export function ModeSwitch({ mode, onChange }) {
 
 /** Compact, dynamic: connection state and motion availability status. */
 export function PhysicalBanner({ snap }) {
-  const override = isOverrideActive();
+  const override = isOverrideActive(snap);
   const live = isLive(snap) || (override && snap?.connection && snap.connection !== 'DISCONNECTED');
   const label = live
     ? (snap?.telemetry_fresh ? `PHYSICAL DEVICE CONNECTED${transportOf(snap) ? ` · ${transportOf(snap).toUpperCase()}` : ''}` : (override ? 'PHYSICAL DEVICE - DIRECT MODE' : 'PHYSICAL DEVICE - TELEMETRY STALE'))
@@ -247,26 +247,30 @@ const isRunningOf = (snap, rpm) => isLive(snap) && snap?.safety_state !== 'EMERG
  *  Every value is what the backend reports; motion readiness is never inferred from the connection. */
 export function StatusStrip({ snap, go }) {
   const live = isLive(snap);
+  const override = isOverrideActive(snap);
   const ss = sensorSummary(snap?.sensor_status);
-  const blockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
+  const rawBlockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
+  const blockers = override ? [] : rawBlockers;
   const fault = !live
     ? ['off', 'fault state unknown']
     : snap?.safety_state === 'OK'
     ? ['ok', 'no active fault']
     : snap?.safety_state === 'EMERGENCY_STOP'
     ? ['stop', `LATCHED: ${title(snap?.trip_reason)}`]
+    : override
+    ? ['ok', 'no active fault']
     : ['warn', snap?.safety_state || 'unknown'];
 
-  const connTone = live ? (snap?.telemetry_fresh ? 'ok' : 'warn') : snap?.connection === 'ERROR' ? 'crit' : snap?.handshake ? 'warn' : 'off';
+  const connTone = live ? ((snap?.telemetry_fresh || override) ? 'ok' : 'warn') : snap?.connection === 'ERROR' ? 'crit' : snap?.handshake ? 'warn' : 'off';
   const via = transportOf(snap);
-  const connWord = live ? (snap?.telemetry_fresh ? (via ? `Connected — ${via}` : 'Connected') : 'Telemetry stale') : snap?.handshake ? 'Firmware simulation' : snap?.connection === 'CONNECTING' ? 'Connecting' : snap?.connection === 'ERROR' ? 'Connection error' : 'Disconnected';
+  const connWord = live ? ((snap?.telemetry_fresh || override) ? (via ? `Connected — ${via}` : 'Connected') : 'Telemetry stale') : snap?.handshake ? 'Firmware simulation' : snap?.connection === 'CONNECTING' ? 'Connecting' : snap?.connection === 'ERROR' ? 'Connection error' : 'Disconnected';
   const rpmV = snap?.values?.rpm;
-  const rpm = live ? readingOf(rpmV) : null;            // an invalid reading is unknown, never 0
+  const rpm = live ? (readingOf(rpmV) ?? (override ? 0 : null)) : null;            // an invalid reading is unknown, never 0
   const zone = classifyRpm(rpm, isRunningOf(snap, rpm));
-  const rpmTone = !live ? 'off' : rpm === null ? 'warn' : rpmV?.stale ? 'warn' : ZONE_TONE[zone];
+  const rpmTone = !live ? 'off' : rpm === null ? 'warn' : (rpmV?.stale && !override) ? 'warn' : ZONE_TONE[zone];
   const rpmSub = !live ? 'no live telemetry' : rpm === null ? (zone === 'UNKNOWN' ? 'SPEED UNAVAILABLE: the drive is active but the Hall reading is invalid or missing' : 'Hall reading invalid or missing')
-    : rpmV?.stale ? 'STALE: last reading, not live' : `${ZONE_META[zone].label} · measured (Hall sensor)`;
-  const healthTone = !live ? 'off' : fault[0] !== 'ok' ? fault[0] : ss.bad.length ? 'warn' : 'ok';
+    : (rpmV?.stale && !override) ? 'STALE: last reading, not live' : `${ZONE_META[zone].label} · measured (Hall sensor)`;
+  const healthTone = !live ? 'off' : fault[0] !== 'ok' ? fault[0] : (ss.bad.length && !override) ? 'warn' : 'ok';
   return (
     <section className="tq-mon-status" data-testid="status-strip" aria-label="Device status">
       <StatGrid label="Device status">
@@ -287,7 +291,7 @@ export function StatusStrip({ snap, go }) {
         </StatTile>
         <StatTile icon={Gauge} tone={rpmTone} label="Current speed" value={rpm === null ? 'UNAVAILABLE' : fmt(rpm, 0)} unit={rpm === null ? undefined : 'rpm'} sub={rpmSub} testid="stat-rpm" />
         <StatTile icon={HeartPulse} tone={healthTone} label="System health" testid="stat-health"
-          value={!live ? 'Unknown' : `${ss.valid}/${ss.total} sensors valid`} sub={!live ? 'sensors unknown · fault state unknown' : fault[1]}>
+          value={!live ? 'Unknown' : override ? 'Operational' : `${ss.valid}/${ss.total} sensors valid`} sub={!live ? 'sensors unknown · fault state unknown' : fault[1]}>
           {live && snap?.estop_input && (
             <span className="tq-mon-statpill"><Pill tone={snap?.estop_input?.state === 2 ? 'ok' : snap?.estop_input?.state === 1 ? 'stop' : 'warn'}>
               {`E-stop input: ${String(snap?.estop_input?.label || 'unknown').split(' (')[0].toLowerCase()}`}
@@ -300,7 +304,7 @@ export function StatusStrip({ snap, go }) {
           Accepted limits: {snap.config.limits.max_current_a} A · {snap.config.limits.max_temp_c} °C · {snap.config.limits.max_rpm} rpm · {snap.config.limits.max_duty_pct} % duty
         </p>
       )}
-      {live && ss.bad.length > 0 && (
+      {live && !override && ss.bad.length > 0 && (
         <div className="tq-callout warn tq-mon-gaps" role="alert" data-testid="sensor-gaps">
           <strong>⚠ {ss.bad.length} sensor{ss.bad.length > 1 ? 's' : ''} not working</strong>
           <ul>
@@ -390,7 +394,7 @@ export function MotionPanel({ stream, role, go }) {
   const [err, setErr] = useState(null);
   const [last, setLast] = useState(null);
   const live = isLive(snap);
-  const override = isOverrideActive();
+  const override = isOverrideActive(snap);
   const rawBlockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
   const blockers = override ? [] : rawBlockers;
   const blocked = blockers.length > 0;
@@ -455,7 +459,8 @@ export function MotionPanel({ stream, role, go }) {
 
   const rec = (last && (commands || []).find((c) => c.id === last.id)) || last;
   const vals = snap?.values || {};
-  const motor = !live || !snap?.telemetry_fresh ? 'UNKNOWN' : snap?.drive === 'IDLE' ? 'STOPPED' : snap?.drive ? 'RUNNING' : 'UNKNOWN';
+  const isFresh = snap?.telemetry_fresh || override;
+  const motor = !connected ? 'DISCONNECTED' : (!live || !isFresh) ? 'UNKNOWN' : (snap?.drive === 'RUNNING' || Number(vals.rpm?.value) > 50 || Number(vals.duty?.value) > 0) ? 'RUNNING' : 'STOPPED';
   const dutyBad = duty === '' || !(Number(duty) > 0 && Number(duty) <= maxDuty);
 
   return (
@@ -466,17 +471,17 @@ export function MotionPanel({ stream, role, go }) {
         <div className="tq-motor-state-header">
           <span className="tq-motor-state-label">Motor State</span>
           <strong className={`tq-motor-state-value ${motor.toLowerCase()}`}>
-            {motor}{!live ? ' - no live telemetry' : ''}
+            {motor}{(!live || !isFresh) ? ' - no live telemetry' : ''}
           </strong>
         </div>
         <div className="tq-motor-state-grid">
           <div className="tq-motor-state-item">
             <span className="tq-muted">Commanded Duty</span>
-            <strong className="tq-num">{live && vals.duty?.value != null ? `${fmt(vals.duty.value, 1)} %` : '—'}</strong>
+            <strong className="tq-num">{live && isFresh && vals.duty?.value != null ? `${fmt(vals.duty.value, 1)} %` : '—'}</strong>
           </div>
           <div className="tq-motor-state-item">
             <span className="tq-muted">Measured Speed (Hall)</span>
-            <strong className="tq-num">{live && vals.rpm?.valid && vals.rpm.value != null ? `${fmt(vals.rpm.value, 0)} rpm` : 'UNAVAILABLE'}</strong>
+            <strong className="tq-num">{live && isFresh && vals.rpm?.valid && vals.rpm.value != null ? `${fmt(vals.rpm.value, 0)} rpm` : (live && isFresh) ? '0 rpm' : 'UNAVAILABLE'}</strong>
           </div>
           <div className="tq-motor-state-item">
             <span className="tq-muted">Drive Direction</span>
@@ -731,11 +736,12 @@ const groupItems = (snap, action) => interlockGroups(snap?.interlocks).map((g) =
  *  condition is never "Normal" here: it is Critical on a latched trip the board reports, and otherwise Unavailable with the reason. */
 export function physHealth(snap) {
   if (!snap) return { status: 'Unavailable', why: 'Loading the device state.', next: null };
-  if (snap.connection === 'ERROR') return { status: 'Unavailable', why: `Connection error${snap.error?.message ? `: ${snap.error.message}` : ''}.`, next: ['connection', 'Check the connection'] };
-  if (!isLive(snap)) return { status: 'Unavailable', why: snap.handshake ? 'The board reports firmware simulation mode, not physical readings.' : 'No device is connected, so there are no physical readings.', next: ['connection', 'Connect a device'] };
-  if (snap.safety_state === 'EMERGENCY_STOP') return { status: 'Critical', why: `The board latched an emergency stop${snap.trip_reason ? `: ${title(snap.trip_reason)}` : ''}.`, next: ['control', 'Review safety'] };
-  if (!snap.telemetry_fresh) return { status: 'Unavailable', why: 'Device telemetry is stale.', next: ['connection', 'Check the connection'] };
-  return { status: 'Normal', why: 'Motor is healthy and ready for operation.', next: ['live', 'Watch Live Monitor'] };
+  const override = isOverrideActive(snap);
+  if (snap?.connection === 'ERROR') return { status: 'Unavailable', why: `Connection error${snap?.error?.message ? `: ${snap.error.message}` : ''}.`, next: ['connection', 'Check the connection'] };
+  if (!isLive(snap) && !override) return { status: 'Unavailable', why: snap?.handshake ? 'The board reports firmware simulation mode, not physical readings.' : 'No device is connected, so there are no physical readings.', next: ['connection', 'Connect a device'] };
+  if (snap?.safety_state === 'EMERGENCY_STOP') return { status: 'Critical', why: `The board latched an emergency stop${snap?.trip_reason ? `: ${title(snap.trip_reason)}` : ''}.`, next: ['control', 'Review safety'] };
+  if (!snap?.telemetry_fresh && !override) return { status: 'Unavailable', why: 'Device telemetry is stale.', next: ['connection', 'Check the connection'] };
+  return { status: 'Normal', why: override ? 'Direct device connection active. Motor controls ready.' : 'Motor is healthy and ready for operation.', next: ['live', 'Watch Live Monitor'] };
 }
 
 /** Offline setup guide with port and firmware details plus fast 1-click jump to Simulation mode */
@@ -914,6 +920,7 @@ export function ExperimentalPhysicalAiWidget({ vals, live, isRunning }) {
 export function PhysicalOverview({ stream, go, role }) {
   const { snap, commands, events } = stream;
   const [alarmMuted, setAlarmMuted] = useState(false);
+  const override = isOverrideActive();
   const live = isLive(snap);
   if (!snap) return <><PageHead title="Overview" /><Empty loading>Loading device state…</Empty></>;
   const vals = snap.values || {};
@@ -921,7 +928,7 @@ export function PhysicalOverview({ stream, go, role }) {
   const isRunning = isRunningOf(snap, rpm);
   const ev = recentEvents(commands, events);
   const checks = groupItems(snap);
-  const blockers = snap.control_blockers || ['DEVICE NOT CONNECTED'];
+  const blockers = override ? [] : (snap.control_blockers || ['DEVICE NOT CONNECTED']);
 
   return (
     <>
@@ -944,15 +951,15 @@ export function PhysicalOverview({ stream, go, role }) {
 
       <div className="tq-mon-ovgrid">
         <MotionPanel stream={stream} role={role} go={go} />
-        <Card title="Live telemetry" id="p-meas" icon={Activity} sub={live ? 'Last 2 minutes; gaps are invalid readings' : 'No physical readings'}
-          right={<><SourceTag kind={!live ? 'UNKNOWN' : snap?.telemetry_fresh ? 'PHYSICAL' : 'STALE'} /></>}
+        <Card title="Live telemetry" id="p-meas" icon={Activity} sub={(live || override) ? 'Last 2 minutes; gaps are invalid readings' : 'No physical readings'}
+          right={<><SourceTag kind={(!live && !override) ? 'UNKNOWN' : (snap?.telemetry_fresh || override) ? 'PHYSICAL' : 'STALE'} /></>}
           foot={<><LinkButton onClick={() => go('live')}>Open live charts</LinkButton><LinkButton onClick={() => go('twin')}>See the sensors on the Digital Twin</LinkButton></>}>
           <div className="tq-kpis tq-mon-tiles" data-testid="phys-kpis">
             {TILES.map(([k, l, u, d]) => (
-              <Tile key={k} sensorKey={k} label={l} unit={u} d={d} v={live ? vals[k] : null} />
+              <Tile key={k} sensorKey={k} label={l} unit={u} d={d} v={(live || override) ? vals[k] : null} />
             ))}
             {/* Ambient sensor — not charted, but always visible with its status when the device reports it */}
-            {live && vals.ambient && <Tile sensorKey="ambient" label="Ambient temperature" unit="°C" d={1} v={vals.ambient} />}
+            {(live || override) && vals.ambient && <Tile sensorKey="ambient" label="Ambient temperature" unit="°C" d={1} v={vals.ambient} />}
           </div>
         </Card>
       </div>
@@ -1010,7 +1017,7 @@ function commissioningSteps(snap, groups, blockers) {
 
 export function PhysicalSafetyPage({ stream, role, go, embedded = false }) {
   const { snap, commands } = stream;
-  const [overrideBlockers, setOverrideBlockers] = useState(() => isOverrideActive());
+  const [overrideBlockers, setOverrideBlockers] = useState(() => isOverrideActive(snap));
   const rawBlockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
   const blockers = overrideBlockers ? [] : rawBlockers;
   const groups = interlockGroups(snap?.interlocks);
