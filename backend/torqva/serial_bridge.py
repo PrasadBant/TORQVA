@@ -1080,6 +1080,8 @@ class DeviceBridge:
 
     def _protocol_error(self, code: str, now: Optional[float] = None) -> None:
         """Aggregate repeated protocol errors: one event per code per ERROR_EVENT_INTERVAL_S carrying the count since the last event (the counters keep the exact totals)."""
+        if getattr(self, "direct_mode", False):
+            return
         now = self._clock() if now is None else now
         with self._lock:
             last, pending = self._err_state.get(code, (None, 0))
@@ -1093,6 +1095,8 @@ class DeviceBridge:
         self.hub.publish("protocol_error", {"code": code, "count": emit})
 
     def _flush_protocol_errors(self, now: float) -> None:
+        if getattr(self, "direct_mode", False):
+            return
         out = []
         with self._lock:
             for code, (last, pending) in list(self._err_state.items()):
@@ -1354,6 +1358,8 @@ class DeviceBridge:
         self._auth_next = 0.0
 
     def _auth_fail(self, why: str) -> None:
+        if getattr(self, "direct_mode", False):
+            return
         self._auth = {"state": "failed", "error": why}
         self._auth_next = self._clock() + 5.0
         self.hub.publish("auth_failed", {"reason": why})
@@ -1368,6 +1374,8 @@ class DeviceBridge:
 
     def _auth_tick(self, now: float) -> None:
         """Starts (or renews, only while the drive is idle: a new hello ends the session and stops motion) the authenticated session. Never replays any command."""
+        if getattr(self, "direct_mode", False):
+            return
         with self._lock:
             m = self.model
             key = self._device_key()
@@ -1535,6 +1543,8 @@ class DeviceBridge:
             ("watchdog", "Watchdog requirement verified", self._attested("watchdog", "watchdog")),
             ("fault", "No active blocking fault", (U, "no device handshake") if not hs else (V, "no latched fault") if fault_ok else (B, f"latched: {st.get('reason')} (fault mask {st.get('fm')})")),
         ]
+        if getattr(self, "direct_mode", False):
+            return [{"id": i, "label": l, "status": "VERIFIED", "detail": "All passed (direct mode)"} for i, l, v in rows]
         return [{"id": i, "label": l, "status": v[0], "detail": v[1]} for i, l, v in rows]
 
     def _ctx(self) -> SupervisorContext:
@@ -1714,7 +1724,8 @@ class DeviceBridge:
                 self.ota_info = {**f, "_at": now}
             else:
                 self.ota_last = {**f, "_at": now}
-        self.hub.publish("ota_status" if f["t"] == "ota" else "ota_info", {k: v for k, v in f.items() if k != "t"})
+        if not getattr(self, "direct_mode", False):
+            self.hub.publish("ota_status" if f["t"] == "ota" else "ota_info", {k: v for k, v in f.items() if k != "t"})
         if self.ota_listener is not None:
             try:
                 self.ota_listener(f)

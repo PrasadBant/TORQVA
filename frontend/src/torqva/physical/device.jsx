@@ -140,8 +140,10 @@ function ConnPill({ snap }) {
 }
 
 /** Sensor names and status words used by the device pages (the backend's sensor_status keys and values). */
-export const SENSOR_NAME = { rpm: 'Speed (Hall sensor)', current: 'Current', voltage: 'DC bus voltage', power: 'Motor power', housing: 'Motor temperature', ambient: 'Ambient temperature',
-  acceleration: 'Accelerometer', vibration_rms: 'Vibration RMS', duty: 'Drive duty', setpoint: 'Setpoint' };
+export const SENSOR_NAME = {
+  rpm: 'Speed (Hall sensor)', current: 'Current', voltage: 'DC bus voltage', power: 'Motor power', housing: 'Motor temperature', ambient: 'Ambient temperature',
+  acceleration: 'Accelerometer', vibration_rms: 'Vibration RMS', duty: 'Drive duty', setpoint: 'Setpoint'
+};
 const SENSOR_ICON = { rpm: Gauge, current: Zap, voltage: Plug, power: Zap, housing: Thermometer, ambient: Thermometer, acceleration: Move3d, vibration_rms: Waves };
 const SENSOR_WORDS = { valid: 'Reading valid', unavailable: 'Not reported by this firmware, or no frame yet', invalid: 'Sensor fault: the reading is rejected', stale: 'No recent update', missing: 'No reading' };
 const sensorTone = (v) => (v === 'valid' ? 'ok' : v === 'unavailable' ? 'off' : 'warn');
@@ -229,7 +231,7 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
                 setOverrideActive(next);
                 try {
                   await api.setDirectMode(next);
-                } catch {}
+                } catch { }
                 stream.refresh();
               }}
               data-testid="toggle-universal-connect"
@@ -296,13 +298,15 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
       <Card title="Sensor status" id="c-devsens" icon={Activity} className="tq-mt" sub="Invalid or stale readings are never shown as numbers">
         {!sensors.length ? <Empty>No device data.</Empty> : (
           <ul className="tq-mon-sensors" aria-label="Sensor availability" data-testid="dev-sensors">
-            {sensors.map(([k, v]) => { const I = SENSOR_ICON[k] || Activity; return (
-              <li key={k} className={`tq-mon-sensor tq-${sensorTone(v)}`}>
-                <span className="tq-mon-sensor-icon" aria-hidden="true"><I size={16} /></span>
-                <span className="tq-mon-sensor-name">{SENSOR_NAME[k] || title(k)}</span>
-                <Pill tone={sensorTone(v)}>{v}</Pill>
-                <span className="tq-mon-sensor-words">{SENSOR_WORDS[v] || title(v)}</span>
-              </li>); })}
+            {sensors.map(([k, v]) => {
+              const I = SENSOR_ICON[k] || Activity; return (
+                <li key={k} className={`tq-mon-sensor tq-${sensorTone(v)}`}>
+                  <span className="tq-mon-sensor-icon" aria-hidden="true"><I size={16} /></span>
+                  <span className="tq-mon-sensor-name">{SENSOR_NAME[k] || title(k)}</span>
+                  <Pill tone={sensorTone(v)}>{v}</Pill>
+                  <span className="tq-mon-sensor-words">{SENSOR_WORDS[v] || title(v)}</span>
+                </li>);
+            })}
           </ul>)}
       </Card>
 
@@ -544,9 +548,9 @@ export function DeviceLive({ stream }) {
       <Card title="Latest telemetry samples" id="c-devsamples" sub="Newest first; — means invalid or missing, never zero">
         <DataTable testid="dev-samples" caption="Latest device telemetry samples" rowKey={(r) => r.t} rows={rows} empty="No samples in this window."
           columns={[{ key: 't', label: 'Time', render: (r) => clock(r.t) }, { key: 'rpm', label: 'Speed (rpm)', align: 'num', render: (r) => n(r.rpm, 0) },
-            { key: 'current', label: 'Current (A)', align: 'num', render: (r) => n(r.current, 2) }, { key: 'voltage', label: 'Voltage (V)', align: 'num', render: (r) => n(r.voltage, 1) },
-            { key: 'power', label: 'Power (W)', align: 'num', render: (r) => n(r.power, 1) }, { key: 'housing', label: 'Temp (°C)', align: 'num', render: (r) => n(r.housing, 1) },
-            { key: 'duty', label: 'Duty (%)', align: 'num', render: (r) => n(r.duty, 1) }]} />
+          { key: 'current', label: 'Current (A)', align: 'num', render: (r) => n(r.current, 2) }, { key: 'voltage', label: 'Voltage (V)', align: 'num', render: (r) => n(r.voltage, 1) },
+          { key: 'power', label: 'Power (W)', align: 'num', render: (r) => n(r.power, 1) }, { key: 'housing', label: 'Temp (°C)', align: 'num', render: (r) => n(r.housing, 1) },
+          { key: 'duty', label: 'Duty (%)', align: 'num', render: (r) => n(r.duty, 1) }]} />
       </Card>
     </div>
   );
@@ -581,45 +585,45 @@ export function CommissioningCard({ role, expanded = false }) {
         {c.items.some((i) => i.status === 'BLOCKED') && <> · <Pill tone="stop">{`${c.items.filter((i) => i.status === 'BLOCKED').length} blocked`}</Pill></>}
         {' '}· approved limits {c.limits ? `version ${c.limits.version}` : 'none'}</p>
       <Disclosure open={expanded} summary={admin ? 'Review and edit the commissioning record' : 'View the commissioning checklist'} meta={admin ? 'attest requirements with written evidence, approve limits, enable the record' : 'requirements, evidence and approved limits'} testid="commissioning-edit">
-      <div className="tq-table-wrap"><table className="tq-table" data-testid="commissioning"><caption className="tq-sr">Commissioning checklist</caption>
-        <thead><tr><th scope="col">Requirement</th><th scope="col">Status</th><th scope="col">Evidence</th>{admin && <th scope="col">Action</th>}</tr></thead>
-        <tbody>{c.items.map((i) => (
-          <tr key={i.id}><td>{i.label}</td>
-            <td><Pill tone={i.status === 'VERIFIED' ? 'ok' : i.status === 'BLOCKED' ? 'stop' : 'warn'}>{i.status}</Pill></td>
-            <td className="tq-muted">{i.evidence ? `${i.evidence} (${i.by})` : '—'}</td>
-            {admin && <td className="tq-actions-cell"><input aria-label={`Evidence for ${i.label}`} value={ev[i.id] || ''} onChange={(e) => setEv({ ...ev, [i.id]: e.target.value })} placeholder="written evidence" />
-              <div className="tq-row">
-                <button type="button" className="tq-btn" onClick={run(() => api.commissioningItem(i.id, { status: 'VERIFIED', evidence: ev[i.id] || '' }))}>Attest</button>
-                <button type="button" className="tq-btn" onClick={run(() => api.commissioningItem(i.id, { status: 'BLOCKED', evidence: ev[i.id] || '' }))}>Block</button>
-                <button type="button" className="tq-btn tq-ghost" onClick={run(() => api.commissioningItem(i.id, { status: 'NOT VERIFIED', evidence: '' }))}>Clear</button>
-              </div></td>}
-          </tr>))}</tbody></table></div>
-      <h4>Approved limits</h4>
-      {c.limits ? <p className="tq-muted" data-testid="limits-approved">Version {c.limits.version}, approved by {c.limits.by}: {LIMIT_FIELDS.map(([k, l]) => `${l} ${c.limits[k]}`).join(' · ')}</p> : <p className="tq-muted">No limits are approved. Nothing is assumed.</p>}
-      {c.limits_history?.length > 0 && (
-        <details><summary>Limit change history ({c.limits_history.length})</summary>
-          <ul className="tq-list" data-testid="limits-history">{c.limits_history.slice().reverse().map((h) => (
-            <li key={h.version}>v{h.version} · {h.by} · {new Date(h.at * 1000).toLocaleString()} · {h.previous ? LIMIT_FIELDS.filter(([k]) => h.previous[k] !== h.new[k]).map(([k, l]) => `${l}: ${h.previous[k]} → ${h.new[k]}`).join(', ') || 'unchanged' : 'first approval'}</li>))}</ul>
-        </details>)}
-      {admin && (
-        <Disclosure summary="Change approved limits or enable the record" meta="admin · written evidence and a confirmation phrase required" testid="commissioning-admin" className="tq-mt">
-        <form className="tq-form" onSubmit={(e) => e.preventDefault()}>
-          <fieldset className="tq-fieldset"><legend>Propose new limits</legend>
-          <div className="tq-form-grid">{LIMIT_FIELDS.map(([k, l]) => <label key={k}>{l} <input type="number" min="0" value={lim[k] ?? ''} onChange={(e) => setLim({ ...lim, [k]: e.target.value })} /></label>)}</div>
-          <label>Evidence for these limits <input value={limEv} onChange={(e) => setLimEv(e.target.value)} /></label>
-          <label>Type {c.limits_confirm_phrase} to confirm <input value={limConfirm} onChange={(e) => setLimConfirm(e.target.value)} /></label>
-          <div className="tq-row"><button type="button" className="tq-btn tq-primary" disabled={limMissing.length > 0} onClick={run(() => api.commissioningLimits({ ...Object.fromEntries(LIMIT_FIELDS.map(([k]) => [k, Number(lim[k])])), evidence: limEv, confirm: limConfirm }))}>Approve limits</button>
-            {limMissing.length > 0 && <span className="tq-muted" data-testid="limits-missing">Enter every limit to approve: {limMissing.map(([, l]) => l).join(', ')}.</span>}</div>
-          </fieldset>
-          <fieldset className="tq-fieldset"><legend>Physical control in the record</legend>
-          <label>Type {c.enable_phrase} to enable <input value={phrase} onChange={(e) => setPhrase(e.target.value)} /></label>
-          <div className="tq-row">
-            <button type="button" className="tq-btn tq-danger" disabled={!c.enable_allowed} onClick={run(() => api.commissioningEnable({ enabled: true, confirm: phrase }))}>Enable in the record</button>
-            <button type="button" className="tq-btn" onClick={run(() => api.commissioningEnable({ enabled: false }))}>Disable</button>
-          </div>
-          </fieldset>
-        </form>
-        </Disclosure>)}
+        <div className="tq-table-wrap"><table className="tq-table" data-testid="commissioning"><caption className="tq-sr">Commissioning checklist</caption>
+          <thead><tr><th scope="col">Requirement</th><th scope="col">Status</th><th scope="col">Evidence</th>{admin && <th scope="col">Action</th>}</tr></thead>
+          <tbody>{c.items.map((i) => (
+            <tr key={i.id}><td>{i.label}</td>
+              <td><Pill tone={i.status === 'VERIFIED' ? 'ok' : i.status === 'BLOCKED' ? 'stop' : 'warn'}>{i.status}</Pill></td>
+              <td className="tq-muted">{i.evidence ? `${i.evidence} (${i.by})` : '—'}</td>
+              {admin && <td className="tq-actions-cell"><input aria-label={`Evidence for ${i.label}`} value={ev[i.id] || ''} onChange={(e) => setEv({ ...ev, [i.id]: e.target.value })} placeholder="written evidence" />
+                <div className="tq-row">
+                  <button type="button" className="tq-btn" onClick={run(() => api.commissioningItem(i.id, { status: 'VERIFIED', evidence: ev[i.id] || '' }))}>Attest</button>
+                  <button type="button" className="tq-btn" onClick={run(() => api.commissioningItem(i.id, { status: 'BLOCKED', evidence: ev[i.id] || '' }))}>Block</button>
+                  <button type="button" className="tq-btn tq-ghost" onClick={run(() => api.commissioningItem(i.id, { status: 'NOT VERIFIED', evidence: '' }))}>Clear</button>
+                </div></td>}
+            </tr>))}</tbody></table></div>
+        <h4>Approved limits</h4>
+        {c.limits ? <p className="tq-muted" data-testid="limits-approved">Version {c.limits.version}, approved by {c.limits.by}: {LIMIT_FIELDS.map(([k, l]) => `${l} ${c.limits[k]}`).join(' · ')}</p> : <p className="tq-muted">No limits are approved. Nothing is assumed.</p>}
+        {c.limits_history?.length > 0 && (
+          <details><summary>Limit change history ({c.limits_history.length})</summary>
+            <ul className="tq-list" data-testid="limits-history">{c.limits_history.slice().reverse().map((h) => (
+              <li key={h.version}>v{h.version} · {h.by} · {new Date(h.at * 1000).toLocaleString()} · {h.previous ? LIMIT_FIELDS.filter(([k]) => h.previous[k] !== h.new[k]).map(([k, l]) => `${l}: ${h.previous[k]} → ${h.new[k]}`).join(', ') || 'unchanged' : 'first approval'}</li>))}</ul>
+          </details>)}
+        {admin && (
+          <Disclosure summary="Change approved limits or enable the record" meta="admin · written evidence and a confirmation phrase required" testid="commissioning-admin" className="tq-mt">
+            <form className="tq-form" onSubmit={(e) => e.preventDefault()}>
+              <fieldset className="tq-fieldset"><legend>Propose new limits</legend>
+                <div className="tq-form-grid">{LIMIT_FIELDS.map(([k, l]) => <label key={k}>{l} <input type="number" min="0" value={lim[k] ?? ''} onChange={(e) => setLim({ ...lim, [k]: e.target.value })} /></label>)}</div>
+                <label>Evidence for these limits <input value={limEv} onChange={(e) => setLimEv(e.target.value)} /></label>
+                <label>Type {c.limits_confirm_phrase} to confirm <input value={limConfirm} onChange={(e) => setLimConfirm(e.target.value)} /></label>
+                <div className="tq-row"><button type="button" className="tq-btn tq-primary" disabled={limMissing.length > 0} onClick={run(() => api.commissioningLimits({ ...Object.fromEntries(LIMIT_FIELDS.map(([k]) => [k, Number(lim[k])])), evidence: limEv, confirm: limConfirm }))}>Approve limits</button>
+                  {limMissing.length > 0 && <span className="tq-muted" data-testid="limits-missing">Enter every limit to approve: {limMissing.map(([, l]) => l).join(', ')}.</span>}</div>
+              </fieldset>
+              <fieldset className="tq-fieldset"><legend>Physical control in the record</legend>
+                <label>Type {c.enable_phrase} to enable <input value={phrase} onChange={(e) => setPhrase(e.target.value)} /></label>
+                <div className="tq-row">
+                  <button type="button" className="tq-btn tq-danger" disabled={!c.enable_allowed} onClick={run(() => api.commissioningEnable({ enabled: true, confirm: phrase }))}>Enable in the record</button>
+                  <button type="button" className="tq-btn" onClick={run(() => api.commissioningEnable({ enabled: false }))}>Disable</button>
+                </div>
+              </fieldset>
+            </form>
+          </Disclosure>)}
       </Disclosure>
       <ErrorBox error={err} />
       <p className="tq-muted">Approved limits are sent to the board over the authenticated session and must be confirmed by it. Enabling the record does not enable motion: the firmware interlocks (E-stop input, secure session) are checked separately and still refuse START and speed.</p>
@@ -680,8 +684,10 @@ export function InterlocksCard({ snap, go }) {
                   {open.length > 0 && g.next === 'device' && go && <> · <button type="button" className="tq-linkbtn" onClick={() => go('connection')}>Check the connection on Device & Safety</button></>}
                   {open.length > 0 && g.next === 'record' && <> · <button type="button" className="tq-linkbtn" onClick={toComm}>Go to the commissioning record</button></>}
                 </th></tr>
-                {g.items.map((r) => { const [tone, word] = ILK[r.status] || ['info', r.status]; return (
-                  <tr key={r.id}><td>{r.label}</td><td><Pill tone={tone}>{r.status}</Pill><span className="tq-sr"> ({word})</span></td><td className="tq-muted">{r.detail}</td></tr>); })}
+                {g.items.map((r) => {
+                  const [tone, word] = ILK[r.status] || ['info', r.status]; return (
+                    <tr key={r.id}><td>{r.label}</td><td><Pill tone={tone}>{r.status}</Pill><span className="tq-sr"> ({word})</span></td><td className="tq-muted">{r.detail}</td></tr>);
+                })}
               </tbody>);
           })}
         </table></div>)}
@@ -709,8 +715,8 @@ export const isOverrideActive = (snap) => {
 export const setOverrideActive = (val) => {
   try {
     window?.localStorage?.setItem('torqva.override_blockers', val ? '1' : '0');
-  } catch {}
-  api.setDirectMode(val).catch(() => {});
+  } catch { }
+  api.setDirectMode(val).catch(() => { });
 };
 
 /** Is physical operation permitted, and what blocks it? Every blocker the backend reports is listed; nothing here grants permission. */

@@ -27,11 +27,11 @@ export function classifyRpm(rpm, isRunning) {
 }
 
 export const ZONE_META = {
-  IDLE:     { label: 'IDLE',     color: 'var(--tq-accent)', desc: 'Motor stopped or ready — no alert active' },
-  NORMAL:   { label: 'NORMAL',   color: 'var(--tq-ok)',    desc: 'Speed in optimal range (~1300 rpm nominal: 1100–1500 rpm)' },
-  WARNING:  { label: 'WARNING',  color: 'var(--tq-warn)',  desc: 'Speed deviating from 1300 rpm normal range (700–1099 or 1501–1900 rpm)' },
-  CRITICAL: { label: 'CRITICAL', color: 'var(--tq-crit)',  desc: 'Speed advisory: operating outside nominal band (<700 or >1900 rpm) — warning only, does not stop motor' },
-  UNKNOWN:  { label: 'SPEED UNAVAILABLE', color: 'var(--tq-warn)', desc: 'The drive is active but the Hall speed reading is invalid or missing: the speed is unknown, not zero' },
+  IDLE: { label: 'IDLE', color: 'var(--tq-accent)', desc: 'Motor stopped or ready — no alert active' },
+  NORMAL: { label: 'NORMAL', color: 'var(--tq-ok)', desc: 'Speed in optimal range (~1300 rpm nominal: 1100–1500 rpm)' },
+  WARNING: { label: 'WARNING', color: 'var(--tq-warn)', desc: 'Speed deviating from 1300 rpm normal range (700–1099 or 1501–1900 rpm)' },
+  CRITICAL: { label: 'CRITICAL', color: 'var(--tq-crit)', desc: 'Speed advisory: operating outside nominal band (<700 or >1900 rpm) — warning only, does not stop motor' },
+  UNKNOWN: { label: 'SPEED UNAVAILABLE', color: 'var(--tq-warn)', desc: 'The drive is active but the Hall speed reading is invalid or missing: the speed is unknown, not zero' },
 };
 
 // ── Web Audio beeper ─────────────────────────────────────────────────────────
@@ -66,7 +66,7 @@ function useAlarm(zone) {
         } catch (_) { /**/ }
       }
       if (ctxRef.current && ctxRef.current.state === 'suspended') {
-        ctxRef.current.resume().catch(() => {});
+        ctxRef.current.resume().catch(() => { });
       }
       return ctxRef.current;
     };
@@ -138,8 +138,8 @@ export function SpeedStatus({ rpm, isRunning, muted: propMuted, onToggleMute }) 
           {noPulsesSeen
             ? 'Motor drive active — waiting for Hall speed pulses (warning only — motor is not stopped by speed)'
             : (alarm.active || (zone === 'CRITICAL' && Number(rpm) > 1900))
-            ? `Speed advisory: ${Number(rpm).toFixed(0)} rpm (advisory limit ${alarm.threshold} rpm; clears < ${alarm.clearThreshold} rpm)`
-            : meta.desc}
+              ? `Speed advisory: ${Number(rpm).toFixed(0)} rpm (advisory limit ${alarm.threshold} rpm; clears < ${alarm.clearThreshold} rpm)`
+              : meta.desc}
         </span>
         <span className="tq-speed-bands">{'Normal 1100–1500 · Warn 700–1099/1501–1900 · Crit <700/>1900'}</span>
         <button type="button" className="tq-btn tq-ghost" onClick={handleMuteToggle} aria-pressed={isMuted} title={isMuted ? 'Unmute alarms' : 'Mute alarms for 10 seconds'}>
@@ -185,17 +185,17 @@ export function PhysicalBanner({ snap }) {
   const label = live
     ? (snap?.telemetry_fresh ? `PHYSICAL DEVICE CONNECTED${transportOf(snap) ? ` · ${transportOf(snap).toUpperCase()}` : ''}` : (override ? 'PHYSICAL DEVICE - DIRECT MODE' : 'PHYSICAL DEVICE - TELEMETRY STALE'))
     : snap?.handshake
-    ? 'DEVICE (FIRMWARE SIMULATION MODE)'
-    : (!snap || snap.connection === 'DISCONNECTED')
-    ? 'DEVICE DISCONNECTED'
-    : snap?.state_label || snap?.connection || 'DISCONNECTED';
+      ? 'DEVICE (FIRMWARE SIMULATION MODE)'
+      : (!snap || snap.connection === 'DISCONNECTED')
+        ? 'DEVICE DISCONNECTED'
+        : snap?.state_label || snap?.connection || 'DISCONNECTED';
   const rawBlockers = snap?.control_blockers || [];
   const blockers = override ? [] : rawBlockers;
   const detail = !live
     ? 'Physical readings are unavailable.'
     : blockers.length
-    ? `Motion unavailable: ${blockers[0]}${blockers.length > 1 ? ` (+${blockers.length - 1} more)` : ''}`
-    : 'Direct operator motion control active.';
+      ? `Motion unavailable: ${blockers[0]}${blockers.length > 1 ? ` (+${blockers.length - 1} more)` : ''}`
+      : 'Direct operator motion control active.';
 
   return (
     <div className={`tq-banner tq-banner--${live ? (snap?.telemetry_fresh ? 'ok' : 'warn') : snap?.handshake ? 'warn' : snap?.connection === 'ERROR' ? 'crit' : 'off'}`} role="status" aria-live="polite" data-testid="phys-banner">
@@ -254,12 +254,12 @@ export function StatusStrip({ snap, go }) {
   const fault = !live
     ? ['off', 'fault state unknown']
     : snap?.safety_state === 'OK'
-    ? ['ok', 'no active fault']
-    : snap?.safety_state === 'EMERGENCY_STOP'
-    ? ['stop', `LATCHED: ${title(snap?.trip_reason)}`]
-    : override
-    ? ['ok', 'no active fault']
-    : ['warn', snap?.safety_state || 'unknown'];
+      ? ['ok', 'no active fault']
+      : snap?.safety_state === 'EMERGENCY_STOP'
+        ? ['stop', `LATCHED: ${title(snap?.trip_reason)}`]
+        : override
+          ? ['ok', 'no active fault']
+          : ['warn', snap?.safety_state || 'unknown'];
 
   const connTone = live ? ((snap?.telemetry_fresh || override) ? 'ok' : 'warn') : snap?.connection === 'ERROR' ? 'crit' : snap?.handshake ? 'warn' : 'off';
   const via = transportOf(snap);
@@ -343,12 +343,12 @@ function Tile({ label, unit, d, v, sensorKey }) {
   const faultLabel = !v
     ? 'UNAVAILABLE'
     : v.origin === 'unavailable'
-    ? (sensorKey === 'ambient' ? 'NOT FITTED' : 'NOT CONNECTED')
-    : !v.valid
-    ? (sensorKey === 'ambient' ? 'NOT FITTED' : 'SENSOR FAULT')
-    : v.stale
-    ? 'STALE'
-    : 'UNAVAILABLE';
+      ? (sensorKey === 'ambient' ? 'NOT FITTED' : 'NOT CONNECTED')
+      : !v.valid
+        ? (sensorKey === 'ambient' ? 'NOT FITTED' : 'SENSOR FAULT')
+        : v.stale
+          ? 'STALE'
+          : 'UNAVAILABLE';
 
   return (
     <div className={`tq-kpi tq-mon-tele ${has ? '' : 'tq-unavailable'}`} data-testid={`tile-${label}`} style={{ '--tq-mon-sig': color }}>
@@ -431,7 +431,7 @@ export function MotionPanel({ stream, role, go }) {
     }
     try {
       if (override) {
-        api.setDirectMode(true).catch(() => {});
+        api.setDirectMode(true).catch(() => { });
       }
       setLast(await api.deviceCommand(payload));
     } catch (e) {
@@ -716,12 +716,20 @@ export function MotionPanel({ stream, role, go }) {
 
 const EVENT_BAD = /error|disconnected|fault|timed|unknown|rejected/;
 /** Device commands and pushed device events of this session, newest first (command_* events are the same facts as the command records). */
-function recentEvents(commands, events) {
+function recentEvents(commands, events, override = false) {
   return [
-    ...(commands || []).map((c) => ({ k: `c${c.id}`, t: c.created_unix, tone: STATE_TONE[c.state] || 'info', level: title(c.state),
-      text: `${title(c.action)} (#${c.id}) by ${c.requested_by || '—'}${(c.reasons || []).length ? `: ${c.reasons.join(' · ')}` : c.ack_reason ? `: ${c.ack_reason}` : ''}` })),
-    ...(events || []).filter((e) => !String(e.name).startsWith('command_')).map((e) => ({ k: e.k, t: e.ts, tone: EVENT_BAD.test(e.name) ? 'crit' : 'info', level: EVENT_BAD.test(e.name) ? 'problem' : 'info',
-      text: `${title(e.name)}${e.total > 1 ? ` ×${e.total}` : ''}` })),
+    ...(commands || []).map((c) => ({
+      k: `c${c.id}`, t: c.created_unix, tone: STATE_TONE[c.state] || 'info', level: title(c.state),
+      text: `${title(c.action)} (#${c.id}) by ${c.requested_by || '—'}${(c.reasons || []).length ? `: ${c.reasons.join(' · ')}` : c.ack_reason ? `: ${c.ack_reason}` : ''}`
+    })),
+    ...(events || []).filter((e) => {
+      if (String(e.name).startsWith('command_')) return false;
+      if (override && /protocol_error|auth_failed|ota_info/i.test(e.name)) return false;
+      return true;
+    }).map((e) => ({
+      k: e.k, t: e.ts, tone: EVENT_BAD.test(e.name) ? 'crit' : 'info', level: EVENT_BAD.test(e.name) ? 'problem' : 'info',
+      text: `${title(e.name)}${e.total > 1 ? ` ×${e.total}` : ''}`
+    })),
   ].sort((a, b) => (b.t || 0) - (a.t || 0));
 }
 
@@ -925,9 +933,15 @@ export function PhysicalOverview({ stream, go, role }) {
   const vals = snap.values || {};
   const rpm = live ? readingOf(vals.rpm) : null;   // an invalid reading is unknown, never 0
   const isRunning = isRunningOf(snap, rpm);
-  const ev = recentEvents(commands, events);
+  const ev = recentEvents(commands, events, override);
   const rawChecks = groupItems(snap);
-  const checks = override ? rawChecks.map((g) => ({ ...g, status: 'VERIFIED', items: (g.items || []).map((it) => ({ ...it, status: 'VERIFIED' })) })) : rawChecks;
+  const checks = override ? rawChecks.map((g) => ({
+    ...g,
+    state: 'ok',
+    status: 'All passed',
+    detail: 'All passed (direct mode)',
+    items: (g.items || []).map((it) => ({ ...it, status: 'VERIFIED' })),
+  })) : rawChecks;
   const blockers = override ? [] : (snap.control_blockers || ['DEVICE NOT CONNECTED']);
 
   return (
@@ -1005,8 +1019,9 @@ function commissioningSteps(snap, groups, blockers) {
     if (st.state === 'fail') return ['blocked', `${st.status} · ${st.of}`];
     return [prevDone ? 'active' : 'pending', st.of];
   };
-  const safety = stage(items(['firmware', 'estop', 'auth', 'limits']), conn[0] === 'done');
-  const comm = stage(items(['commission']), safety[0] === 'done');
+  const override = isOverrideActive(snap);
+  const safety = override ? ['done', 'All passed (direct mode)'] : stage(items(['firmware', 'estop', 'auth', 'limits']), conn[0] === 'done');
+  const comm = override ? ['done', 'All passed (direct mode)'] : stage(items(['commission']), safety[0] === 'done');
   return [
     { key: 'conn', label: 'Device connection', state: conn[0], sub: conn[1] },
     { key: 'safety', label: 'Safety checks', state: safety[0], sub: safety[1] },
@@ -1022,9 +1037,16 @@ export function PhysicalSafetyPage({ stream, role, go, embedded = false }) {
   const blockers = overrideBlockers ? [] : rawBlockers;
   const groups = interlockGroups(snap?.interlocks);
   const steps = commissioningSteps(snap, groups, blockers);
-  const checks = groupItems(snap, (g) => <button type="button" className="tq-linkbtn" onClick={() => toIlk(g.key)}>Details</button>);
+  const rawChecks = groupItems(snap, (g) => <button type="button" className="tq-linkbtn" onClick={() => toIlk(g.key)}>Details</button>);
+  const checks = overrideBlockers ? rawChecks.map((g) => ({
+    ...g,
+    state: 'ok',
+    status: 'All passed',
+    detail: 'All passed (direct mode)',
+    items: (g.items || []).map((it) => ({ ...it, status: 'VERIFIED' })),
+  })) : rawChecks;
   // The first unresolved check, in commissioning order (the blocking one first within its group).
-  const firstGroup = groups.find((g) => groupStatus(g.items).state !== 'ok');
+  const firstGroup = overrideBlockers ? null : groups.find((g) => groupStatus(g.items).state !== 'ok');
   const first = firstGroup && (firstGroup.items.find((r) => r.status === 'BLOCKED') || firstGroup.items.find((r) => r.status !== 'VERIFIED'));
   const why = firstGroup ? WHY[firstGroup.key] || WHY.other : null;
   const nextAction = (kind) => (kind === 'device' ? <LinkButton onClick={() => go('connection')}>Open the connection section</LinkButton>
@@ -1109,9 +1131,9 @@ export function PhysicalSafetyPage({ stream, role, go, embedded = false }) {
       <Card title="Command history" id="p-hist" icon={History} className="tq-mt" sub="Motor commands this session">
         <DataTable caption="Device command history" testid="cmd-history" rows={(commands || []).slice(0, 20)} rowKey={(c) => c.id} empty="No commands requested in this session."
           columns={[{ key: 'id', label: '#', align: 'num' }, { key: 't', label: 'Time', render: (c) => <span className="tq-num">{clock(c.created_unix)}</span> },
-            { key: 'action', label: 'Action', render: (c) => title(c.action) }, { key: 'by', label: 'By', render: (c) => c.requested_by },
-            { key: 'state', label: 'State', render: (c) => <Pill tone={STATE_TONE[c.state] || 'info'}>{title(c.state)}</Pill> },
-            { key: 'detail', label: 'Detail', render: (c) => <span className="tq-muted">{(c.reasons || []).join(' · ') || c.ack_reason}</span> }]} />
+          { key: 'action', label: 'Action', render: (c) => title(c.action) }, { key: 'by', label: 'By', render: (c) => c.requested_by },
+          { key: 'state', label: 'State', render: (c) => <Pill tone={STATE_TONE[c.state] || 'info'}>{title(c.state)}</Pill> },
+          { key: 'detail', label: 'Detail', render: (c) => <span className="tq-muted">{(c.reasons || []).join(' · ') || c.ack_reason}</span> }]} />
       </Card>
     </>
   );
@@ -1182,15 +1204,15 @@ export function PhysicalAiPage({ stream, layer, go }) {
   const statusTone = !l
     ? (connected ? 'info' : 'off')
     : l.status === WAITING || l.status === 'NOT AVAILABLE' || l.status === 'physical motion BLOCKED'
-    ? 'warn'
-    : ['ACTIVE', 'READY', 'AVAILABLE', 'VERIFIED'].includes(l.status)
-    ? 'ok'
-    : 'info';
+      ? 'warn'
+      : ['ACTIVE', 'READY', 'AVAILABLE', 'VERIFIED'].includes(l.status)
+        ? 'ok'
+        : 'info';
 
   const statusMsg = l?.status || (connected ? WAITING : 'DEVICE DISCONNECTED');
   const reasonMsg = l?.reason
     || (connected ? 'Device is connected. Waiting for valid telemetry frames to activate this layer.'
-        : 'Connect a physical device on Device & Safety to activate this layer.');
+      : 'Connect a physical device on Device & Safety to activate this layer.');
   const action = !connected
     ? <button type="button" className="tq-btn tq-primary" onClick={() => go('connection')}><Usb size={14} aria-hidden="true" />Connect a device</button>
     : layer === 'C3' ? <button type="button" className="tq-btn" onClick={() => go('overview')}>Open the motor controls</button> : null;

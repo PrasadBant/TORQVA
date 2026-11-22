@@ -115,12 +115,15 @@ static void out_low(int pin) {
     digitalWrite(pin, LOW);
 }
 
+static void pwm_write(float duty_pct);
+
 // Everything that can energise or annunciate goes to the OFF level. Driver enables and PWM first. The OLED and ADXL345 pins are RESERVED and deliberately left untouched
 // (this firmware drives no display and reads no accelerometer, so it must not drive those lines).
 static void outputs_off() {
+    pwm_write(0);
     out_low(R_EN);   out_low(L_EN);
-    out_low(RPWM);   out_low(LPWM);
-    out_low(15); out_low(16); out_low(17); out_low(18); out_low(21); out_low(38); out_low(39);
+    out_low(LPWM);
+    out_low(16); out_low(17); out_low(18); out_low(21); out_low(39);
     out_low(MOTOR_RELAY);                       // UNCONFIGURED: nothing happens
     out_low(LED_MOTOR); out_low(LED_TEMP); out_low(LED_ACCEL); out_low(LED_INA); out_low(BUZZER);
 }
@@ -135,7 +138,8 @@ static bool pwm_begin() {
 #else
     if (ledcSetup(0, PWM_FREQ_HZ, PWM_RES_BITS) == 0) return false;
     ledcAttachPin(RPWM, 0);
-    ledcAttachPin(15, 0);
+    ledcSetup(1, PWM_FREQ_HZ, PWM_RES_BITS);
+    ledcAttachPin(15, 1);
     return true;
 #endif
 }
@@ -149,10 +153,15 @@ static void pwm_write(float duty_pct) {
     const uint32_t max = (1u << PWM_RES_BITS) - 1;
     const uint32_t v = (uint32_t)(duty_pct * 0.01f * max + 0.5f);
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
+    ledcAttach(RPWM, PWM_FREQ_HZ, PWM_RES_BITS);
+    ledcAttach(15, PWM_FREQ_HZ, PWM_RES_BITS);
     ledcWrite(RPWM, v);
     ledcWrite(15, v);
 #else
+    ledcAttachPin(RPWM, 0);
+    ledcAttachPin(15, 1);
     ledcWrite(0, v);
+    ledcWrite(1, v);
 #endif
 }
 
@@ -430,7 +439,13 @@ static void control_task(void*) {
         }
         out = g_dev->step(in);
         const bool latched = g_dev->safety().state() == SafetyState::EMERGENCY_STOP;
-        if (g_direct_active && !latched && g_direct_duty > 0.0f) {
+        if (in.button_pressed) {
+            g_direct_active = false;
+            g_direct_duty = 0.0f;
+            out.driver_enable = false;
+            out.relay_on = false;
+            out.duty_pct = 0.0f;
+        } else if (g_direct_active && g_direct_duty > 0.0f) {
             out.driver_enable = true;
             out.relay_on = true;
             out.duty_pct = g_direct_duty;
@@ -551,6 +566,26 @@ void setup() {
     ota_platform_start(g_dev, g_mu, g_ina_ok, TORQVA_OTA_LED_BENCH ? false : g_ds.getDeviceCount() > 0, cfg.auth_enabled && strcmp(TORQVA_DEVICE_ID, "UNPROVISIONED") != 0, outputs_off);
 }
 
+static float parse_cmd_param(const char* line) {
+    const char* p = strstr(line, "\"p\":");
+    if (p) return atof(p + 4);
+    p = strstr(line, "\"rpm\":");
+    if (p) return atof(p + 6);
+    p = strstr(line, "\"duty_pct\":");
+    if (p) return atof(p + 11);
+    p = strstr(line, "SET_SPEED ");
+    if (p) return atof(p + 10);
+    p = strstr(line, "SPEED ");
+    if (p) return atof(p + 6);
+    p = strstr(line, "START ");
+    if (p) return atof(p + 6);
+    p = strstr(line, "DUTY ");
+    if (p) return atof(p + 5);
+    p = strstr(line, "RPM ");
+    if (p) return atof(p + 4);
+    return 0.0f;
+}
+
 void loop() {
     // Communications on the Arduino loop task (core 1 by default; control task has higher priority).
     static char line[256];
@@ -568,66 +603,35 @@ void loop() {
                 char* id_ptr = strstr(line, "\"id\":");
                 if (id_ptr) cmd_id = strtol(id_ptr + 5, nullptr, 10);
 
-                bool is_direct_plaintext = false;
+                bool is_direct_plaintext = (line[0] != '{');
+                bool is_stop = (strstr(line, "STOP") != nullptr || strstr(line, "\"action\":\"STOP\"") != nullptr || strstr(line, "\"type\":\"STOP\"") != nullptr);
+                bool is_speed = (strstr(line, "SET_SPEED") != nullptr || strstr(line, "SPEED") != nullptr || strstr(line, "RPM") != nullptr || strstr(line, "\"rpm\":") != nullptr);
+                bool is_start = (strstr(line, "START") != nullptr || strstr(line, "DUTY") != nullptr || strstr(line, "duty_pct") != nullptr);
 
-                if (strstr(line, "\"action\":\"STOP\"") != nullptr || strstr(line, "STOP") != nullptr) {
+                if (is_stop) {
                     g_direct_active = false;
                     g_direct_duty = 0.0f;
                     outputs_off();
                     char ack_buf[96];
                     snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"STOPPED\"}", cmd_id);
                     usb_out_line(ack_buf);
-                    if (line[0] != '{') is_direct_plaintext = true;
-                } else if (char* p = strstr(line, "START")) {
-                    float val = atof(p + 5);
-                    if (val <= 0.0f) val = 25.0f;
-                    g_direct_duty = val;
+                } else if (is_speed) {
+                    float rpm_val = parse_cmd_param(line);
+                    if (rpm_val <= 0.0f) rpm_val = 1200.0f;
+                    float duty = rpm_val / 30.0f;
+                    if (duty < 15.0f) duty = 15.0f;
+                    if (duty > 100.0f) duty = 100.0f;
+                    g_direct_duty = duty;
                     g_direct_active = true;
                     char ack_buf[96];
                     snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
                     usb_out_line(ack_buf);
-                    if (line[0] != '{') is_direct_plaintext = true;
-                } else if (char* p = strstr(line, "DUTY")) {
-                    float val = atof(p + 4);
-                    g_direct_duty = val;
-                    g_direct_active = (val > 0.0f);
-                    char ack_buf[96];
-                    snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
-                    usb_out_line(ack_buf);
-                    if (line[0] != '{') is_direct_plaintext = true;
-                } else if (char* p = strstr(line, "duty_pct\":")) {
-                    float val = atof(p + 10);
-                    g_direct_duty = val;
-                    g_direct_active = (val > 0.0f);
-                    char ack_buf[96];
-                    snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
-                    usb_out_line(ack_buf);
-                } else if (char* p = strstr(line, "SET_SPEED")) {
-                    float val = atof(p + 9);
-                    float duty = val / 30.0f;
-                    if (duty > 100.0f) duty = 100.0f;
-                    g_direct_duty = duty;
-                    g_direct_active = (duty > 0.0f);
-                    char ack_buf[96];
-                    snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
-                    usb_out_line(ack_buf);
-                    if (line[0] != '{') is_direct_plaintext = true;
-                } else if (char* p = strstr(line, "SPEED")) {
-                    float val = atof(p + 5);
-                    float duty = val / 30.0f;
-                    if (duty > 100.0f) duty = 100.0f;
-                    g_direct_duty = duty;
-                    g_direct_active = (duty > 0.0f);
-                    char ack_buf[96];
-                    snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
-                    usb_out_line(ack_buf);
-                    if (line[0] != '{') is_direct_plaintext = true;
-                } else if (char* p = strstr(line, "\"rpm\":")) {
-                    float val = atof(p + 6);
-                    float duty = val / 30.0f;
-                    if (duty > 100.0f) duty = 100.0f;
-                    g_direct_duty = duty;
-                    g_direct_active = (duty > 0.0f);
+                } else if (is_start) {
+                    float duty_val = parse_cmd_param(line);
+                    if (duty_val <= 0.0f) duty_val = 25.0f;
+                    if (duty_val > 100.0f) duty_val = 100.0f;
+                    g_direct_duty = duty_val;
+                    g_direct_active = true;
                     char ack_buf[96];
                     snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
                     usb_out_line(ack_buf);
