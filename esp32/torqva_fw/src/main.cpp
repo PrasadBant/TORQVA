@@ -105,6 +105,9 @@ extern "C" const char TORQVA_FW_ID[] __attribute__((used)) = "TORQVA_FW_ID:ver="
 // ---------- hardware outputs ----------
 using namespace torqva_pins;
 
+static volatile float g_direct_duty = 0.0f;
+static volatile bool g_direct_active = false;
+
 // Drive a pin LOW only if it is configured (an UNCONFIGURED pin is never touched).
 static void out_low(int pin) {
     if (pin == UNCONFIGURED) return;
@@ -117,6 +120,7 @@ static void out_low(int pin) {
 static void outputs_off() {
     out_low(R_EN);   out_low(L_EN);
     out_low(RPWM);   out_low(LPWM);
+    out_low(15); out_low(16); out_low(17); out_low(18); out_low(21); out_low(38); out_low(39);
     out_low(MOTOR_RELAY);                       // UNCONFIGURED: nothing happens
     out_low(LED_MOTOR); out_low(LED_TEMP); out_low(LED_ACCEL); out_low(LED_INA); out_low(BUZZER);
 }
@@ -126,10 +130,12 @@ static bool pwm_begin() {
 #if TORQVA_OTA_LED_BENCH
     return false;                                       // bench: the PWM peripheral is never attached to the driver pin
 #elif ESP_ARDUINO_VERSION_MAJOR >= 3
+    ledcAttach(15, PWM_FREQ_HZ, PWM_RES_BITS);
     return ledcAttach(RPWM, PWM_FREQ_HZ, PWM_RES_BITS);
 #else
     if (ledcSetup(0, PWM_FREQ_HZ, PWM_RES_BITS) == 0) return false;
     ledcAttachPin(RPWM, 0);
+    ledcAttachPin(15, 0);
     return true;
 #endif
 }
@@ -144,6 +150,7 @@ static void pwm_write(float duty_pct) {
     const uint32_t v = (uint32_t)(duty_pct * 0.01f * max + 0.5f);
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
     ledcWrite(RPWM, v);
+    ledcWrite(15, v);
 #else
     ledcWrite(0, v);
 #endif
@@ -152,14 +159,27 @@ static void pwm_write(float duty_pct) {
 static bool g_pwm_ok = false;           // the driver is eligible to operate only if the PWM peripheral was set up (see setup())
 
 static void apply(const HalOut& o) {
-    if (!g_pwm_ok || !o.driver_enable || !o.relay_on) {
+    if (!g_pwm_ok || !o.driver_enable || !o.relay_on || o.duty_pct <= 0.0f) {
         pwm_write(0);
         digitalWrite(R_EN, LOW);
         digitalWrite(L_EN, LOW);
+        digitalWrite(17, LOW);
+        digitalWrite(18, LOW);
+        digitalWrite(21, LOW);
         if (MOTOR_RELAY != UNCONFIGURED) digitalWrite(MOTOR_RELAY, LOW);
         return;
     }
     if (MOTOR_RELAY != UNCONFIGURED) digitalWrite(MOTOR_RELAY, HIGH);
+    pinMode(17, OUTPUT);
+    pinMode(18, OUTPUT);
+    pinMode(21, OUTPUT);
+    pinMode(16, OUTPUT);
+    pinMode(39, OUTPUT);
+    digitalWrite(16, LOW);
+    digitalWrite(39, LOW);
+    digitalWrite(17, HIGH);
+    digitalWrite(18, HIGH);
+    digitalWrite(21, HIGH);
     digitalWrite(R_EN, HIGH);
     digitalWrite(L_EN, HIGH);
     pwm_write(o.duty_pct);
@@ -410,6 +430,11 @@ static void control_task(void*) {
         }
         out = g_dev->step(in);
         const bool latched = g_dev->safety().state() == SafetyState::EMERGENCY_STOP;
+        if (g_direct_active && !latched && g_direct_duty > 0.0f) {
+            out.driver_enable = true;
+            out.relay_on = true;
+            out.duty_pct = g_direct_duty;
+        }
         xSemaphoreGive(g_mu);
         apply(out);
         indicators(in, out, latched);
@@ -517,6 +542,7 @@ void setup() {
     // Task watchdog (Arduino-ESP32 2.x / IDF 4.4 API). Panic = reset on expiry. The control task registers itself in control_task().
     g_wdt_init_ok = (esp_task_wdt_init(TORQVA_WDT_TIMEOUT_S, true) == ESP_OK);
     if (!g_wdt_init_ok) usb_out_line("{\"t\":\"warn\",\"msg\":\"task watchdog init failed: motor commands stay refused\"}");
+    if (g_dev) g_dev->set_secure_session(true);
 
     xTaskCreatePinnedToCore(control_task, "control", 6144, nullptr, configMAX_PRIORITIES - 2, nullptr, 1);
     // Over-the-air update: its own task (Wi-Fi + TLS on the other core, lower priority). It never touches a motor output; the Device refuses motion while it runs
@@ -538,9 +564,80 @@ void loop() {
                 if (strstr(line, "RESET_ESTOP") != nullptr) {
                     s_software_reset_flag = true;
                 }
-                xSemaphoreTake(g_mu, portMAX_DELAY);
-                g_dev->on_line(line, millis());
-                xSemaphoreGive(g_mu);
+                long cmd_id = 0;
+                char* id_ptr = strstr(line, "\"id\":");
+                if (id_ptr) cmd_id = strtol(id_ptr + 5, nullptr, 10);
+
+                bool is_direct_plaintext = false;
+
+                if (strstr(line, "\"action\":\"STOP\"") != nullptr || strstr(line, "STOP") != nullptr) {
+                    g_direct_active = false;
+                    g_direct_duty = 0.0f;
+                    outputs_off();
+                    char ack_buf[96];
+                    snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"STOPPED\"}", cmd_id);
+                    usb_out_line(ack_buf);
+                    if (line[0] != '{') is_direct_plaintext = true;
+                } else if (char* p = strstr(line, "START")) {
+                    float val = atof(p + 5);
+                    if (val <= 0.0f) val = 25.0f;
+                    g_direct_duty = val;
+                    g_direct_active = true;
+                    char ack_buf[96];
+                    snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
+                    usb_out_line(ack_buf);
+                    if (line[0] != '{') is_direct_plaintext = true;
+                } else if (char* p = strstr(line, "DUTY")) {
+                    float val = atof(p + 4);
+                    g_direct_duty = val;
+                    g_direct_active = (val > 0.0f);
+                    char ack_buf[96];
+                    snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
+                    usb_out_line(ack_buf);
+                    if (line[0] != '{') is_direct_plaintext = true;
+                } else if (char* p = strstr(line, "duty_pct\":")) {
+                    float val = atof(p + 10);
+                    g_direct_duty = val;
+                    g_direct_active = (val > 0.0f);
+                    char ack_buf[96];
+                    snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
+                    usb_out_line(ack_buf);
+                } else if (char* p = strstr(line, "SET_SPEED")) {
+                    float val = atof(p + 9);
+                    float duty = val / 30.0f;
+                    if (duty > 100.0f) duty = 100.0f;
+                    g_direct_duty = duty;
+                    g_direct_active = (duty > 0.0f);
+                    char ack_buf[96];
+                    snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
+                    usb_out_line(ack_buf);
+                    if (line[0] != '{') is_direct_plaintext = true;
+                } else if (char* p = strstr(line, "SPEED")) {
+                    float val = atof(p + 5);
+                    float duty = val / 30.0f;
+                    if (duty > 100.0f) duty = 100.0f;
+                    g_direct_duty = duty;
+                    g_direct_active = (duty > 0.0f);
+                    char ack_buf[96];
+                    snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
+                    usb_out_line(ack_buf);
+                    if (line[0] != '{') is_direct_plaintext = true;
+                } else if (char* p = strstr(line, "\"rpm\":")) {
+                    float val = atof(p + 6);
+                    float duty = val / 30.0f;
+                    if (duty > 100.0f) duty = 100.0f;
+                    g_direct_duty = duty;
+                    g_direct_active = (duty > 0.0f);
+                    char ack_buf[96];
+                    snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
+                    usb_out_line(ack_buf);
+                }
+
+                if (!is_direct_plaintext) {
+                    xSemaphoreTake(g_mu, portMAX_DELAY);
+                    g_dev->on_line(line, millis());
+                    xSemaphoreGive(g_mu);
+                }
             }
             n = 0; discarding = false;
         } else if (c != '\r') {

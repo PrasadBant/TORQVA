@@ -58,7 +58,7 @@ async function open(snap, page) {
   return calls;
 }
 
-beforeEach(() => { vi.unstubAllGlobals(); setToken(''); window.localStorage.removeItem('torqva.mode'); });
+beforeEach(() => { vi.unstubAllGlobals(); setToken(''); window.localStorage.removeItem('torqva.mode'); window.localStorage.removeItem('torqva.override_blockers'); });
 
 describe('physical-device-first application', () => {
   it('defaults to physical mode: disconnected shows DEVICE DISCONNECTED, no simulated numbers and no simulator calls', async () => {

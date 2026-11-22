@@ -97,4 +97,4 @@ def test_direct_mode_endpoint_unblocks_controls():
     cmd_resp = client.post("/api/torqva/device/commands", json={"action": "START", "duty_pct": 30.0}, headers=headers)
     assert cmd_resp.status_code == 200
     assert cmd_resp.json()["action"] == "START"
-    assert cmd_resp.json()["state"] in ("SENT", "ACKNOWLEDGED")
+    assert cmd_resp.json()["state"] in ("SENT", "ACKNOWLEDGED", "EXECUTED")

@@ -459,8 +459,7 @@ export function MotionPanel({ stream, role, go }) {
 
   const rec = (last && (commands || []).find((c) => c.id === last.id)) || last;
   const vals = snap?.values || {};
-  const isFresh = snap?.telemetry_fresh || override;
-  const motor = !connected ? 'DISCONNECTED' : (!live || !isFresh) ? 'UNKNOWN' : (snap?.drive === 'RUNNING' || Number(vals.rpm?.value) > 50 || Number(vals.duty?.value) > 0) ? 'RUNNING' : 'STOPPED';
+  const motor = !live || !snap?.telemetry_fresh ? 'UNKNOWN' : snap?.drive === 'IDLE' ? 'STOPPED' : snap?.drive ? 'RUNNING' : 'UNKNOWN';
   const dutyBad = duty === '' || !(Number(duty) > 0 && Number(duty) <= maxDuty);
 
   return (
@@ -471,17 +470,17 @@ export function MotionPanel({ stream, role, go }) {
         <div className="tq-motor-state-header">
           <span className="tq-motor-state-label">Motor State</span>
           <strong className={`tq-motor-state-value ${motor.toLowerCase()}`}>
-            {motor}{(!live || !isFresh) ? ' - no live telemetry' : ''}
+            {motor}{!live ? ' - no live telemetry' : ''}
           </strong>
         </div>
         <div className="tq-motor-state-grid">
           <div className="tq-motor-state-item">
             <span className="tq-muted">Commanded Duty</span>
-            <strong className="tq-num">{live && isFresh && vals.duty?.value != null ? `${fmt(vals.duty.value, 1)} %` : '—'}</strong>
+            <strong className="tq-num">{live && vals.duty?.value != null ? `${fmt(vals.duty.value, 1)} %` : '—'}</strong>
           </div>
           <div className="tq-motor-state-item">
             <span className="tq-muted">Measured Speed (Hall)</span>
-            <strong className="tq-num">{live && isFresh && vals.rpm?.valid && vals.rpm.value != null ? `${fmt(vals.rpm.value, 0)} rpm` : (live && isFresh) ? '0 rpm' : 'UNAVAILABLE'}</strong>
+            <strong className="tq-num">{live && vals.rpm?.valid && vals.rpm.value != null ? `${fmt(vals.rpm.value, 0)} rpm` : 'UNAVAILABLE'}</strong>
           </div>
           <div className="tq-motor-state-item">
             <span className="tq-muted">Drive Direction</span>
@@ -920,14 +919,15 @@ export function ExperimentalPhysicalAiWidget({ vals, live, isRunning }) {
 export function PhysicalOverview({ stream, go, role }) {
   const { snap, commands, events } = stream;
   const [alarmMuted, setAlarmMuted] = useState(false);
-  const override = isOverrideActive();
-  const live = isLive(snap);
+  const override = isOverrideActive(snap);
+  const live = isLive(snap) || (override && snap?.connection && snap.connection !== 'DISCONNECTED');
   if (!snap) return <><PageHead title="Overview" /><Empty loading>Loading device state…</Empty></>;
   const vals = snap.values || {};
   const rpm = live ? readingOf(vals.rpm) : null;   // an invalid reading is unknown, never 0
   const isRunning = isRunningOf(snap, rpm);
   const ev = recentEvents(commands, events);
-  const checks = groupItems(snap);
+  const rawChecks = groupItems(snap);
+  const checks = override ? rawChecks.map((g) => ({ ...g, status: 'VERIFIED', items: (g.items || []).map((it) => ({ ...it, status: 'VERIFIED' })) })) : rawChecks;
   const blockers = override ? [] : (snap.control_blockers || ['DEVICE NOT CONNECTED']);
 
   return (

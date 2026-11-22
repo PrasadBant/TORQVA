@@ -464,7 +464,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const drawerHidden = compact && !navOpen;
   // Top-bar context. Physical: what the device path reports (connection, handshake, freshness), never inferred from a green dot.
   const snap = device.snap;
-  const override = isOverrideActive(snap);
+  const override = isOverrideActive();
   const physLive = !!((snap?.handshake || override) && (snap?.origin === 'physical_device' || override) && snap);
   const devConnected = !!(snap && (snap.connection === 'CONNECTED' || snap.connection === 'STALE' || (override && snap.connection !== 'DISCONNECTED')));
   const modeCtx = physicalMode

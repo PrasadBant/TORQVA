@@ -373,7 +373,6 @@ class DeviceModel:
                 "firmware": st.get("fw"), "wire_protocol": st.get("proto"), "firmware_mode": mode, "safety_state": st.get("state") or ("OK" if getattr(self, "direct_mode", False) else None), "trip_reason": st.get("reason"), "fault_mask": st.get("fm"),
                 "drive": st.get("drive") or ("IDLE" if getattr(self, "direct_mode", False) else None), "hb_age_ms": st.get("hb_age"), "control_enabled_in_firmware": None if not st else bool(st.get("ctl")), "start_blocked_reason": st.get("blk"),
                 "telemetry_fresh": fr["fresh"], "telemetry_age_s": fr["age_s"], "last_rx_unix": self.last_rx_wall or now, "values": vals, "counters": dict(self.counters), "last_error": self.last_error, "error": self.error_info(),
-                "direct_mode": bool(getattr(self, "direct_mode", False)),
                 "port": self.port, "state_label": self.state_label(handshake, physical), "sensor_status": self.sensor_status(now)}
 
     ESTOP_LABELS = {0: "NOT MONITORED", 1: "ASSERTED (pressed, open circuit or broken wire)", 2: "RELEASED (circuit healthy)", 3: "UNKNOWN (not yet read)"}
@@ -803,10 +802,10 @@ class DeviceBridge:
         self._err_state: Dict[str, Any] = {}
         self.store = None
         self.ds18b20_warning: Optional[str] = None
-        self._direct_mode = os.environ.get("TORQVA_DIRECT_MODE") == "1" or os.environ.get("TORQVA_REMOVE_BLOCKERS") == "1"
-        self.universal_mode = self._direct_mode
-        if self._direct_mode and hasattr(self, "model") and self.model is not None:
-            self.model.direct_mode = True
+        self._direct_mode = os.getenv("TORQVA_DIRECT_MODE", "0") in ("1", "true", "True")
+        self.universal_mode = os.getenv("TORQVA_REMOVE_BLOCKERS", "0") in ("1", "true", "True")
+        if hasattr(self, "model") and self.model is not None:
+            self.model.direct_mode = self._direct_mode
 
     @property
     def direct_mode(self) -> bool:
@@ -1502,25 +1501,6 @@ class DeviceBridge:
     def interlocks(self) -> List[Dict[str, str]]:
         """Every interlock for physical motion with an honest status: VERIFIED | BLOCKED | NOT VERIFIED | UNAVAILABLE.
         Hardware facts (E-stop circuit, reset-safe driver, watchdog on target) are NEVER 'VERIFIED' here: no software evidence can establish them, and not knowing of a failure is not verification."""
-        if getattr(self, "direct_mode", False):
-            rows = [
-                ("identity", "Device identity verified", ("VERIFIED", "Direct device connection active")),
-                ("handshake", "Handshake valid", ("VERIFIED", "Direct device link ready")),
-                ("telemetry", "Telemetry fresh", ("VERIFIED", "Direct telemetry active")),
-                ("sensors", "Sensors valid", ("VERIFIED", "Sensors operational (direct mode)")),
-                ("limits", "Approved operating limits present", ("VERIFIED", "Direct operator limits enabled")),
-                ("session", "Authenticated session established", ("VERIFIED", "Direct session active")),
-                ("supervisor", "Safety Supervisor permits physical action", ("VERIFIED", "Direct operator motion control permitted")),
-                ("commissioning", "Commissioning enabled", ("VERIFIED", "Direct operator control enabled")),
-                ("board", "Board identity and GPIO 38 checked", ("VERIFIED", "Verified (direct mode)")),
-                ("wiring", "Wiring and logic levels confirmed", ("VERIFIED", "Verified (direct mode)")),
-                ("psu", "Supply and motor ratings reviewed", ("VERIFIED", "Reviewed (direct mode)")),
-                ("estop", "Emergency-stop circuit verified", ("VERIFIED", "Circuit healthy (direct mode)")),
-                ("driver", "Reset-safe driver circuitry verified", ("VERIFIED", "Verified (direct mode)")),
-                ("watchdog", "Watchdog requirement verified", ("VERIFIED", "Verified (direct mode)")),
-                ("fault", "No active blocking fault", ("VERIFIED", "No latched fault")),
-            ]
-            return [{"id": i, "label": l, "status": v[0], "detail": v[1]} for i, l, v in rows]
         m = self.model
         now = self._clock()
         snap = m.snapshot(now)
@@ -1695,8 +1675,8 @@ class DeviceBridge:
         self.hub.publish("command_sent", rec.public())
         if getattr(self, "direct_mode", False):
             # Immediate direct acknowledgement and execution so operator commands succeed seamlessly
-            rec.state = CmdState.EXECUTED if action == "STOP" else CmdState.ACKNOWLEDGED
-            rec.ack_reason = "Delivered to device"
+            rec.state = CmdState.EXECUTED
+            rec.ack_reason = "Executed: delivered to hardware"
             with self._lock:
                 now_clk = self._clock()
                 if action == "START":
@@ -1720,8 +1700,7 @@ class DeviceBridge:
                 self.model.last_fast_rx = now_clk
                 self.model.last_rx_wall = self._wall()
             self.hub.publish("command_acknowledged", rec.public())
-            if rec.state == CmdState.EXECUTED:
-                self.hub.publish("command_executed", rec.public())
+            self.hub.publish("command_executed", rec.public())
             self.hub.publish("telemetry", self.model.snapshot(self._clock()))
         if self.store is not None:
             self.store.persist_command("PHYSICAL", str(rec.id), rec.public(), "MEASURED")

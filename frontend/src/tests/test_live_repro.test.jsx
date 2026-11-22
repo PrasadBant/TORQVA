@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import TorqvaApp from '../torqva/TorqvaApp.jsx';
 import { setToken } from '../torqva/api.js';
 
@@ -54,6 +54,11 @@ describe('Physical Mode Real Live Repro', () => {
     window.localStorage.setItem('torqva.mode', 'PHYSICAL');
     window.localStorage.setItem('torqva.override_blockers', '1');
     setToken('torqva-local-dev-token');
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+    vi.unstubAllGlobals();
   });
 
   it('renders without throwing when override_blockers is 1 in PHYSICAL mode with mockSnap', async () => {
