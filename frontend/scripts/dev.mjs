@@ -61,5 +61,5 @@ if (simOnly) {
   }
 }
 const viteBin = path.resolve(here, '..', 'node_modules', 'vite', 'bin', 'vite.js');
-run(python, ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000'], { cwd: backendDir, env: backendEnv }, 'backend');
-run(process.execPath, [viteBin], { cwd: path.resolve(here, '..'), env: { ...process.env, VITE_TORQVA_DEV_TOKEN: TOKEN } }, 'frontend');
+run(python, ['-m', 'uvicorn', 'main:app', '--host', '0.0.0.0', '--port', '8000'], { cwd: backendDir, env: backendEnv }, 'backend');
+run(process.execPath, [viteBin, '--host'], { cwd: path.resolve(here, '..'), env: { ...process.env, VITE_TORQVA_DEV_TOKEN: TOKEN } }, 'frontend');

@@ -12,6 +12,8 @@ from typing import Dict
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from torqva.api import create_router, install_error_handlers
 from torqva.auth import TokenAuth
@@ -65,3 +67,16 @@ install_error_handlers(app)
 def health() -> Dict[str, str]:
     """Liveness only (no data, no device state)."""
     return {"status": "ok"}
+
+
+_dist_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
+
+@app.get("/")
+def root():
+    index_file = os.path.join(_dist_dir, "index.html")
+    if os.path.isfile(index_file):
+        return FileResponse(index_file)
+    return RedirectResponse("http://localhost:5173/")
+
+if os.path.isdir(os.path.join(_dist_dir, "assets")):
+    app.mount("/assets", StaticFiles(directory=os.path.join(_dist_dir, "assets")), name="assets")
