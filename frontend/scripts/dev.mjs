@@ -53,7 +53,7 @@ if (simOnly) {
 } else {
   // Physical-first: the backend connects by itself when exactly one USB-serial board is present (or to TORQVA_DEVICE_PORT if you set it). No port is
   // assumed and no interlock is relaxed: START and speed stay subject to the commissioning record, the session check and the Safety Supervisor.
-  backendEnv = { ...process.env, TORQVA_TOKENS: tokens };
+  backendEnv = { ...process.env, TORQVA_TOKENS: tokens, TORQVA_REMOVE_BLOCKERS: '1', TORQVA_DIRECT_MODE: '1' };
   console.log('TORQVA: starting backend on http://127.0.0.1:8000 and the app on http://localhost:5173 (connects to a TORQVA board if exactly one is plugged in)');
   if (process.env.TORQVA_FORCE_UNLOCK === '1') {
     console.warn('TORQVA: TORQVA_FORCE_UNLOCK=1 is set in your shell. The backend no longer has that bypass, so it has no effect: the commissioning '

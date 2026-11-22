@@ -143,19 +143,23 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
     def device_direct_mode(body: DirectModeIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         bridge.direct_mode = bool(body.enabled)
         bridge.universal_mode = bool(body.enabled)
-        if bridge.direct_mode and bridge.connected and bridge.model.conn == Conn.CONNECTING:
+        if bridge.direct_mode and (bridge.connected or bridge._transport is not None):
             with bridge._lock:
                 bridge.model.conn = Conn.CONNECTED
                 bridge.model.last_error = ""
                 bridge.model.last_error_code = ""
                 bridge.model.last_error_detail = ""
+                now = bridge._clock()
                 if bridge.model.status is None:
                     bridge.model.status = {
-                        "t": "status", "seq": 1, "ts": int(bridge._clock() * 1000), "fw": "DIRECT_SERIAL_DEVICE",
+                        "t": "status", "seq": 1, "ts": int(now * 1000), "fw": "DIRECT_SERIAL_DEVICE",
                         "wiring": "DIRECT", "limits_v": 1, "state": "OK", "reason": "CONNECTED", "mode": "HW",
                         "drive": "IDLE", "ctl": 1, "hb_age": 0, "test": 0, "proto": WIRE_PROTOCOL,
                         "dev": bridge.model.port or "PHYSICAL_DEVICE", "blk": "", "fm": 0, "cfg": 1, "es": 2,
                     }
+                if bridge.model.last_fast_rx is None:
+                    bridge.model.last_fast_rx = now
+                    bridge.model.last_rx_wall = bridge._wall()
             bridge.hub.publish("device_connected", {"mode": "HW", "direct": True, "port": bridge.model.port})
         audit(p, "device_set_direct_mode", enabled=bridge.direct_mode)
         return {"direct_mode": bridge.direct_mode, "universal_mode": bridge.universal_mode, "state": bridge.model.conn.value}

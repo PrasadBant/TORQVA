@@ -465,16 +465,16 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   // Top-bar context. Physical: what the device path reports (connection, handshake, freshness), never inferred from a green dot.
   const snap = device.snap;
   const override = isOverrideActive();
-  const physLive = !!((snap?.handshake || override) && (snap?.origin === 'physical_device' || override));
-  const devConnected = snap?.connection === 'CONNECTED' || snap?.connection === 'STALE' || (override && snap?.connection !== 'DISCONNECTED');
+  const physLive = !!((snap?.handshake || override) && (snap?.origin === 'physical_device' || override) && snap);
+  const devConnected = !!(snap && (snap.connection === 'CONNECTED' || snap.connection === 'STALE' || (override && snap.connection !== 'DISCONNECTED')));
   const modeCtx = physicalMode
-    ? { tone: !devConnected ? 'off' : physLive ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'warn', title: 'Physical Mode',
-      text: devConnected ? `Connected${snap.port ? ` to ${snap.port}` : ''}${snap.transport_label ? ` (${snap.transport_label})` : ''}` : 'Hardware disconnected' }
+    ? { tone: !devConnected ? 'off' : physLive ? (snap?.telemetry_fresh ? 'ok' : 'warn') : 'warn', title: 'Physical Mode',
+      text: devConnected ? `Connected${snap?.port ? ` to ${snap.port}` : ''}${snap?.transport_label ? ` (${snap.transport_label})` : ''}` : 'Hardware disconnected' }
     : { tone: 'sim', title: 'Simulation Mode', text: 'Environment: software simulator (no hardware)' };
   const devCtx = physicalMode
-    ? { tone: !devConnected ? 'off' : physLive ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'warn',
-      title: !devConnected ? 'Device disconnected' : (!snap.handshake && !override) ? 'Device connecting' : (!physLive && !override) ? 'Firmware simulation mode' : snap.telemetry_fresh ? 'Device connected' : 'Telemetry stale',
-      text: devConnected ? [snap.device_id, snap.firmware && `Firmware ${snap.firmware}`].filter(Boolean).join(' · ') || snap.state_label || '' : 'No physical readings' }
+    ? { tone: !devConnected ? 'off' : physLive ? (snap?.telemetry_fresh ? 'ok' : 'warn') : 'warn',
+      title: !devConnected ? 'Device disconnected' : (!snap?.handshake && !override) ? 'Device connecting' : (!physLive && !override) ? 'Firmware simulation mode' : snap?.telemetry_fresh ? 'Device connected' : 'Telemetry stale',
+      text: devConnected ? [snap?.device_id, snap?.firmware && `Firmware ${snap.firmware}`].filter(Boolean).join(' · ') || snap?.state_label || '' : 'No physical readings' }
     : null;
   const alerts = physicalMode ? deviceAlerts(device) : simAlerts(d, stale);
   return (

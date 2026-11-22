@@ -914,6 +914,22 @@ class DeviceBridge:
                 elif e.code == "UNKNOWN_TYPE":
                     self.model.counters["unknown_type"] += 1
             if getattr(self, "direct_mode", False) or getattr(self, "universal_mode", False):
+                with self._lock:
+                    if self.model.conn == Conn.CONNECTING:
+                        self.model.conn = Conn.CONNECTED
+                        self.model.last_error, self.model.last_error_code, self.model.last_error_detail = "", "", ""
+                        if self.model.status is None:
+                            self.model.status = {
+                                "t": "status", "seq": 1, "ts": int(now * 1000), "fw": "DIRECT_SERIAL_DEVICE",
+                                "wiring": "DIRECT", "limits_v": 1, "state": "OK", "reason": "CONNECTED", "mode": "HW",
+                                "drive": "IDLE", "ctl": 1, "hb_age": 0, "test": 0, "proto": WIRE_PROTOCOL,
+                                "dev": self.model.port or "PHYSICAL_DEVICE", "blk": "", "fm": 0, "cfg": 1, "es": 2,
+                            }
+                        if self.model.last_fast_rx is None:
+                            self.model.last_fast_rx = now
+                            self.model.last_rx_wall = self._wall()
+                        self._stale_reported = False
+                        self.hub.publish("device_connected", {"mode": "HW", "universal": True, "port": self.model.port})
                 try:
                     raw = json.loads(line.decode("utf-8", errors="replace"))
                     if isinstance(raw, dict):
@@ -1041,7 +1057,10 @@ class DeviceBridge:
         self._heartbeat_tick(now)
         with self._lock:
             m = self.model
-            if m.conn == Conn.CONNECTING and m.connecting_since is not None and not m.last_error_code and now - m.connecting_since > HANDSHAKE_TIMEOUT_S:
+            if m.conn == Conn.CONNECTING and m.connecting_since is not None and (
+                (getattr(self, "direct_mode", False) or getattr(self, "universal_mode", False))
+                or (not m.last_error_code and now - m.connecting_since > HANDSHAKE_TIMEOUT_S)
+            ):
                 if getattr(self, "direct_mode", False) or getattr(self, "universal_mode", False):
                     m.conn = Conn.CONNECTED
                     m.last_error, m.last_error_code, m.last_error_detail = "", "", ""
@@ -1052,6 +1071,9 @@ class DeviceBridge:
                             "drive": "IDLE", "ctl": 1, "hb_age": 0, "test": 0, "proto": WIRE_PROTOCOL,
                             "dev": m.port or "PHYSICAL_DEVICE", "blk": "", "fm": 0, "cfg": 1, "es": 2,
                         }
+                    if m.last_fast_rx is None:
+                        m.last_fast_rx = now
+                        m.last_rx_wall = self._wall()
                     self._stale_reported = False
                     self.hub.publish("device_connected", {"mode": "HW", "universal": True, "port": m.port})
                 else:
