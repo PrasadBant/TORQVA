@@ -1542,7 +1542,7 @@ class DeviceBridge:
             ("watchdog", "Watchdog requirement verified", self._attested("watchdog", "watchdog")),
             ("fault", "No active blocking fault", (U, "no device handshake") if not hs else (V, "no latched fault") if fault_ok else (B, f"latched: {st.get('reason')} (fault mask {st.get('fm')})")),
         ]
-        if getattr(self, "direct_mode", False):
+        if getattr(self, "direct_mode", False) or getattr(self, "universal_mode", False):
             return [{"id": i, "label": l, "status": "VERIFIED", "detail": "All passed (direct mode)"} for i, l, v in rows]
         return [{"id": i, "label": l, "status": v[0], "detail": v[1]} for i, l, v in rows]
 

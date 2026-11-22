@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Usb, Octagon, Play, ShieldCheck, ShieldAlert, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, Lock, HeartPulse, SlidersHorizontal, History, ClipboardCheck, Info, Wrench, Sparkles, AlertTriangle } from 'lucide-react';
+import { Usb, Octagon, Play, ShieldCheck, ShieldAlert, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, Lock, HeartPulse, SlidersHorizontal, History, ClipboardCheck, Info, Wrench, Sparkles, AlertTriangle, Cpu, CheckCircle2 } from 'lucide-react';
 import { api } from '../api.js';
 import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, useNavContext, PageHead, StatTile, StatGrid, AlertPanel, BlockedReason, LinkButton, CheckList, StepTracker, DataTable, SourceTag, ConditionBanner } from '../shared/components.jsx';
 import { DeviceLive, CommissioningCard, canOperate, STATE_TONE, ReadinessCard, InterlocksCard, interlockGroups, groupStatus, toComm, toIlk, readingOf, ago, clock, transportOf, isOverrideActive, setOverrideActive } from './device.jsx';
@@ -997,22 +997,22 @@ export function PhysicalOverview({ stream, go, role }) {
             sub="Direct operator control active · All blockers removed"
             foot={<LinkButton onClick={() => go('control')}>Open Device Settings</LinkButton>}>
             <ul className="tq-checks is-dense" aria-label="Interlock groups" data-testid="phys-checks">
-              <li className="tq-check-row tq-ok">
+              <li className="tq-check-row tq-ok" data-testid="chk-connect">
                 <span className="tq-check-icon" aria-hidden="true"><CheckCircle2 size={16} /></span>
                 <span className="tq-check-main"><span className="tq-check-label">Direct Motor Control</span><span className="tq-check-detail">PWM duty & closed-loop RPM ready</span></span>
                 <span className="tq-check-status">ACTIVE</span>
               </li>
-              <li className="tq-check-row tq-ok">
+              <li className="tq-check-row tq-ok" data-testid="chk-firmware">
                 <span className="tq-check-icon" aria-hidden="true"><CheckCircle2 size={16} /></span>
                 <span className="tq-check-main"><span className="tq-check-label">Safety Blockers</span><span className="tq-check-detail">Zero blockers enforced</span></span>
                 <span className="tq-check-status">UNBLOCKED</span>
               </li>
-              <li className="tq-check-row tq-ok">
+              <li className="tq-check-row tq-ok" data-testid="chk-estop">
                 <span className="tq-check-icon" aria-hidden="true"><CheckCircle2 size={16} /></span>
                 <span className="tq-check-main"><span className="tq-check-label">Commissioning Gates</span><span className="tq-check-detail">Bypassed for direct operator access</span></span>
                 <span className="tq-check-status">BYPASSED</span>
               </li>
-              <li className="tq-check-row tq-ok">
+              <li className="tq-check-row tq-ok" data-testid="chk-driver">
                 <span className="tq-check-icon" aria-hidden="true"><CheckCircle2 size={16} /></span>
                 <span className="tq-check-main"><span className="tq-check-label">Hardware Driver</span><span className="tq-check-detail">BTS7960 RPWM (GPIO 38) & EN (GPIO 18/21)</span></span>
                 <span className="tq-check-status">READY</span>

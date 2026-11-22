@@ -391,7 +391,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   // inventory, session and audit log. One page with sections, so device information is not repeated across pages.
   const deviceSafety = (connection, safety, system) => {
     const tabs = [{ key: 'system', label: 'Device', icon: Server }, { key: 'connection', label: 'Connection & Readiness', icon: Usb },
-      ...(safety ? [{ key: 'safety', label: 'Safety & Commissioning', icon: ShieldAlert }] : [])];
+      ...(safety ? [{ key: 'safety', label: 'Safety & Commissioning', icon: isOverrideActive() ? ShieldCheck : ShieldAlert }] : [])];
     const body = { connection, safety, system }[deviceTab];
     return (<><PageHead title="Device & Safety" right={<Pill tone="info">{physicalMode ? 'Physical mode' : 'Simulation mode'}</Pill>} />
       <Tabs label="Device & Safety sections" idBase="tq-dev" value={deviceTab} onChange={setDevTab} tabs={tabs} />

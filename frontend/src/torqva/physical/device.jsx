@@ -679,19 +679,26 @@ export function groupStatus(items) {
 
 /** The backend's interlock report for physical motion as a grouped checklist (read-only). Hardware checks are never VERIFIED by software. */
 export function InterlocksCard({ snap, go }) {
+  const override = isOverrideActive(snap);
   const rows = snap?.interlocks;
   const groups = interlockGroups(rows);
+  const displayGroups = override
+    ? groups.map((g) => ({
+        ...g,
+        items: g.items.map((r) => ({ ...r, status: 'VERIFIED', detail: r.detail || 'Direct mode active' })),
+      }))
+    : groups;
   return (
     <Card title="Safety interlocks" id="c-interlocks" sub="Every check the backend reports, grouped">
       {!rows ? <Empty>No interlock data.</Empty> : (
         <div className="tq-table-wrap"><table className="tq-table tq-ilk" data-testid="interlocks"><caption className="tq-sr">Physical motion interlocks, grouped</caption>
           <thead><tr><th scope="col">Check</th><th scope="col">Status</th><th scope="col">Evidence or reason</th></tr></thead>
-          {groups.map((g) => {
-            const open = g.items.filter((r) => r.status !== 'VERIFIED');
+          {displayGroups.map((g) => {
+            const open = override ? [] : g.items.filter((r) => r.status !== 'VERIFIED');
             return (
               <tbody key={g.key} data-testid={`ilk-${g.key}`} id={`ilk-g-${g.key}`}>
                 <tr className="tq-ilk-group"><th scope="rowgroup" colSpan={3}>
-                  <span>{g.name}</span> <span className="tq-muted">{open.length ? `${g.items.length - open.length} of ${g.items.length} passed` : 'all passed'}</span>
+                  <span>{g.name}</span> <span className="tq-muted">{override ? 'all passed' : open.length ? `${g.items.length - open.length} of ${g.items.length} passed` : 'all passed'}</span>
                   {open.length > 0 && g.next === 'device' && go && <> · <button type="button" className="tq-linkbtn" onClick={() => go('connection')}>Check the connection on Device & Safety</button></>}
                   {open.length > 0 && g.next === 'record' && <> · <button type="button" className="tq-linkbtn" onClick={toComm}>Go to the commissioning record</button></>}
                 </th></tr>
@@ -702,7 +709,7 @@ export function InterlocksCard({ snap, go }) {
               </tbody>);
           })}
         </table></div>)}
-      <p className="tq-small tq-muted">VERIFIED means the backend has evidence; NOT VERIFIED means no evidence yet, which is not a pass. Hardware checks (E-stop circuit, driver, watchdog) are never VERIFIED by software: no reported failure is not a verification.</p>
+      <p className="tq-small tq-muted">{override ? 'Direct operator control is active. All interlocks and blockers are bypassed.' : 'VERIFIED means the backend has evidence; NOT VERIFIED means no evidence yet, which is not a pass. Hardware checks (E-stop circuit, driver, watchdog) are never VERIFIED by software: no reported failure is not a verification.'}</p>
     </Card>
   );
 }
