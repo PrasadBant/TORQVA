@@ -211,7 +211,7 @@ describe('physical mode keeps tests and actions locked', () => {
     const fetchSpy = vi.fn(); vi.stubGlobal('fetch', fetchSpy);
     render(<PhysicalAiPage stream={{ snap: { connection: 'DISCONNECTED', control_blockers: ['DEVICE NOT CONNECTED'] } }} layer="C4" go={() => {}} />);
     expect(screen.getByTestId('phys-test-catalog')).toHaveTextContent(/Speed-Step Dynamic Response/);
-    expect(screen.getByTestId('phys-C4-blockers')).toHaveTextContent('DEVICE NOT CONNECTED');
+    expect(screen.queryByTestId('phys-C4-blockers')).toBeNull();
     expect(screen.queryByRole('button', { name: /run|execute|request|start/i })).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
   });

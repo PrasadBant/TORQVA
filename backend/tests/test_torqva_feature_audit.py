@@ -54,8 +54,6 @@ ROLE = {
     ("GET", "/device/status"): "viewer", ("GET", "/device/history"): "viewer", ("GET", "/device/ports"): "admin", ("POST", "/device/connect"): "admin",
     ("POST", "/device/disconnect"): "admin", ("POST", "/device/commands"): "viewer", ("GET", "/device/commands"): "viewer",
     ("POST", "/device/direct_mode"): "viewer",
-    ("GET", "/device/commissioning"): "viewer", ("POST", "/device/commissioning/items/{item_id}"): "admin",
-    ("PUT", "/device/commissioning/limits"): "admin", ("POST", "/device/commissioning/enable"): "admin",
     ("GET", "/firmware/status"): "viewer", ("GET", "/firmware/releases"): "viewer", ("GET", "/firmware/releases/{rid}"): "viewer",
     ("POST", "/firmware/releases"): "admin", ("POST", "/firmware/deployments"): "admin", ("GET", "/firmware/deployments"): "viewer",
     ("GET", "/firmware/deployments/{dep_id}"): "viewer",
@@ -219,23 +217,11 @@ def test_websocket_requires_a_valid_first_message_token_and_is_read_only(ctx):
         assert e.value.code == 4400
 
 
-# ------------------------------------------------------------------------------------------------ commissioning through the API
-def test_commissioning_limits_need_every_value_the_confirmation_and_evidence_and_never_enable_motion(ctx):
-    service, _, c = ctx
-    url = P + "/device/commissioning/limits"
-    phrase = c.get(P + "/device/commissioning", headers=H("v-tok")).json()["limits_confirm_phrase"]
-    for missing in ("min_voltage_v", "max_voltage_v", "max_current_a"):
-        body = {**{k: v for k, v in LIMITS.items() if k != missing}, "evidence": "bench datasheet review", "confirm": phrase}
-        assert c.put(url, json=body, headers=H("a-tok")).status_code == 422, missing           # nothing is defaulted on the operator's behalf
-    assert c.put(url, json={**LIMITS, "evidence": "bench datasheet review", "confirm": "yes"}, headers=H("a-tok")).status_code == 422
-    assert c.put(url, json={**LIMITS, "min_voltage_v": 25.0, "evidence": "bench datasheet review", "confirm": phrase}, headers=H("a-tok")).status_code == 422
-    assert c.put(url, json={**LIMITS, "evidence": "bench datasheet review", "confirm": phrase}, headers=H("o-tok")).status_code == 403
-    ok = c.put(url, json={**LIMITS, "evidence": "bench datasheet review", "confirm": phrase}, headers=H("a-tok"))
-    assert ok.status_code == 200, ok.text
-    rec = ok.json()
-    assert rec["limits"]["min_voltage_v"] == 18.0 and rec["limits"]["max_voltage_v"] == 24.0 and rec["limits"]["by"] == "adam"
-    assert rec["physical_control_enabled"] is False                                                 # approving limits is not enabling motion
-    assert "PHYSICAL CONTROL DISABLED" in service.bridge.control_blockers()
+# Removed commissioning routes must remain absent from the public API.
+def test_commissioning_routes_are_absent(ctx):
+    _, app, c = ctx
+    assert not any("/device/commissioning" in path for _, path in http_routes(app))
+    assert c.get(P + "/device/commissioning", headers=H("a-tok")).status_code == 404
 
 
 # ------------------------------------------------------------------------------------------------ simulation: determinism and honest outcomes

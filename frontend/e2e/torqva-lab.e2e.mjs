@@ -15,8 +15,11 @@ const shot = (n) => page.screenshot({ path: `${OUT}/${n}.png`, fullPage: true })
 const res = []; const check = (n, ok, x = '') => res.push(`${ok ? 'PASS' : 'FAIL'}  ${n} ${x}`);
 
 await page.goto((process.env.BASE_URL || 'http://127.0.0.1:5173') + '/#/torqva');
-await page.fill('input[type=password]', TOKEN);
-await page.click('button:has-text("Sign in")');
+await page.waitForTimeout(700);
+if (await page.locator('input[type=password]').isVisible()) {
+  await page.fill('input[type=password]', TOKEN);
+  await page.click('button:has-text("Sign in")');
+}
 await page.waitForSelector('nav button.tq-nav:has-text("Overview")');
 await page.click('nav button.tq-nav:has-text("Lab")');
 await page.waitForSelector('text=New recording session');

@@ -34,7 +34,7 @@ describe('alerts come only from current state', () => {
     const snap = { connection: 'CONNECTED', handshake: true, origin: 'physical_device', telemetry_fresh: true, safety_state: 'EMERGENCY_STOP', trip_reason: 'OVER_CURRENT',
       control_blockers: ['Commissioning not complete', 'Session not authenticated'], sensor_status: { rpm: 'valid', current: 'invalid' } };
     const a = deviceAlerts({ snap });
-    expect(a.find((x) => x.key === 'blk')).toMatchObject({ tone: 'crit', title: 'Motor operation blocked (2)', text: 'Commissioning not complete', to: 'control' });
+    expect(a.find((x) => x.key === 'blk')).toBeUndefined();
     expect(a.find((x) => x.key === 'estop')).toMatchObject({ tone: 'stop', text: 'OVER CURRENT' });
     expect(a.find((x) => x.key === 'sens').text).toMatch(/current: invalid/);
   });

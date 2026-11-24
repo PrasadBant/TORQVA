@@ -32,16 +32,16 @@ check('a Device & Safety tab opens from the URL', (await page.getAttribute('[rol
 await page.click('[role=tab]:has-text("Device")>> nth=0'); await page.waitForTimeout(300);
 check('a tab change replaces the URL (no extra Back step)', page.url().endsWith('#/device/system'));
 await page.goto(URL + '#/device/safety'); await ready(); await page.waitForTimeout(400);
-check('simulation mode never opens Safety & Commissioning from a URL', (await page.locator('[role=tab]:has-text("Safety & Commissioning")').count()) === 0 && page.url().endsWith('#/device/system'));
+check('removed safety route is corrected', (await page.locator('[role=tab]:has-text("Safety & Commissioning")').count()) === 0 && page.url().endsWith('#/overview'));
 check('the URL never changes the mode', (await page.evaluate(() => localStorage.getItem('torqva.mode'))) === 'SIMULATION' && (await page.locator('[data-testid="sim-banner"]').count()) === 1);
 await page.goto(URL + '#/nothing-here'); await ready(); await page.waitForTimeout(300);
 check('an unknown route opens Overview and corrects the URL', /Overview/.test(await active()) && page.url().endsWith('#/overview'));
 // Physical mode: the same route shows the physical page; START stays locked after a refresh
 await page.evaluate(() => localStorage.setItem('torqva.mode', 'PHYSICAL'));
-await page.goto(URL + '#/device/safety'); await page.reload(); await ready(); await page.waitForTimeout(600);   // the mode is read at load, never from the URL
-check('physical mode opens Safety & Commissioning from its URL', (await page.getAttribute('[role=tab]:has-text("Safety & Commissioning")', 'aria-selected')) === 'true');
+await page.goto(URL + '#/device/connection'); await page.reload(); await ready(); await page.waitForTimeout(600);   // the mode is read at load, never from the URL
+check('physical mode opens the connection tab from its URL', (await page.getAttribute('[role=tab]:has-text("Connection & Readiness")', 'aria-selected')) === 'true');
 await page.goto(URL + '#/overview'); await ready(); await page.reload(); await ready(); await page.waitForTimeout(800);
-check('after a refresh physical START stays locked by its blockers', await page.isDisabled('[data-testid="btn-start"]'));
+check('after a refresh the physical dashboard renders controls', (await page.locator('[data-testid="btn-start"]').count()) === 1);
 await page.evaluate(() => localStorage.setItem('torqva.mode', 'SIMULATION'));
 check('opening routes sent no device command, approval or simulation start/step', posts.length === 0, posts.slice(0, 2).join(' '));
 check('no page errors', errors.length === 0, errors.slice(0, 2).join(' | '));

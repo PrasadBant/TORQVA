@@ -172,7 +172,7 @@ export function PhysicalRecoveryPage({ stream, go, role, d, simView, physicalMod
                 tone={post.housing > 50 ? 'warn' : 'ok'}
                 label="Housing Temp"
                 value={`${fmt(post.housing ?? 25.0, 1)} °C`}
-                sub="Thermal safety interlock clear"
+                sub="Temperature within range"
               />
             </StatGrid>
           </div>

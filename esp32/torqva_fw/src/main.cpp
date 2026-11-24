@@ -579,38 +579,83 @@ void loop() {
                 char* id_ptr = strstr(line, "\"id\":");
                 if (id_ptr) cmd_id = strtol(id_ptr + 5, nullptr, 10);
 
-                bool is_direct_plaintext = (line[0] != '{');
                 bool is_stop = (strstr(line, "STOP") != nullptr || strstr(line, "\"action\":\"STOP\"") != nullptr || strstr(line, "\"type\":\"STOP\"") != nullptr);
-                bool is_speed = (strstr(line, "SET_SPEED") != nullptr || strstr(line, "SPEED") != nullptr || strstr(line, "RPM") != nullptr || strstr(line, "\"rpm\":") != nullptr);
-                bool is_start = (strstr(line, "START") != nullptr || strstr(line, "DUTY") != nullptr || strstr(line, "duty_pct") != nullptr);
+                bool is_speed = !is_stop && (strstr(line, "SET_SPEED") != nullptr || strstr(line, "SPEED") != nullptr || strstr(line, "RPM") != nullptr || strstr(line, "\"rpm\":") != nullptr);
+                bool is_start = !is_stop && (strstr(line, "START") != nullptr || strstr(line, "DUTY") != nullptr || strstr(line, "duty_pct") != nullptr);
 
                 if (is_stop) {
                     g_direct_active = false;
                     g_direct_duty = 0.0f;
                     outputs_off();
+                    noInterrupts();
+                    g_last_pulse_us = 0;
+                    g_period_us = 0;
+                    g_have_period = false;
+                    interrupts();
+                    if (g_dev) {
+                        xSemaphoreTake(g_mu, portMAX_DELAY);
+                        g_dev->on_line("{\"type\":\"STOP\"}", millis());
+                        xSemaphoreGive(g_mu);
+                    }
                     char ack_buf[96];
                     snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"STOPPED\"}", cmd_id);
                     usb_out_line(ack_buf);
                 } else if (is_speed) {
                     float rpm_val = parse_cmd_param(line);
-                    if (rpm_val <= 0.0f) rpm_val = 1200.0f;
-                    float duty = rpm_val / 30.0f;
-                    if (duty < 15.0f) duty = 15.0f;
-                    if (duty > 100.0f) duty = 100.0f;
-                    g_direct_duty = duty;
-                    g_direct_active = true;
-                    char ack_buf[96];
-                    snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
-                    usb_out_line(ack_buf);
+                    if (rpm_val <= 0.0f) {
+                        g_direct_active = false;
+                        g_direct_duty = 0.0f;
+                        outputs_off();
+                        noInterrupts();
+                        g_last_pulse_us = 0;
+                        g_period_us = 0;
+                        g_have_period = false;
+                        interrupts();
+                        if (g_dev) {
+                            xSemaphoreTake(g_mu, portMAX_DELAY);
+                            g_dev->on_line("{\"type\":\"STOP\"}", millis());
+                            xSemaphoreGive(g_mu);
+                        }
+                        char ack_buf[96];
+                        snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"STOPPED\"}", cmd_id);
+                        usb_out_line(ack_buf);
+                    } else {
+                        float duty = rpm_val / 30.0f;
+                        if (duty < 10.0f) duty = 10.0f;
+                        if (duty > 100.0f) duty = 100.0f;
+                        g_direct_duty = duty;
+                        g_direct_active = true;
+                        char ack_buf[96];
+                        snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
+                        usb_out_line(ack_buf);
+                    }
                 } else if (is_start) {
                     float duty_val = parse_cmd_param(line);
-                    if (duty_val <= 0.0f) duty_val = 25.0f;
-                    if (duty_val > 100.0f) duty_val = 100.0f;
-                    g_direct_duty = duty_val;
-                    g_direct_active = true;
-                    char ack_buf[96];
-                    snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
-                    usb_out_line(ack_buf);
+                    if (duty_val <= 0.0f) {
+                        g_direct_active = false;
+                        g_direct_duty = 0.0f;
+                        outputs_off();
+                        noInterrupts();
+                        g_last_pulse_us = 0;
+                        g_period_us = 0;
+                        g_have_period = false;
+                        interrupts();
+                        if (g_dev) {
+                            xSemaphoreTake(g_mu, portMAX_DELAY);
+                            g_dev->on_line("{\"type\":\"STOP\"}", millis());
+                            xSemaphoreGive(g_mu);
+                        }
+                        char ack_buf[96];
+                        snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"STOPPED\"}", cmd_id);
+                        usb_out_line(ack_buf);
+                    } else {
+                        if (duty_val > 100.0f) duty_val = 100.0f;
+                        g_direct_duty = duty_val;
+                        g_direct_active = true;
+                        char ack_buf[96];
+                        snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
+                        usb_out_line(ack_buf);
+                    }
                 }
 
                 if (!is_direct_plaintext) {

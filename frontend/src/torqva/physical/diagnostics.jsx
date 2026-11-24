@@ -350,7 +350,7 @@ export function PhysicalInterventionsPage({ stream, go, role }) {
       if (!isStop && targetRpm !== undefined) body.rpm = Number(targetRpm);
       const res = await api.deviceCommand(body);
       if (res.state === 'REJECTED') {
-        setErr(`Command #${res.id} rejected: ${(res.reasons || []).join(', ') || 'Interlock blocked'}`);
+        setErr(`Command #${res.id} rejected: ${(res.reasons || []).join(', ') || 'Device rejected command'}`);
       } else {
         setMsg(`Command #${res.id} (${cmdAction}${!isStop && targetRpm ? ` to ${targetRpm} rpm` : ''}) dispatched successfully: ${res.state}`);
       }

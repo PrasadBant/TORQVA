@@ -17,7 +17,6 @@ from fastapi import Depends, HTTPException, Query, WebSocket, WebSocketDisconnec
 from pydantic import BaseModel, Field
 
 from .auth import Principal, TokenAuth
-from .commissioning import CommissioningError
 from .physical_adapter import compute_physical_diagnostics
 from .schemas import Role
 from .serial_bridge import ERROR_HELP, SerialTransport, TransportError, possible_port_holders
@@ -45,11 +44,6 @@ class CommandIn(BaseModel):
     rpm: Optional[float] = Field(default=None, allow_inf_nan=False, ge=0, le=100000)
     target_rpm: Optional[float] = Field(default=None, allow_inf_nan=False, ge=0, le=100000)
     duration_s: Optional[float] = Field(default=None, allow_inf_nan=False, ge=0, le=3600)
-
-
-class ItemIn(BaseModel):
-    status: str = Field(max_length=16)
-    evidence: str = Field(default="", max_length=500)
 
 
 class LimitsIn(BaseModel):
@@ -280,38 +274,6 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
             "c1_score": diag["c1"]["score"],
             "diagnosis": diag["c1"]["headline"],
         }
-
-    # ---- commissioning record
-    @r.get("/device/commissioning")
-    def commissioning_get(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
-        return bridge.commissioning.snapshot()
-
-    @r.post("/device/commissioning/items/{item_id}")
-    def commissioning_item(item_id: str, body: ItemIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
-        audit(p, "commissioning_item", item=item_id, status=body.status)
-        try:
-            bridge.commissioning.set_item(item_id, body.status, body.evidence, p.user)
-        except CommissioningError as e:
-            raise HTTPException(422, str(e))
-        return bridge.commissioning.snapshot()
-
-    @r.put("/device/commissioning/limits")
-    def commissioning_limits(body: LimitsIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
-        audit(p, "commissioning_limits", limits=body.model_dump(exclude={"evidence", "confirm"}))
-        try:
-            bridge.commissioning.set_limits(body.model_dump(exclude={"evidence", "confirm"}), body.evidence, p.user, body.confirm)
-        except CommissioningError as e:
-            raise HTTPException(422, str(e))
-        return bridge.commissioning.snapshot()
-
-    @r.post("/device/commissioning/enable")
-    def commissioning_enable(body: EnableIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
-        audit(p, "commissioning_enable", enabled=body.enabled)
-        try:
-            bridge.commissioning.set_enable(body.enabled, body.confirm, p.user)
-        except CommissioningError as e:
-            raise HTTPException(422, str(e))
-        return bridge.commissioning.snapshot()
 
     @r.get("/device/commands")
     def device_commands(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:

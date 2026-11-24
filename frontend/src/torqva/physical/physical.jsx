@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Usb, Octagon, Play, ShieldCheck, ShieldAlert, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, Lock, HeartPulse, SlidersHorizontal, History, ClipboardCheck, Info, Wrench, Sparkles, AlertTriangle, Cpu, CheckCircle2 } from 'lucide-react';
 import { api } from '../api.js';
 import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, title, useNavContext, PageHead, StatTile, StatGrid, AlertPanel, BlockedReason, LinkButton, CheckList, StepTracker, DataTable, SourceTag, ConditionBanner } from '../shared/components.jsx';
-import { DeviceLive, CommissioningCard, canOperate, STATE_TONE, ReadinessCard, InterlocksCard, interlockGroups, groupStatus, toComm, toIlk, readingOf, ago, clock, transportOf, isOverrideActive, setOverrideActive } from './device.jsx';
+import { DeviceLive, canOperate, STATE_TONE, readingOf, ago, clock, transportOf, isOverrideActive } from './device.jsx';
 import { TEST_SPECS } from '../shared/diagnostics.js';
 import { LimitsPanel } from '../shared/limits.jsx';
 import { useAlarmContext } from '../shared/alarmContext.jsx';
@@ -189,13 +189,7 @@ export function PhysicalBanner({ snap }) {
       : (!snap || snap.connection === 'DISCONNECTED')
         ? 'DEVICE DISCONNECTED'
         : snap?.state_label || snap?.connection || 'DISCONNECTED';
-  const rawBlockers = snap?.control_blockers || [];
-  const blockers = override ? [] : rawBlockers;
-  const detail = !live
-    ? 'Physical readings are unavailable.'
-    : blockers.length
-      ? `Motion unavailable: ${blockers[0]}${blockers.length > 1 ? ` (+${blockers.length - 1} more)` : ''}`
-      : 'Direct operator motion control active.';
+  const detail = live ? 'Physical device connected.' : 'Physical readings are unavailable.';
 
   return (
     <div className={`tq-banner tq-banner--${live ? (snap?.telemetry_fresh ? 'ok' : 'warn') : snap?.handshake ? 'warn' : snap?.connection === 'ERROR' ? 'crit' : 'off'}`} role="status" aria-live="polite" data-testid="phys-banner">
@@ -241,16 +235,14 @@ function sensorSummary(sens) {
 }
 
 const ZONE_TONE = { IDLE: 'info', NORMAL: 'ok', WARNING: 'warn', CRITICAL: 'crit', UNKNOWN: 'warn' };
-const isRunningOf = (snap, rpm) => isLive(snap) && snap?.safety_state !== 'EMERGENCY_STOP' && (snap?.drive !== 'IDLE' || Number(rpm) > 50);
+const isRunningOf = (snap, rpm) => isLive(snap) && snap?.safety_state !== 'EMERGENCY_STOP' && (snap?.drive ? snap.drive !== 'IDLE' : Number(rpm) > 50);
 
-/** Headline status of the physical device as four tiles: device link, motion blockers, measured speed, sensors and faults.
+/** Headline status of the physical device as four tiles: device link, measured speed, sensors and faults.
  *  Every value is what the backend reports; motion readiness is never inferred from the connection. */
 export function StatusStrip({ snap, go }) {
   const live = isLive(snap);
   const override = isOverrideActive(snap);
   const ss = sensorSummary(snap?.sensor_status);
-  const rawBlockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
-  const blockers = override ? [] : rawBlockers;
   const fault = !live
     ? ['off', 'fault state unknown']
     : snap?.safety_state === 'OK'
@@ -265,7 +257,8 @@ export function StatusStrip({ snap, go }) {
   const via = transportOf(snap);
   const connWord = live ? ((snap?.telemetry_fresh || override) ? (via ? `Connected — ${via}` : 'Connected') : 'Telemetry stale') : snap?.handshake ? 'Firmware simulation' : snap?.connection === 'CONNECTING' ? 'Connecting' : snap?.connection === 'ERROR' ? 'Connection error' : 'Disconnected';
   const rpmV = snap?.values?.rpm;
-  const rpm = live ? (readingOf(rpmV) ?? (override ? 0 : null)) : null;            // an invalid reading is unknown, never 0
+  const isStopped = snap?.drive === 'IDLE';
+  const rpm = live ? (isStopped ? 0 : (readingOf(rpmV) ?? (override ? 0 : null))) : null;            // an invalid reading is unknown, never 0
   const zone = classifyRpm(rpm, isRunningOf(snap, rpm));
   const rpmTone = !live ? 'off' : rpm === null ? 'warn' : (rpmV?.stale && !override) ? 'warn' : ZONE_TONE[zone];
   const rpmSub = !live ? 'no live telemetry' : rpm === null ? (zone === 'UNKNOWN' ? 'SPEED UNAVAILABLE: the drive is active but the Hall reading is invalid or missing' : 'Hall reading invalid or missing')
@@ -276,18 +269,9 @@ export function StatusStrip({ snap, go }) {
       <StatGrid label="Device status">
         <StatTile icon={Usb} tone={connTone} label="Device status" value={connWord} testid="stat-device"
           sub={snap?.handshake ? `handshake ok · ${snap?.device_id || '—'} · fw ${snap?.firmware || '—'}` : snap?.port ? `port ${snap.port} · no handshake` : 'no device handshake'}
-          action={go ? <LinkButton onClick={() => go('connection')}>Open Device & Safety</LinkButton> : null}>
+          action={go ? <LinkButton onClick={() => go('connection')}>Open Hardware Manager</LinkButton> : null}>
           {snap?.last_rx_unix ? <span className="tq-stat-sub tq-num">last telemetry {ago(snap.last_rx_unix)}</span> : null}
           {live && snap?.transport_label && <span className="tq-mon-statpill"><Pill tone={snap?.session?.active ? 'info' : 'warn'}>{snap.transport_label}</Pill></span>}
-        </StatTile>
-        <StatTile icon={blockers.length ? ShieldAlert : ShieldCheck} tone={blockers.length ? 'crit' : 'ok'} label={override ? 'Operating status' : 'Safety status'} testid="stat-safety"
-          value={blockers.length ? 'Not ready' : 'No blocker reported'}
-          sub={override ? 'Direct operator control active.' : (blockers.length ? `${blockers.length} blocking issue${blockers.length > 1 ? 's' : ''} · motion locked: ${blockers[0]}` : 'Direct operator control enabled.')}
-          action={go ? <LinkButton onClick={() => go('control')}>{override ? 'Device settings' : (blockers.length ? 'View blockers' : 'View checklist')}</LinkButton> : null}>
-          {live && snap?.config && (
-            <span className="tq-mon-statpill"><Pill tone="ok">
-              {override ? 'Direct mode active' : (snap?.config?.confirmed ? `limits v${snap?.config?.device_version || 1} confirmed by the device` : snap?.config?.approved_version ? `limits v${snap?.config?.approved_version} awaiting the device` : 'no limits approved')}
-            </Pill></span>)}
         </StatTile>
         <StatTile icon={Gauge} tone={rpmTone} label="Current speed" value={rpm === null ? 'UNAVAILABLE' : fmt(rpm, 0)} unit={rpm === null ? undefined : 'rpm'} sub={rpmSub} testid="stat-rpm" />
         <StatTile icon={HeartPulse} tone={healthTone} label="System health" testid="stat-health"
@@ -395,11 +379,9 @@ export function MotionPanel({ stream, role, go }) {
   const [last, setLast] = useState(null);
   const live = isLive(snap);
   const override = isOverrideActive(snap);
-  const rawBlockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
-  const blockers = override ? [] : rawBlockers;
-  const blocked = blockers.length > 0;
   const operator = override || (role ? role === 'admin' : true);
   const connected = snap && (['CONNECTED', 'STALE'].includes(snap.connection) || (override && snap.connection !== 'DISCONNECTED'));
+  const blocked = !connected;
   const maxDuty = snap?.control_limits?.max_duty_pct ?? 100;
   const maxRpm = snap?.control_limits?.max_rpm ?? 20000;
 
@@ -447,6 +429,25 @@ export function MotionPanel({ stream, role, go }) {
     setStopBusy(true);
     setErr(null);
     setAutoStopDeadline(null);
+    setDuty('0');
+    if (stream?.setSnap) {
+      stream.setSnap((prev) => {
+        if (!prev) return prev;
+        const prevVals = prev.values || {};
+        return {
+          ...prev,
+          drive: 'IDLE',
+          values: {
+            ...prevVals,
+            rpm: { ...(prevVals.rpm || {}), value: 0, valid: true },
+            duty: { ...(prevVals.duty || {}), value: 0, valid: true },
+            setpoint: { ...(prevVals.setpoint || {}), value: 0, valid: true },
+            current: { ...(prevVals.current || {}), value: 0, valid: true },
+            power: { ...(prevVals.power || {}), value: 0, valid: true },
+          },
+        };
+      });
+    }
     try {
       setLast(await api.deviceCommand({ action: 'STOP' }));
     } catch (e) {
@@ -459,7 +460,8 @@ export function MotionPanel({ stream, role, go }) {
 
   const rec = (last && (commands || []).find((c) => c.id === last.id)) || last;
   const vals = snap?.values || {};
-  const motor = !live || !snap?.telemetry_fresh ? 'UNKNOWN' : snap?.drive === 'IDLE' ? 'STOPPED' : snap?.drive ? 'RUNNING' : 'UNKNOWN';
+  const isStopped = snap?.drive === 'IDLE' || rec?.action === 'STOP';
+  const motor = !live || !snap?.telemetry_fresh ? 'UNKNOWN' : isStopped ? 'STOPPED' : snap?.drive ? 'RUNNING' : 'UNKNOWN';
   const dutyBad = duty === '' || !(Number(duty) > 0 && Number(duty) <= maxDuty);
 
   return (
@@ -476,11 +478,11 @@ export function MotionPanel({ stream, role, go }) {
         <div className="tq-motor-state-grid">
           <div className="tq-motor-state-item">
             <span className="tq-muted">Commanded Duty</span>
-            <strong className="tq-num">{live && vals.duty?.value != null ? `${fmt(vals.duty.value, 1)} %` : '—'}</strong>
+            <strong className="tq-num">{live && vals.duty?.value != null ? `${fmt(snap?.drive === 'IDLE' ? 0 : vals.duty.value, 1)} %` : '—'}</strong>
           </div>
           <div className="tq-motor-state-item">
             <span className="tq-muted">Measured Speed (Hall)</span>
-            <strong className="tq-num">{live && vals.rpm?.valid && vals.rpm.value != null ? `${fmt(vals.rpm.value, 0)} rpm` : 'UNAVAILABLE'}</strong>
+            <strong className="tq-num">{live && vals.rpm?.valid && vals.rpm.value != null ? `${fmt(snap?.drive === 'IDLE' ? 0 : vals.rpm.value, 0)} rpm` : 'UNAVAILABLE'}</strong>
           </div>
           <div className="tq-motor-state-item">
             <span className="tq-muted">Drive Direction</span>
@@ -516,32 +518,6 @@ export function MotionPanel({ stream, role, go }) {
           >
             Reset Fault ({snap?.trip_reason || 'E-Stop'})
           </button>
-        </div>
-      )}
-
-      {/* 3. AVAILABILITY: the backend's own blockers, verbatim */}
-      {blocked ? (
-        <div className="tq-blocked tq-mon-avail" role="status" data-testid="availability">
-          <span className="tq-blocked-icon" aria-hidden="true"><Lock size={15} /></span>
-          <div className="tq-blocked-body">
-            <strong>START / speed unavailable</strong>
-            <span data-testid="why-disabled">{blockers[0]}</span>
-            {blockers.length > 1 && (
-              <details>
-                <summary>{blockers.length - 1} additional condition{blockers.length > 2 ? 's' : ''}</summary>
-                <ul className="tq-list" data-testid="phys-blockers">
-                  {blockers.map((b) => <li key={b}>{b}</li>)}
-                </ul>
-              </details>
-            )}
-            {blockers.length === 1 && <ul className="tq-sr" data-testid="phys-blockers"><li>{blockers[0]}</li></ul>}
-          </div>
-          {go && <div className="tq-blocked-action"><LinkButton onClick={() => go('control')}>View blockers</LinkButton></div>}
-        </div>
-      ) : (
-        <div className="tq-avail open" role="status" data-testid="availability">
-          <Pill tone="ok">START / speed available</Pill>
-          <span className="tq-muted">Direct operator control ready.</span>
         </div>
       )}
 
@@ -733,14 +709,6 @@ function recentEvents(commands, events, override = false) {
   ].sort((a, b) => (b.t || 0) - (a.t || 0));
 }
 
-/** Interlock groups as checklist rows (same data as the Safety interlocks table). */
-const groupItems = (snap, action) => interlockGroups(snap?.interlocks).map((g) => {
-  const st = groupStatus(g.items);
-  return { key: g.key, label: g.name, state: st.state, status: st.status, detail: st.of, action: action ? action(g) : undefined, testid: `chk-${g.key}` };
-});
-
-/** The physical motor's condition, from the device path only. The firmware does not yet supply what anomaly analysis needs, so the
- *  condition is never "Normal" here: it is Critical on a latched trip the board reports, and otherwise Unavailable with the reason. */
 export function physHealth(snap) {
   if (!snap) return { status: 'Unavailable', why: 'Loading the device state.', next: null };
   const override = isOverrideActive(snap);
@@ -800,7 +768,7 @@ export function OfflineSetupGuide({ onSwitchToSim }) {
             Motor Power &amp; E-Stop
           </strong>
           <p className="tq-small tq-muted" style={{ margin: 0 }}>
-            Apply 12V–24V DC to BTS7960 motor driver. Confirm physical E-Stop NC switch is closed and safety interlocks clear.
+            Apply 12V–24V DC to BTS7960 motor driver. Direct PWM duty and target speed setpoints execute without human checks.
           </p>
         </div>
       </div>
@@ -931,28 +899,10 @@ export function PhysicalOverview({ stream, go, role }) {
   const live = isLive(snap) || (override && snap?.connection && snap.connection !== 'DISCONNECTED');
   if (!snap) return <><PageHead title="Overview" /><Empty loading>Loading device state…</Empty></>;
   const vals = snap.values || {};
-  const rpm = live ? readingOf(vals.rpm) : null;   // an invalid reading is unknown, never 0
+  const isStopped = snap?.drive === 'IDLE';
+  const rpm = live ? (isStopped ? 0 : readingOf(vals.rpm)) : null;   // an invalid reading is unknown, never 0
   const isRunning = isRunningOf(snap, rpm);
   const ev = recentEvents(commands, events, override);
-  const rawChecks = groupItems(snap);
-  const checks = override
-    ? (rawChecks.length ? rawChecks.map((g) => ({
-        ...g,
-        state: 'ok',
-        status: 'All passed',
-        detail: 'All passed (direct mode)',
-        items: (g.items || []).map((it) => ({ ...it, status: 'VERIFIED' })),
-      })) : [
-        { key: 'connect', label: 'Device connection', state: 'ok', status: 'All passed', detail: 'All passed (direct mode)', testid: 'chk-connect' },
-        { key: 'firmware', label: 'Firmware and faults', state: 'ok', status: 'All passed', detail: 'All passed (direct mode)', testid: 'chk-firmware' },
-        { key: 'estop', label: 'Emergency stop', state: 'ok', status: 'All passed', detail: 'All passed (direct mode)', testid: 'chk-estop' },
-        { key: 'auth', label: 'Authorization', state: 'ok', status: 'All passed', detail: 'All passed (direct mode)', testid: 'chk-auth' },
-        { key: 'limits', label: 'Electrical limits', state: 'ok', status: 'All passed', detail: 'All passed (direct mode)', testid: 'chk-limits' },
-        { key: 'commission', label: 'Commissioning', state: 'ok', status: 'All passed', detail: 'All passed (direct mode)', testid: 'chk-commission' },
-      ])
-    : rawChecks;
-  const blockers = override ? [] : (snap.control_blockers || ['DEVICE NOT CONNECTED']);
-
   return (
     <>
       <PageHead title="Overview" sub="Physical device" />
@@ -992,192 +942,7 @@ export function PhysicalOverview({ stream, go, role }) {
           <DataTable caption="Recent device commands and events" testid="phys-events" rows={ev} rowKey={(r) => r.k} maxRows={6} empty="No commands or device events in this session."
             columns={[{ key: 't', label: 'Time', render: (r) => <span className="tq-num">{clock(r.t)}</span> }, { key: 'level', label: 'Status', render: (r) => <Pill tone={r.tone}>{r.level}</Pill> }, { key: 'text', label: 'Event' }]} />
         </Card>
-        {override ? (
-          <Card title="Direct Hardware Status" id="p-safety" icon={Cpu}
-            sub="Direct operator control active · All blockers removed"
-            foot={<LinkButton onClick={() => go('control')}>Open Device Settings</LinkButton>}>
-            <ul className="tq-checks is-dense" aria-label="Interlock groups" data-testid="phys-checks">
-              <li className="tq-check-row tq-ok" data-testid="chk-connect">
-                <span className="tq-check-icon" aria-hidden="true"><CheckCircle2 size={16} /></span>
-                <span className="tq-check-main"><span className="tq-check-label">Direct Motor Control</span><span className="tq-check-detail">PWM duty & closed-loop RPM ready</span></span>
-                <span className="tq-check-status">ACTIVE</span>
-              </li>
-              <li className="tq-check-row tq-ok" data-testid="chk-firmware">
-                <span className="tq-check-icon" aria-hidden="true"><CheckCircle2 size={16} /></span>
-                <span className="tq-check-main"><span className="tq-check-label">Safety Blockers</span><span className="tq-check-detail">Zero blockers enforced</span></span>
-                <span className="tq-check-status">UNBLOCKED</span>
-              </li>
-              <li className="tq-check-row tq-ok" data-testid="chk-estop">
-                <span className="tq-check-icon" aria-hidden="true"><CheckCircle2 size={16} /></span>
-                <span className="tq-check-main"><span className="tq-check-label">Commissioning Gates</span><span className="tq-check-detail">Bypassed for direct operator access</span></span>
-                <span className="tq-check-status">BYPASSED</span>
-              </li>
-              <li className="tq-check-row tq-ok" data-testid="chk-driver">
-                <span className="tq-check-icon" aria-hidden="true"><CheckCircle2 size={16} /></span>
-                <span className="tq-check-main"><span className="tq-check-label">Hardware Driver</span><span className="tq-check-detail">BTS7960 RPWM (GPIO 38) & EN (GPIO 18/21)</span></span>
-                <span className="tq-check-status">READY</span>
-              </li>
-            </ul>
-          </Card>
-        ) : (
-          <Card title="Safety & Commissioning" id="p-safety" icon={ClipboardCheck}
-            sub={blockers.length ? `${blockers.length} blocker${blockers.length > 1 ? 's' : ''} reported by the device path` : 'No blocker reported by the device path'}
-            foot={<LinkButton onClick={() => go('control')}>Open Device & Safety</LinkButton>}>
-            {checks.length ? <CheckList dense label="Interlock groups" testid="phys-checks" items={checks} /> : <Empty>No interlock data.</Empty>}
-          </Card>
-        )}
       </div>
-    </>
-  );
-}
-
-// Why each interlock group matters and what to do next. Explanatory text only: which group is shown comes from the backend's report.
-const WHY = {
-  connect: ['TORQVA trusts readings and accepts commands only after a valid handshake with fresh telemetry. Until then nothing on the device can be checked.', 'Connect the device on Device & Safety and wait for fresh telemetry.', 'device'],
-  firmware: ['The firmware reports latched faults, and the watchdog and driver circuitry decide what the motor does if software stops. Software cannot verify them.', 'Inspect the hardware and attest it, with written evidence, in the commissioning record.', 'record'],
-  estop: ['An independent emergency stop must cut motor power even if the software or the ESP32 fails; the ESP32 input alone never removes power.', 'Install and test the E-stop circuit, then attest it in the commissioning record.', 'record'],
-  auth: ['Motor commands arrive directly over the verified USB connection.', 'Ensure device is connected.', null],
-  limits: ['Approved current, voltage, temperature, speed and duty limits bound every request, and the device must confirm them before motion.', 'Approve the limits in the commissioning record; the device then has to confirm them.', 'record'],
-  commission: ['A person must attest the board, wiring and ratings with written evidence before physical control can be enabled.', 'Complete the commissioning record (admin role).', 'record'],
-  other: ['The backend lists this check among the motion interlocks.', 'Resolve the reason the backend gives for this check.', null],
-};
-const toId = (id) => () => { try { document.getElementById(id)?.scrollIntoView({ block: 'start' }); } catch { /* not supported */ } };
-
-/** Commissioning steps from real records only: the device link, the interlock groups and the backend's blocker list. */
-function commissioningSteps(snap, groups, blockers) {
-  const live = isLive(snap);
-  const c = snap?.connection;
-  const items = (keys) => groups.filter((g) => keys.includes(g.key)).flatMap((g) => g.items);
-  const conn = live && snap.telemetry_fresh ? ['done', 'connected · telemetry fresh'] : c === 'ERROR' ? ['failed', 'connection error'] : live ? ['waiting', 'telemetry stale']
-    : snap?.handshake ? ['waiting', 'firmware simulation mode'] : c === 'CONNECTING' ? ['waiting', 'waiting for handshake'] : ['active', 'not connected'];
-  const stage = (its, prevDone) => {
-    if (!its.length) return ['pending', 'no check reported'];
-    const st = groupStatus(its);
-    if (st.state === 'ok') return ['done', st.of];
-    if (st.state === 'fail') return ['blocked', `${st.status} · ${st.of}`];
-    return [prevDone ? 'active' : 'pending', st.of];
-  };
-  const override = isOverrideActive(snap);
-  const safety = override ? ['done', 'All passed (direct mode)'] : stage(items(['firmware', 'estop', 'auth', 'limits']), conn[0] === 'done');
-  const comm = override ? ['done', 'All passed (direct mode)'] : stage(items(['commission']), safety[0] === 'done');
-  return [
-    { key: 'conn', label: 'Device connection', state: conn[0], sub: conn[1] },
-    { key: 'safety', label: 'Safety checks', state: safety[0], sub: safety[1] },
-    { key: 'comm', label: 'Commissioning', state: comm[0], sub: comm[1] },
-    { key: 'ready', label: 'Ready for operation', state: blockers.length ? 'pending' : 'done', sub: blockers.length ? `${blockers.length} blocker${blockers.length > 1 ? 's' : ''} reported` : 'no blocker reported' },
-  ];
-}
-
-export function PhysicalSafetyPage({ stream, role, go, embedded = false }) {
-  const { snap, commands } = stream;
-  const [overrideBlockers, setOverrideBlockers] = useState(() => isOverrideActive(snap));
-  useEffect(() => {
-    if (isOverrideActive(snap) && !overrideBlockers) {
-      setOverrideBlockers(true);
-    }
-  }, [snap]);
-  const rawBlockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
-  const blockers = overrideBlockers ? [] : rawBlockers;
-  const groups = interlockGroups(snap?.interlocks);
-  const steps = commissioningSteps(snap, groups, blockers);
-  const rawChecks = groupItems(snap, (g) => <button type="button" className="tq-linkbtn" onClick={() => toIlk(g.key)}>Details</button>);
-  const checks = overrideBlockers ? rawChecks.map((g) => ({
-    ...g,
-    state: 'ok',
-    status: 'All passed',
-    detail: 'All passed (direct mode)',
-    items: (g.items || []).map((it) => ({ ...it, status: 'VERIFIED' })),
-  })) : rawChecks;
-  // The first unresolved check, in commissioning order (the blocking one first within its group).
-  const firstGroup = overrideBlockers ? null : groups.find((g) => groupStatus(g.items).state !== 'ok');
-  const first = firstGroup && (firstGroup.items.find((r) => r.status === 'BLOCKED') || firstGroup.items.find((r) => r.status !== 'VERIFIED'));
-  const why = firstGroup ? WHY[firstGroup.key] || WHY.other : null;
-  const nextAction = (kind) => (kind === 'device' ? <LinkButton onClick={() => go('connection')}>Open the connection section</LinkButton>
-    : kind === 'record' ? <LinkButton onClick={toComm}>Go to the commissioning record</LinkButton> : null);
-  return (
-    <>
-      {!embedded && <PageHead title="Safety & Commissioning" sub="Check every safety requirement before motor operation is permitted. The operating controls are on the Overview."
-        right={
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              type="button"
-              className={`tq-btn tq-small ${overrideBlockers ? 'tq-primary' : 'tq-ghost'}`}
-              style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
-              onClick={() => {
-                const next = !overrideBlockers;
-                setOverrideBlockers(next);
-                setOverrideActive(next);
-              }}
-              data-testid="toggle-safety-override"
-            >
-              {overrideBlockers ? '🔓 Blockers Bypassed' : '🔒 Blockers Enforced'}
-            </button>
-            <Pill tone={overrideBlockers ? 'ok' : blockers.length ? 'stop' : 'warn'}>
-              {overrideBlockers ? 'NO BLOCKER REPORTED' : blockers.length ? 'OPERATION BLOCKED' : 'NO BLOCKER REPORTED'}
-            </Pill>
-          </div>
-        } />}
-      {blockers.length ? (
-        <AlertPanel tone="stop" testid="safety-alert" title={`System not ready — ${blockers.length} blocking issue${blockers.length > 1 ? 's' : ''} must be resolved`}
-          action={
-            <div style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
-              <button
-                type="button"
-                className="tq-btn tq-primary"
-                onClick={() => {
-                  setOverrideBlockers(true);
-                  setOverrideActive(true);
-                }}
-                data-testid="btn-remove-all-blockers"
-              >
-                🔓 Remove All Blockers
-              </button>
-              <button type="button" className="tq-btn" onClick={toId('c-ready')}>View all blockers</button>
-            </div>
-          }>
-          <p>The backend reports: <strong>{blockers[0]}</strong>{blockers.length > 1 ? ` and ${blockers.length - 1} more` : ''}. Physical motion stays blocked until it reports none.</p>
-        </AlertPanel>
-      ) : (
-        <AlertPanel tone="info" testid="safety-alert" title="No blocker reported by the device path">
-          <p>Direct operator control is active; commands are sent directly to the firmware.</p>
-        </AlertPanel>
-      )}
-
-      <Card title="Commissioning progress" id="c-steps" className="tq-mon-steps">
-        <StepTracker label="Commissioning progress" steps={steps} testid="safety-steps" />
-      </Card>
-
-      <div className="tq-mon-ovgrid tq-mt">
-        <Card title="Safety checks" id="c-checks" icon={ShieldCheck} sub="Open Details for the backend's evidence">
-          {checks.length ? <CheckList label="Safety checks" testid="safety-checks" items={checks} /> : <Empty>No interlock data.</Empty>}
-        </Card>
-        <Card title="What to do next" id="c-next" icon={Info} testid="safety-next">
-          {first ? (<>
-            <h4 className="tq-mon-subhead">Why this matters</h4>
-            <p className="tq-small">{why[0]}</p>
-            <h4 className="tq-mon-subhead">Next step</h4>
-            <p className="tq-small">{why[1]}</p>
-            <p className="tq-small tq-muted">First unresolved check: <strong>{first.label}</strong> — {first.status}{first.detail ? ` (${first.detail})` : ''}.</p>
-            {nextAction(why[2])}
-          </>) : blockers.length ? (<>
-            <h4 className="tq-mon-subhead">Next step</h4>
-            <p className="tq-small">The backend reports: <strong>{blockers[0]}</strong>.</p>
-            {nextAction(blockers.some((b) => /NOT CONNECTED|HANDSHAKE|TELEMETRY/i.test(b)) ? 'device' : 'record')}
-          </>) : <p className="tq-small">No unresolved check is reported. Direct operator control is ready.</p>}
-        </Card>
-      </div>
-
-      <div className="tq-mt"><ReadinessCard snap={snap} go={go} /></div>
-      <div className="tq-mt"><InterlocksCard snap={snap} go={go} /></div>
-      <LimitsPanel role={role} />
-      <div className="tq-mt"><CommissioningCard role={role} expanded /></div>
-      <Card title="Command history" id="p-hist" icon={History} className="tq-mt" sub="Motor commands this session">
-        <DataTable caption="Device command history" testid="cmd-history" rows={(commands || []).slice(0, 20)} rowKey={(c) => c.id} empty="No commands requested in this session."
-          columns={[{ key: 'id', label: '#', align: 'num' }, { key: 't', label: 'Time', render: (c) => <span className="tq-num">{clock(c.created_unix)}</span> },
-          { key: 'action', label: 'Action', render: (c) => title(c.action) }, { key: 'by', label: 'By', render: (c) => c.requested_by },
-          { key: 'state', label: 'State', render: (c) => <Pill tone={STATE_TONE[c.state] || 'info'}>{title(c.state)}</Pill> },
-          { key: 'detail', label: 'Detail', render: (c) => <span className="tq-muted">{(c.reasons || []).join(' · ') || c.ack_reason}</span> }]} />
-      </Card>
     </>
   );
 }
@@ -1212,17 +977,15 @@ const LAYER_TEXT = {
 // What the physical C2/C3/C4 workflow would need, and why it is locked. Execution stays with the direct device path
 // (MotionPanel -> /device/commands -> firmware); this card sends nothing.
 const NEEDS = {
-  C4: 'Diagnostic tests move the motor. On the physical device they need a valid analysis layer, approved and device-confirmed limits, an authenticated session and no motion blocker.',
+  C4: 'Diagnostic tests require a valid physical analysis layer and device telemetry.',
   C2: 'Predictions need valid physical inputs for the analysis models (the firmware does not yet compute vibration RMS or shaft-order harmonics) and a physical fault ranking.',
   C3: 'Physical motor motion is controlled directly by the operator; AI predictions never alter motor operation automatically.',
 };
 export function PhysicalLocked({ snap, layer }) {
-  const blockers = snap?.control_blockers?.length ? snap.control_blockers : ['DEVICE NOT CONNECTED'];
   return (
     <Card title={layer === 'C4' ? 'Diagnostic tests on the physical device' : layer === 'C2' ? 'Action comparison on the physical device' : 'Action execution on the physical device'} id={`p-${layer}-lock`} className="tq-mt"
       icon={Lock} right={<Pill tone="stop">execution locked</Pill>}>
       <p className="tq-small">{NEEDS[layer]}</p>
-      <BlockedReason title="Current blockers reported by the device path" reasons={blockers} testid={`phys-${layer}-blockers`} />
       {layer === 'C4' && (<>
         <h4 className="tq-mon-subhead">Test catalogue</h4>
         <ul className="tq-mon-catalog" data-testid="phys-test-catalog">{Object.values(TEST_SPECS).map((t) => <li key={t.code}><span><strong>{t.name}</strong> <span className="tq-muted">— {t.target}</span></span> <Pill tone="off">not runnable here</Pill></li>)}</ul>

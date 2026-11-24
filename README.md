@@ -2,7 +2,7 @@
 
 Motor monitoring, diagnostics and protected motor control for an ESP32-S3 + BTS7960/IBT-2 rig.
 
-**Physical-device first.** The website opens in physical mode: it shows the real board's connection, handshake, sensors and faults, and it controls the motor only through the authorised command path. Simulation (the C1-C6 research stack) is a separate mode chosen explicitly in the header.
+**Physical-device first.** The website opens in physical mode and presents the board connection, telemetry, diagnostics, and direct operator controls. Simulation (the C1-C6 research stack) is a separate mode chosen explicitly in the header. Physical commands remain subject to backend and firmware validation; removing commissioning and blocker screens does not remove device-side protections.
 
 ```
 sensors -> ESP32-S3 firmware (esp32/torqva_fw) -> USB serial (TORQVA protocol 1) -> Python backend -> REST + WebSocket -> React website
@@ -10,7 +10,15 @@ website -> authenticated API -> role check -> Safety Supervisor -> command dispa
 ```
 
 > **Firmware status.** `esp32/torqva_fw/` (PlatformIO) is the **sole supported firmware**. The old `smart_motor_monitor` sketch was retired from the current tree, together with its backend (unauthenticated `/api/motor`, `/api/ingest`, TCP port 5001); they exist only in Git history and must not be recovered, built or uploaded. Old serial text such as `STATUS: MOTOR OFF` is **not** valid TORQVA telemetry; the supported firmware must implement the current TORQVA device protocol.
-> **The hardware is not ready for physical motor operation.** START and speed stay locked until the firmware's own protections are satisfied (approved limits, an E-stop, an authenticated session, reset-safe driver). STOP and live readings work whenever a TORQVA board is connected. The exact remaining work is in `docs/TORQVA_GAP_AUDIT.md` and `docs/TORQVA_HARDWARE_READINESS.md`.
+> **Hardware readiness is unverified.** Software builds and simulated tests do not prove physical motor operation. Confirm board revision, wiring, independent E-stop, driver reset behavior, and firmware protections before applying motor power. See `docs/TORQVA_GAP_AUDIT.md` and `docs/TORQVA_HARDWARE_READINESS.md`.
+
+## Current project overview
+
+TORQVA combines ESP32-S3 firmware, a Python/FastAPI service, and a React/Vite cockpit. The frontend separates physical-device pages from simulation pages; the app shell owns mode selection and routing. Physical dashboards show device telemetry, command history, diagnostics, and connection tools. Commissioning checklist and blocker panels have been removed from the physical UI and their commissioning API/module has been retired. Device and firmware protections remain independently enforced.
+
+The frontend loads analysis pages, charts, and the 3D Digital Twin on demand. Device state streams over WebSocket with REST reconciliation. The Digital Twin includes a Three.js view and a 2D fallback. Simulation research tools cover detection, prediction, diagnosis, recovery, learning, experiments, workflows, and evaluation.
+
+Recent verification: frontend build and 282 Vitest tests; backend pytest (759 passed, 29 skipped); firmware native host suite (166 passed); browser E2E flows for app, routing, twin, workbench, workflow, Lab, and C2/C4. Physical motor actuation and signed OTA deployment still require separate hardware and release-key validation.
 
 ## Run
 

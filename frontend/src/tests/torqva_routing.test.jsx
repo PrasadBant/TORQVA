@@ -37,9 +37,9 @@ describe('route parsing', () => {
     expect(parseRoute('#/live')).toEqual({ view: 'live', tab: null });
     expect(parseRoute('#/device/connection')).toEqual({ view: 'device', tab: 'connection' });
     expect(parseRoute('#/device')).toEqual({ view: 'device', tab: 'system' });
-    expect(parseRoute('#/control')).toEqual({ view: 'device', tab: 'safety' });
+    expect(parseRoute('#/control')).toEqual({ view: 'device', tab: 'connection' });
     for (const bad of ['', '#', '#/', '#/nope', '#/live/extra', '#/device/nope', '#/LIVE', '#/../x', '#/live?x=1']) expect(parseRoute(bad), bad).toBeNull();
-    expect(routeHash('device', 'safety')).toBe('#/device/safety');
+    expect(routeHash('device', 'connection')).toBe('#/device/connection');
     expect(routeHash('tests')).toBe('#/tests');
   });
 });
@@ -75,19 +75,8 @@ describe('URL routing in the app', () => {
     await waitFor(() => expect(window.location.hash).toBe('#/device/system'));
   });
 
-  it('Safety & Commissioning cannot be opened by URL in simulation mode, and the URL never switches the mode', async () => {
-    await open('#/device/safety', 'SIMULATION');
-    await waitFor(() => expect(screen.getByRole('tab', { name: /^Device$/ })).toHaveAttribute('aria-selected', 'true'));
-    expect(screen.queryByRole('tab', { name: /Safety & Commissioning/ })).toBeNull();
-    await waitFor(() => expect(window.location.hash).toBe('#/device/system'));
-    expect(window.localStorage.getItem('torqva.mode')).toBe('SIMULATION');
-  });
-
-  it('a hand-edited URL to Safety & Commissioning in simulation mode is corrected too (same page, no reload)', async () => {
-    await open('#/device/system', 'SIMULATION');
-    act(() => { window.history.replaceState(null, '', '/#/device/safety'); window.dispatchEvent(new HashChangeEvent('hashchange')); });
-    await waitFor(() => expect(window.location.hash).toBe('#/device/system'));
-    expect(screen.queryByRole('tab', { name: /Safety & Commissioning/ })).toBeNull();
+  it('rejects the removed safety route', () => {
+    expect(parseRoute('#/device/safety')).toBeNull();
   });
 
   it('opening a route sends no command and starts nothing', async () => {

@@ -151,6 +151,10 @@ def test_single_operator_direct_control():
     stop_written = [json.loads(line.decode().strip()) for line in mock_rig.written if b'"type":"STOP"' in line]
     assert len(stop_written) >= 1
     assert stop_written[-1]["type"] == "STOP"
+    stop_status = client.get("/api/torqva/device/status", headers=headers).json()
+    assert stop_status["drive"] == "IDLE"
+    assert stop_status["values"]["rpm"]["value"] == 0.0
+    assert stop_status["values"]["duty"]["value"] == 0.0
 
     # 7. Test Reconnection behavior
     client.post("/api/torqva/device/disconnect", headers=headers)

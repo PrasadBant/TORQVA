@@ -34,8 +34,11 @@ const reveal = async (id) => { await page.waitForSelector(`[data-testid=${id}]`,
 
 await page.goto((process.env.BASE_URL || 'http://127.0.0.1:5173') + '/#/torqva');
 await page.evaluate(() => sessionStorage.clear()); await page.reload();
-await page.fill('input[type=password]', OP);
-await page.click('button:has-text("Sign in")');
+await page.waitForTimeout(700);
+if (await page.locator('input[type=password]').isVisible()) {
+  await page.fill('input[type=password]', OP);
+  await page.click('button:has-text("Sign in")');
+}
 await page.waitForSelector('nav button.tq-nav:has-text("Failure Prediction")');
 await page.click('nav button.tq-nav:has-text("Failure Prediction")');
 await reveal('c2-pipeline');

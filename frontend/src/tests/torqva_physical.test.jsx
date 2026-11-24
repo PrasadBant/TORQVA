@@ -88,7 +88,7 @@ describe('physical-device-first application', () => {
     const kpis = await screen.findByTestId('phys-kpis');
     expect(kpis).toHaveTextContent('0.120 A'); expect(kpis).toHaveTextContent('25.6 °C'); expect(kpis).toHaveTextContent('0.960 g');
     expect(screen.queryByTestId('tile-Voltage')).toBeNull();                                                       // voltage removed from UI
-    expect(screen.getByTestId('phys-blockers')).toHaveTextContent('NO APPROVED DUTY LIMIT');
+    expect(screen.queryByTestId('phys-blockers')).toBeNull();
     expect(screen.getByTestId('motor-state')).toHaveTextContent('STOPPED');
     expect(screen.getByTestId('status-strip')).toHaveTextContent(/sensors/);
   });
@@ -142,15 +142,12 @@ describe('physical-device-first application', () => {
     expect(screen.queryByTestId('sim-banner')).toBeNull();
   });
 
-  it('has no permanent "disabled by default" banner: the status names the actual blocker and only the affected operations are disabled', async () => {
+  it('shows connection and motor state without a blocker panel', async () => {
     await open(CONNECTED);
     await screen.findByTestId('motor-state');
-    expect(screen.queryByText(/DISABLED BY DEFAULT/)).toBeNull();
-    expect(screen.getByTestId('phys-banner')).toHaveTextContent('Motion unavailable: PHYSICAL CONTROL DISABLED (+1 more)');
-    expect(screen.getByTestId('status-strip')).toHaveTextContent('motion locked: PHYSICAL CONTROL DISABLED');
-    expect(screen.getByTestId('btn-start')).toBeDisabled(); expect(screen.getByTestId('btn-speed')).toBeDisabled();
-    expect(screen.getByTestId('btn-stop')).not.toBeDisabled();                                                          // STOP stays available while connected
-    expect(screen.getByTestId('why-disabled')).toHaveTextContent('PHYSICAL CONTROL DISABLED');
+    expect(screen.getByTestId('phys-banner')).toHaveTextContent('PHYSICAL DEVICE CONNECTED');
+    expect(screen.queryByTestId('why-disabled')).toBeNull();
+    expect(screen.getByTestId('btn-stop')).toBeEnabled();
   });
 
   it('STOP goes through the real command path and the result shows the backend state, not "stopped"', async () => {
@@ -226,26 +223,10 @@ describe('physical-device-first application', () => {
     });
   }
 
-  it('the Safety & Commissioning page holds the commissioning record and history, not the controls', async () => {
-    await open(CONNECTED, 'Safety');
-    expect(await screen.findByText('Commissioning (human record)')).toBeInTheDocument();
-    expect(screen.getByText('Command history')).toBeInTheDocument();
-    expect(screen.getByText('Operating readiness')).toBeInTheDocument();        // readiness and the real blockers come first
-    expect(screen.getByText('Safety interlocks')).toBeInTheDocument();
-    expect(screen.queryByTestId('btn-start')).toBeNull();
-  });
-
-  it('shows live availability instead of a generic banner: available only when the backend reports no blocker', async () => {
-    await open({ ...CONNECTED, control_blockers: [], control_limits: { max_duty_pct: 30, max_rpm: 2000 } });
-    expect(await screen.findByTestId('availability')).toHaveTextContent('START / speed available');
-    expect(screen.queryByTestId('why-disabled')).toBeNull();
-    expect(screen.getByTestId('btn-start')).toBeDisabled();                                                               // still needs a duty value
-  });
-
-  it('shows the specific first reason when locked', async () => {
-    await open({ ...CONNECTED, control_blockers: ['SAFETY FAULT LATCHED: SENSOR_INVALID', 'PHYSICAL CONTROL DISABLED'] });
-    expect(await screen.findByTestId('availability')).toHaveTextContent('START / speed unavailable');
-    expect(screen.getByTestId('why-disabled')).toHaveTextContent('SAFETY FAULT LATCHED: SENSOR_INVALID');
+  it('has no commissioning or interlock page', async () => {
+    await open(CONNECTED);
+    expect(screen.queryByRole('tab', { name: /Safety & Commissioning/ })).toBeNull();
+    expect(screen.queryByTestId('availability')).toBeNull();
   });
 
   it('shows the E-stop input state and the exact transport label, never calling the link encrypted', async () => {

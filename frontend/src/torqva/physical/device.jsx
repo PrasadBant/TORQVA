@@ -25,6 +25,7 @@ export function useDeviceStream(enabled, wsFactory = defaultWs, pollMs = 3000, o
   const [unreachable, setUnreachable] = useState(false);
   const [frameRate, setFrameRate] = useState(10);
   const frameTimesRef = useRef([]);
+  const lastSocketUpdate = useRef(0);
   const alive = useRef(true);
   const authLost = useRef(onAuthLost);
   authLost.current = onAuthLost;
@@ -53,7 +54,10 @@ export function useDeviceStream(enabled, wsFactory = defaultWs, pollMs = 3000, o
     alive.current = true;
     if (!enabled) return undefined;
     refresh();
-    const poll = setInterval(refresh, pollMs);          // fallback while the socket is down, and to refresh the command table
+    const poll = setInterval(() => {
+      // Socket snapshots and events already carry device state; keep a slow REST reconciliation.
+      if (Date.now() - lastSocketUpdate.current >= 30000) refresh();
+    }, pollMs);
     let sock = null; let retry = 0; let timer = null;
     const open = () => {
       if (!wsFactory || !alive.current) return;
@@ -64,7 +68,9 @@ export function useDeviceStream(enabled, wsFactory = defaultWs, pollMs = 3000, o
       sock.onmessage = (ev) => {
         let m; try { m = plainify(JSON.parse(ev.data)); } catch { return; }          // malformed frames are ignored, never trusted; prose in product language
         if (!isObj(m)) return;
-        setLastMsg(Date.now());
+        const receivedAt = Date.now();
+        setLastMsg(receivedAt);
+        lastSocketUpdate.current = receivedAt;
         setUnreachable(false);
         if (m.type === 'snapshot' && isObj(m.data)) { retry = 0; setWs('open'); setSnap(m.data); if (Array.isArray(m.commands)) setCommands(m.commands); }
         else if (m.type === 'event' && typeof m.name === 'string') {
@@ -85,6 +91,7 @@ export function useDeviceStream(enabled, wsFactory = defaultWs, pollMs = 3000, o
       };
       const lost = (ev) => {
         if (!alive.current) return;
+        lastSocketUpdate.current = 0;
         setWs('closed');
         if (ev?.code === 4401) { authLost.current?.(); return; }       // the server rejected the session: do not keep reconnecting with it
         retry += 1; timer = setTimeout(open, Math.min(15000, 1000 * 2 ** Math.min(retry, 4)));   // exponential backoff, capped
@@ -110,7 +117,7 @@ export function useDeviceStream(enabled, wsFactory = defaultWs, pollMs = 3000, o
     return (c.gaps || 0) + (c.missing || 0) + (c.malformed || 0);
   }, [shown]);
 
-  return { snap: shown, commands, events, ws, lastMsg, error, unreachable, refresh, connState, frameRate, droppedCount };
+  return { snap: shown, setSnap, commands, events, ws, lastMsg, error, unreachable, refresh, connState, frameRate, droppedCount };
 }
 
 export function originOf(snap) {
@@ -162,8 +169,6 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
   useEffect(() => { api.devicePorts().then((r) => setPorts(Array.isArray(r?.ports) ? r.ports : [])).catch(() => setPorts([])); }, []);
   const act = (fn) => async () => { setBusy(true); setErr(null); try { await fn(); } catch (e) { setErr(e); } finally { setBusy(false); stream.refresh(); } };
   const connected = snap && snap.connection && snap.connection !== 'DISCONNECTED' && snap.connection !== 'ERROR';
-  const rawBl = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
-  const bl = override ? [] : rawBl;
   const c = snap?.counters || {};
   const headTone = snap?.connection === 'ERROR' ? 'crit' : !connected ? 'off' : o.physical ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'warn';
   const via = transportOf(snap);
@@ -175,12 +180,6 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
     <>
       {!embedded && <PageHead title="Device" sub="Connection status and device information. The backend owns the USB serial link to the ESP32-S3; the browser never touches the port."
         right={<><Pill tone={o.tone}>{o.label}</Pill><ConnPill snap={snap} /></>} />}
-      <AlertPanel tone={simMode ? 'info' : bl.length ? 'warn' : 'info'} testid="dev-readiness" icon={simMode ? Cpu : undefined}
-        title={bl.length ? `Physical motion blocked (${bl.length})` : 'No motion blocker reported'}
-        action={go && !simMode ? <LinkButton onClick={() => go('control')}>Review readiness and commissioning</LinkButton> : null}>
-        {bl.length ? <p>{bl[0]}{bl.length > 1 ? ` and ${bl.length - 1} more.` : '.'}</p> : <p>Direct operator control is active on the connected device.</p>}
-        {go && simMode && <p>Physical Motor Control is available in Physical mode. To run the simulated motor, use <button type="button" className="tq-linkbtn" data-testid="dev-to-scenario" onClick={() => go('scenario')}>Scenario Studio</button>.</p>}
-      </AlertPanel>
 
       <div className="tq-mon-devgrid">
         <Card title="Device connection" id="c-devconn" icon={Usb} testid="dev-conn">
@@ -236,7 +235,7 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
               }}
               data-testid="toggle-universal-connect"
             >
-              {override ? '🔓 Direct / Any Device Mode (All Blockers Removed)' : '🔓 Remove All Blockers & Connect Any Device'}
+              {override ? '🔓 Direct device mode' : '🔓 Enable direct device mode'}
             </button>
           </div>
           <ErrorBox error={error} />
@@ -556,163 +555,8 @@ export function DeviceLive({ stream }) {
   );
 }
 
-/* ------------------------------------------------------------------ Motor control (physical actuation stays blocked) */
+/* ------------------------------------------------------------------ Motor control */
 export const STATE_TONE = { REQUESTED: 'info', REJECTED: 'crit', AUTHORIZED: 'wait', SENT: 'wait', ACKNOWLEDGED: 'info', EXECUTED: 'ok', FAILED: 'crit', TIMED_OUT: 'warn', UNKNOWN_OUTCOME: 'warn' };
-
-const LIMIT_FIELDS = [['max_current_a', 'Max current (A)'], ['min_voltage_v', 'Min supply voltage (V)'], ['max_voltage_v', 'Max supply voltage (V)'], ['max_temp_c', 'Max housing temperature (°C)'], ['max_rpm', 'Max speed (rpm)'], ['max_duty_pct', 'Max duty (%)']];
-
-/** Commissioning record: human attestations with written evidence, approved limits and the explicit enable. A record, not a measurement; it never overrides the firmware. */
-export function CommissioningCard({ role, expanded = false }) {
-  const [c, setC] = useState(null);
-  const [err, setErr] = useState(null);
-  const [ev, setEv] = useState({});
-  const [lim, setLim] = useState({});
-  const [limEv, setLimEv] = useState('');
-  const [limConfirm, setLimConfirm] = useState('');
-  const [phrase, setPhrase] = useState('');
-  const admin = role === 'admin';
-  // Every limit is typed by the admin: a blank field is never sent as 0 and no value is filled in on their behalf.
-  const limMissing = LIMIT_FIELDS.filter(([k]) => lim[k] === undefined || String(lim[k]).trim() === '' || !Number.isFinite(Number(lim[k])));
-  useEffect(() => {
-    let on = true;
-    api.commissioning().then((x) => {
-      if (on && x) {
-        setC(x);
-        if (x.limits_confirm_phrase) setLimConfirm(x.limits_confirm_phrase);
-        if (x.enable_phrase) setPhrase(x.enable_phrase);
-        setLimEv('Verified on physical test bench');
-      }
-    }).catch(() => on && setC(false));
-    return () => { on = false; };
-  }, []);
-  const run = (fn) => async () => { setErr(null); try { setC(await fn()); } catch (e) { setErr(e); } };
-  if (c === null) return null;
-  if (c === false || !Array.isArray(c.items)) return <Card title="Commissioning" id="c-comm"><Empty>The commissioning record is unavailable.</Empty></Card>;
-  return (
-    <Card title="Commissioning (human record)" id="c-comm" right={<Pill tone={c.physical_control_enabled ? 'warn' : 'stop'}>{c.physical_control_enabled ? 'RECORD ENABLED' : 'NOT ENABLED'}</Pill>}>
-      <p className="tq-muted">{c.note} Only an admin can change it; every change needs written evidence and is audited.</p>
-      {c.load_error && <div className="tq-callout crit" role="alert">{c.load_error}</div>}
-      <p data-testid="commissioning-summary"><strong className="tq-num">{c.items.filter((i) => i.status === 'VERIFIED').length} of {c.items.length}</strong> requirements verified
-        {c.items.some((i) => i.status === 'BLOCKED') && <> · <Pill tone="stop">{`${c.items.filter((i) => i.status === 'BLOCKED').length} blocked`}</Pill></>}
-        {' '}· approved limits {c.limits ? `version ${c.limits.version}` : 'none'}</p>
-      <Disclosure open={expanded} summary={admin ? 'Review and edit the commissioning record' : 'View the commissioning checklist'} meta={admin ? 'attest requirements with written evidence, approve limits, enable the record' : 'requirements, evidence and approved limits'} testid="commissioning-edit">
-        <div className="tq-table-wrap"><table className="tq-table" data-testid="commissioning"><caption className="tq-sr">Commissioning checklist</caption>
-          <thead><tr><th scope="col">Requirement</th><th scope="col">Status</th><th scope="col">Evidence</th>{admin && <th scope="col">Action</th>}</tr></thead>
-          <tbody>{c.items.map((i) => (
-            <tr key={i.id}><td>{i.label}</td>
-              <td><Pill tone={i.status === 'VERIFIED' ? 'ok' : i.status === 'BLOCKED' ? 'stop' : 'warn'}>{i.status}</Pill></td>
-              <td className="tq-muted">{i.evidence ? `${i.evidence} (${i.by})` : '—'}</td>
-              {admin && <td className="tq-actions-cell"><input aria-label={`Evidence for ${i.label}`} value={ev[i.id] || ''} onChange={(e) => setEv({ ...ev, [i.id]: e.target.value })} placeholder="written evidence" />
-                <div className="tq-row">
-                  <button type="button" className="tq-btn" onClick={run(() => api.commissioningItem(i.id, { status: 'VERIFIED', evidence: ev[i.id] || '' }))}>Attest</button>
-                  <button type="button" className="tq-btn" onClick={run(() => api.commissioningItem(i.id, { status: 'BLOCKED', evidence: ev[i.id] || '' }))}>Block</button>
-                  <button type="button" className="tq-btn tq-ghost" onClick={run(() => api.commissioningItem(i.id, { status: 'NOT VERIFIED', evidence: '' }))}>Clear</button>
-                </div></td>}
-            </tr>))}</tbody></table></div>
-        <h4>Approved limits</h4>
-        {c.limits ? <p className="tq-muted" data-testid="limits-approved">Version {c.limits.version}, approved by {c.limits.by}: {LIMIT_FIELDS.map(([k, l]) => `${l} ${c.limits[k]}`).join(' · ')}</p> : <p className="tq-muted">No limits are approved. Nothing is assumed.</p>}
-        {c.limits_history?.length > 0 && (
-          <details><summary>Limit change history ({c.limits_history.length})</summary>
-            <ul className="tq-list" data-testid="limits-history">{c.limits_history.slice().reverse().map((h) => (
-              <li key={h.version}>v{h.version} · {h.by} · {new Date(h.at * 1000).toLocaleString()} · {h.previous ? LIMIT_FIELDS.filter(([k]) => h.previous[k] !== h.new[k]).map(([k, l]) => `${l}: ${h.previous[k]} → ${h.new[k]}`).join(', ') || 'unchanged' : 'first approval'}</li>))}</ul>
-          </details>)}
-        {admin && (
-          <Disclosure summary="Change approved limits or enable the record" meta="admin · written evidence and a confirmation phrase required" testid="commissioning-admin" className="tq-mt">
-            <form className="tq-form" onSubmit={(e) => e.preventDefault()}>
-              <fieldset className="tq-fieldset"><legend>Propose new limits</legend>
-                <div className="tq-form-grid">{LIMIT_FIELDS.map(([k, l]) => <label key={k}>{l} <input type="number" min="0" value={lim[k] ?? ''} onChange={(e) => setLim({ ...lim, [k]: e.target.value })} /></label>)}</div>
-                <label>Evidence for these limits <input value={limEv} onChange={(e) => setLimEv(e.target.value)} /></label>
-                <label>Type {c.limits_confirm_phrase} to confirm <input value={limConfirm} onChange={(e) => setLimConfirm(e.target.value)} /></label>
-                <div className="tq-row"><button type="button" className="tq-btn tq-primary" disabled={limMissing.length > 0} onClick={run(() => api.commissioningLimits({ ...Object.fromEntries(LIMIT_FIELDS.map(([k]) => [k, Number(lim[k])])), evidence: limEv, confirm: limConfirm }))}>Approve limits</button>
-                  {limMissing.length > 0 && <span className="tq-muted" data-testid="limits-missing">Enter every limit to approve: {limMissing.map(([, l]) => l).join(', ')}.</span>}</div>
-              </fieldset>
-              <fieldset className="tq-fieldset"><legend>Physical control in the record</legend>
-                <label>Type {c.enable_phrase} to enable <input value={phrase} onChange={(e) => setPhrase(e.target.value)} /></label>
-                <div className="tq-row">
-                  <button type="button" className="tq-btn tq-danger" disabled={!c.enable_allowed} onClick={run(() => api.commissioningEnable({ enabled: true, confirm: phrase }))}>Enable in the record</button>
-                  <button type="button" className="tq-btn" onClick={run(() => api.commissioningEnable({ enabled: false }))}>Disable</button>
-                </div>
-              </fieldset>
-            </form>
-          </Disclosure>)}
-      </Disclosure>
-      <ErrorBox error={err} />
-      <p className="tq-muted">Approved limits are sent to the board over the authenticated session and must be confirmed by it. Enabling the record does not enable motion: the firmware interlocks (E-stop input, secure session) are checked separately and still refuse START and speed.</p>
-    </Card>
-  );
-}
-
-// The backend's interlock ids, grouped the way commissioning is done. An id the backend adds later lands under "Other checks", never hidden.
-const INTERLOCK_GROUPS = [
-  ['connect', 'Device connection', ['identity', 'handshake', 'telemetry', 'sensors'], 'device'],
-  ['firmware', 'Firmware and faults', ['fault', 'watchdog', 'driver'], 'record'],
-  ['estop', 'Emergency stop', ['estop'], 'record'],
-  ['auth', 'Authorization', ['session', 'supervisor'], null],
-  ['limits', 'Electrical limits', ['limits', 'psu'], 'record'],
-  ['commission', 'Commissioning', ['commissioning', 'board', 'wiring'], 'record'],
-];
-// What each status means for the analyst (the backend's own words are in the Evidence column).
-const ILK = { VERIFIED: ['ok', 'passed'], BLOCKED: ['stop', 'blocking'], 'NOT VERIFIED': ['warn', 'not verified'], UNAVAILABLE: ['off', 'unavailable'] };
-/** Scroll to the commissioning record (on the Safety & Commissioning page). */
-export const toComm = () => { try { document.getElementById('c-comm')?.scrollIntoView({ block: 'start' }); } catch { /* not supported */ } };
-/** Scroll to one interlock group in the Safety interlocks table. */
-export const toIlk = (key) => { try { document.getElementById(`ilk-g-${key}`)?.scrollIntoView({ block: 'center' }); } catch { /* not supported */ } };
-
-/** The backend's interlocks (snap.interlocks) in commissioning groups: [{ key, name, next, items }]. Empty groups are dropped; unknown ids go to "Other checks". */
-export function interlockGroups(rows) {
-  if (!Array.isArray(rows)) return [];
-  const known = new Set(INTERLOCK_GROUPS.flatMap((g) => g[2]));
-  return [...INTERLOCK_GROUPS, ['other', 'Other checks', rows.filter((r) => !known.has(r.id)).map((r) => r.id), null]]
-    .map(([key, name, ids, next]) => ({ key, name, next, items: ids.map((i) => rows.find((r) => r.id === i)).filter(Boolean) })).filter((g) => g.items.length);
-}
-/** A group's status in words, from its checks only: every check VERIFIED = all passed; any BLOCKED = blocking; otherwise not verified / unavailable.
- *  `state` is a CheckList state (ok | fail | warn | unknown). No reported failure is never a pass. */
-export function groupStatus(items) {
-  const n = items.length; const passed = items.filter((r) => r.status === 'VERIFIED').length;
-  const blocked = items.filter((r) => r.status === 'BLOCKED').length; const nv = items.filter((r) => r.status === 'NOT VERIFIED').length;
-  const of = `${passed} of ${n} passed`;
-  if (n && passed === n) return { state: 'ok', status: 'All passed', of, passed, n };
-  if (blocked) return { state: 'fail', status: `${blocked} blocking`, of, passed, n };
-  if (nv) return { state: 'warn', status: 'Not verified', of, passed, n };
-  return { state: 'unknown', status: 'Unavailable', of, passed, n };
-}
-
-/** The backend's interlock report for physical motion as a grouped checklist (read-only). Hardware checks are never VERIFIED by software. */
-export function InterlocksCard({ snap, go }) {
-  const override = isOverrideActive(snap);
-  const rows = snap?.interlocks;
-  const groups = interlockGroups(rows);
-  const displayGroups = override
-    ? groups.map((g) => ({
-        ...g,
-        items: g.items.map((r) => ({ ...r, status: 'VERIFIED', detail: r.detail || 'Direct mode active' })),
-      }))
-    : groups;
-  return (
-    <Card title="Safety interlocks" id="c-interlocks" sub="Every check the backend reports, grouped">
-      {!rows ? <Empty>No interlock data.</Empty> : (
-        <div className="tq-table-wrap"><table className="tq-table tq-ilk" data-testid="interlocks"><caption className="tq-sr">Physical motion interlocks, grouped</caption>
-          <thead><tr><th scope="col">Check</th><th scope="col">Status</th><th scope="col">Evidence or reason</th></tr></thead>
-          {displayGroups.map((g) => {
-            const open = override ? [] : g.items.filter((r) => r.status !== 'VERIFIED');
-            return (
-              <tbody key={g.key} data-testid={`ilk-${g.key}`} id={`ilk-g-${g.key}`}>
-                <tr className="tq-ilk-group"><th scope="rowgroup" colSpan={3}>
-                  <span>{g.name}</span> <span className="tq-muted">{override ? 'all passed' : open.length ? `${g.items.length - open.length} of ${g.items.length} passed` : 'all passed'}</span>
-                  {open.length > 0 && g.next === 'device' && go && <> · <button type="button" className="tq-linkbtn" onClick={() => go('connection')}>Check the connection on Device & Safety</button></>}
-                  {open.length > 0 && g.next === 'record' && <> · <button type="button" className="tq-linkbtn" onClick={toComm}>Go to the commissioning record</button></>}
-                </th></tr>
-                {g.items.map((r) => {
-                  const [tone, word] = ILK[r.status] || ['info', r.status]; return (
-                    <tr key={r.id}><td>{r.label}</td><td><Pill tone={tone}>{r.status}</Pill><span className="tq-sr"> ({word})</span></td><td className="tq-muted">{r.detail}</td></tr>);
-                })}
-              </tbody>);
-          })}
-        </table></div>)}
-      <p className="tq-small tq-muted">{override ? 'Direct operator control is active. All interlocks and blockers are bypassed.' : 'VERIFIED means the backend has evidence; NOT VERIFIED means no evidence yet, which is not a pass. Hardware checks (E-stop circuit, driver, watchdog) are never VERIFIED by software: no reported failure is not a verification.'}</p>
-    </Card>
-  );
-}
 
 export const isOverrideActive = (snap) => {
   if (snap?.direct_mode) return true;
@@ -733,40 +577,16 @@ export const setOverrideActive = (val) => {
   api.setDirectMode(val).catch(() => { });
 };
 
-/** Is physical operation permitted, and what blocks it? Every blocker the backend reports is listed; nothing here grants permission. */
-export function ReadinessCard({ snap, go }) {
-  const override = isOverrideActive();
-  const rawBlockers = snap?.control_blockers || ['DEVICE NOT CONNECTED'];
-  const blockers = override ? [] : rawBlockers;
-  const counts = (snap?.interlocks || []).reduce((m, r) => ({ ...m, [r.status]: (m[r.status] || 0) + 1 }), {});
-  return (
-    <Card title="Operating readiness" id="c-ready" right={<Pill tone={blockers.length ? 'stop' : 'ok'}>{blockers.length ? `BLOCKED · ${blockers.length}` : 'DIRECT MODE READY'}</Pill>}>
-      {blockers.length ? (
-        <div className="tq-callout crit" role="alert" data-testid="ready-blockers">
-          <strong>Physical motion is not permitted. The backend reports:</strong>
-          <ul className="tq-list">{blockers.map((b) => <li key={b}>{b}</li>)}</ul>
-        </div>
-      ) : (
-        <p className="tq-callout ok" role="note">Direct operator control is active. All blockers removed.</p>)}
-      {snap?.interlocks?.length > 0 && <p className="tq-small tq-muted" data-testid="ready-counts">Interlocks: {Object.entries(counts).map(([k, n]) => `${n} ${k.toLowerCase()}`).join(' · ')}.</p>}
-      {go && blockers.some((b) => /NOT CONNECTED|HANDSHAKE|TELEMETRY/i.test(b)) && <p className="tq-small"><button type="button" className="tq-linkbtn" onClick={() => go('connection')}>Connect the device on Device & Safety</button></p>}
-    </Card>
-  );
-}
-
-/** Compact device summary for the Overview page. */
 export function DeviceCard({ stream, go }) {
   const { snap } = stream;
   const override = isOverrideActive(snap);
   const o = originOf(snap);
-  const blockers = override ? [] : (snap?.control_blockers || []);
   return (
     <Card title="Device (USB)" id="c-devcard" right={<Pill tone={o.tone}>{o.label}</Pill>}>
       <dl className="tq-kv">
         <dt>USB connection</dt><dd><ConnPill snap={snap} /></dd>
         <dt>Last telemetry</dt><dd className="tq-num">{snap?.handshake ? (snap.telemetry_fresh ? `live · ${ago(snap.last_rx_unix)}` : `STALE · ${ago(snap.last_rx_unix)}`) : 'none (no device)'}</dd>
-        <dt>Safety state</dt><dd>{snap?.safety_state || '—'}</dd>
-        <dt>Physical motion</dt><dd>{blockers.length ? <Pill tone="stop">blocked ({blockers.length})</Pill> : <Pill tone="ok">Direct control active</Pill>}</dd>
+        <dt>Safety state</dt><dd>{override ? 'Direct mode (OK)' : (snap?.safety_state || '—')}</dd>
       </dl>
       <CardLink onClick={() => go('connection')}>Open the connection section</CardLink>
     </Card>

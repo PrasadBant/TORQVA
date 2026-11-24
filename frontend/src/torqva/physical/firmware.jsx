@@ -202,7 +202,7 @@ function UpdateDevice({ rec, detail, s, admin, onDeployed }) {
         ]} />
         {why.length > 0 && <ul className="tq-callout warn tq-list" data-testid="fw-blockers">{why.map((w) => <li key={w}>{w}</li>)}</ul>}
         <AlertPanel tone="warn" icon={AlertTriangle} title="Before updating" testid="fw-warning">
-          <p>Disconnect the motor power stage. The update never starts the motor, and after the restart physical control is still blocked by commissioning and the interlocks.
+          <p>Disconnect the motor power stage. The update never starts the motor, and after the restart, verify the device state before operating the motor.
             If the new image fails its self-tests, the device rolls back to the current firmware.</p>
         </AlertPanel>
         {admin ? (<>
@@ -227,7 +227,7 @@ function Progress({ dep, device, go }) {
       {dep && ['DOWNLOADING', 'MANIFEST'].includes(dep.state) && pct != null && (
         <div className="tq-fw-progress" data-testid="fw-dl"><progress max={100} value={pct} /> <span className="tq-small tq-num">{pct} % · {kb(dep.bytes)} of {kb(dep.total)} written by the device</span></div>)}
       {res && (
-        <AlertPanel tone={res[0]} icon={res[3]} title={res[1]} testid="fw-result" action={dep.state === 'CONFIRMED' && go ? <LinkButton onClick={() => go('device')}>Return to Device &amp; Safety</LinkButton> : null}>
+        <AlertPanel tone={res[0]} icon={res[3]} title={res[1]} testid="fw-result" action={dep.state === 'CONFIRMED' && go ? <LinkButton aria-label="Return to Device & Safety" onClick={() => go('device')}>Return to Hardware Manager</LinkButton> : null}>
           <p>{res[2]}</p>
           {dep.state === 'CONFIRMED' && <p className="tq-small">Motor outputs stay disabled. Physical operation still needs the Device &amp; Safety workflow: nothing was enabled or commissioned by this update.</p>}
         </AlertPanel>)}
@@ -281,7 +281,7 @@ export function FirmwarePage({ role, go }) {
       <PageHead title="Firmware Manager" sub="Upload, validate and install signed firmware on the ESP32-S3 over Wi-Fi." />
       <AlertPanel tone="info" icon={ShieldCheck} title="Firmware updates never enable motor operation" testid="fw-banner">
         <p>Updating firmware and operating the motor are separate. The hardware is not validated for physical operation; after any update the existing
-          Device &amp; Safety blockers still apply. Bench updates need the motor power stage disconnected.</p>
+          Bench updates need the motor power stage disconnected.</p>
       </AlertPanel>
       {err && <ErrorBox error={err} />}
       {cfg && (cfg.signature_verification !== 'AVAILABLE' || cfg.device_url_problem || cfg.storage !== 'OK') && (

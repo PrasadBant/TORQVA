@@ -24,7 +24,7 @@ const sig = fs.readFileSync(FW_SIG, 'utf8').trim();
 
 await signIn(ADMIN);
 check('the page opens from its URL in physical mode, inside the Device & Safety group', (await page.textContent('main h2')).includes('Firmware Manager')
-  && (await page.locator('.tq-navgroup:has(button[aria-label="Show or hide Device & Safety"]) button.tq-nav:has-text("Firmware Manager")').count()) === 1);
+  && (await page.locator('.tq-navgroup:has(button[aria-label="Show or hide Hardware & Device"]) button.tq-nav:has-text("Firmware Manager")').count()) === 1);
 check('without a board the device is not connected and no update capability is claimed', /not connected/.test(await page.textContent('[data-testid=fw-device]')) && !/OTA ready/.test(await page.textContent('[data-testid=fw-device]')));
 check('the page states that firmware updates never enable motor operation', (await page.textContent('[data-testid=fw-banner]')).includes('never enable motor operation'));
 

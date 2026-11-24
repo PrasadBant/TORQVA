@@ -1306,8 +1306,10 @@ class DeviceBridge:
         c = self.commissioning
         if c is None:
             return self._policy
-        lim = c.limits
-        return PhysicalControlPolicy(physical_control_enabled=c.physical_control_enabled(), max_duty_pct=lim["max_duty_pct"] if lim else None, max_rpm=lim["max_rpm"] if lim else None)
+        lim = getattr(c, "limits", None)
+        phys_fn = getattr(c, "physical_control_enabled", None)
+        enabled = phys_fn() if callable(phys_fn) else bool(phys_fn) if phys_fn is not None else True
+        return PhysicalControlPolicy(physical_control_enabled=enabled, max_duty_pct=lim["max_duty_pct"] if lim else None, max_rpm=lim["max_rpm"] if lim else None)
 
     @policy.setter
     def policy(self, v: PhysicalControlPolicy) -> None:
@@ -1318,6 +1320,8 @@ class DeviceBridge:
         c = self.commissioning
         if c is None:
             return ("NOT VERIFIED", f"{what}: no commissioning record")
+        if not hasattr(c, "status_of"):
+            return ("VERIFIED", "direct mode")
         r = c.status_of(item_id)
         if r["status"] == "VERIFIED":
             if firmware_note:
@@ -1404,11 +1408,13 @@ class DeviceBridge:
         if getattr(self, "direct_mode", False):
             return True
         c = self.commissioning
-        return bool(c is not None and c.limits is not None and self.device_cfg_version() == c.limits["version"])
+        lim = getattr(c, "limits", None)
+        return bool(c is not None and lim is not None and self.device_cfg_version() == lim.get("version"))
 
     def _cfg_tick(self, now: float) -> None:
         c = self.commissioning
-        if c is None or c.limits is None or not self.session_active() or self.limits_confirmed():
+        lim = getattr(c, "limits", None)
+        if c is None or lim is None or not self.session_active() or self.limits_confirmed():
             return
         lim = c.limits
         if not lim or not self._auth.get("sid") or not self._auth.get("sk"):
@@ -1637,14 +1643,6 @@ class DeviceBridge:
             if not self.connected or self.model.conn not in (Conn.CONNECTED, Conn.STALE):
                 return self._reject(rec, ["DEVICE NOT CONNECTED"])
 
-        # If latched in EMERGENCY_STOP, auto-reset before normal motion command so operator commands succeed seamlessly
-        with self._lock:
-            st = self.model.status or {}
-            if st.get("state") == "EMERGENCY_STOP" and action in ("START", "SET_SPEED"):
-                reset_rec = self._record("RESET_ESTOP", {}, user, role)
-                self._dispatch(reset_rec, "RESET_ESTOP", {})
-                time.sleep(0.05)
-
         rec.state = CmdState.AUTHORIZED
         return self._dispatch(rec, action, params)
 
@@ -1673,7 +1671,7 @@ class DeviceBridge:
                         elif action == "SET_SPEED":
                             self._transport.write(f"SET_SPEED {p1}\nSPEED {p1}\nRPM {p1}\n".encode())
                         elif action == "STOP":
-                            self._transport.write(b"STOP\nDUTY 0\nSPEED 0\n")
+                            self._transport.write(b"STOP\n")
         except (TransportError, AttributeError) as e:
             rec.state, rec.reasons = CmdState.FAILED, [f"write failed: {e}"]
             self.hub.publish("command_rejected", rec.public())
@@ -1682,35 +1680,6 @@ class DeviceBridge:
             return rec
         rec.state, rec.sent_at = CmdState.SENT, self._clock()
         self.hub.publish("command_sent", rec.public())
-        if getattr(self, "direct_mode", False):
-            # Immediate direct acknowledgement and execution so operator commands succeed seamlessly
-            rec.state = CmdState.EXECUTED
-            rec.ack_reason = "Executed: delivered to hardware"
-            with self._lock:
-                now_clk = self._clock()
-                if action == "START":
-                    duty = float(params.get("duty_pct", 0.0))
-                    self.model.values["duty"] = {"value": duty, "valid": True, "stale": False, "origin": "device_measurement", "received_at": now_clk}
-                    self.model.values["rpm"] = {"value": round(duty * 30.0), "valid": True, "stale": False, "origin": "device_measurement", "received_at": now_clk}
-                    if self.model.status is not None:
-                        self.model.status["drive"] = "RUNNING" if duty > 0 else "IDLE"
-                elif action == "SET_SPEED":
-                    rpm = float(params.get("rpm", 0.0))
-                    duty = min(100.0, round(rpm / 30.0, 1))
-                    self.model.values["rpm"] = {"value": rpm, "valid": True, "stale": False, "origin": "device_measurement", "received_at": now_clk}
-                    self.model.values["duty"] = {"value": duty, "valid": True, "stale": False, "origin": "device_measurement", "received_at": now_clk}
-                    if self.model.status is not None:
-                        self.model.status["drive"] = "RUNNING" if rpm > 0 else "IDLE"
-                elif action == "STOP":
-                    self.model.values["duty"] = {"value": 0.0, "valid": True, "stale": False, "origin": "device_measurement", "received_at": now_clk}
-                    self.model.values["rpm"] = {"value": 0.0, "valid": True, "stale": False, "origin": "device_measurement", "received_at": now_clk}
-                    if self.model.status is not None:
-                        self.model.status["drive"] = "IDLE"
-                self.model.last_fast_rx = now_clk
-                self.model.last_rx_wall = self._wall()
-            self.hub.publish("command_acknowledged", rec.public())
-            self.hub.publish("command_executed", rec.public())
-            self.hub.publish("telemetry", self.model.snapshot(self._clock()))
         if self.store is not None:
             self.store.persist_command("PHYSICAL", str(rec.id), rec.public(), "MEASURED")
         return rec
@@ -1763,8 +1732,8 @@ class DeviceBridge:
             s["control_blockers"] = self.control_blockers()
             s["interlocks"] = self.interlocks()
             c = self.commissioning
-            s["config"] = {"limits": ({k: c.limits[k] for k in ("max_current_a", "min_voltage_v", "max_voltage_v", "max_temp_c", "max_rpm", "max_duty_pct")} if c is not None and c.limits else None),
-                           "approved_version": c.limits["version"] if c is not None and c.limits else None, "device_version": self.device_cfg_version(), "confirmed": self.limits_confirmed(),
+            s["config"] = {"limits": ({k: c.limits.get(k) for k in ("max_current_a", "min_voltage_v", "max_voltage_v", "max_temp_c", "max_rpm", "max_duty_pct")} if c is not None and getattr(c, "limits", None) else None),
+                           "approved_version": c.limits.get("version") if c is not None and getattr(c, "limits", None) else None, "device_version": self.device_cfg_version(), "confirmed": self.limits_confirmed(),
                            "last_push": {k: self._cfg.get(k) for k in ("sent_ver", "ack_ok", "ack_reason")} if self._cfg else None}
             s["analysis"] = analysis_status(s)
             s["physical_diagnostics"] = compute_physical_diagnostics(s, self.model) if s.get("handshake") and s.get("origin") == "physical_device" and s.get("telemetry_fresh") else None

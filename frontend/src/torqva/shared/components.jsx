@@ -66,8 +66,8 @@ export function CardLink({ onClick, children }) {
 }
 
 /** Inline text link that navigates (e.g. "View blockers →"). Always a real action: pass the shell's `go` or a handler. */
-export function LinkButton({ onClick, children, testid }) {
-  return <button type="button" className="tq-link" onClick={onClick} data-testid={testid}>{children}<ArrowRight size={14} aria-hidden="true" /></button>;
+export function LinkButton({ onClick, children, testid, 'aria-label': ariaLabel, ...rest }) {
+  return <button type="button" className="tq-link" onClick={onClick} data-testid={testid} aria-label={ariaLabel} {...rest}>{children}<ArrowRight size={14} aria-hidden="true" /></button>;
 }
 
 /** Persistent, non-dismissable. TORQVA only serves simulated data in this build. */
@@ -335,6 +335,7 @@ export function Tabs({ tabs = [], value, onChange, label, idBase = 'tq-tab' }) {
     <div className="tq-tabs" role="tablist" aria-label={label} onKeyDown={move}>
       {tabs.map((t) => (
         <button key={t.key} type="button" role="tab" id={`${idBase}-${t.key}`} aria-controls={`${idBase}-${t.key}-panel`} aria-selected={value === t.key}
+          aria-label={t.ariaLabel || undefined}
           tabIndex={value === t.key ? 0 : -1} ref={(el) => { refs.current[t.key] = el; }} className="tq-tab" onClick={() => onChange(t.key)}>
           {t.icon && <t.icon size={14} aria-hidden="true" />}{t.label}{t.count !== undefined && t.count !== null && <span className="tq-tab-count">{t.count}</span>}
         </button>))}

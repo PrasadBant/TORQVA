@@ -78,8 +78,6 @@ describe('device pages', () => {
     expect(screen.queryByText('PHYSICAL DEVICE')).toBeNull();
     expect(screen.queryByRole('button', { name: /^Motor Control/ })).toBeNull();                 // physical motion controls are not listed in simulation mode
     expect(screen.queryByRole('button', { name: /Request START/ })).toBeNull();
-    fireEvent.click(screen.getByTestId('dev-to-scenario'));
-    expect((await screen.findAllByRole('heading', { name: 'Scenario Studio' })).length).toBeGreaterThan(0);   // the nav also lists "Scenario Studio": look for the page heading
   });
 
   it('after a verified handshake the device is labelled PHYSICAL, invalid sensors read UNAVAILABLE and vibration is unavailable', async () => {
@@ -131,73 +129,11 @@ describe('device pages', () => {
     expect(screen.getAllByText('SIMULATION').length).toBeGreaterThan(0);
   });
 
-  it('limits are approved only with every value typed by the admin; nothing is filled in or sent as 0', async () => {
-    const calls = await open('Safety & Commissioning', { mode: 'PHYSICAL', role: 'admin', commands: [] });
-    await screen.findByTestId('commissioning');
-    const approve = screen.getByRole('button', { name: 'Approve limits' });
-    expect(approve).toBeDisabled();
-    expect(screen.getByTestId('limits-missing')).toHaveTextContent('Min supply voltage (V)');
-    const typed = { 'Max current (A)': '2.5', 'Min supply voltage (V)': '18', 'Max supply voltage (V)': '24', 'Max housing temperature (°C)': '60', 'Max speed (rpm)': '3000' };
-    for (const [l, v] of Object.entries(typed)) fireEvent.change(screen.getByLabelText(l), { target: { value: v } });
-    expect(approve).toBeDisabled();                                                               // max duty still blank
-    fireEvent.change(screen.getByLabelText('Max duty (%)'), { target: { value: '30' } });
-    expect(approve).not.toBeDisabled();
-    fireEvent.click(approve);
-    await waitFor(() => expect(calls.some((c) => c.path === '/device/commissioning/limits')).toBe(true));
-    expect(JSON.parse(calls.find((c) => c.path === '/device/commissioning/limits').body)).toMatchObject({ max_current_a: 2.5, min_voltage_v: 18, max_voltage_v: 24, max_temp_c: 60, max_rpm: 3000, max_duty_pct: 30 });
-  });
-
-  it('lists every interlock and never marks hardware checks verified', async () => {
-    await open('Safety & Commissioning', { mode: 'PHYSICAL', snap: { ...SNAP, interlocks: [{ id: 'estop', label: 'Emergency-stop circuit verified', status: 'NOT VERIFIED', detail: 'no E-stop input' }, { id: 'session', label: 'Secure session established', status: 'BLOCKED', detail: 'USB' }] }, commands: [] });
-    const t = await screen.findByTestId('interlocks');
-    expect(t).toHaveTextContent('NOT VERIFIED');
-    expect(t).toHaveTextContent('BLOCKED');
-    expect(t).not.toHaveTextContent(/^VERIFIED$/);
-  });
-
-  it('groups the interlocks into a checklist with pass counts and a next step, and never hides a check it does not know', async () => {
-    const interlocks = [{ id: 'handshake', label: 'Handshake valid', status: 'VERIFIED', detail: 'protocol 1' }, { id: 'telemetry', label: 'Telemetry fresh', status: 'BLOCKED', detail: 'stale' },
-    { id: 'estop', label: 'Emergency-stop circuit verified', status: 'NOT VERIFIED', detail: 'no E-stop input' }, { id: 'new_check', label: 'A future check', status: 'BLOCKED', detail: 'x' }];
-    await open('Safety & Commissioning', { mode: 'PHYSICAL', snap: { ...SNAP, interlocks }, commands: [] });
-    const conn = await screen.findByTestId('ilk-connect');
-    expect(conn).toHaveTextContent('Device connection'); expect(conn).toHaveTextContent('1 of 2 passed');
-    expect(within(conn).getByRole('button', { name: /Check the connection/ })).toBeInTheDocument();
-    expect(screen.getByTestId('ilk-estop')).toHaveTextContent('0 of 1 passed');
-    expect(within(screen.getByTestId('ilk-estop')).getByRole('button', { name: /commissioning record/ })).toBeInTheDocument();
-    expect(screen.getByTestId('ilk-other')).toHaveTextContent('A future check');
-    expect(screen.queryByTestId('ilk-auth')).toBeNull();                                                     // a group with no reported check is not drawn
-  });
-
-  it('shows the commissioning record, offers edits to admins only, and never claims the record enables motion', async () => {
-    await open('Safety & Commissioning', { mode: 'PHYSICAL', role: 'admin', commands: [] });
-    const t = await screen.findByTestId('commissioning');
-    expect(t).toHaveTextContent('NOT VERIFIED'); expect(t).toHaveTextContent('bench check (adam)');
-    expect(screen.getByText(/No limits are approved/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Enable in the record' })).toBeDisabled();
-    expect(screen.getByText(/does not enable motion/)).toBeInTheDocument();
-  });
-
-  it('shows the approved limit version and change history and asks for the confirmation phrase', async () => {
-    const withLimits = {
-      ...COMM, limits: { version: 2, by: 'adam', max_current_a: 2.5, min_voltage_v: 18, max_voltage_v: 24, max_temp_c: 60, max_rpm: 3000, max_duty_pct: 30 }, limits_confirm_phrase: 'APPROVE THESE LIMITS',
-      limits_history: [{ version: 1, by: 'olga', at: 1700000000, previous: null, new: {} }, { version: 2, by: 'adam', at: 1700000100, previous: { max_current_a: 3, max_duty_pct: 30 }, new: { max_current_a: 2.5, max_duty_pct: 30 } }]
-    };
-    server({ role: 'admin' });
-    const f = globalThis.fetch;
-    vi.stubGlobal('fetch', vi.fn(async (url, o) => (String(url).endsWith('/device/commissioning') ? ok(withLimits) : f(url, o))));
-    window.localStorage.setItem('torqva.mode', 'PHYSICAL');
-    setToken('t'); render(<TorqvaApp pollMs={100000} wsFactory={wsFactory} />);
-    fireEvent.click(await screen.findByRole('button', { name: /^Device & Safety$/ }));
-    fireEvent.click(screen.getByRole('tab', { name: /Safety & Commissioning/ }));
-    expect(await screen.findByTestId('limits-approved')).toHaveTextContent('Version 2, approved by adam');
-    expect(screen.getByTestId('limits-history')).toHaveTextContent('Max current (A): 3 → 2.5');
-    expect(screen.getByText(/Type APPROVE THESE LIMITS to confirm/)).toBeInTheDocument();
-  });
-
-  it('a non-admin sees the record but no edit controls', async () => {
-    await open('Safety & Commissioning', { mode: 'PHYSICAL', role: 'operator', commands: [] });
-    await screen.findByTestId('commissioning');
-    expect(screen.queryByRole('button', { name: 'Attest' })).toBeNull();
+  it('does not expose commissioning or interlock panels', async () => {
+    await open('Device', { mode: 'PHYSICAL', role: 'admin' });
+    expect(screen.queryByRole('tab', { name: /Safety & Commissioning/ })).toBeNull();
+    expect(screen.queryByTestId('commissioning')).toBeNull();
+    expect(screen.queryByTestId('interlocks')).toBeNull();
   });
 
   it('only admins see the connection form and it posts the chosen port', async () => {

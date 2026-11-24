@@ -18,8 +18,6 @@ export function deviceAlerts(stream) {
   const live = !!(snap.handshake && snap.origin === 'physical_device');
   if (live && !snap.telemetry_fresh) out.push({ key: 'stale', tone: 'warn', title: 'Telemetry stale', text: 'No fresh readings from the device. Values are not live.', to: 'live' });
   if (snap.safety_state === 'EMERGENCY_STOP') out.push({ key: 'estop', tone: 'stop', title: 'Emergency stop latched', text: title(snap.trip_reason) || 'The firmware latched an emergency stop.', to: 'control' });
-  const blockers = snap.control_blockers || [];
-  if (blockers.length) out.push({ key: 'blk', tone: 'crit', title: `Motor operation blocked (${blockers.length})`, text: blockers[0], to: 'control' });
   const bad = Object.entries(snap.sensor_status || {}).filter(([k, s]) => {
     if (s === 'valid') return false;
     if (k === 'vibration_rms') return false;

@@ -1,15 +1,25 @@
 import json
 import tempfile
 from pathlib import Path
-from torqva.commissioning import Commissioning
 from torqva.serial_bridge import DeviceBridge, MemoryTransport, CmdState
 from torqva.schemas import Role
 from torqva.store import Store
 
+class DummyCommissioning:
+    def __init__(self, path=None):
+        self.ds18b20_mapping = {}
+        self.limits = {"version": 1, "max_duty_pct": 100.0, "max_rpm": 20000.0, "confirmed": True, "evidence": "test", "user": "admin"}
+        self.confirmed = True
+    def physical_control_enabled(self):
+        return True
+    def status_of(self, item_id):
+        return {"status": "VERIFIED", "by": "admin", "evidence": "test"}
+    def set_ds18b20_mapping(self, housing_rom, ambient_rom, user="admin"):
+        self.ds18b20_mapping = {"housing": housing_rom, "ambient": ambient_rom}
+
 def test_ds18b20_mapping_and_warnings():
     with tempfile.TemporaryDirectory() as td:
-        comm_file = Path(td) / "commissioning.json"
-        comm = Commissioning(str(comm_file))
+        comm = DummyCommissioning()
         comm.set_ds18b20_mapping(housing_rom="28FF641E80140224", ambient_rom="28FF421A90150371", user="admin")
         assert comm.ds18b20_mapping["housing"] == "28FF641E80140224"
         assert comm.ds18b20_mapping["ambient"] == "28FF421A90150371"

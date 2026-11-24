@@ -180,8 +180,8 @@
 .tq-env { flex: 0 1 auto; overflow: hidden; }
 .tq-env-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .tq-env .tq-pill { flex: none; }
-@media (min-width: 641px) { .tq-top { flex-wrap: nowrap; } .tq-top > * { flex-shrink: 0; } .tq-top > .tq-env { flex-shrink: 1; } }
-@media (max-width: 1240px) and (min-width: 861px) { .tq-env-text { display: none; } }
+@media (min-width: 861px) { .tq-top { flex-wrap: nowrap; } .tq-top > * { flex-shrink: 0; } .tq-top > .tq-env { flex-shrink: 1; } }
+@media (max-width: 1240px) and (min-width: 641px) { .tq-env-text { display: none; } }
 .tq-user { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--tq-text-2); white-space: nowrap; }
 .tq-avatar { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; font-size: 12px; font-weight: 700; color: #fff; flex: none;
   background: linear-gradient(135deg, #4D74F0, #7A5AF0); text-transform: uppercase; }
