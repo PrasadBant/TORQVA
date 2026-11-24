@@ -461,7 +461,7 @@ def test_a_confirmation_seen_before_the_restart_is_never_taken_as_success(api, k
     f = {"t": "ota", "seq": nseq(), "ts": 1000, "id": q["id"], "st": "READY", "rel": q["rel"], "ver": q["ver"], "b": 0, "n": 0, "why": ""}
     tr.feed(json.dumps(f)); tr.feed(json.dumps(f))                                              # the same seq twice: the duplicate is dropped by the bridge
     assert wait(lambda: current(c)["state"] == "READY")
-    assert svc.bridge.snapshot()["counters"]["duplicates"] == 1
+    assert wait(lambda: svc.bridge.snapshot()["counters"]["duplicates"] == 1)
 
 
 def test_a_failed_self_test_reports_rollback_and_the_previous_firmware_is_recognised(api, keys):

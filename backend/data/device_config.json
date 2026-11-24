@@ -1,0 +1,13 @@
+{
+  "ds18b20_mapping": {},
+  "enabled": true,
+  "limits": {
+    "max_current_a": 3.0,
+    "max_duty_pct": 70.0,
+    "max_rpm": 3000.0,
+    "max_temp_c": 60.0,
+    "max_voltage_v": 25.5,
+    "min_voltage_v": 10.0,
+    "version": 1
+  }
+}

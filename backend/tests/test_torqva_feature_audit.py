@@ -53,9 +53,16 @@ ROLE = {
     ("GET", "/audit"): "admin",
     ("GET", "/device/status"): "viewer", ("GET", "/device/history"): "viewer", ("GET", "/device/ports"): "admin", ("POST", "/device/connect"): "admin",
     ("POST", "/device/disconnect"): "admin", ("POST", "/device/commands"): "viewer", ("GET", "/device/commands"): "viewer",
+    ("GET", "/device/discover"): "viewer", ("POST", "/device/connect-ip"): "admin",
+    ("GET", "/device/wifi"): "viewer", ("POST", "/device/wifi"): "admin", ("POST", "/device/restart"): "admin",
+    ("GET", "/device/logs"): "viewer", ("GET", "/device/logs/download"): "viewer",
     ("GET", "/firmware/status"): "viewer", ("GET", "/firmware/releases"): "viewer", ("GET", "/firmware/releases/{rid}"): "viewer",
     ("POST", "/firmware/releases"): "admin", ("POST", "/firmware/deployments"): "admin", ("GET", "/firmware/deployments"): "viewer",
     ("GET", "/firmware/deployments/{dep_id}"): "viewer",
+    ("GET", "/firmware/docker"): "viewer", ("GET", "/firmware/workspace/templates"): "viewer", ("GET", "/firmware/workspace/files"): "viewer",
+    ("POST", "/firmware/compile/editor"): "admin", ("POST", "/firmware/compile/upload"): "admin",
+    ("GET", "/firmware/compile"): "viewer", ("GET", "/firmware/compile/{job_id}"): "viewer",
+    ("POST", "/firmware/rollback"): "admin",
     ("GET", "/limits"): "viewer", ("PUT", "/limits"): "operator", ("POST", "/limits/reset"): "operator",
     ("POST", "/recording/start"): "operator", ("POST", "/recording/stop"): "operator", ("GET", "/recording/status"): "viewer",
     ("GET", "/recording/summary"): "viewer", ("GET", "/recording/sessions"): "viewer", ("GET", "/recording/sessions/{sid}"): "viewer",
@@ -104,7 +111,7 @@ def http_routes(app):
 
 
 def call(c, method, path, token=None):
-    url = P + path.replace("{sid}", "L-0000").replace("{cid}", "C-0000").replace("{version}", "1").replace("{item_id}", "estop").replace("{rid}", "R-000000000000").replace("{dep_id}", "D-0000")
+    url = P + path.replace("{sid}", "L-0000").replace("{cid}", "C-0000").replace("{version}", "1").replace("{item_id}", "estop").replace("{rid}", "R-000000000000").replace("{dep_id}", "D-0000").replace("{job_id}", "J-0000")
     return c.request(method, url, headers=H(token) if token else {}, json=None if method == "GET" else {})
 
 

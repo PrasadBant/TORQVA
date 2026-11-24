@@ -7,6 +7,7 @@ import { HistoryChart } from '../shared/lazyCharts.jsx';
 import { TelemetryWindowControl } from '../shared/windows.jsx';
 import { CopySummaryButton } from '../shared/recording.jsx';
 import { useAlarmContext, RpmAlarmBanner } from '../shared/alarmContext.jsx';
+import { WirelessControlCard, WirelessSerialMonitor } from './wirelessWorkspace.jsx';
 
 const defaultWs = (import.meta.env && import.meta.env.MODE === 'test') ? null : (url) => new WebSocket(url);
 export const canOperate = () => true;
@@ -295,6 +296,8 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
         {!events.length ? <Empty>No events yet.</Empty> : (
           <ul className="tq-feed">{events.slice(0, 12).map((e) => (<li key={e.k}><Pill tone={/error|disconnected|fault|timed|unknown|rejected/.test(e.name) ? 'crit' : 'info'}>{title(e.name)}{e.total > 1 ? ` ×${e.total}` : ''}</Pill><span className="tq-muted">{clock(e.ts)} · {JSON.stringify(e.data).slice(0, 90)}</span></li>))}</ul>)}
       </Card>
+      <div className="tq-mt"><WirelessControlCard admin={admin} operator={role === 'operator' || role === 'admin'} snap={snap} onRefreshed={stream.refresh} /></div>
+      <div className="tq-mt"><WirelessSerialMonitor /></div>
       <p className="tq-small tq-muted tq-mt">Trust boundary: {snap?.usb_trust_boundary || 'USB serial is unauthenticated; it is treated as inside the host computer\'s physical trust boundary.'}</p>
     </>
   );

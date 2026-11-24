@@ -874,6 +874,11 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
         enabled = body.get("enabled")
         try:
             updated = limits_mgr.update_limit(key=key, value=value, enabled=enabled, user=p.user)
+            if service.bridge and getattr(service.bridge, "commissioning", None) and hasattr(service.bridge.commissioning, "sync_from_limits_manager"):
+                try:
+                    service.bridge.commissioning.sync_from_limits_manager(limits_mgr.get_limits()["limits"])
+                except ValueError as ve:
+                    raise HTTPException(422, str(ve))
             audit(p, "limit_updated", key=key, value=value, enabled=enabled)
             return {"ok": True, "limit": updated}
         except KeyError as ke:
@@ -884,6 +889,8 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
     @r.post("/limits/reset")
     def reset_limits(p: Principal = Depends(need(Role.OPERATOR))):
         res = limits_mgr.reset_defaults(user=p.user)
+        if service.bridge and getattr(service.bridge, "commissioning", None) and hasattr(service.bridge.commissioning, "sync_from_limits_manager"):
+            service.bridge.commissioning.sync_from_limits_manager(res["limits"])
         audit(p, "limits_reset_defaults")
         return res
 

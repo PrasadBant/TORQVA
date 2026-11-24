@@ -1,4 +1,6 @@
 #include "device.h"
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 namespace torqva {
@@ -93,9 +95,83 @@ void Device::handle_cfg(const char* line, uint32_t now_ms) {
     queue_line(b, encode_cfg_ack(b, sizeof(b), ver, why == nullptr, why ? why : "OK"));
 }
 
+static bool extract_json_str(const char* s, const char* key, char* out, size_t cap) {
+    char pat[24];
+    snprintf(pat, sizeof(pat), "\"%s\"", key);
+    const char* p = strstr(s, pat);
+    if (!p) return false;
+    p += strlen(pat);
+    while (*p == ' ') p++;
+    if (*p != ':') return false;
+    p++;
+    while (*p == ' ') p++;
+    if (*p != '"') return false;
+    p++;
+    size_t n = 0;
+    while (*p && *p != '"') {
+        if (*p == '\\' || (unsigned char)*p < 0x20 || n + 1 >= cap) return false;
+        out[n++] = *p++;
+    }
+    if (*p != '"') return false;
+    out[n] = 0;
+    return true;
+}
+
+static bool extract_json_u32(const char* s, const char* key, uint32_t* out) {
+    char pat[24];
+    snprintf(pat, sizeof(pat), "\"%s\"", key);
+    const char* p = strstr(s, pat);
+    if (!p) return false;
+    p += strlen(pat);
+    while (*p == ' ') p++;
+    if (*p != ':') return false;
+    p++;
+    while (*p == ' ') p++;
+    char* end = nullptr;
+    unsigned long v = strtoul(p, &end, 10);
+    if (end == p) return false;
+    *out = (uint32_t)v;
+    return true;
+}
+
 void Device::on_line(const char* line, uint32_t now_ms) {
     if (is_cfg_line(line)) { handle_cfg(line, now_ms); return; }
     if (is_ota_line(line)) { handle_ota(line, now_ms); return; }
+    {
+        char ty[16] = "";
+        if (extract_json_str(line, "t", ty, sizeof(ty)) && (strcmp(ty, "sys") == 0 || strcmp(ty, "wifi_cfg") == 0)) {
+            uint32_t id = 0, seq = 0;
+            char sid[33] = "", mac[33] = "";
+            const char* why = (!extract_json_u32(line, "id", &id) || !extract_json_u32(line, "seq", &seq)
+                               || !extract_json_str(line, "sid", sid, sizeof(sid)) || !extract_json_str(line, "m", mac, sizeof(mac)))
+                                  ? "BAD_SYS_MSG" : nullptr;
+            if (!why && !auth_.enabled()) why = "NO_SECURE_SESSION";
+            if (!why && (!session_active_ || (session_sid_[0] && strcmp(sid, session_sid_) != 0))) why = "WRONG_SESSION";
+            if (strcmp(ty, "sys") == 0) {
+                char cmd[24] = "";
+                if (!why && !extract_json_str(line, "cmd", cmd, sizeof(cmd))) why = "BAD_CMD";
+                char canon[160];
+                snprintf(canon, sizeof(canon), "sys|%lu|%lu|%s|%s", (unsigned long)id, (unsigned long)seq, sid, cmd);
+                if (!why) why = auth_.verify_message(canon, sid, seq, mac, now_ms);
+                if (!why && drive_.mode() != DriveMode::IDLE) why = "MOTOR_NOT_STOPPED";
+                Ack a = {id, why ? AckStatus::REJECTED : AckStatus::ACCEPTED, why ? why : "OK"};
+                queue_ack(a);
+                if (!why && cfg_.on_sys_cmd) cfg_.on_sys_cmd(cmd, cfg_.sys_ctx);
+            } else {
+                char ssid[34] = "", pass[66] = "", base[130] = "";
+                if (!why && (!extract_json_str(line, "ssid", ssid, sizeof(ssid))
+                             || !extract_json_str(line, "pass", pass, sizeof(pass))
+                             || !extract_json_str(line, "base", base, sizeof(base)))) why = "BAD_WIFI_MSG";
+                char canon[240];
+                snprintf(canon, sizeof(canon), "wifi|%lu|%lu|%s|%s|%s", (unsigned long)id, (unsigned long)seq, sid, ssid, base);
+                if (!why) why = auth_.verify_message(canon, sid, seq, mac, now_ms);
+                Ack a = {id, why ? AckStatus::REJECTED : AckStatus::ACCEPTED, why ? why : "OK"};
+                queue_ack(a);
+                if (!why && cfg_.on_wifi_cfg) cfg_.on_wifi_cfg(ssid, pass, base, cfg_.sys_ctx);
+            }
+            return;
+        }
+    }
     {   // authenticated-session handshake lines (hello / auth) never reach the command parser
         char out[kLine], sid[33];
         const int r = auth_.handle(line, now_ms, out, sizeof(out), sid);

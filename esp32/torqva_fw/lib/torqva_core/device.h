@@ -47,6 +47,9 @@ struct DeviceConfig {
     // replaces the measured-standstill checks (Hall speed, motor supply) with "motion is impossible in this build", and it reports profile
     // "ota_led_bench" in ota_info. Zero-initialised = false = the production checks. Never set together with control_enabled (refused: BENCH_PROFILE_INVALID).
     bool ota_led_bench;
+    void (*on_sys_cmd)(const char* cmd, void* ctx);
+    void (*on_wifi_cfg)(const char* ssid, const char* pass, const char* base, void* ctx);
+    void* sys_ctx;
 };
 
 // Sensor / input snapshot supplied by the platform (real HAL or SimPlant).

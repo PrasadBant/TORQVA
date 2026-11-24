@@ -14,9 +14,11 @@ import time
 from typing import Any, Callable, Dict, Optional
 
 from fastapi import Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from .auth import Principal, TokenAuth
+from .discovery import DeviceDiscoveryManager
 from .physical_adapter import compute_physical_diagnostics
 from .schemas import Role
 from .serial_bridge import ERROR_HELP, SerialTransport, TransportError, possible_port_holders
@@ -113,7 +115,7 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
 
     @r.post("/device/disconnect")
     def device_disconnect(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
-        if not p.at_least(Role.ADMIN) and not getattr(bridge, "direct_mode", False):
+        if not p.at_least(Role.ADMIN):
             raise HTTPException(403, "requires role admin")
         audit(p, "device_disconnect")
         if bridge.autoconnect is not None:
@@ -123,7 +125,7 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
 
     @r.post("/device/commands")
     def device_command(body: CommandIn, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
-        if body.action != "STOP" and not p.at_least(Role.ADMIN) and not getattr(bridge, "direct_mode", False):
+        if body.action != "STOP" and not p.at_least(Role.ADMIN):
             audit(p, "denied", needed="admin", action=body.action)
             raise HTTPException(403, "requires role admin")
         params: Dict[str, Any] = {}
@@ -231,6 +233,65 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
     @r.get("/device/commands")
     def device_commands(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
         return {"commands": bridge.command_list()}
+
+    discovery = DeviceDiscoveryManager()
+
+    @r.get("/device/discover")
+    def device_discover(timeout_s: float = Query(1.0, gt=0.1, le=3.0), p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        return discovery.discover(bridge=bridge, timeout_s=timeout_s)
+
+    @r.post("/device/connect-ip")
+    def device_connect_ip(body: Dict[str, Any], p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+        host = str(body.get("host") or body.get("ip") or "").strip()
+        port = int(body.get("port") or 80)
+        try:
+            res = discovery.probe_ip(host=host, port=port, bridge=bridge)
+        except ValueError as ve:
+            raise HTTPException(422, str(ve))
+        audit(p, "device_probe_ip", host=host, port=port, reachable=res.get("reachable"))
+        return res
+
+    @r.get("/device/wifi")
+    def device_wifi(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        snap = bridge.snapshot()
+        return {
+            "net_info": snap.get("net_info"),
+            "wifi_link": snap.get("wifi_link"),
+            "transport": snap.get("transport"),
+            "session_active": bool((snap.get("session") or {}).get("active")),
+        }
+
+    @r.post("/device/wifi")
+    def device_wifi_update(body: Dict[str, Any], p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+        ssid = str(body.get("ssid") or "").strip()
+        password = str(body.get("password") or "")
+        base_url = str(body.get("base_url") or "").strip()
+        ok, why = bridge.request_wifi_config(ssid, password, base_url, p.user, p.role)
+        if not ok:
+            raise HTTPException(409, why)
+        audit(p, "device_wifi_updated", ssid=ssid, has_base_url=bool(base_url))
+        return {"ok": True, "message": f"Wi-Fi credentials for {ssid!r} sent to device."}
+
+    @r.post("/device/restart")
+    def device_restart(p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+        ok, why = bridge.request_restart(p.user, p.role)
+        if not ok:
+            raise HTTPException(409, why)
+        audit(p, "device_remote_restart")
+        return {"ok": True, "message": "Remote restart command sent to device."}
+
+    @r.get("/device/logs")
+    def device_logs(limit: int = Query(300, ge=1, le=2000), search: str = Query("", max_length=120), level: str = Query("", max_length=16), p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        return {"logs": bridge.get_serial_logs(limit=limit, search=search, level=level)}
+
+    @r.get("/device/logs/download")
+    def device_logs_download(format: str = Query("txt", max_length=8), p: Principal = Depends(need(Role.VIEWER))):
+        logs = bridge.get_serial_logs(limit=2000)
+        if format == "jsonl":
+            text = "\n".join(json.dumps(r, sort_keys=True) for r in logs)
+            return PlainTextResponse(text, media_type="application/x-ndjson", headers={"Content-Disposition": "attachment; filename=torqva_device_logs.jsonl"})
+        lines = [f"[{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(r['ts_unix']))}] [{r['level']}] ({r['transport']}) {r['msg']}" for r in logs]
+        return PlainTextResponse("\n".join(lines), media_type="text/plain", headers={"Content-Disposition": "attachment; filename=torqva_device_logs.txt"})
 
     @r.get("/evaluation/physical")
     def evaluation_physical(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:

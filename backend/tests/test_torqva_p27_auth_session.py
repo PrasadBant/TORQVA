@@ -139,30 +139,31 @@ def test_a_disconnect_drops_the_session_and_nothing_is_replayed(tmp_path):
 # ------------------------------------------------------------------------------------------ runtime limits pushed over the authenticated session (real C++ core)
 @pytest.mark.skipif(not FITL.exists(), reason="fitl CLI not built (pio run -e fitl)")
 def test_approved_limits_are_pushed_authenticated_and_applied_by_the_real_firmware_core(tmp_path):
-    from torqva.commissioning import Commissioning, LIMITS_CONFIRM_PHRASE
-    c = Commissioning()
+    from torqva.device_config import OperatingConfigManager
+    c = OperatingConfigManager(str(tmp_path / "device_config.json"), auto_init=False)
     tr = FitlTransport("--strict", "--auth-key", KEY.hex())
     b = DeviceBridge(expected_device_id="FITL-1"); b.keystore = keystore(tmp_path); b.commissioning = c; b.connect(tr)
     assert pump(b, tr, b.session_active), b._auth
     pump(b, tr, lambda: False, n=5)
-    assert b.device_cfg_version() == 0 and b.snapshot()["start_blocked_reason"] == "LIMITS_NOT_APPROVED"            # nothing approved: nothing pushed, nothing defaulted
-    c.set_limits({"max_current_a": 3.0, "min_voltage_v": 18.0, "max_voltage_v": 24.0, "max_temp_c": 60.0, "max_rpm": 3000.0, "max_duty_pct": 30.0}, "bench datasheet checked", "olga", LIMITS_CONFIRM_PHRASE)
+    assert b.device_cfg_version() == 0 and b.snapshot()["start_blocked_reason"] == "LIMITS_NOT_APPROVED"            # nothing configured: nothing pushed, nothing defaulted
+    c.update_limits({"max_current_a": 3.0, "min_voltage_v": 18.0, "max_voltage_v": 24.0, "max_temp_c": 60.0, "max_rpm": 3000.0, "max_duty_pct": 30.0})
     assert pump(b, tr, b.limits_confirmed, n=80), (b._cfg, b.model.status)                                           # pushed, MAC verified by the C++ core, applied, reported in status
     s = b.snapshot()
     assert s["config"]["confirmed"] and s["config"]["device_version"] == 1 and s["config"]["last_push"]["ack_ok"] is True
     assert s["start_blocked_reason"] != "LIMITS_NOT_APPROVED"                                                         # the firmware's limits gate is now satisfied by the authenticated configuration
     il = {r["id"]: r["status"] for r in s["interlocks"]}
     assert il["limits"] == "VERIFIED"
-    # a new approval is a new version, pushed and confirmed the same way
-    c.set_limits({"max_current_a": 2.5, "min_voltage_v": 18.0, "max_voltage_v": 24.0, "max_temp_c": 60.0, "max_rpm": 3000.0, "max_duty_pct": 30.0}, "reduced after test", "adam", LIMITS_CONFIRM_PHRASE)
+    # a new configuration update bumps the version, pushed and confirmed the same way
+    c.update_limits({"max_current_a": 2.5, "min_voltage_v": 18.0, "max_voltage_v": 24.0, "max_temp_c": 60.0, "max_rpm": 3000.0, "max_duty_pct": 30.0})
     assert pump(b, tr, lambda: b.device_cfg_version() == 2 and b.limits_confirmed(), n=80)
     b.disconnect(); tr.close()
 
 
 @pytest.mark.skipif(not FITL.exists(), reason="fitl CLI not built (pio run -e fitl)")
 def test_a_device_that_refuses_the_configuration_keeps_motion_blocked_and_the_reason_is_shown(tmp_path):
-    from torqva.commissioning import Commissioning, LIMITS_CONFIRM_PHRASE
-    c = Commissioning(); c.set_limits({"max_current_a": 3.0, "min_voltage_v": 18.0, "max_voltage_v": 24.0, "max_temp_c": 60.0, "max_rpm": 3000.0, "max_duty_pct": 30.0}, "bench datasheet checked", "olga", LIMITS_CONFIRM_PHRASE)
+    from torqva.device_config import OperatingConfigManager
+    c = OperatingConfigManager(str(tmp_path / "device_config.json"), auto_init=False)
+    c.update_limits({"max_current_a": 3.0, "min_voltage_v": 18.0, "max_voltage_v": 24.0, "max_temp_c": 60.0, "max_rpm": 3000.0, "max_duty_pct": 30.0})
     tr = FitlTransport("--strict", "--auth-key", KEY.hex())
     b = DeviceBridge(expected_device_id="FITL-1"); b.keystore = keystore(tmp_path); b.commissioning = c; b.connect(tr)
     assert pump(b, tr, b.session_active)

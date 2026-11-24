@@ -9,6 +9,7 @@
 // Bootloader rollback is enabled in this framework's sdkconfig (CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y). verifyRollbackLater() below stops the Arduino core from
 // confirming a new image by itself: only a passed self-test does (esp_ota_mark_app_valid_cancel_rollback), a failure marks it invalid and restarts into the previous image.
 #include "ota_esp32.h"
+#include "wifi_link.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
@@ -99,29 +100,39 @@ public:
         return true;
     }
     bool open_image(const OtaRequest& r, uint32_t* len) override {
+        req_ = r;
         if (!get(r, "image")) return false;
         const int n = http_.getSize();
         if (n <= 0) { http_.end(); return false; }
-        *len = (uint32_t)n; left_ = (uint32_t)n;
+        *len = (uint32_t)n; total_ = (uint32_t)n; offset_ = 0; left_ = (uint32_t)n;
         return true;
     }
     int read_image(uint8_t* buf, size_t n) override {
         if (left_ == 0) return 0;
-        WiFiClient* s = http_.getStreamPtr();
-        if (!s) return -1;
-        const uint32_t t0 = millis();
-        for (;;) {
-            const size_t avail = (size_t)s->available();
-            if (avail) {
-                size_t k = n < avail ? n : avail; if (k > left_) k = left_;
-                const int r = s->read(buf, k);
-                if (r < 0) return -1;
-                left_ -= (uint32_t)r; return r;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            WiFiClient* s = http_.getStreamPtr();
+            if (s) {
+                const uint32_t t0 = millis();
+                for (;;) {
+                    const size_t avail = (size_t)s->available();
+                    if (avail) {
+                        size_t k = n < avail ? n : avail; if (k > left_) k = left_;
+                        const int r = s->read(buf, k);
+                        if (r > 0) { left_ -= (uint32_t)r; offset_ += (uint32_t)r; return r; }
+                        if (r < 0) break;
+                    }
+                    if (!http_.connected()) break;                        // stream closed before all bytes arrived -> try Range resume
+                    if (millis() - t0 > kReadTimeoutMs) break;
+                    delay(5);
+                }
             }
-            if (!http_.connected()) return -1;                        // closed before every announced byte arrived
-            if (millis() - t0 > kReadTimeoutMs) return -1;
-            delay(5);
+            if (left_ == 0) return 0;
+            // Interrupted transfer: attempt HTTP Range resume from exact offset_
+            http_.end();
+            delay(250);
+            if (!get_range(req_, "image", offset_)) return -1;
         }
+        return -1;
     }
     void close_image() override { http_.end(); }
     uint32_t inactive_partition_size() override { const esp_partition_t* p = esp_ota_get_next_update_partition(nullptr); return p ? p->size : 0; }
@@ -170,9 +181,23 @@ private:
         if (code != 200) { http_.end(); return false; }
         return true;
     }
+    bool get_range(const OtaRequest& r, const char* what, uint32_t offset) {
+        cli_.setCACert(g_ca.c_str());
+        cli_.setTimeout(kReadTimeoutMs / 1000);
+        String url = g_base;
+        if (url.endsWith("/")) url.remove(url.length() - 1);
+        url += "/api/torqva/firmware/ota/"; url += r.rel; url += "/"; url += what; url += "?t="; url += r.tok;
+        if (!http_.begin(cli_, url)) return false;
+        http_.setReuse(false);
+        http_.addHeader("Range", String("bytes=") + String(offset) + "-");
+        const int code = http_.GET();
+        if (code != 206 && !(offset == 0 && code == 200)) { http_.end(); return false; }
+        return true;
+    }
     WiFiClientSecure cli_;
     HTTPClient http_;
-    uint32_t left_ = 0;
+    OtaRequest req_ = {};
+    uint32_t left_ = 0, offset_ = 0, total_ = 0;
 };
 
 EspOtaPort g_port;
@@ -220,12 +245,19 @@ void self_test() {
 #endif
     if (!why && esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
         persist_last("CONFIRMED", TORQVA_FW_VERSION, true);
+        wifi_log("INFO", "OTA first-boot self-test CONFIRMED");
         if (xSemaphoreTake(g_mu, portMAX_DELAY) == pdTRUE) { g_dev->ota_boot_result(OtaState::CONFIRMED, ""); xSemaphoreGive(g_mu); }
         return;
     }
     if (!why) why = "CONFIRM_FAILED";
+    char diag[160];
+    snprintf(diag, sizeof(diag), "OTA self-test FAILED (%s): ina=%d temp=%d key=%d link=%d safe=%d estop=%d out=%d wdt=%d ota=%d",
+             why, g_ina_ok ? 1 : 0, g_temp_ok ? 1 : 0, g_key_ok ? 1 : 0, link ? 1 : 0,
+             s.safety_initialised ? 1 : 0, s.estop_input_read ? 1 : 0, s.outputs_disabled ? 1 : 0,
+             s.watchdog_active ? 1 : 0, s.ota_healthy ? 1 : 0);
+    wifi_log("ERROR", diag);
     if (xSemaphoreTake(g_mu, portMAX_DELAY) == pdTRUE) { g_dev->ota_boot_result(OtaState::ROLLBACK, why); xSemaphoreGive(g_mu); }
-    delay(600);
+    delay(1200);
     if (g_outputs_off) g_outputs_off();
     esp_ota_mark_app_invalid_rollback_and_reboot();                   // the bootloader starts the previous image (the next boot reports ROLLED_BACK)
 }
@@ -276,7 +308,8 @@ void ota_platform_start(Device* dev, SemaphoreHandle_t mu, bool ina_ok, bool tem
     switch (ota_boot_outcome(attempt, att_ver.c_str(), TORQVA_FW_VERSION, pend)) {
         case BootOutcome::ROLLED_BACK: persist_last("ROLLED_BACK", att_ver.c_str(), true); last = "ROLLED_BACK"; lver = att_ver; break;
         case BootOutcome::CONFIRMED: persist_last("CONFIRMED", TORQVA_FW_VERSION, true); last = "CONFIRMED"; lver = TORQVA_FW_VERSION; break;
-        default: break;                                                // SELF_TEST runs in the OTA task; NONE changes nothing
+        case BootOutcome::SELF_TEST: last = "SELF_TEST"; lver = TORQVA_FW_VERSION; break;
+        default: break;
     }
     strncpy(g_last, last.c_str(), sizeof(g_last) - 1); strncpy(g_last_ver, lver.c_str(), sizeof(g_last_ver) - 1); strncpy(g_att_ver, att_ver.c_str(), sizeof(g_att_ver) - 1);
     const esp_partition_t* next = esp_ota_get_next_update_partition(nullptr);
@@ -292,4 +325,25 @@ bool ota_net_config(String* ssid, String* pass, String* base, String* ca) {
     if (base) *base = g_base;
     if (ca) *ca = g_ca;
     return true;
+}
+
+bool ota_update_wifi_config(const String& ssid, const String& pass, const String& base) {
+    if (ssid.length() == 0 || ssid.length() > 32) return false;
+    if (base.length() > 0 && !base_url_ok(base)) return false;
+    Preferences p;
+    if (!p.begin(kNs, false)) return false;
+    p.putString("ssid", ssid);
+    p.putString("pass", pass);
+    if (base.length() > 0) p.putString("base", base);
+    p.end();
+    g_ssid = ssid;
+    g_pass = pass;
+    if (base.length() > 0) g_base = base;
+    return true;
+}
+
+bool ota_rollback_partition() {
+    const esp_partition_t* next = esp_ota_get_next_update_partition(nullptr);
+    if (!next) return false;
+    return esp_ota_set_boot_partition(next) == ESP_OK;
 }

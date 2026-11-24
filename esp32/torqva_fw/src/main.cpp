@@ -429,8 +429,10 @@ void setup() {
     Wire.setTimeOut(20);
     g_adxl_ok = adxl_begin();                                          // false if the sensor is absent or answers with a wrong id: accel frames then report ok=0
     g_ina_ok = g_ina.begin(&Wire1);
+    if (!g_ina_ok) { delay(20); Wire1.begin(torqva_pins::INA_SDA, torqva_pins::INA_SCL); g_ina_ok = g_ina.begin(&Wire1); }
     if (g_ina_ok) g_ina.setCalibration_32V_2A();
     g_ds.begin();
+    if (g_ds.getDeviceCount() == 0) { delay(20); g_ds.begin(); }
     g_ds.setWaitForConversion(false);
     g_ds.requestTemperatures();
     pinMode(torqva_pins::HALL_INPUT, INPUT_PULLUP);
@@ -445,8 +447,8 @@ void setup() {
     {
         Preferences auth;
         if (auth.begin("torqva", true)) {
-            cfg.auth_enabled = auth.getBytesLength("authkey") == sizeof(cfg.key)
-                && auth.getBytes("authkey", cfg.key, sizeof(cfg.key)) == sizeof(cfg.key);
+            cfg.auth_enabled = auth.getBytesLength("authkey") == sizeof(cfg.auth_key)
+                && auth.getBytes("authkey", cfg.auth_key, sizeof(cfg.auth_key)) == sizeof(cfg.auth_key);
             auth.end();
         }
     }
@@ -474,6 +476,32 @@ void setup() {
     cfg.estop_input_wired = (TORQVA_ESTOP_INPUT_WIRED != 0);
     cfg.transport_secured = (TORQVA_TRANSPORT_SECURED != 0);
     cfg.relaxed_interlocks = false;
+    cfg.on_sys_cmd = [](const char* cmd, void*) {
+        if (!cmd) return;
+        if (strcmp(cmd, "restart") == 0) {
+            outputs_off();
+            wifi_log("WARN", "Remote restart command accepted");
+            delay(300);
+            ESP.restart();
+        } else if (strcmp(cmd, "ota_rollback") == 0) {
+            outputs_off();
+            if (ota_rollback_partition()) {
+                wifi_log("WARN", "OTA rollback slot selected; restarting");
+                delay(300);
+                ESP.restart();
+            } else {
+                wifi_log("ERROR", "No valid inactive OTA slot for rollback");
+            }
+        }
+    };
+    cfg.on_wifi_cfg = [](const char* ssid, const char* pass, const char* base, void*) {
+        if (ota_update_wifi_config(String(ssid ? ssid : ""), String(pass ? pass : ""), String(base ? base : ""))) {
+            wifi_log("INFO", "Wi-Fi configuration updated in NVS; reconnecting");
+            wifi_link_reconnect();
+        } else {
+            wifi_log("ERROR", "Failed to save Wi-Fi configuration");
+        }
+    };
     ota_platform_capability(cfg);                      // OTA partitions, compiled-in signing key and NVS provisioning decide whether this boot can update at all
     Limits lim = default_limits();
     g_dev = new Device(lim, cfg);

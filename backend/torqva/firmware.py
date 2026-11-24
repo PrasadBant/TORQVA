@@ -182,6 +182,7 @@ class FirmwareStore:
         self.index_path = self.root / "releases.json"
         self.history_path = self.root / "history.jsonl"
         self.current_path = self.root / "current_deployment.json"
+        self.deployments_path = self.root / "deployments.json"
         self.lock = threading.RLock()
         self.load_error = ""
         self.releases: Dict[str, Dict[str, Any]] = {}
@@ -252,6 +253,21 @@ class FirmwareStore:
         public = {k: v for k, v in deployment.items() if k not in ("token", "token_expires", "updated", "rebooting_since")}
         with self.lock:
             self._atomic_write(self.current_path, json.dumps(public, sort_keys=True).encode("utf-8"))
+            st = public.get("state")
+            if st in ("REQUESTED", "CONFIRMED", "FAILED", "REFUSED", "ROLLED_BACK", "VERIFICATION_PENDING") or not self.deployments_path.exists():
+                all_deps = self.load_deployments()
+                all_deps[public["id"]] = public
+                ordered = sorted(all_deps.values(), key=lambda d: d.get("requested_at", 0))[-50:]
+                self._atomic_write(self.deployments_path, json.dumps({d["id"]: d for d in ordered}, sort_keys=True).encode("utf-8"))
+
+    def load_deployments(self) -> Dict[str, Dict[str, Any]]:
+        if not self.deployments_path.exists():
+            return {}
+        try:
+            raw = json.loads(self.deployments_path.read_text(encoding="utf-8"))
+            return raw if isinstance(raw, dict) else {}
+        except (ValueError, OSError):
+            return {}
 
     def load_current(self) -> Optional[Dict[str, Any]]:
         if not self.current_path.exists():
@@ -295,6 +311,10 @@ class FirmwareManager:
         self._uploads: List[float] = []
         self._token_key = secrets.token_bytes(32)                 # per backend process: tokens do not survive a restart
 
+        saved_all = self.store.load_deployments()
+        for did, drec in saved_all.items():
+            if isinstance(drec, dict) and "id" in drec:
+                self.deployments[did] = drec
         saved = self.store.load_current()
         if saved is not None:
             saved.update({"token": "", "token_expires": 0.0, "downloads": 12, "updated": self.clock(), "rebooting_since": self.clock()})
@@ -406,7 +426,7 @@ class FirmwareManager:
                 "ota": None if not info else {k: v for k, v in info.items() if not k.startswith("_")}, "ota_age_s": info_age,
                 "profile": None if not info else (info.get("prof") or ""), "profile_label": None if not info else PROFILES.get(info.get("prof") or "", info.get("prof"))}
 
-    def eligibility(self, rec: Optional[Dict[str, Any]], device_id: str = "") -> List[str]:
+    def eligibility(self, rec: Optional[Dict[str, Any]], device_id: str = "", allow_rollback: bool = False) -> List[str]:
         """Every reason the release cannot be deployed to the connected device now (empty = eligible). Device-side checks are repeated by the firmware."""
         d = self.device()
         why: List[str] = []
@@ -447,19 +467,19 @@ class FirmwareManager:
             c = version_compare(rec["version"], installed) if installed else None
             if installed and c is None:
                 why.append(f"the installed version {installed!r} cannot be compared")
-            elif c is not None and c <= 0:
+            elif not allow_rollback and c is not None and c <= 0:
                 why.append(f"{rec['version']} is not newer than the installed {installed} (no reinstall or downgrade)")
         return why
 
     # ---- deployment
-    def deploy(self, rid: str, device_id: str, user: str) -> Dict[str, Any]:
+    def deploy(self, rid: str, device_id: str, user: str, rollback: bool = False) -> Dict[str, Any]:
         rec = self.release(rid)
         now = self.clock()
         with self.lock:
             last = self._last_deploy.get(device_id, -1e9)
             if now - last < DEPLOY_MIN_INTERVAL_S:
                 raise FirmwareError("RATE_LIMITED", f"one deployment per device every {int(DEPLOY_MIN_INTERVAL_S)} s", 429)
-            why = self.eligibility(rec, device_id)
+            why = self.eligibility(rec, device_id, allow_rollback=rollback)
             if why:
                 raise FirmwareError("NOT_ELIGIBLE", "; ".join(why), 409)
             dep_id = secrets.token_hex(6)
@@ -467,17 +487,30 @@ class FirmwareManager:
             d = self.device()
             dep = {"id": dep_id, "release": rid, "version": rec["version"], "sha256": rec["sha256"], "device_id": device_id, "from_version": d["firmware"], "requested_by": user,
                    "requested_at": self.wall(), "state": "REQUESTED", "reason": "", "bytes": 0, "total": rec["size"], "events": [], "token": token,
-                   "token_expires": now + TOKEN_TTL_S, "downloads": 0, "updated": now, "rebooting_since": None}
+                   "token_expires": now + TOKEN_TTL_S, "downloads": 0, "updated": now, "rebooting_since": None, "rollback": rollback}
             self.deployments[dep_id] = dep
             self.active = dep_id
             self._last_deploy[device_id] = now
-        self._event(dep, "REQUESTED", f"by {user}")
+        self._event(dep, "REQUESTED", f"by {user}{' (manual rollback)' if rollback else ''}")
         self.store.append_history({"kind": "deployment_requested", "deployment": dep_id, "release": rid, "version": rec["version"], "sha256": rec["sha256"], "device": device_id,
-                                   "from_version": dep["from_version"], "by": user, "at": dep["requested_at"]})
-        ok, why = self.bridge.request_ota(rid, rec["version"], token)
+                                   "from_version": dep["from_version"], "by": user, "at": dep["requested_at"], "rollback": rollback})
+        try:
+            ok, why = self.bridge.request_ota(rid, rec["version"], token, rollback=rollback)
+        except TypeError:
+            ok, why = self.bridge.request_ota(rid, rec["version"], token)
         if not ok:
             self._finish(dep, "FAILED", f"the update request could not be sent: {why}")
         return self.public_deployment(dep)
+
+    def rollback_slot(self, user: str, role: Any) -> Dict[str, Any]:
+        """Trigger immediate partition rollback on the connected ESP32 when an inactive slot exists."""
+        if self.bridge is None or not hasattr(self.bridge, "request_ota_rollback_slot"):
+            raise FirmwareError("UNAVAILABLE", "connected device bridge does not support slot rollback", 400)
+        ok, why = self.bridge.request_ota_rollback_slot(user, role)
+        if not ok:
+            raise FirmwareError("ROLLBACK_REFUSED", why, 409)
+        self.store.append_history({"kind": "slot_rollback_requested", "by": user, "at": self.wall(), "version": (self.device() or {}).get("firmware") or ""})
+        return {"ok": True, "message": "OTA partition rollback requested; device restarting into previous slot."}
 
     def _event(self, dep: Dict[str, Any], state: str, detail: str = "") -> None:
         dep["events"].append({"state": state, "detail": detail, "at": self.wall()})
@@ -487,6 +520,8 @@ class FirmwareManager:
     def _finish(self, dep: Dict[str, Any], state: str, reason: str) -> None:
         if dep["state"] in TERMINAL:
             return
+        if state == "CONFIRMED" and dep.get("total"):
+            dep["bytes"] = dep["total"]
         dep["state"], dep["reason"], dep["updated"] = state, reason, self.clock()
         self._event(dep, state, reason)
         self.store.append_history({"kind": "deployment_result", "deployment": dep["id"], "release": dep["release"], "version": dep["version"], "device": dep["device_id"],
@@ -508,7 +543,7 @@ class FirmwareManager:
             if not f.get("connected") and dep["state"] in ("REBOOTING", "READY"):
                 dep["state"], dep["updated"] = "WAITING_FOR_RECONNECTION", self.clock()
                 self._event(dep, "WAITING_FOR_RECONNECTION", "the device disconnected for its restart")
-            elif not f.get("connected") and self._image_received(dep):
+            elif not f.get("connected") and (self._image_received(dep) or dep.get("image_served")):
                 # The whole image had arrived and the device was verifying it when the link dropped, so READY / REBOOTING may never be seen (the
                 # device verifies and restarts by itself). Wait for its own report after the restart, under the reboot grace period - neither a
                 # failure nor a success is assumed here.
@@ -521,10 +556,10 @@ class FirmwareManager:
             return
         if t == "ota_info":
             # The previous image is running again and says the attempt rolled back
-            if f.get("last") == "ROLLED_BACK" and f.get("lver") == dep["version"] and dep["state"] in ("REBOOTING", "WAITING_FOR_RECONNECTION", "SELF_TEST", "ROLLBACK"):
+            if f.get("last") == "ROLLED_BACK" and f.get("lver") == dep["version"] and f.get("pend") == 0 and self.device().get("firmware") != dep["version"] and dep["state"] in ("REBOOTING", "WAITING_FOR_RECONNECTION", "SELF_TEST", "ROLLBACK"):
                 self._finish(dep, "ROLLED_BACK", "the new image did not pass its first-boot checks; the previous firmware is running")
             elif (f.get("last") == "CONFIRMED" and f.get("lver") == dep["version"] and f.get("pend") == 0 and dep["state"] in ("WAITING_FOR_RECONNECTION", "SELF_TEST")
-                  and dep["from_version"] != dep["version"] and self.device().get("firmware") == dep["version"]):
+                  and (dep["from_version"] != dep["version"] or dep.get("rollback")) and self.device().get("firmware") == dep["version"]):
                 self._finish(dep, "CONFIRMED", f"version {dep['version']} confirmed by the device after its self-tests (reported in its status after the restart)")
             return
         st = f.get("st")
@@ -605,12 +640,14 @@ class FirmwareManager:
         return {"rel": rec["id"], "ver": rec["version"], "size": rec["size"], "sha256": rec["sha256"], "chip": "esp32s3", "sig": rec["signature"]}
 
     def image(self, rid: str, token: str) -> bytes:
-        self.authorize_download(rid, token)
+        dep = self.authorize_download(rid, token)
+        dep["image_served"] = True
         return self.store.read_image(self.release(rid))
 
     def image_file(self, rid: str, token: str) -> Path:
         """Authorize and verify a stored image without buffering it in the API process."""
-        self.authorize_download(rid, token)
+        dep = self.authorize_download(rid, token)
+        dep["image_served"] = True
         rec = self.release(rid)
         path = self.store.image_path(rec["sha256"])
         digest = hashlib.sha256()

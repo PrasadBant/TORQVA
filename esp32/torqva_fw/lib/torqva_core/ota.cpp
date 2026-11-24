@@ -98,12 +98,18 @@ const char* parse_ota(const char* line, OtaRequest* r) {
     if (!str_of(line, "ver", r->ver, sizeof(r->ver)) || !is_version(r->ver)) return "BAD_VERSION";
     if (!str_of(line, "tok", r->tok, sizeof(r->tok)) || !is_hex(r->tok, 32)) return "BAD_TOKEN";
     if (!str_of(line, "sid", r->sid, sizeof(r->sid)) || !str_of(line, "m", r->mac, sizeof(r->mac))) return "BAD_AUTH_FIELDS";
+    double rb = 0.0;
+    if (num_of(line, "rb", &rb) && rb == 1.0) r->allow_rollback = true;
     r->id = (uint32_t)id; r->seq = (uint32_t)seq;
     return nullptr;
 }
 
 void ota_canonical(const OtaRequest& r, char* out, size_t n) {
-    snprintf(out, n, "ota|%lu|%lu|%s|%s|%s|%s", (unsigned long)r.id, (unsigned long)r.seq, r.sid, r.rel, r.ver, r.tok);
+    if (r.allow_rollback) {
+        snprintf(out, n, "ota|%lu|%lu|%s|%s|%s|%s|rb", (unsigned long)r.id, (unsigned long)r.seq, r.sid, r.rel, r.ver, r.tok);
+    } else {
+        snprintf(out, n, "ota|%lu|%lu|%s|%s|%s|%s", (unsigned long)r.id, (unsigned long)r.seq, r.sid, r.rel, r.ver, r.tok);
+    }
 }
 
 const char* parse_manifest(const char* json, OtaManifest* m) {
@@ -173,7 +179,7 @@ const char* ota_run(const OtaRequest& req, const char* running_ver, OtaPort& por
     else if (strcmp(m.rel, req.rel) != 0 || strcmp(m.ver, req.ver) != 0) why = "MANIFEST_MISMATCH";       // the manifest must be the release the authenticated request named
     else if (strcmp(m.chip, "esp32s3") != 0) why = "WRONG_CHIP";
     else if (m.size > slot) why = "IMAGE_TOO_LARGE";
-    else if (version_compare(m.ver, running_ver) != 1) why = "DOWNGRADE_REFUSED";                        // equal or older: never reinstalled or downgraded over the air
+    else if (!req.allow_rollback && version_compare(m.ver, running_ver) != 1) why = "DOWNGRADE_REFUSED";                        // equal or older: never reinstalled or downgraded unless explicit rollback requested
     else {
         char canon[160];
         manifest_canonical(m, canon, sizeof(canon));

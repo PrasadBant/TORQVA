@@ -29,6 +29,7 @@ struct OtaRequest {
     char ver[24];          // expected version
     char tok[33];          // one-time download token issued by the backend for this deployment
     char sid[33], mac[33];
+    bool allow_rollback;
 };
 bool is_ota_line(const char* line);
 const char* parse_ota(const char* line, OtaRequest* out);              // nullptr = well-formed

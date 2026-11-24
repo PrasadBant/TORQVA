@@ -12,3 +12,7 @@ void ota_platform_start(torqva::Device* dev, SemaphoreHandle_t mu, bool ina_ok, 
 // The provisioned network settings (NVS torqva_ota), for the wireless device link (wifi_link.cpp). False when they are incomplete or the base URL is
 // not an https:// address the device can reach (same rules as the OTA capability check).
 bool ota_net_config(String* ssid, String* pass, String* base, String* ca);
+// Persists updated Wi-Fi / HTTPS base URL settings to NVS (authenticated host config update only).
+bool ota_update_wifi_config(const String& ssid, const String& pass, const String& base);
+// Switches boot partition to the inactive valid OTA slot for manual rollback.
+bool ota_rollback_partition();

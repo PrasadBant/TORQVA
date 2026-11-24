@@ -1,10 +1,7 @@
 # Unreleased wireless engineering changes (25 Nov 2026)
 
-- Added a production ESP32-S3 Wi-Fi build profile using the existing TLS WebSocket device link and HTTPS OTA receiver.
-- Removed raw USB text motor control and software reset bypasses. Production firmware now loads its per-device authentication key from NVS, retains default motor limits, and keeps its existing fault and session checks active.
-- Removed backend direct/universal mode activation and synthetic connection reporting. Connection and firmware pages now use actual transport state.
-- Simplified OTA deployment to one admin action after backend and device eligibility checks. The duplicated checkbox, typed phrase and second confirmation were removed.
-- Streamed OTA images through FastAPI and the TLS gateway, and persisted a secret-free deployment snapshot for backend restart recovery.
-- Added wireless setup, upload, recovery, architecture, API, security, performance, defect and test documentation.
-
-The website still accepts signed compiled `.bin` releases only. Source compilation, network switching, a wireless log console, manual rollback and physical ESP32 verification remain open. No commit or push was made for this release note.
+- Added an isolated Docker PlatformIO compilation engine (`docker/torqva-pio/Dockerfile`, `backend/torqva/compiler.py`) supporting `.ino`, `.cpp`, `.c`, `.h`, `.hpp`, `.zip` projects, and pre-compiled `.bin` validation with offline pre-cached libraries, strict resource limits (`--network none`, `--read-only`, `--cap-drop ALL`, `2 GiB` RAM, `2` CPUs, `256` PIDs), no container access to host secrets or signing keys, live build log streaming, compiler diagnostics, and memory usage extraction.
+- Added the complete wireless engineering workspace in the TORQVA UI (`frontend/src/torqva/physical/wirelessWorkspace.jsx`, integrated into `#/firmware` and `#/device`): multi-file source code editor with project templates, drag-and-drop source upload, live compilation console, mDNS (`_torqva._tcp.local`) automatic ESP32 discovery, manual IP fallback probe, Wi-Fi network & HTTPS URL configuration manager, device network info panel, remote restart, firmware release history, manual firmware rollback, real-time OTA progress, persistent deployment history (`deployments.json`), and searchable/downloadable wireless serial log console.
+- Restored authorized motor control (`START`, `SET_SPEED`, `STOP`, `RESET_ESTOP`) using `OperatingConfigManager` (`backend/torqva/device_config.py`) integrated with `LimitsManager`, `SafetySupervisor`, `DeviceBridge`, and firmware `cfg` confirmation — without restoring unauthenticated raw USB text command bypasses or manual commissioning blockers.
+- Added HTTP `Range` (`206 Partial Content`) support on OTA image downloads (`firmware_routes.py` + `ota_esp32.cpp`) and `rb=1` authenticated manual firmware rollback + `sys`/`wifi_cfg` MAC-authenticated protocol frames (`ota.cpp`, `device.cpp`, `wifi_link.cpp`).
+- Physical hardware provisioning and end-to-end verification on `COM7` (CH343 ESP32-S3) are ready for user confirmation with motor power disconnected. No git commit or push has been made.

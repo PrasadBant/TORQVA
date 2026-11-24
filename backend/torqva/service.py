@@ -43,12 +43,12 @@ class SimulationService:
         self.bridge.store = self.store
         self.bridge.load_persisted_commands()
         from .device_keys import KeyStore
+        from .device_config import OperatingConfigManager
         self.bridge.keystore = KeyStore(os.environ.get("TORQVA_DEVICE_KEYS_FILE") or str(Path(__file__).resolve().parents[1] / "data" / "device_keys.json"))
-        try:
-            from .commissioning import Commissioning
-            self.bridge.commissioning = Commissioning(os.environ.get("TORQVA_COMMISSIONING_FILE") or str(Path(__file__).resolve().parents[1] / "data" / "commissioning.json"))
-        except ImportError:
-            self.bridge.commissioning = None
+        self.bridge.commissioning = OperatingConfigManager(
+            os.environ.get("TORQVA_DEVICE_CONFIG_FILE") or os.environ.get("TORQVA_COMMISSIONING_FILE") or str(Path(__file__).resolve().parents[1] / "data" / "device_config.json"),
+            auto_init=("PYTEST_CURRENT_TEST" not in os.environ),
+        )
         from .autoconnect import AutoConnector
         self.bridge.autoconnect = AutoConnector(self.bridge, os.environ.get("TORQVA_DEVICE_PORT") or None, scan=os.environ.get("TORQVA_AUTOCONNECT", "1") != "0")
         if os.environ.get("TORQVA_AUTOCONNECT", "1") != "0":

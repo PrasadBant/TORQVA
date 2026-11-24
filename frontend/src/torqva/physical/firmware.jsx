@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Cpu, Upload, ShieldCheck, ListChecks, Rocket, History, HardDrive, AlertTriangle, CheckCircle2, XCircle, RotateCcw, Clock, FileUp } from 'lucide-react';
 import { api } from '../api.js';
 import { Card, Empty, ErrorBox, Pill, PageHead, AlertPanel, MetricList, CheckList, StepTracker, DataTable, Disclosure, LinkButton, fmt } from '../shared/components.jsx';
+import { SourceWorkspace, WirelessSerialMonitor } from './wirelessWorkspace.jsx';
 
 const kb = (n) => (n == null ? '—' : n >= 1048576 ? `${fmt(n / 1048576, 2)} MB` : `${fmt(n / 1024, 1)} KB`);
 const when = (s) => (s ? new Date(s * 1000).toLocaleString() : '—');
@@ -119,12 +120,12 @@ function UploadCard({ admin, max, onUploaded }) {
   };
   if (!admin) return <Card title="Upload firmware" id="fw-up" icon={Upload}><Empty>Uploading firmware requires the admin role.</Empty></Card>;
   return (
-    <Card title="Upload firmware" id="fw-up" icon={Upload} sub="Compiled ESP32-S3 application image built with PlatformIO (env esp32s3 or esp32s3_uart)" testid="fw-upload">
+    <Card title="Upload firmware" id="fw-up" icon={Upload} sub="Compiled ESP32-S3 application image built with PlatformIO (env esp32s3 or esp32s3_wireless)" testid="fw-upload">
       <div className={`tq-fw-drop${over ? ' is-over' : ''}`} data-testid="fw-drop" onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
         onDrop={(e) => { e.preventDefault(); setOver(false); pick(e.dataTransfer.files?.[0]); }}>
         <FileUp size={22} aria-hidden="true" />
         <p><strong>Drop firmware.bin here</strong> or <button type="button" className="tq-linkbtn" onClick={() => input.current?.click()}>browse</button></p>
-        <p className="tq-muted tq-small">Accepted: .bin application image, at most {kb(max)}. Found in .pio/build/&lt;env&gt;/firmware.bin.</p>
+        <p className="tq-muted tq-small">Accepted: .bin application image, at most {kb(max)}. (For .ino/.cpp/.zip source files, use the Docker Compiler workspace below.)</p>
         <input ref={input} type="file" accept=".bin,application/octet-stream" hidden data-testid="fw-file" onChange={(e) => pick(e.target.files?.[0])} />
       </div>
       {file && <p className="tq-small" data-testid="fw-picked"><strong>{file.name}</strong> · {kb(file.size)}</p>}
@@ -162,9 +163,17 @@ function Validation({ rec }) {
   );
 }
 
-function Releases({ rows, selected, onSelect }) {
+function Releases({ rows, selected, onSelect, admin, deviceId, onRolledBack }) {
+  const [rbBusy, setRbBusy] = useState(null);
+  const [rbErr, setRbErr] = useState(null);
+  const rollbackTo = async (r) => {
+    setRbBusy(r.id); setRbErr(null);
+    try { await api.fwRollback({ release_id: r.id, device_id: deviceId || '' }); if (onRolledBack) onRolledBack(); }
+    catch (e) { setRbErr(e); } finally { setRbBusy(null); }
+  };
   return (
     <Card title="Available firmware releases" id="fw-rel" icon={HardDrive} testid="fw-releases">
+      <ErrorBox error={rbErr} />
       <DataTable caption="Firmware releases" rows={rows} rowKey={(r) => r.id} empty="No release uploaded yet." stack
         rowClass={(r) => (r.id === selected ? 'tq-as-active-row' : undefined)}
         columns={[
@@ -174,6 +183,15 @@ function Releases({ rows, selected, onSelect }) {
           { key: 'chip', label: 'Compatibility', render: (r) => r.checks?.chip?.status || '—' },
           { key: 'sig', label: 'Signature', render: (r) => r.checks?.signature?.status || '—' },
           { key: 'dep', label: 'Deployment', render: (r) => r.deployments?.length ? r.deployments[r.deployments.length - 1].state : 'not deployed' },
+          ...(admin ? [{
+            key: 'act',
+            label: 'Rollback',
+            render: (r) => r.deployable ? (
+              <button type="button" className="tq-btn tq-small" disabled={rbBusy === r.id} onClick={() => rollbackTo(r)} data-testid={`fw-rollback-${r.id}`}>
+                <RotateCcw size={12} aria-hidden="true" /> Rollback
+              </button>
+            ) : '—',
+          }] : []),
         ]} />
     </Card>
   );
@@ -188,9 +206,19 @@ function UpdateDevice({ rec, detail, s, admin, onDeployed }) {
   const ready = admin && rec && detail?.id === rec.id && d.connected && d.session_active && d.ota?.cap && !active && why.length === 0;
   useEffect(() => { setErr(null); }, [rec?.id]);
   const go = async () => { setBusy(true); setErr(null); try { onDeployed(await api.fwDeploy({ release_id: rec.id, device_id: d.device_id })); } catch (e) { setErr(e); } finally { setBusy(false); } };
+  const slotRollback = async () => { setBusy(true); setErr(null); try { await api.fwRollback({ slot_rollback: true, device_id: d.device_id || '' }); onDeployed(); } catch (e) { setErr(e); } finally { setBusy(false); } };
   return (
     <Card title="Update device" id="fw-upd" icon={Rocket} testid="fw-update">
-      {!rec ? <Empty>Select a release to check it against the connected device.</Empty> : (<>
+      {!rec ? (<>
+        <Empty>Select a release to check it against the connected device.</Empty>
+        {admin && d.connected && d.session_active && d.ota?.cap && (
+          <div className="tq-row tq-mt">
+            <button type="button" className="tq-btn tq-small" disabled={busy} onClick={slotRollback} data-testid="fw-slot-rollback">
+              <RotateCcw size={13} aria-hidden="true" /> Switch to Previous OTA Slot
+            </button>
+          </div>
+        )}
+      </>) : (<>
         <MetricList label="Update" items={[
           { key: 'cur', label: 'Current version', value: d.firmware || null, missingText: 'UNAVAILABLE' },
           { key: 'tgt', label: 'Target version', value: rec.version },
@@ -205,8 +233,13 @@ function UpdateDevice({ rec, detail, s, admin, onDeployed }) {
             If the new image fails its self-tests, the device rolls back to the current firmware.</p>
         </AlertPanel>
         {admin ? (<>
-          <div className="tq-row tq-mt">
+          <div className="tq-row tq-mt" style={{ gap: '0.5rem', flexWrap: 'wrap' }}>
             <button type="button" className="tq-btn tq-primary" onClick={go} disabled={!ready || busy} data-testid="fw-deploy"><Rocket size={14} aria-hidden="true" /> {busy ? 'Preparing update…' : 'Upload wirelessly'}</button>
+            {d.connected && d.session_active && d.ota?.cap && (
+              <button type="button" className="tq-btn" disabled={busy || active} onClick={slotRollback} data-testid="fw-slot-rollback">
+                <RotateCcw size={14} aria-hidden="true" /> Rollback OTA Slot
+              </button>
+            )}
           </div>
         </>) : <p className="tq-muted tq-small">Deploying firmware requires the admin role.</p>}
         <ErrorBox error={err} />
@@ -288,12 +321,16 @@ export function FirmwarePage({ role, go }) {
         <DeviceStatus s={s} />
         <UploadCard admin={admin} max={cfg?.max_image_bytes} onUploaded={(r) => { setSel(r.id); load(); }} />
       </div>
+      <div className="tq-mt">
+        <SourceWorkspace admin={admin} deviceId={s?.device?.device_id} onCompiled={(r) => { setSel(r.id); load(); }} onDeployed={() => load()} />
+      </div>
       <div className="tq-grid tq-grid-wide tq-mt">
         <Validation rec={rec} />
         <UpdateDevice rec={rec} detail={detail} s={s} admin={admin} onDeployed={() => load()} />
       </div>
-      <div className="tq-mt"><Releases rows={rel} selected={sel} onSelect={setSel} /></div>
+      <div className="tq-mt"><Releases rows={rel} selected={sel} onSelect={setSel} admin={admin} deviceId={s?.device?.device_id} onRolledBack={() => load()} /></div>
       <div className="tq-mt"><Progress dep={s?.current} device={s?.device} go={go} /></div>
+      <div className="tq-mt"><WirelessSerialMonitor /></div>
       <div className="tq-mt"><HistoryCard rows={hist} /></div>
     </>
   );

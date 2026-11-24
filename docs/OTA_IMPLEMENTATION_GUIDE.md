@@ -1,9 +1,18 @@
 # OTA implementation guide
 
-TORQVA's OTA code lives in `esp32/torqva_fw/src/ota_esp32.cpp`, `esp32/torqva_fw/lib/torqva_core/ota.cpp`, and `backend/torqva/firmware.py`. The device downloads a signed ESP32-S3 **application** image over HTTPS into the inactive OTA partition. The pinned `default_8MB.csv` table provides two 3,342,336-byte application slots and `otadata`; it leaves part of the N16R8's 16 MB unused to preserve compatibility with already flashed boards. The application must fit one slot.
+TORQVA's OTA system spans `esp32/torqva_fw/src/ota_esp32.cpp`, `esp32/torqva_fw/lib/torqva_core/ota.cpp`, `backend/torqva/firmware.py`, `backend/torqva/firmware_routes.py`, and `backend/torqva/compiler.py`.
 
-The backend validates image structure, chip ID, embedded TORQVA firmware identity, size, SHA-256 and ECDSA P-256 signature before a release is deployable. An admin action requires an authenticated device with fresh OTA capability and no device-reported OTA refusal. The ESP32 independently verifies the motor is idle, outputs off, speed zero and motor supply absent. It then fetches a manifest and image with a short-lived token, checks the signature and hash again, writes the inactive slot, and restarts.
+## Build & Compilation Pipeline
 
-On first boot, `verifyRollbackLater()` prevents automatic confirmation. The TORQVA self-test checks initialization, sensors or bench profile, identity/key, authenticated host link, outputs off, watchdog and OTA health. It confirms the new image only after those checks; otherwise the bootloader rollback path restores the previous image. The backend marks success only after the device reports confirmation for the target version. Backend restart recovers a secret-free deployment snapshot but does not resume a partly downloaded image.
+- **Isolated Docker Engine (`torqva-pio:latest`)**: Uploaded `.ino`, `.cpp`, `.c`, `.h`, `.hpp`, and `.zip` projects are staged in a per-job directory (zip-slip & symlink protected), compiled offline inside an ephemeral container (`--network none --read-only --cap-drop ALL --memory 2g --cpus 2`), checked for `TORQVA_FW_ID`, Wi-Fi link, and OTA partition retention, and optionally signed on the host via `TORQVA_OTA_SIGNING_KEY`.
+- **Resumable HTTPS Transfer (`206 Partial Content`)**: `ota_esp32.cpp` tracks received bytes across transient chunk failures and issues HTTP `Range: bytes=<offset>-` requests against `/api/torqva/firmware/ota/{rid}/image?t=...` so interrupted transfers do not restart from zero or corrupt flash.
+- **Persistent State (`deployments.json`)**: `FirmwareStore` persists deployment history and active snapshots without leaking ephemeral tokens across backend restarts.
 
-To build a working OTA image, generate a signing key pair and export its public key header **before** running `python -m platformio run -e esp32s3_wireless`; see [FIRMWARE_UPLOAD_GUIDE.md](FIRMWARE_UPLOAD_GUIDE.md). A build without that header can compile but reports OTA unavailable. Provision the backend URL, Wi-Fi credentials, CA and device authentication key through NVS; see [WIFI_SETUP_GUIDE.md](WIFI_SETUP_GUIDE.md). Physical flashing and rollback are pending verification.
+## Boot Validation & Rollback
+
+- **Automatic Rollback**: `verifyRollbackLater()` prevents automatic confirmation on first boot until TORQVA's self-test confirms initialization, sensors (or bench profile), identity/key, host link, stopped outputs, watchdog, and OTA state. Failed boots automatically revert to the prior slot (`ROLLED_BACK`).
+- **Manual Rollback**: `POST /api/torqva/firmware/rollback` supports both re-deploying a stored prior compatible release (`rollback=True` / `rb=1`) and triggering on-device `ota_rollback` (`sys` HMAC-signed command).
+
+## Pre-requisites for Physical ESP32 Verification
+
+Initial USB provisioning on `COM7` (with motor power disconnected) installs the pinned `default_8MB.csv` partition table, `esp32s3_wireless` base image, NVS Wi-Fi/CA/URL config, and per-device 32-byte key before cable-free wireless OTA begins.

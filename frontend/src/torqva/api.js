@@ -48,11 +48,11 @@ async function req(path, { method = 'GET', body } = {}) {
   return RAW.test(path) ? res.json() : res.json().then(plainify);
 }
 
-/** Firmware upload (multipart) with real upload progress: XMLHttpRequest reports the bytes actually sent, which fetch cannot. Not timed out, like every write. */
-function uploadFirmware(file, fields, onProgress) {
+/** Source or firmware upload (multipart) with real upload progress via XMLHttpRequest. */
+function uploadSourceOrFirmware(endpoint, file, fields, onProgress) {
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
-    x.open('POST', `${BASE}/api/torqva/firmware/releases`);
+    x.open('POST', `${BASE}/api/torqva${endpoint}`);
     x.setRequestHeader('Authorization', `Bearer ${getToken()}`);
     if (onProgress && x.upload) x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded, e.total); };
     x.onerror = () => reject(new Error('The upload did not reach the backend'));
@@ -72,13 +72,38 @@ function uploadFirmware(file, fields, onProgress) {
   });
 }
 
+function uploadFirmware(file, fields, onProgress) {
+  return uploadSourceOrFirmware('/firmware/releases', file, fields, onProgress);
+}
+
 export const api = {
   fwStatus: () => req('/firmware/status'),
   fwReleases: () => req('/firmware/releases'),
   fwRelease: (id) => req(`/firmware/releases/${encodeURIComponent(id)}`),
   fwDeployments: () => req('/firmware/deployments'),
   fwDeploy: (body) => req('/firmware/deployments', { method: 'POST', body }),
+  fwRollback: (body) => req('/firmware/rollback', { method: 'POST', body }),
   fwUpload: uploadFirmware,
+  fwDocker: () => req('/firmware/docker'),
+  fwTemplates: () => req('/firmware/workspace/templates'),
+  fwWorkspaceFiles: () => req('/firmware/workspace/files'),
+  fwCompileEditor: (body) => req('/firmware/compile/editor', { method: 'POST', body }),
+  fwCompileUpload: (file, fields, onProgress) => uploadSourceOrFirmware('/firmware/compile/upload', file, fields, onProgress),
+  fwCompileJobs: () => req('/firmware/compile'),
+  fwCompileJob: (id) => req(`/firmware/compile/${encodeURIComponent(id)}`),
+  deviceDiscover: () => req('/device/discover'),
+  deviceConnectIp: (body) => req('/device/connect-ip', { method: 'POST', body }),
+  deviceWifi: () => req('/device/wifi'),
+  deviceWifiUpdate: (body) => req('/device/wifi', { method: 'POST', body }),
+  deviceRestart: () => req('/device/restart', { method: 'POST' }),
+  deviceLogs: (limit = 300, search = '', level = '') => req(`/device/logs?limit=${Number(limit)}&search=${encodeURIComponent(search)}&level=${encodeURIComponent(level)}`),
+  deviceLogsDownload: async (format = 'txt') => {
+    const res = await fetch(`${BASE}/api/torqva/device/logs/download?format=${encodeURIComponent(format)}`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`);
+    return res.text();
+  },
   me: () => req('/me'),
   status: () => req('/status'),
   telemetry: (last = 300) => req(`/telemetry?last=${last}`),

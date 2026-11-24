@@ -34,8 +34,8 @@ def test_every_commissioning_flag_defaults_to_zero_and_hardware_never_relaxes_in
 
 def test_a_control_enabled_build_cannot_carry_the_placeholder_key():
     assert "dev-key-change-me" not in MAIN
-    assert 'auth.getBytesLength("authkey") == sizeof(cfg.key)' in MAIN
-    assert 'auth.getBytes("authkey", cfg.key, sizeof(cfg.key))' in MAIN
+    assert 'auth.getBytesLength("authkey") == sizeof(cfg.auth_key)' in MAIN
+    assert 'auth.getBytes("authkey", cfg.auth_key, sizeof(cfg.auth_key))' in MAIN
     assert "cfg.auth_enabled = false" not in MAIN
 
 

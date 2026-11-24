@@ -78,5 +78,13 @@ def root():
         return FileResponse(index_file)
     return RedirectResponse("http://localhost:5173/")
 
+@app.get("/favicon.svg", include_in_schema=False)
+def favicon():
+    ico = os.path.join(_dist_dir, "favicon.svg")
+    if os.path.isfile(ico):
+        return FileResponse(ico, media_type="image/svg+xml")
+    from fastapi import Response
+    return Response(status_code=204)
+
 if os.path.isdir(os.path.join(_dist_dir, "assets")):
     app.mount("/assets", StaticFiles(directory=os.path.join(_dist_dir, "assets")), name="assets")

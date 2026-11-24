@@ -200,8 +200,12 @@ def serve(a) -> int:
                 return self._ws()
             if not ROUTE.match(self.path):
                 return self._no()
+            req_headers = {}
+            rng = self.headers.get("Range")
+            if rng and CR not in rng and LF not in rng and rng.startswith("bytes="):
+                req_headers["Range"] = rng
             try:
-                with urllib.request.urlopen(urllib.request.Request(backend + self.path, method="GET"), timeout=60) as r:
+                with urllib.request.urlopen(urllib.request.Request(backend + self.path, headers=req_headers, method="GET"), timeout=60) as r:
                     length = r.headers.get("Content-Length", "")
                     if not length.isdecimal() or not 0 < int(length) <= 8 * 1024 * 1024:
                         return self._no(502)
@@ -209,6 +213,9 @@ def serve(a) -> int:
                     self.send_response(r.status)
                     self.send_header("Content-Type", r.headers.get("Content-Type", "application/octet-stream"))
                     self.send_header("Content-Length", length)
+                    if r.headers.get("Content-Range"):
+                        self.send_header("Content-Range", r.headers.get("Content-Range"))
+                    self.send_header("Accept-Ranges", "bytes")
                     self.send_header("Cache-Control", "no-store")
                     self.end_headers()
                     while remaining:

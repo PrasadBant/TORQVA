@@ -21,7 +21,7 @@ import threading
 import time
 from typing import Any, Dict, Optional, Tuple
 
-from .serial_bridge import Transport, TransportError
+from .serial_bridge import Conn, Transport, TransportError
 
 LINK_AUTH_TIMEOUT_S = 20.0
 LINK_MAX_MSG = 1024
@@ -68,7 +68,8 @@ class WsTransport(Transport):
                 self._in.put_nowait(TransportError(f"Wi-Fi link closed: {why}", "LINK_CLOSED", why))
             except queue.Full:
                 pass
-            self.loop.call_soon_threadsafe(self._put_out, None)
+            if not self.loop.is_closed():
+                self.loop.call_soon_threadsafe(self._put_out, None)
 
     # -- bridge side
     def read_line(self, timeout: float) -> Optional[bytes]:
@@ -113,6 +114,7 @@ class DeviceLinkManager:
 
     def admit(self, remote: str) -> Tuple[bool, str]:
         """Called before the link is attached. Returns (ok, reason)."""
+        disconnect_reason = ""
         with self._lock:
             now = self.clock()
             self.attempts += 1
@@ -125,15 +127,19 @@ class DeviceLinkManager:
             if b.connected:
                 tr = getattr(b, "_transport", None)
                 kind = getattr(tr, "kind", "usb")
-                if kind == "usb" and b.device_profile() == "ota_led_bench":
+                m = getattr(b, "model", None)
+                handshaken = m is not None and m.status is not None and m.conn in (Conn.CONNECTED, Conn.STALE)
+                if kind == "usb" and (not handshaken or b.device_profile() == "ota_led_bench"):
                     if b.autoconnect is not None and not b.autoconnect.paused:
                         b.autoconnect.paused, self.paused_usb = True, True
-                    b.disconnect("handing the LED bench device over to its Wi-Fi link")
-                    self._event("handover", remote=remote, reason="USB -> Wi-Fi (LED bench device)")
+                    disconnect_reason = "handing the LED bench device over to its Wi-Fi link" if b.device_profile() == "ota_led_bench" else "yielding unhandshaken USB port to incoming Wi-Fi link"
+                    self._event("handover", remote=remote, reason="USB -> Wi-Fi (LED bench device)" if b.device_profile() == "ota_led_bench" else "USB (unhandshaken) -> Wi-Fi")
                 else:
                     self._event("refused", remote=remote, reason=f"LINK_BUSY ({kind})")
                     return False, f"LINK_BUSY: a device is connected over {kind}"
-            return True, ""
+        if disconnect_reason:
+            b.disconnect(disconnect_reason)
+        return True, ""
 
     def attached(self, tr: WsTransport) -> None:
         with self._lock:
