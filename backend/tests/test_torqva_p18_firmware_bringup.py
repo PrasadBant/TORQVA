@@ -71,7 +71,7 @@ def test_platformio_environments_match_the_bringup_procedure():
     for e in (usb, uart):
         for forbidden in ("TORQVA_LIMITS_APPROVED", "TORQVA_ESTOP_INPUT_WIRED", "upload_", "-t upload"):
             assert forbidden not in e, forbidden
-    assert re.findall(r"^\[env:(\w+)\]", INI, re.M) == ["native", "fitl", "esp32s3", "esp32s3_uart", "esp32s3_ota_led_v100", "esp32s3_ota_led_v110", "esp32s3_ota_led_v111", "esp32s3_ota_led_v112"]
+    assert re.findall(r"^\[env:(\w+)\]", INI, re.M) == ["native", "fitl", "esp32s3", "esp32s3_uart", "esp32s3_wireless", "esp32s3_ota_led_v100", "esp32s3_ota_led_v110", "esp32s3_ota_led_v111", "esp32s3_ota_led_v112"]
     # OTA LED bench profiles: native USB like esp32s3, motor control never enabled, OLED off (GPIO 5 is the LED), no interlock relaxed, never an upload setting
     for name in ("esp32s3_ota_led_v100", "esp32s3_ota_led_v110", "esp32s3_ota_led_v111", "esp32s3_ota_led_v112"):
         b = env(name)

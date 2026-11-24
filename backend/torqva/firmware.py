@@ -181,6 +181,7 @@ class FirmwareStore:
         self.images = self.root / "images"
         self.index_path = self.root / "releases.json"
         self.history_path = self.root / "history.jsonl"
+        self.current_path = self.root / "current_deployment.json"
         self.lock = threading.RLock()
         self.load_error = ""
         self.releases: Dict[str, Dict[str, Any]] = {}
@@ -247,6 +248,29 @@ class FirmwareStore:
                 out.append({"kind": "unreadable_history_line"})
         return out
 
+    def save_current(self, deployment: Dict[str, Any]) -> None:
+        public = {k: v for k, v in deployment.items() if k not in ("token", "token_expires", "updated", "rebooting_since")}
+        with self.lock:
+            self._atomic_write(self.current_path, json.dumps(public, sort_keys=True).encode("utf-8"))
+
+    def load_current(self) -> Optional[Dict[str, Any]]:
+        if not self.current_path.exists():
+            return None
+        try:
+            dep = json.loads(self.current_path.read_text(encoding="utf-8"))
+            if (not isinstance(dep, dict) or not re.fullmatch(r"[0-9a-f]{12}", str(dep.get("id", "")))
+                    or not re.fullmatch(r"[0-9a-f]{12}", str(dep.get("release", "")))
+                    or not isinstance(dep.get("version"), str) or not isinstance(dep.get("device_id"), str)
+                    or not isinstance(dep.get("events"), list) or not isinstance(dep.get("total"), int)
+                    or not isinstance(dep.get("bytes"), int) or not isinstance(dep.get("requested_at"), (int, float))
+                    or not isinstance(dep.get("sha256"), str) or not isinstance(dep.get("from_version"), (str, type(None)))
+                    or dep.get("state") not in DEVICE_STATES | TERMINAL | {"REQUESTED", "WAITING_FOR_RECONNECTION"}):
+                raise ValueError("invalid deployment snapshot")
+            return dep
+        except (ValueError, OSError, TypeError) as exc:
+            self.load_error = f"firmware deployment snapshot unreadable: {exc}"
+            return None
+
 
 # ---------------------------------------------------------------------------------------------------------- deployments
 # Stages shown to the operator, in order. Each is set only by a device report or a backend fact.
@@ -270,6 +294,17 @@ class FirmwareManager:
         self._last_deploy: Dict[str, float] = {}
         self._uploads: List[float] = []
         self._token_key = secrets.token_bytes(32)                 # per backend process: tokens do not survive a restart
+
+        saved = self.store.load_current()
+        if saved is not None:
+            saved.update({"token": "", "token_expires": 0.0, "downloads": 12, "updated": self.clock(), "rebooting_since": self.clock()})
+            if saved["state"] not in TERMINAL:
+                saved["state"] = "WAITING_FOR_RECONNECTION"
+                saved["reason"] = "backend restarted during deployment; awaiting the device's actual result"
+                saved.setdefault("events", []).append({"state": "WAITING_FOR_RECONNECTION", "detail": saved["reason"], "at": self.wall()})
+                self.store.save_current(saved)
+            self.deployments[saved["id"]] = saved
+            self.active = saved["id"]
         if bridge is not None:
             bridge.ota_listener = self.on_device_frame
 
@@ -366,6 +401,7 @@ class FirmwareManager:
         info_age = None if not info else round(self.clock() - info["_at"], 1)
         return {"connected": snap.get("connection") == "CONNECTED", "connection": snap.get("connection"), "handshake": bool(snap.get("handshake")),
                 "device_id": snap.get("device_id"), "firmware": snap.get("firmware"), "chip": "ESP32-S3" if snap.get("handshake") else None,
+                "transport": snap.get("transport"),
                 "session_active": bool((snap.get("session") or {}).get("active")), "safety_state": snap.get("safety_state"), "drive": snap.get("drive"),
                 "ota": None if not info else {k: v for k, v in info.items() if not k.startswith("_")}, "ota_age_s": info_age,
                 "profile": None if not info else (info.get("prof") or ""), "profile_label": None if not info else PROFILES.get(info.get("prof") or "", info.get("prof"))}
@@ -416,18 +452,13 @@ class FirmwareManager:
         return why
 
     # ---- deployment
-    def deploy(self, rid: str, device_id: str, user: str, confirm: str, bench_power_disconnected: bool) -> Dict[str, Any]:
+    def deploy(self, rid: str, device_id: str, user: str) -> Dict[str, Any]:
         rec = self.release(rid)
         now = self.clock()
         with self.lock:
             last = self._last_deploy.get(device_id, -1e9)
             if now - last < DEPLOY_MIN_INTERVAL_S:
                 raise FirmwareError("RATE_LIMITED", f"one deployment per device every {int(DEPLOY_MIN_INTERVAL_S)} s", 429)
-            if not bench_power_disconnected:
-                raise FirmwareError("BENCH_ATTESTATION_REQUIRED", "confirm that the motor power stage is physically disconnected")
-            phrase = f"INSTALL {rec['version']} ON {device_id}"
-            if confirm != phrase:
-                raise FirmwareError("CONFIRMATION_REQUIRED", f"type exactly: {phrase}")
             why = self.eligibility(rec, device_id)
             if why:
                 raise FirmwareError("NOT_ELIGIBLE", "; ".join(why), 409)
@@ -442,7 +473,7 @@ class FirmwareManager:
             self._last_deploy[device_id] = now
         self._event(dep, "REQUESTED", f"by {user}")
         self.store.append_history({"kind": "deployment_requested", "deployment": dep_id, "release": rid, "version": rec["version"], "sha256": rec["sha256"], "device": device_id,
-                                   "from_version": dep["from_version"], "by": user, "at": dep["requested_at"], "bench_power_disconnected": True})
+                                   "from_version": dep["from_version"], "by": user, "at": dep["requested_at"]})
         ok, why = self.bridge.request_ota(rid, rec["version"], token)
         if not ok:
             self._finish(dep, "FAILED", f"the update request could not be sent: {why}")
@@ -451,6 +482,7 @@ class FirmwareManager:
     def _event(self, dep: Dict[str, Any], state: str, detail: str = "") -> None:
         dep["events"].append({"state": state, "detail": detail, "at": self.wall()})
         dep["events"] = dep["events"][-60:]
+        self.store.save_current(dep)
 
     def _finish(self, dep: Dict[str, Any], state: str, reason: str) -> None:
         if dep["state"] in TERMINAL:
@@ -575,3 +607,21 @@ class FirmwareManager:
     def image(self, rid: str, token: str) -> bytes:
         self.authorize_download(rid, token)
         return self.store.read_image(self.release(rid))
+
+    def image_file(self, rid: str, token: str) -> Path:
+        """Authorize and verify a stored image without buffering it in the API process."""
+        self.authorize_download(rid, token)
+        rec = self.release(rid)
+        path = self.store.image_path(rec["sha256"])
+        digest = hashlib.sha256()
+        size = 0
+        try:
+            with path.open("rb") as image:
+                for chunk in iter(lambda: image.read(256 * 1024), b""):
+                    digest.update(chunk)
+                    size += len(chunk)
+        except OSError as exc:
+            raise FirmwareError("STORAGE_UNAVAILABLE", "the stored image is unavailable", 503) from exc
+        if digest.hexdigest() != rec["sha256"] or size != rec["size"]:
+            raise FirmwareError("STORAGE_CORRUPT", "the stored image no longer matches its release checksum", 500)
+        return path

@@ -8,6 +8,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .venv/
+.tools/
 venv/
 env/
 .pytest_cache/

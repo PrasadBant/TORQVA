@@ -61,7 +61,7 @@ async function open(page, opts = {}) {
   await screen.findByText(/tester · /);
   // Device and Safety & Commissioning are sections of the one Device & Safety page.
   const merged = page === 'Device' || page === 'Safety & Commissioning';
-  fireEvent.click(screen.getByRole('button', { name: merged ? /^Device & Safety$/ : new RegExp(`^${page}`) }));
+  fireEvent.click(screen.getByRole('button', { name: merged ? /^Hardware Manager$/ : new RegExp(`^${page}`) }));
   if (page === 'Safety & Commissioning') fireEvent.click(screen.getByRole('tab', { name: /Safety & Commissioning/ }));
   if (page === 'Device') fireEvent.click(screen.getByRole('tab', { name: /Connection & Readiness/ }));
   return calls;

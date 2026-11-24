@@ -168,7 +168,7 @@ def test_an_oversized_message_closes_the_link(app):
     assert wait(lambda: not svc.bridge.connected)
 
 
-def test_an_led_bench_device_on_usb_hands_over_to_its_wifi_link_but_a_production_device_is_not_displaced(app, monkeypatch):
+def test_led_bench_usb_hands_over_to_wifi_but_production_usb_is_not_displaced(app, monkeypatch):
     svc, c = app
     monkeypatch.setattr(dl, "LINK_MIN_INTERVAL_S", 0.0)
     b = svc.bridge
@@ -181,12 +181,12 @@ def test_an_led_bench_device_on_usb_hands_over_to_its_wifi_link_but_a_production
         assert wait(lambda: b.model.conn == Conn.CONNECTED and b.ota_info is not None and b.device_profile() == prof)
         if expect_handover:
             with c.websocket_connect(LINK) as ws:
-                d = WsDevice(ws); d.boot(); assert d.handshake()
+                d = WsDevice(ws); d.boot(prof=prof); assert d.handshake()
                 assert wait(lambda: b.session_active())
                 assert b.snapshot()["transport"]["kind"] == "wifi" and b._transport is not usb
         else:
             assert refusal(c) == 4409
-            assert b._transport is usb                                             # the production device keeps its USB session
+            assert b._transport is usb
             b.disconnect("next case")
         wait(lambda: not b.connected)
 

@@ -83,7 +83,8 @@ def test_a_valid_reading_set_including_voltage_verifies_the_sensor_interlock():
 def test_without_a_configured_firmware_key_no_placeholder_key_is_sent(monkeypatch):
     monkeypatch.delenv("TORQVA_FW_COMMAND_KEY", raising=False)
     b = DeviceBridge()
-    assert b.command_key == ""
+    assert not hasattr(b, "command_key")
     src = (ROOT / "backend" / "torqva" / "serial_bridge.py").read_text(encoding="utf-8")
     assert "authenticated-session-only" not in src                          # the firmware build sentinel must never be the backend's default key
+    assert "dev-key-change-me" not in src
     assert 'v["voltage"] = 24.0' not in src and "voltage_v=24.0" not in src

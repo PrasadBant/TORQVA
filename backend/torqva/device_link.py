@@ -7,8 +7,8 @@ and replay-protected commands and the same Safety Supervisor. The link is only a
 
 Rules (no fake connection state, one authoritative route):
   * enabled only with TORQVA_DEVICE_LINK=1 (npm run dev:sim strips it, so a software-only session never accepts a physical device);
-  * one device link at a time, because the bridge holds one transport: a second link is refused while a device is connected, EXCEPT that an LED bench
-    device (profile ota_led_bench) connected over USB hands over to Wi-Fi (USB autoconnect is paused while the Wi-Fi link lasts);
+  * one device link at a time, because the bridge holds one transport: an existing production USB connection is retained until disconnected;
+    the LED-only bench profile permits a USB-to-Wi-Fi handover;
   * a link that has not completed the authenticated handshake within LINK_AUTH_TIMEOUT_S is closed; connection attempts are rate-limited per address;
   * messages larger than LINK_MAX_MSG bytes close the link.
 """

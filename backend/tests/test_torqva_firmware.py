@@ -325,14 +325,30 @@ def test_every_ineligible_condition_blocks_deployment_with_its_reason(api, keys,
     assert written(tr, "ota") == []
 
 
-def test_a_different_device_id_confirmation_and_attestation_are_required(api, keys):
+def test_a_different_device_id_is_refused_without_sending_an_update(api, keys):
     svc, c = api
     rec, _ = deployable(c, keys)
     tr = connect_device(svc)
     assert "not 'RIG-9'" in deploy(c, rec, device="RIG-9").json()["detail"]["message"]
-    assert deploy(c, rec, confirm="yes").json()["detail"]["code"] == "CONFIRMATION_REQUIRED"
-    assert deploy(c, rec, bench=False).json()["detail"]["code"] == "BENCH_ATTESTATION_REQUIRED"
     assert written(tr, "ota") == []
+
+
+def test_deployment_state_survives_backend_restart_without_reusing_its_download_token(api, keys, monkeypatch):
+    svc, c = api
+    rec, _ = deployable(c, keys)
+    connect_device(svc)
+    started = deploy(c, rec).json()
+    assert started["state"] == "REQUESTED"
+
+    recovered = FirmwareManager(None, root=str(svc.firmware.store.root), public_key=keys["pub"], base_url="https://ota.bench.lan")
+    current = recovered.current()
+    assert current["id"] == started["id"]
+    assert current["release"] == rec["id"]
+    assert current["state"] == "WAITING_FOR_RECONNECTION"
+    assert "token" not in current
+    assert "actual result" in current["reason"]
+    with pytest.raises(FirmwareError):
+        recovered.manifest(rec["id"], "0" * 32)
 
 
 def test_a_device_facing_url_on_localhost_blocks_deployment(api, keys):

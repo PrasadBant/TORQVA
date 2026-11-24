@@ -84,7 +84,7 @@ describe('TORQVA workspace', () => {
 
   it('keeps the non-dismissable simulation banner on every view', async () => {
     await signedIn();
-    for (const name of ['Overview', 'Live Monitor', 'Anomaly Detection', 'Failure Prediction', 'Diagnostic Investigation', 'Action Recommendations', 'Recovery Verification', 'Continuous Intelligence', 'Performance Evaluation', 'Device & Safety']) {
+    for (const name of ['Overview', 'Live Monitor', 'Anomaly Detection', 'Failure Prediction', 'Diagnostic Investigation', 'Action Recommendations', 'Recovery Verification', 'Continuous Intelligence', 'Performance Evaluation', 'Hardware Manager']) {
       fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${name}`) }));
       expect(screen.getByTestId('sim-banner')).toHaveTextContent(/simulated/i);
     }
@@ -178,7 +178,7 @@ describe('TORQVA workspace', () => {
 
   it('audit log is restricted to admins', async () => {
     await signedIn({ role: 'operator' });
-    fireEvent.click(screen.getByRole('button', { name: /^Device & Safety/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Hardware Manager/ }));
     fireEvent.click(screen.getByRole('tab', { name: /^Device$/ }));
     expect(await screen.findByText(/visible to admins only/)).toBeInTheDocument();
   });

@@ -796,29 +796,31 @@ class DeviceBridge:
         self._next_id = int.from_bytes(os.urandom(2), "big") + 1          # unique ids, never reused within a run; the device keeps a short duplicate cache
         self._next_seq = int(time.time() * 10) & 0x7FFFFFFF
         self._supervisor = SafetySupervisor(SupervisorLimits())
-        self.command_key = os.environ.get("TORQVA_FW_COMMAND_KEY", "")      # the firmware's shared key; never in the repository; absent = non-STOP commands carry no key
         self._stale_reported = False
         self._connect_lock = threading.Lock()                  # serialises connect/disconnect: no overlapping opens, no leaked handles
         self._connecting = False
         self._err_state: Dict[str, Any] = {}
         self.store = None
         self.ds18b20_warning: Optional[str] = None
-        is_test = "PYTEST_CURRENT_TEST" in os.environ
-        default_mode = "0" if is_test else "1"
-        self._direct_mode = os.getenv("TORQVA_DIRECT_MODE", default_mode) in ("1", "true", "True")
-        self.universal_mode = os.getenv("TORQVA_REMOVE_BLOCKERS", default_mode) in ("1", "true", "True")
-        if hasattr(self, "model") and self.model is not None:
-            self.model.direct_mode = self._direct_mode
+        self.model.direct_mode = False
 
     @property
     def direct_mode(self) -> bool:
-        return getattr(self, "_direct_mode", False)
+        return False
 
     @direct_mode.setter
     def direct_mode(self, val: bool) -> None:
-        self._direct_mode = bool(val)
-        if hasattr(self, "model") and self.model is not None:
-            self.model.direct_mode = bool(val)
+        if val:
+            raise ValueError("direct mode was removed; commands require device authentication")
+
+    @property
+    def universal_mode(self) -> bool:
+        return False
+
+    @universal_mode.setter
+    def universal_mode(self, val: bool) -> None:
+        if val:
+            raise ValueError("universal mode was removed; a TORQVA protocol handshake is required")
 
     def load_persisted_commands(self) -> None:
         if self.store is None:
@@ -1465,8 +1467,7 @@ class DeviceBridge:
                 mac = hmac.new(a["sk"], canon.encode(), hashlib.sha256).hexdigest()[:32]
                 payload = {"id": cid, "type": "HEARTBEAT", "p": 0, "p2": 0, "p3": 0, "ttl": 5000, "age": 0, "seq": seq, "k": "", "sid": a["sid"], "m": mac}
             else:
-                key = self.command_key or "dev-key-change-me"
-                payload = {"id": cid, "type": "HEARTBEAT", "p": 0, "p2": 0, "p3": 0, "ttl": 5000, "age": 0, "seq": seq, "k": key}
+                return
         self._send_line(payload)
 
     def _on_cfg_ack(self, f: Dict[str, Any]) -> None:
@@ -1653,8 +1654,7 @@ class DeviceBridge:
             seq = self._next_seq
             self._next_seq = (self._next_seq + 1) & 0x7FFFFFFF or 1
         p1 = round(p1) if ty == "SET_SPEED" else round(p1, 3)         # values the firmware reproduces exactly when it rebuilds the MAC input (%.3f)
-        key = self.command_key or "dev-key-change-me"
-        msg = {"id": rec.id, "type": ty, "p": p1, "p2": 0, "p3": 0, "ttl": 5000, "age": 0, "seq": seq, "k": key if ty != "STOP" else ""}
+        msg = {"id": rec.id, "type": ty, "p": p1, "p2": 0, "p3": 0, "ttl": 5000, "age": 0, "seq": seq, "k": ""}
         a = self._auth
         if a.get("state") == "active" and self._clock() < a["expires"] and a.get("sk"):       # authenticated session: bind the command to it with a MAC (the plaintext key is not used)
             sid = a["sid"]

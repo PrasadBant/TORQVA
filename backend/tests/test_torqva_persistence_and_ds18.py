@@ -61,7 +61,6 @@ def test_command_and_incident_persistence_across_restarts():
         store1 = Store(db_path)
         bridge1 = DeviceBridge()
         bridge1.store = store1
-        bridge1.direct_mode = True
         mock_rig = MemoryTransport()
         bridge1.connect(mock_rig)
 

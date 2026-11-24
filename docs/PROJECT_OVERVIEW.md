@@ -1,10 +1,18 @@
 # TORQVA — Complete Project Overview
 
-> **Last updated:** 21 Nov 2026 · Branch `torqva/phase-0-audit` · GitHub `PrasadBant/TORQVA`
+> **Last updated:** 25 Nov 2026 · Branch `torqva/phase-0-audit` · GitHub `PrasadBant/TORQVA`
 >
 > This single file captures everything about the project: what it is, how it works, the full tech stack, hardware, firmware, backend, frontend, AI pipeline, test suite, API surface, and development status. Use it as the canonical briefing document.
 
 ---
+
+## Wireless engineering status (25 Nov 2026)
+
+The repository has an ESP32-S3 production build profile, `esp32s3_wireless`, that enables the existing authenticated outbound Wi-Fi WebSocket and HTTPS OTA receiver. The backend's `TORQVA_DEVICE_LINK=1` setting accepts that link; the same device bridge and command protocol handle USB and Wi-Fi. The firmware build succeeds, but no physical deployment of this production profile has been verified in this work.
+
+Firmware Manager currently validates and deploys signed **compiled application `.bin` files**. Source upload, isolated PlatformIO compilation from the website, source editing, automatic discovery, network switching, a wireless log console, and manual rollback are not yet implemented. The production USB link stays authoritative while attached; unplugging its data cable allows the board's outbound Wi-Fi link to connect. The existing LED-only bench profile supports USB-to-Wi-Fi handover.
+
+The OTA slot is 3,342,336 bytes under the pinned `default_8MB.csv` partition table despite the N16R8's 16 MB flash. The production wireless binary compiled at 989,497 flash bytes and 54,984 static RAM bytes. The existing signed OTA path and rollback tests are software-verified; hardware verification is pending. See [WIRELESS_ARCHITECTURE.md](WIRELESS_ARCHITECTURE.md) and [TEST_REPORT.md](TEST_REPORT.md).
 
 ## 1. What TORQVA Is
 

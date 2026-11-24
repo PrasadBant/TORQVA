@@ -220,28 +220,10 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
                 <><p className="tq-muted">Last lines received that are not valid TORQVA frames (diagnostic, admin only):</p>
                   <pre className="tq-num" data-testid="rejected-samples">{snap.rejected_samples.join('\n')}</pre></>)}
             </div>)}
-          <div className="tq-row" style={{ marginTop: '10px', marginBottom: '10px' }}>
-            <button
-              type="button"
-              className={`tq-btn ${override ? 'tq-primary' : 'tq-ghost'}`}
-              style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem' }}
-              onClick={async () => {
-                const next = !override;
-                setOverrideActive(next);
-                try {
-                  await api.setDirectMode(next);
-                } catch { }
-                stream.refresh();
-              }}
-              data-testid="toggle-universal-connect"
-            >
-              {override ? '🔓 Direct device mode' : '🔓 Enable direct device mode'}
-            </button>
-          </div>
           <ErrorBox error={error} />
           <h4 className="tq-mon-subhead">Serial port</h4>
           {!admin ? <Empty>Connecting a device requires the admin role.</Empty> : (
-            <form className="tq-form" onSubmit={(e) => { e.preventDefault(); act(() => api.deviceConnect({ port: form.port, baud: Number(form.baud), expected_device_id: form.expected || null, universal: isOverrideActive() }))(); }}>
+            <form className="tq-form" onSubmit={(e) => { e.preventDefault(); act(() => api.deviceConnect({ port: form.port, baud: Number(form.baud), expected_device_id: form.expected || null }))(); }}>
               <label>Port
                 <select value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} disabled={connected}>
                   <option value="">select a port…</option>
@@ -558,35 +540,17 @@ export function DeviceLive({ stream }) {
 /* ------------------------------------------------------------------ Motor control */
 export const STATE_TONE = { REQUESTED: 'info', REJECTED: 'crit', AUTHORIZED: 'wait', SENT: 'wait', ACKNOWLEDGED: 'info', EXECUTED: 'ok', FAILED: 'crit', TIMED_OUT: 'warn', UNKNOWN_OUTCOME: 'warn' };
 
-export const isOverrideActive = (snap) => {
-  if (snap?.direct_mode) return true;
-  const isTest = (typeof process !== 'undefined' && (process.env?.NODE_ENV === 'test' || process.env?.VITEST)) || (typeof import.meta !== 'undefined' && import.meta.env?.MODE === 'test');
-  if (isTest) {
-    try {
-      return window?.localStorage?.getItem('torqva.override_blockers') === '1';
-    } catch {
-      return false;
-    }
-  }
-  return true;
-};
-export const setOverrideActive = (val) => {
-  try {
-    window?.localStorage?.setItem('torqva.override_blockers', val ? '1' : '0');
-  } catch { }
-  api.setDirectMode(val).catch(() => { });
-};
+export const isOverrideActive = () => false;
 
 export function DeviceCard({ stream, go }) {
   const { snap } = stream;
-  const override = isOverrideActive(snap);
   const o = originOf(snap);
   return (
     <Card title="Device (USB)" id="c-devcard" right={<Pill tone={o.tone}>{o.label}</Pill>}>
       <dl className="tq-kv">
         <dt>USB connection</dt><dd><ConnPill snap={snap} /></dd>
         <dt>Last telemetry</dt><dd className="tq-num">{snap?.handshake ? (snap.telemetry_fresh ? `live · ${ago(snap.last_rx_unix)}` : `STALE · ${ago(snap.last_rx_unix)}`) : 'none (no device)'}</dd>
-        <dt>Safety state</dt><dd>{override ? 'Direct mode (OK)' : (snap?.safety_state || '—')}</dd>
+        <dt>Device state</dt><dd>{snap?.safety_state || '—'}</dd>
       </dl>
       <CardLink onClick={() => go('connection')}>Open the connection section</CardLink>
     </Card>

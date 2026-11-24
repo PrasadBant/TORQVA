@@ -14,10 +14,11 @@ def test_default_target_builds_with_no_control_commissioning_or_secret_flags():
     env = re.search(r"\[env:esp32s3\](.*?)(?:\n\[|\Z)", INI, re.S).group(1)
 # Motor-energising code is compiled into the device builds (TORQVA_CONTROL_ENABLED) so that START / SET_SPEED can be accepted at all; without it the firmware answers NOT_IN_HARDWARE_CONTROL
 # to every motor command. This does NOT permit motion: every start interlock still applies (approved limits confirmed in this boot, authenticated session, E-stop declared installed AND
-# released, watchdog, valid sensors, supply, no latched fault, live heartbeat). The key below is a LABEL: with a provisioned device key the plaintext key is ignored entirely.
+# released, watchdog, valid sensors, supply, no latched fault, live heartbeat). The device key is loaded from NVS, not embedded in the image.
     for flag in ("TORQVA_LIMITS_APPROVED", "TORQVA_ESTOP_INPUT_WIRED"):
         assert flag not in env, flag                                     # the human declarations stay OFF in every build
-    assert "-DTORQVA_CONTROL_ENABLED=1" in env and ('-DTORQVA_KEY=\\"authenticated-session-only\\"' in env or '-DTORQVA_KEY=\\"dev-key-change-me\\"' in env)
+    assert "-DTORQVA_CONTROL_ENABLED=1" in env
+    assert "TORQVA_KEY" not in INI
     # The OWNER accepted the AUTHENTICATED (integrity + replay protected, UNENCRYPTED) USB link as the trust boundary for a direct USB connection to a local PC. Without a provisioned key
     # no session can exist, so this flag alone never permits motion; the E-stop declaration stays OFF until a person installs and verifies the circuit.
     assert "-DTORQVA_TRANSPORT_SECURED=1" in env
@@ -27,12 +28,15 @@ def test_default_target_builds_with_no_control_commissioning_or_secret_flags():
 def test_every_commissioning_flag_defaults_to_zero_and_hardware_never_relaxes_interlocks():
     for flag in ("TORQVA_LIMITS_APPROVED", "TORQVA_ESTOP_INPUT_WIRED", "TORQVA_TRANSPORT_SECURED"):
         assert re.search(r"#ifndef %s\n#define %s 0\n" % (flag, flag), MAIN), flag
-    assert "cfg.relaxed_interlocks = " in MAIN
+    assert "cfg.relaxed_interlocks = false;" in MAIN
     assert "cfg.control_enabled = " in MAIN
 
 
 def test_a_control_enabled_build_cannot_carry_the_placeholder_key():
-    assert re.search(r"#if defined\(TORQVA_CONTROL_ENABLED\) && !defined\(TORQVA_KEY\)\s*\n#error", MAIN)
+    assert "dev-key-change-me" not in MAIN
+    assert 'auth.getBytesLength("authkey") == sizeof(cfg.key)' in MAIN
+    assert 'auth.getBytes("authkey", cfg.key, sizeof(cfg.key))' in MAIN
+    assert "cfg.auth_enabled = false" not in MAIN
 
 
 def test_motor_outputs_are_forced_off_before_anything_else_in_setup():

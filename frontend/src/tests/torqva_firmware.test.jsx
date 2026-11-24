@@ -102,28 +102,20 @@ describe('Firmware Manager page', () => {
     await waitFor(() => expect(screen.getByTestId('fw-update')).toHaveTextContent('as measured by the device'));
   });
 
-  it('deployment needs eligibility, the bench attestation and the exact phrase, then a second confirmation', async () => {
+  it('an eligible signed release deploys with one action', async () => {
     server(); render(<FirmwarePage role="admin" go={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: '3.1.0' }));
     const btn = await screen.findByTestId('fw-deploy');
-    expect(btn).toBeDisabled();
-    fireEvent.click(screen.getByTestId('fw-bench'));
-    expect(btn).toBeDisabled();
-    fireEvent.change(screen.getByTestId('fw-phrase'), { target: { value: 'INSTALL 3.1.0 ON RIG-1' } });
     expect(btn).not.toBeDisabled();
     fireEvent.click(btn);
-    expect(posts).toEqual([]);                                                   // the first press only arms it
-    fireEvent.click(screen.getByRole('button', { name: /Confirm: install now/ }));
     await waitFor(() => expect(posts).toHaveLength(1));
-    expect(posts[0]).toEqual({ path: '/firmware/deployments', body: { release_id: '0123456789ab', device_id: 'RIG-1', confirm: 'INSTALL 3.1.0 ON RIG-1', bench_power_disconnected: true } });
+    expect(posts[0]).toEqual({ path: '/firmware/deployments', body: { release_id: '0123456789ab', device_id: 'RIG-1' } });
   });
 
   it('an ineligible release lists the reasons and the update stays disabled', async () => {
     server({ eligibility: ['the device refuses an update now: MOTOR_POWER_CONNECTED'] }); render(<FirmwarePage role="admin" go={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: '3.1.0' }));
-    expect(await screen.findByTestId('fw-blockers')).toHaveTextContent('MOTOR_POWER_CONNECTED');
-    fireEvent.click(screen.getByTestId('fw-bench'));
-    fireEvent.change(screen.getByTestId('fw-phrase'), { target: { value: 'INSTALL 3.1.0 ON RIG-1' } });
+    expect(await screen.findByTestId('fw-readiness')).toHaveTextContent('MOTOR_POWER_CONNECTED');
     expect(screen.getByTestId('fw-deploy')).toBeDisabled();
   });
 
@@ -135,13 +127,13 @@ describe('Firmware Manager page', () => {
     expect(screen.getByTestId('fw-result')).not.toHaveTextContent(/failed|successful/i);
   });
 
-  it('a confirmed update says so, keeps the motor statement and links back to Device & Safety', async () => {
+  it('a confirmed update says so and links back to Hardware Manager', async () => {
     const go = vi.fn();
     const dep = { id: 'd1', release: REL.id, version: '3.1.0', from_version: '3.0.1', requested_by: 'adam', state: 'CONFIRMED', reason: '', bytes: 1, total: 1, events: [{ state: 'REQUESTED', at: 1 }, { state: 'CONFIRMED', at: 2 }] };
     server({ st: status({ current: dep, fw: '3.1.0' }) }); render(<FirmwarePage role="admin" go={go} />);
     const r = await screen.findByTestId('fw-result');
-    expect(r).toHaveTextContent('Update successful'); expect(r).toHaveTextContent('Motor outputs stay disabled');
-    fireEvent.click(within(r).getByRole('button', { name: /Return to Device & Safety/ }));
+    expect(r).toHaveTextContent('Update successful'); expect(r).toHaveTextContent('completed without starting the motor');
+    fireEvent.click(within(r).getByRole('button', { name: /Return to Hardware Manager/ }));
     expect(go).toHaveBeenCalledWith('device');
   });
 });
@@ -179,7 +171,7 @@ describe('navigation', () => {
     }));
     render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
-    const group = screen.getByRole('button', { name: 'Show or hide Device & Safety' }).closest('.tq-navgroup');
+    const group = screen.getByRole('button', { name: 'Show or hide Hardware Manager' }).closest('.tq-navgroup');
     expect(within(group).getByRole('button', { name: /^Firmware Manager$/ })).toBeInTheDocument();
     fireEvent.click(within(group).getByRole('button', { name: /^Firmware Manager$/ }));
     expect(await screen.findByTestId('fw-sim-note')).toHaveTextContent('PHYSICAL DEVICE ONLY');

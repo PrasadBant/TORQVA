@@ -10,7 +10,7 @@ website -> authenticated API -> role check -> Safety Supervisor -> command dispa
 ```
 
 > **Firmware status.** `esp32/torqva_fw/` (PlatformIO) is the **sole supported firmware**. The old `smart_motor_monitor` sketch was retired from the current tree, together with its backend (unauthenticated `/api/motor`, `/api/ingest`, TCP port 5001); they exist only in Git history and must not be recovered, built or uploaded. Old serial text such as `STATUS: MOTOR OFF` is **not** valid TORQVA telemetry; the supported firmware must implement the current TORQVA device protocol.
-> **Hardware readiness is unverified.** Software builds and simulated tests do not prove physical motor operation. Confirm board revision, wiring, independent E-stop, driver reset behavior, and firmware protections before applying motor power. See `docs/TORQVA_GAP_AUDIT.md` and `docs/TORQVA_HARDWARE_READINESS.md`.
+> **Hardware readiness is unverified; the hardware is not ready for physical motor operation.** Software builds and simulated tests do not prove physical motor operation. Confirm board revision, wiring, driver reset behavior, and firmware protections before applying motor power. See `docs/TORQVA_GAP_AUDIT.md` and `docs/TORQVA_HARDWARE_READINESS.md`.
 
 ## Current project overview
 
@@ -29,7 +29,7 @@ npm run dev          # starts the backend (127.0.0.1:8000, development token) an
 npm run dev:sim      # the same, software only: no port is scanned or opened and no interlock is relaxed
 ```
 
-> Neither command sets `TORQVA_FORCE_UNLOCK` or assumes a COM port. `npm run dev` connects only when exactly one TORQVA board is plugged in (or to `TORQVA_DEVICE_PORT` if you set it), and START / speed stay refused until the firmware interlocks, the commissioning record and the Safety Supervisor allow them. The backend no longer has a `TORQVA_FORCE_UNLOCK` bypass: setting it changes nothing (the script only notes that it is ignored).
+> `npm run dev` enables the backend's outbound Wi-Fi device link as well as USB auto-connect. The board also needs the separately configured device-facing TLS gateway and provisioned network settings; see `docs/WIFI_SETUP_GUIDE.md`. A board must report its real TORQVA handshake and establish an authenticated session before motor commands can be sent. `TORQVA_FORCE_UNLOCK`, `TORQVA_DIRECT_MODE`, and `TORQVA_REMOVE_BLOCKERS` do not enable a bypass.
 
 Plug the board in: the backend connects by itself when exactly one USB-serial board (CH340/CH343, CP210x, FTDI, Espressif) is present. `TORQVA_AUTOCONNECT=0` turns this off and `TORQVA_DEVICE_PORT=COMx` pins one port; otherwise use the Device page.
 
@@ -41,6 +41,7 @@ Backend only: `cd backend && pip install -r requirements.txt && python -m uvicor
 cd esp32/torqva_fw
 python -m platformio test -e native          # host unit tests
 python -m platformio run -e esp32s3_uart     # Serial on UART0 (CH343 / "UART" USB connector)
+python -m platformio run -e esp32s3_wireless # production firmware with outbound Wi-Fi link and HTTPS OTA
 python -m platformio run -e esp32s3          # Serial on the native USB connector
 python -m platformio run -e fitl             # firmware-in-the-loop CLI used by the backend tests
 ```

@@ -97,7 +97,7 @@ describe('shell routes', () => {
     server(); setToken('t'); render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
     fireEvent.click(screen.getByRole('button', { name: 'Inventory, session and audit log' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: /^Device & Safety$/ })).toHaveAttribute('aria-current', 'page'));
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Hardware Manager$/ })).toHaveAttribute('aria-current', 'page'));
     expect(screen.getByRole('tab', { name: /^Device$/ })).toHaveAttribute('aria-selected', 'true');
   });
 });

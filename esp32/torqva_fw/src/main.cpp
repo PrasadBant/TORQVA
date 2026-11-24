@@ -2,9 +2,9 @@
 //
 // SAFETY POSTURE OF THIS BUILD:
 //  * All motor outputs are driven to the OFF state before anything else runs.
-//  * Motor commands are REJECTED unless built with -DTORQVA_CONTROL_ENABLED=1 (not set anywhere in
-//    platformio.ini). Telemetry works either way.
-//  * This file has only been compiled, never flashed or run (see docs/TORQVA_PROGRESS.md).
+//  * Motor commands require a provisioned key, an authenticated session, the configured hardware checks,
+//    approved limits and TORQVA_CONTROL_ENABLED=1. Telemetry works when control is unavailable.
+//  * Software builds and tests do not establish physical hardware readiness.
 #include <Arduino.h>
 #include <Wire.h>
 #include <OneWire.h>
@@ -29,7 +29,7 @@
 
 using namespace torqva;
 
-// A build that can drive the motor must not carry the placeholder key below: control needs an explicit -DTORQVA_KEY="...". (Compile-time guard only; no behaviour change otherwise.)
+// A production motor build loads its per-device authentication key from NVS; no key is embedded in the image.
 // OTA LED bench profile (platformio env:esp32s3_ota_led_*): an ESP32-S3 with ONE LED on GPIO 5 and no motor hardware. Motor control is compiled out, the
 // PWM peripheral is never set up, no sensor is initialised (every reading is reported invalid, nothing is invented) and the OLED is off so GPIO 5 is free.
 // See docs/TORQVA_OTA_LED_BENCH_TEST.md. Production builds never define TORQVA_OTA_LED_BENCH and are unchanged.
@@ -49,13 +49,8 @@ using namespace torqva;
 #elif defined(TORQVA_BENCH_BLINK_MS)
 #error "TORQVA_BENCH_BLINK_MS belongs to the OTA LED bench profile only"
 #endif
-// Wireless device link (wifi_link.h): only in the LED bench profile for now; production motor firmware keeps USB as its only command link.
-#if defined(TORQVA_WIFI_LINK) && TORQVA_WIFI_LINK && !TORQVA_OTA_LED_BENCH
-#error "TORQVA_WIFI_LINK is limited to the OTA LED bench profile (production motor firmware is not migrated)"
-#endif
-#if defined(TORQVA_CONTROL_ENABLED) && !defined(TORQVA_KEY)
-#error "TORQVA_CONTROL_ENABLED requires an explicit -DTORQVA_KEY=\"...\": the built-in placeholder key must never be used with motor control enabled"
-#endif
+// The same authenticated device protocol can use the Wi-Fi link in a dedicated production build.
+// The backend owns one authoritative transport; USB remains available for recovery.
 // ---- Commissioning decisions (human-owned). Both default to 0 = motor-energising commands are REFUSED by the start interlocks (interlock.h).
 //  TORQVA_LIMITS_APPROVED     1 only after a responsible person approved the safety-trip limits for this motor, driver, PSU and cooling (see docs/TORQVA_HARDWARE_READINESS.md).
 //  TORQVA_ESTOP_INPUT_WIRED   1 only after an independent emergency-stop input exists with a documented wiring contract AND config_pins.h defines its pin;
@@ -90,9 +85,6 @@ using namespace torqva;
 #define TORQVA_TEMP_STALE_MS 3000u
 #define TORQVA_INA219_ADDR 0x40            // Adafruit default address; change if the A0/A1 straps differ
 
-#ifndef TORQVA_KEY
-#define TORQVA_KEY "dev-key-change-me"     // TODO(Phase 4): load from NVS, never commit a real key
-#endif
 
 // Firmware identity embedded in the image, read by the backend's release validation (backend/torqva/firmware.py) so a release version is taken from
 // the binary, never from what an uploader types. Kept by setup() below so the linker cannot drop it.
@@ -105,8 +97,6 @@ extern "C" const char TORQVA_FW_ID[] __attribute__((used)) = "TORQVA_FW_ID:ver="
 // ---------- hardware outputs ----------
 using namespace torqva_pins;
 
-static volatile float g_direct_duty = 0.0f;
-static volatile bool g_direct_active = false;
 
 // Drive a pin LOW only if it is configured (an UNCONFIGURED pin is never touched).
 static void out_low(int pin) {
@@ -345,7 +335,6 @@ static void oled_draw(const Device::DisplayInfo& d) {
 }
 #endif
 
-static volatile bool s_software_reset_flag = false;
 
 static void read_inputs(HalIn& in) {
     in.now_ms = millis();
@@ -373,13 +362,9 @@ static void read_inputs(HalIn& in) {
 #else
     read_accel(in);
 #endif
-    // Local reset: BOOT button (GPIO 0) on ESP32-S3 DevKit, hardware reset button, or authorized software reset.
+    // Local reset: BOOT button (GPIO 0) on ESP32-S3 DevKit or the configured local reset button.
     in.button_pressed = (torqva_pins::LOCAL_RESET_BUTTON != torqva_pins::UNCONFIGURED && digitalRead(torqva_pins::LOCAL_RESET_BUTTON) == LOW)
-        || (digitalRead(0) == LOW) || s_software_reset_flag;
-    if (s_software_reset_flag) {
-        static uint8_t s_pulse = 0;
-        if (++s_pulse > 5) { s_software_reset_flag = false; s_pulse = 0; }
-    }
+        || (digitalRead(0) == LOW);
     {   // E-stop monitoring input. An open circuit, a pressed switch or an unread pin is an emergency-stop CONDITION; the state is always reported.
         static EstopInput g_estop(EstopConfig{true, /*active_low=*/false, /*release_debounce_ms=*/100});
         g_estop.update(millis(), true, digitalRead(torqva_pins::ESTOP_INPUT) == HIGH);
@@ -416,17 +401,6 @@ static void control_task(void*) {
         }
         out = g_dev->step(in);
         const bool latched = g_dev->safety().state() == SafetyState::EMERGENCY_STOP;
-        if (in.button_pressed) {
-            g_direct_active = false;
-            g_direct_duty = 0.0f;
-            out.driver_enable = false;
-            out.relay_on = false;
-            out.duty_pct = 0.0f;
-        } else if (g_direct_active && g_direct_duty > 0.0f) {
-            out.driver_enable = true;
-            out.relay_on = true;
-            out.duty_pct = g_direct_duty;
-        }
         xSemaphoreGive(g_mu);
         apply(out);
         indicators(in, out, latched);
@@ -468,12 +442,22 @@ void setup() {
     cfg.fw_version = TORQVA_FW_VERSION;
     cfg.wiring_id = TORQVA_WIRING_ID;
     cfg.mode = "HW";
-    strncpy(cfg.key, TORQVA_KEY, sizeof(cfg.key) - 1);
+    {
+        Preferences auth;
+        if (auth.begin("torqva", true)) {
+            cfg.auth_enabled = auth.getBytesLength("authkey") == sizeof(cfg.key)
+                && auth.getBytes("authkey", cfg.key, sizeof(cfg.key)) == sizeof(cfg.key);
+            auth.end();
+        }
+    }
+#if defined(TORQVA_CONTROL_ENABLED) && TORQVA_CONTROL_ENABLED
     cfg.control_enabled = true;
-    cfg.kp = 0.0f; cfg.ki = 0.0f;                    // Direct speed feedforward: Hall sensor purely observes/measures speed without slowing down motor
+#else
+    cfg.control_enabled = false;
+#endif
+    cfg.kp = 0.0f; cfg.ki = 0.0f;                    // Existing feedforward speed behavior; Hall sensor remains the measured speed source.
     cfg.device_id = TORQVA_DEVICE_ID;
     cfg.rand32 = []() -> uint32_t { return esp_random(); };
-    cfg.auth_enabled = false;
     // Runtime limits: a copy of the last configuration accepted over the authenticated session is kept in NVS (namespace "torqva", key "cfg"). After a reboot it is restored ONLY so the
     // safety trips use the approved numbers; it does not approve motion. The backend re-sends the configuration over the new authenticated session, and only that re-approves.
     cfg.persist_cfg = [](const RuntimeLimits& r) {
@@ -486,19 +470,12 @@ void setup() {
 #else
     cfg.accel_supported = true;                        // this build reads the ADXL345 (frames report ok=0 when it is absent or invalid)
 #endif
-    cfg.limits_approved = true;
+    cfg.limits_approved = (TORQVA_LIMITS_APPROVED != 0);
     cfg.estop_input_wired = (TORQVA_ESTOP_INPUT_WIRED != 0);
-    cfg.transport_secured = true;
-    cfg.relaxed_interlocks = true;                    // simplified dev/demo mode: relaxed interlocks for direct operation
+    cfg.transport_secured = (TORQVA_TRANSPORT_SECURED != 0);
+    cfg.relaxed_interlocks = false;
     ota_platform_capability(cfg);                      // OTA partitions, compiled-in signing key and NVS provisioning decide whether this boot can update at all
     Limits lim = default_limits();
-    lim.max_rpm = 20000.0f;
-    lim.max_duty_pct = 100.0f;
-    lim.volt_min_v = 0.0f;
-    lim.rpm_loss_duty_pct = 1000.0f;
-    lim.sensor_invalid_ms = 5000;
-    lim.temp_stop_c = 85.0f;
-    lim.heartbeat_timeout_ms = 60000;
     g_dev = new Device(lim, cfg);
     g_mu = xSemaphoreCreateMutex();
     {
@@ -508,15 +485,6 @@ void setup() {
             if (p.getBytes("cfg", &r, sizeof(r)) == sizeof(r)) g_dev->restore_runtime_limits(r);
             p.end();
         }
-        Limits cur = g_dev->limits();
-        cur.volt_min_v = 0.0f;
-        cur.max_duty_pct = 100.0f;
-        cur.max_rpm = 20000.0f;
-        cur.rpm_loss_duty_pct = 1000.0f;
-        cur.sensor_invalid_ms = 5000;
-        cur.temp_stop_c = 85.0f;
-        cur.heartbeat_timeout_ms = 60000;
-        g_dev->set_limits(cur);
     }
     // A PWM setup failure leaves the driver disabled (apply() never enables it) and latches a visible fault until a power cycle / intentional reset.
 #if !TORQVA_OTA_LED_BENCH
@@ -538,28 +506,8 @@ void setup() {
     xTaskCreatePinnedToCore(control_task, "control", 6144, nullptr, configMAX_PRIORITIES - 2, nullptr, 1);
     // Over-the-air update: its own task (Wi-Fi + TLS on the other core, lower priority). It never touches a motor output; the Device refuses motion while it runs
     // and while a new image is unconfirmed, and the first-boot self-test decides whether the new image is kept.
-    wifi_link_start(g_dev, g_mu);                      // no-op unless TORQVA_WIFI_LINK (bench) and the network is provisioned; the device connects out only
+    wifi_link_start(g_dev, g_mu);                      // no-op unless TORQVA_WIFI_LINK and the network is provisioned; the device connects out only
     ota_platform_start(g_dev, g_mu, g_ina_ok, TORQVA_OTA_LED_BENCH ? false : g_ds.getDeviceCount() > 0, cfg.auth_enabled && strcmp(TORQVA_DEVICE_ID, "UNPROVISIONED") != 0, outputs_off);
-}
-
-static float parse_cmd_param(const char* line) {
-    const char* p = strstr(line, "\"p\":");
-    if (p) return atof(p + 4);
-    p = strstr(line, "\"rpm\":");
-    if (p) return atof(p + 6);
-    p = strstr(line, "\"duty_pct\":");
-    if (p) return atof(p + 11);
-    p = strstr(line, "SET_SPEED ");
-    if (p) return atof(p + 10);
-    p = strstr(line, "SPEED ");
-    if (p) return atof(p + 6);
-    p = strstr(line, "START ");
-    if (p) return atof(p + 6);
-    p = strstr(line, "DUTY ");
-    if (p) return atof(p + 5);
-    p = strstr(line, "RPM ");
-    if (p) return atof(p + 4);
-    return 0.0f;
 }
 
 void loop() {
@@ -572,97 +520,9 @@ void loop() {
         if (c == '\n') {
             line[n] = 0;
             if (n > 0 && !discarding) {
-                if (strstr(line, "RESET_ESTOP") != nullptr) {
-                    s_software_reset_flag = true;
-                }
-                long cmd_id = 0;
-                char* id_ptr = strstr(line, "\"id\":");
-                if (id_ptr) cmd_id = strtol(id_ptr + 5, nullptr, 10);
-
-                bool is_stop = (strstr(line, "STOP") != nullptr || strstr(line, "\"action\":\"STOP\"") != nullptr || strstr(line, "\"type\":\"STOP\"") != nullptr);
-                bool is_speed = !is_stop && (strstr(line, "SET_SPEED") != nullptr || strstr(line, "SPEED") != nullptr || strstr(line, "RPM") != nullptr || strstr(line, "\"rpm\":") != nullptr);
-                bool is_start = !is_stop && (strstr(line, "START") != nullptr || strstr(line, "DUTY") != nullptr || strstr(line, "duty_pct") != nullptr);
-
-                if (is_stop) {
-                    g_direct_active = false;
-                    g_direct_duty = 0.0f;
-                    outputs_off();
-                    noInterrupts();
-                    g_last_pulse_us = 0;
-                    g_period_us = 0;
-                    g_have_period = false;
-                    interrupts();
-                    if (g_dev) {
-                        xSemaphoreTake(g_mu, portMAX_DELAY);
-                        g_dev->on_line("{\"type\":\"STOP\"}", millis());
-                        xSemaphoreGive(g_mu);
-                    }
-                    char ack_buf[96];
-                    snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"STOPPED\"}", cmd_id);
-                    usb_out_line(ack_buf);
-                } else if (is_speed) {
-                    float rpm_val = parse_cmd_param(line);
-                    if (rpm_val <= 0.0f) {
-                        g_direct_active = false;
-                        g_direct_duty = 0.0f;
-                        outputs_off();
-                        noInterrupts();
-                        g_last_pulse_us = 0;
-                        g_period_us = 0;
-                        g_have_period = false;
-                        interrupts();
-                        if (g_dev) {
-                            xSemaphoreTake(g_mu, portMAX_DELAY);
-                            g_dev->on_line("{\"type\":\"STOP\"}", millis());
-                            xSemaphoreGive(g_mu);
-                        }
-                        char ack_buf[96];
-                        snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"STOPPED\"}", cmd_id);
-                        usb_out_line(ack_buf);
-                    } else {
-                        float duty = rpm_val / 30.0f;
-                        if (duty < 10.0f) duty = 10.0f;
-                        if (duty > 100.0f) duty = 100.0f;
-                        g_direct_duty = duty;
-                        g_direct_active = true;
-                        char ack_buf[96];
-                        snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
-                        usb_out_line(ack_buf);
-                    }
-                } else if (is_start) {
-                    float duty_val = parse_cmd_param(line);
-                    if (duty_val <= 0.0f) {
-                        g_direct_active = false;
-                        g_direct_duty = 0.0f;
-                        outputs_off();
-                        noInterrupts();
-                        g_last_pulse_us = 0;
-                        g_period_us = 0;
-                        g_have_period = false;
-                        interrupts();
-                        if (g_dev) {
-                            xSemaphoreTake(g_mu, portMAX_DELAY);
-                            g_dev->on_line("{\"type\":\"STOP\"}", millis());
-                            xSemaphoreGive(g_mu);
-                        }
-                        char ack_buf[96];
-                        snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"STOPPED\"}", cmd_id);
-                        usb_out_line(ack_buf);
-                    } else {
-                        if (duty_val > 100.0f) duty_val = 100.0f;
-                        g_direct_duty = duty_val;
-                        g_direct_active = true;
-                        char ack_buf[96];
-                        snprintf(ack_buf, sizeof(ack_buf), "{\"t\":\"ack\",\"id\":%ld,\"status\":\"COMPLETED\",\"reason\":\"OK\"}", cmd_id);
-                        usb_out_line(ack_buf);
-                    }
-                }
-
-                if (!is_direct_plaintext) {
-                    xSemaphoreTake(g_mu, portMAX_DELAY);
-                    g_dev->on_line(line, millis());
-                    xSemaphoreGive(g_mu);
-                }
+                xSemaphoreTake(g_mu, portMAX_DELAY);
+                g_dev->on_line(line, millis());
+                xSemaphoreGive(g_mu);
             }
             n = 0; discarding = false;
         } else if (c != '\r') {

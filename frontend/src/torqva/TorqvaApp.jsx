@@ -51,12 +51,12 @@ const NAV_GROUPS = [
   },
   {
     heading: 'Hardware & Device', items: [
-      ['device', 'Hardware & Device', Cpu, 'Device & Safety'],
+      ['device', 'Hardware Manager', Cpu, 'Hardware Manager'],
       ['firmware', 'Firmware Manager', HardDrive],
     ]
   },
 ];
-// Former page ids that are now sections of Device & Safety: links and stored selections keep working and open the right section.
+// Former page ids that are now sections of Hardware Manager: links and stored selections keep working and open the right section.
 const ALIASES = { control: ['device', 'connection'], devices: ['device', 'system'], connection: ['device', 'connection'] };
 const GROUPS_KEY = 'torqva.navgroups';
 const readFolded = () => { try { return JSON.parse(window.localStorage.getItem(GROUPS_KEY) || '[]'); } catch { return []; } };
@@ -394,12 +394,12 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
   const evaluationPage = (note) => (<><PageHead title="Performance Evaluation" sub="How detection, prediction and recovery verification performed against simple baselines." />{note}
     {S(<Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} />)}</>);
   // Device page: connection, device information, session and audit log.
-  const deviceSafety = (connection, safety, system) => {
+  const hardwareManager = (connection, system) => {
     const tabs = [{ key: 'system', label: 'Device', icon: Server }, { key: 'connection', label: 'Connection & Readiness', icon: Usb },
     ];
-    const body = { connection, safety, system }[deviceTab];
-    return (<><PageHead title="Device & Safety" right={<Pill tone="info">{physicalMode ? 'Physical mode' : 'Simulation mode'}</Pill>} />
-      <Tabs label="Device & Safety sections" idBase="tq-dev" value={deviceTab} onChange={setDevTab} tabs={tabs} />
+    const body = { connection, system }[deviceTab];
+    return (<><PageHead title="Hardware Manager" right={<Pill tone="info">{physicalMode ? 'Physical mode' : 'Simulation mode'}</Pill>} />
+      <Tabs label="Hardware Manager sections" idBase="tq-dev" value={deviceTab} onChange={setDevTab} tabs={tabs} />
       <TabPanel tab={deviceTab} idBase="tq-dev">{body}</TabPanel></>);
   };
   const simPages = {
@@ -410,7 +410,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     recovery: S(<PhysicalRecoveryPage stream={device} go={go} role={user.role} d={d} physicalMode={false} simView={S(<RecoveryPage {...ctx} />)} />),
     learning: S(<PhysicalLearningPage stream={device} go={go} role={user.role} d={d} physicalMode={false} simView={S(<LearningPage {...ctx}>{S(<Attestation role={user.role} />)}</LearningPage>)} />),
     evaluation: S(<PhysicalEvaluation physicalMode={false} simView={<Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} />} />),
-    device: deviceSafety(<DevicePage stream={device} role={user.role} go={go} simMode embedded />, null, S(<DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />)),
+    device: hardwareManager(<DevicePage stream={device} role={user.role} go={go} simMode embedded />, S(<DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />)),
     lab: (<><PageHead title="Lab" sub="Recording sessions and matched experiments." />{S(<Lab role={user.role} isPhys={physicalMode} />)}</>),
     scenario: S(<ScenarioPage {...ctx} stepSeconds={stepSeconds} />),
     // Firmware belongs to the physical board: simulation mode has nothing to update and never reaches the firmware routes.
@@ -454,7 +454,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     recovery: phys('C5', S(<PhysicalRecoveryPage stream={device} go={go} role={user.role} d={d} physicalMode={true} simView={S(<RecoveryPage {...ctx} />)} />)),
     learning: phys('C6', S(<PhysicalLearningPage stream={device} go={go} role={user.role} d={d} physicalMode={true} simView={S(<LearningPage {...ctx}>{S(<Attestation role={user.role} />)}</LearningPage>)} />)),
     evaluation: S(<PhysicalEvaluation physicalMode={true} simView={<Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} />} />),
-    device: deviceSafety(<DevicePage stream={device} role={user.role} go={go} embedded />, null,
+    device: hardwareManager(<DevicePage stream={device} role={user.role} go={go} embedded />,
       S(<DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />)),
     lab: simOnly('Lab', 'lab-sim-note'),
     scenario: simOnly('Scenario Studio', 'scenario-sim-note'),
@@ -499,7 +499,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
               return (
                 <div className="tq-navgroup" key={grp.heading}>
                   {single ? <p className="tq-navgroup-label" id={`tq-ng-${gi}`}>{grp.heading}</p>
-                    : <button type="button" className="tq-navgroup-label tq-navgroup-btn" id={`tq-ng-${gi}`} aria-expanded={!shut} aria-label={grp.heading === 'Hardware & Device' ? 'Show or hide Device & Safety' : `Show or hide ${grp.heading}`} onClick={() => toggleGroup(grp.heading)}>
+                    : <button type="button" className="tq-navgroup-label tq-navgroup-btn" id={`tq-ng-${gi}`} aria-expanded={!shut} aria-label={grp.heading === 'Hardware & Device' ? 'Show or hide Hardware Manager' : `Show or hide ${grp.heading}`} onClick={() => toggleGroup(grp.heading)}>
                       <span>{grp.heading}</span><ChevronDown size={13} aria-hidden="true" className="tq-navgroup-chev" /></button>}
                   {!shut && <ul aria-labelledby={`tq-ng-${gi}`}>{grp.items.map(([k]) => {
                     const { label, Icon, ariaLabel } = navItem(k); return (

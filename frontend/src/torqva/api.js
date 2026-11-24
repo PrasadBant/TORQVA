@@ -101,7 +101,6 @@ export const api = {
   devicePorts: () => req('/device/ports'),
   deviceConnect: (body) => req('/device/connect', { method: 'POST', body }),
   deviceDisconnect: () => req('/device/disconnect', { method: 'POST' }),
-  setDirectMode: (enabled = true) => req('/device/direct_mode', { method: 'POST', body: { enabled } }),
   deviceCommand: (body) => req('/device/commands', { method: 'POST', body }),
   audit: () => req('/audit'),
   start: (body) => req('/simulation/start', { method: 'POST', body }),

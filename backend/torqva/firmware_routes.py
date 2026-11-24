@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict
 
-from fastapi import Depends, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi import Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .auth import Principal
@@ -23,8 +24,6 @@ MAX_UPLOAD_READ = 8 * 1024 * 1024          # read at most this much from a reque
 class DeployIn(BaseModel):
     release_id: str = Field(pattern=r"^[0-9a-f]{12}$")
     device_id: str = Field(default="", max_length=64)
-    confirm: str = Field(default="", max_length=120)
-    bench_power_disconnected: bool = False
 
 
 def _http(e: FirmwareError) -> HTTPException:
@@ -76,7 +75,7 @@ def add_firmware_routes(r, service, need: Callable, audit: Callable) -> None:
     @r.post("/firmware/deployments")
     def firmware_deploy(body: DeployIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
         try:
-            dep = fm.deploy(body.release_id, body.device_id, p.user, body.confirm, body.bench_power_disconnected)
+            dep = fm.deploy(body.release_id, body.device_id, p.user)
         except FirmwareError as e:
             audit(p, "firmware_deploy_refused", release=body.release_id, device=body.device_id, code=e.code, reason=e.detail[:200])
             raise _http(e)
@@ -103,9 +102,9 @@ def add_firmware_routes(r, service, need: Callable, audit: Callable) -> None:
             raise HTTPException(status_code=403, detail="download not authorized")
 
     @r.get("/firmware/ota/{rid}/image")
-    def ota_image(rid: str, t: str = Query("", max_length=64)) -> Response:
+    def ota_image(rid: str, t: str = Query("", max_length=64)) -> FileResponse:
         try:
-            data = fm.image(rid, t)
+            path = fm.image_file(rid, t)
         except FirmwareError:
             raise HTTPException(status_code=403, detail="download not authorized")
-        return Response(content=data, media_type="application/octet-stream", headers={"Cache-Control": "no-store", "Content-Length": str(len(data))})
+        return FileResponse(path, media_type="application/octet-stream", headers={"Cache-Control": "no-store"})

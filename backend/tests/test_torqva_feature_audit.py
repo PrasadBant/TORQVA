@@ -53,7 +53,6 @@ ROLE = {
     ("GET", "/audit"): "admin",
     ("GET", "/device/status"): "viewer", ("GET", "/device/history"): "viewer", ("GET", "/device/ports"): "admin", ("POST", "/device/connect"): "admin",
     ("POST", "/device/disconnect"): "admin", ("POST", "/device/commands"): "viewer", ("GET", "/device/commands"): "viewer",
-    ("POST", "/device/direct_mode"): "viewer",
     ("GET", "/firmware/status"): "viewer", ("GET", "/firmware/releases"): "viewer", ("GET", "/firmware/releases/{rid}"): "viewer",
     ("POST", "/firmware/releases"): "admin", ("POST", "/firmware/deployments"): "admin", ("GET", "/firmware/deployments"): "viewer",
     ("GET", "/firmware/deployments/{dep_id}"): "viewer",

@@ -53,7 +53,7 @@ async function open(snap, page) {
   setToken('t');
   render(<TorqvaApp pollMs={100000} wsFactory={(u) => new FakeWs(u)} />);
   await screen.findByText(/tester · /);
-  if (page === 'Safety') { fireEvent.click(screen.getByRole('button', { name: /^Device & Safety$/ })); fireEvent.click(screen.getByRole('tab', { name: /Safety & Commissioning/ })); }
+  if (page === 'Safety') { fireEvent.click(screen.getByRole('button', { name: /^Hardware Manager$/ })); }
   else if (page) fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${page}`) }));
   return calls;
 }

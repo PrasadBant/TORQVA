@@ -1,10 +1,10 @@
 // Firmware Manager (physical device): upload a compiled ESP32-S3 application image, see the backend's validation, deploy a signed release over Wi-Fi and follow
 // the device's own reports to the end. Every stage, percentage and result here is what the backend or the device reported (GET /firmware/status, polled);
-// nothing is advanced by the page. A firmware update never starts, enables or commissions the motor: physical operation stays on Device & Safety.
+// nothing is advanced by the page. A firmware update never starts the motor; physical operation stays in Hardware Manager.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Cpu, Upload, ShieldCheck, ListChecks, Rocket, History, HardDrive, AlertTriangle, CheckCircle2, XCircle, RotateCcw, Clock, FileUp } from 'lucide-react';
 import { api } from '../api.js';
-import { Card, Empty, ErrorBox, Pill, PageHead, AlertPanel, MetricList, CheckList, StepTracker, ConfirmButton, DataTable, Disclosure, LinkButton, fmt } from '../shared/components.jsx';
+import { Card, Empty, ErrorBox, Pill, PageHead, AlertPanel, MetricList, CheckList, StepTracker, DataTable, Disclosure, LinkButton, fmt } from '../shared/components.jsx';
 
 const kb = (n) => (n == null ? '—' : n >= 1048576 ? `${fmt(n / 1048576, 2)} MB` : `${fmt(n / 1024, 1)} KB`);
 const when = (s) => (s ? new Date(s * 1000).toLocaleString() : '—');
@@ -60,13 +60,15 @@ function DeviceStatus({ s }) {
       right={!d.connected ? <Pill tone="off">device not connected</Pill> : capable ? <Pill tone="ok">OTA ready</Pill> : <Pill tone="warn">OTA NOT CONFIGURED</Pill>}>
       <MetricList label="Device firmware" items={[
         { key: 'dev', label: 'Device', value: d.device_id || null, missingText: 'not connected' },
+        { key: 'link', label: 'Connection', value: d.connected ? (d.transport?.kind === 'wifi' ? 'Wi-Fi' : d.transport?.kind === 'usb' ? 'USB' : null) : null, missingText: 'UNAVAILABLE' },
+        { key: 'address', label: 'Device address', value: d.connected && d.transport?.kind === 'wifi' ? d.transport.remote : null, missingText: 'UNAVAILABLE' },
         { key: 'chip', label: 'Chip', value: d.chip || null, missingText: 'UNAVAILABLE' },
         { key: 'fw', label: 'Installed firmware', value: d.firmware || null, missingText: 'UNAVAILABLE' },
         { key: 'prof', label: 'Firmware profile', value: d.profile_label || null, missingText: 'UNAVAILABLE' },
         { key: 'cap', label: 'Update capability', value: !d.connected ? null : capable ? 'OTA capable' : `not configured: ${o?.why || 'the device reports no OTA support'}`, missingText: 'UNAVAILABLE' },
         { key: 'slot', label: 'OTA partitions', value: capable ? `running ${o.run}; inactive slot ${kb(o.psz)}` : null, missingText: 'UNAVAILABLE' },
         { key: 'health', label: 'Firmware health', value: !o ? null : o.pend ? 'new image not yet confirmed (self-test pending)' : 'confirmed image', missingText: 'UNAVAILABLE' },
-        { key: 'wifi', label: 'Wi-Fi', value: capable ? 'connects only during an update' : null, missingText: 'not provisioned' },
+        { key: 'wifi', label: 'Wireless link', value: d.connected ? (d.transport?.kind === 'wifi' ? 'connected' : 'not connected') : null, missingText: 'UNAVAILABLE' },
         { key: 'last', label: 'Last update', value: o?.last ? `${o.last}${o.lver ? ` (${o.lver})` : ''}` : null, missingText: 'none reported' },
       ]} />
       {d.connected && !capable && (
@@ -179,16 +181,13 @@ function Releases({ rows, selected, onSelect }) {
 
 function UpdateDevice({ rec, detail, s, admin, onDeployed }) {
   const d = s?.device || {};
-  const [bench, setBench] = useState(false);
-  const [phrase, setPhrase] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  const want = rec && d.device_id ? `INSTALL ${rec.version} ON ${d.device_id}` : '';
   const why = detail?.eligibility || [];
   const active = s?.current && !TERMINAL.has(s.current.state);
-  const ready = admin && rec && !active && why.length === 0 && bench && phrase === want;
-  useEffect(() => { setPhrase(''); setBench(false); setErr(null); }, [rec?.id]);
-  const go = async () => { setBusy(true); setErr(null); try { onDeployed(await api.fwDeploy({ release_id: rec.id, device_id: d.device_id, confirm: phrase, bench_power_disconnected: bench })); } catch (e) { setErr(e); } finally { setBusy(false); } };
+  const ready = admin && rec && detail?.id === rec.id && d.connected && d.session_active && d.ota?.cap && !active && why.length === 0;
+  useEffect(() => { setErr(null); }, [rec?.id]);
+  const go = async () => { setBusy(true); setErr(null); try { onDeployed(await api.fwDeploy({ release_id: rec.id, device_id: d.device_id })); } catch (e) { setErr(e); } finally { setBusy(false); } };
   return (
     <Card title="Update device" id="fw-upd" icon={Rocket} testid="fw-update">
       {!rec ? <Empty>Select a release to check it against the connected device.</Empty> : (<>
@@ -197,19 +196,17 @@ function UpdateDevice({ rec, detail, s, admin, onDeployed }) {
           { key: 'tgt', label: 'Target version', value: rec.version },
           { key: 'tprof', label: 'Release profile', value: rec.profile === 'ota_led_bench' ? 'OTA LED bench (no motor control)' : 'production' },
           { key: 'el', label: 'Update eligibility', value: why.length ? 'not eligible' : 'eligible' },
-          { key: 'sf', label: 'Safety eligibility', value: d.ota?.blk ? `refused by the device: ${d.ota.blk}` : d.ota ? (d.profile === 'ota_led_bench' ? 'LED bench device: no motor hardware and motor control compiled out (no speed or supply is measured)' : 'motor stopped and motor power absent, as measured by the device') : null, missingText: 'UNAVAILABLE' },
+          { key: 'sf', label: 'Device readiness', value: d.ota?.blk ? `device not ready: ${d.ota.blk}` : d.ota ? (d.profile === 'ota_led_bench' ? 'LED bench device: no motor hardware' : 'motor stopped and motor power absent, as measured by the device') : null, missingText: 'UNAVAILABLE' },
           { key: 'rs', label: 'Expected restart', value: 'yes: the device restarts into the new image and must reconnect' },
         ]} />
-        {why.length > 0 && <ul className="tq-callout warn tq-list" data-testid="fw-blockers">{why.map((w) => <li key={w}>{w}</li>)}</ul>}
+        {why.length > 0 && <ul className="tq-callout warn tq-list" data-testid="fw-readiness">{why.map((w) => <li key={w}>{w}</li>)}</ul>}
         <AlertPanel tone="warn" icon={AlertTriangle} title="Before updating" testid="fw-warning">
           <p>Disconnect the motor power stage. The update never starts the motor, and after the restart, verify the device state before operating the motor.
             If the new image fails its self-tests, the device rolls back to the current firmware.</p>
         </AlertPanel>
         {admin ? (<>
-          <label className="tq-check tq-mt"><input type="checkbox" checked={bench} onChange={(e) => setBench(e.target.checked)} data-testid="fw-bench" /> The motor power stage is physically disconnected</label>
-          <label className="tq-form tq-mt">Type <code>{want || 'INSTALL <version> ON <device>'}</code> to confirm<input value={phrase} onChange={(e) => setPhrase(e.target.value)} data-testid="fw-phrase" disabled={!want} /></label>
           <div className="tq-row tq-mt">
-            <ConfirmButton onConfirm={go} disabled={!ready} busy={busy} testid="fw-deploy" icon={Rocket} confirmLabel="Confirm: install now">Update Firmware</ConfirmButton>
+            <button type="button" className="tq-btn tq-primary" onClick={go} disabled={!ready || busy} data-testid="fw-deploy"><Rocket size={14} aria-hidden="true" /> {busy ? 'Preparing update…' : 'Upload wirelessly'}</button>
           </div>
         </>) : <p className="tq-muted tq-small">Deploying firmware requires the admin role.</p>}
         <ErrorBox error={err} />
@@ -227,9 +224,9 @@ function Progress({ dep, device, go }) {
       {dep && ['DOWNLOADING', 'MANIFEST'].includes(dep.state) && pct != null && (
         <div className="tq-fw-progress" data-testid="fw-dl"><progress max={100} value={pct} /> <span className="tq-small tq-num">{pct} % · {kb(dep.bytes)} of {kb(dep.total)} written by the device</span></div>)}
       {res && (
-        <AlertPanel tone={res[0]} icon={res[3]} title={res[1]} testid="fw-result" action={dep.state === 'CONFIRMED' && go ? <LinkButton aria-label="Return to Device & Safety" onClick={() => go('device')}>Return to Hardware Manager</LinkButton> : null}>
+        <AlertPanel tone={res[0]} icon={res[3]} title={res[1]} testid="fw-result" action={dep.state === 'CONFIRMED' && go ? <LinkButton aria-label="Return to Hardware Manager" onClick={() => go('device')}>Return to Hardware Manager</LinkButton> : null}>
           <p>{res[2]}</p>
-          {dep.state === 'CONFIRMED' && <p className="tq-small">Motor outputs stay disabled. Physical operation still needs the Device &amp; Safety workflow: nothing was enabled or commissioned by this update.</p>}
+          {dep.state === 'CONFIRMED' && <p className="tq-small">The update completed without starting the motor. Review the connected device in Hardware Manager before operation.</p>}
         </AlertPanel>)}
       {dep && (
         <Disclosure summary="Advanced details" meta={`${(dep.events || []).length} recorded event(s)`} testid="fw-events">

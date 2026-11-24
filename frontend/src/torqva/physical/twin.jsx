@@ -22,8 +22,8 @@ const TRIP_PART = {
 
 // "View details" for each component: the page that shows its data. Readings -> the device's Live Monitor; the controller and the motor driver (its
 // output stage and drive state) -> the Device page; parts observed through the sensors -> Live Monitor.
-const LINKS = { hall: ['live', 'Live Monitor'], temp: ['live', 'Live Monitor'], ina: ['live', 'Live Monitor'], accel: ['live', 'Live Monitor'], driver: ['device', 'Device & Safety'],
-  controller: ['device', 'Device & Safety'], motor: ['live', 'Live Monitor'], shaft: ['live', 'Live Monitor'], base: ['live', 'Live Monitor'], psu: ['live', 'Live Monitor'], harness: ['device', 'Device & Safety'] };
+const LINKS = { hall: ['live', 'Live Monitor'], temp: ['live', 'Live Monitor'], ina: ['live', 'Live Monitor'], accel: ['live', 'Live Monitor'], driver: ['device', 'Hardware Manager'],
+  controller: ['device', 'Hardware Manager'], motor: ['live', 'Live Monitor'], shaft: ['live', 'Live Monitor'], base: ['live', 'Live Monitor'], psu: ['live', 'Live Monitor'], harness: ['device', 'Hardware Manager'] };
 
 /** Pure mapping, exported for tests. */
 export function physTwin(snap, { unreachable = false } = {}) {
@@ -89,7 +89,7 @@ export function physTwin(snap, { unreachable = false } = {}) {
     : !physical ? { tone: 'warn', label: 'FIRMWARE SIMULATION MODE', detail: 'The board reports simulated values, not physical measurements.' }
     : !fresh ? { tone: 'warn', label: 'TELEMETRY STALE', detail: `Last frame ${ago(snap.last_rx_unix)}. Shown values are not live.` }
     : snap.safety_state === 'EMERGENCY_STOP' ? { tone: 'stop', label: 'SAFETY TRIP LATCHED', detail: title(snap.trip_reason) }
-    : { tone: snap.safety_state === 'OK' ? 'ok' : 'warn', label: `DRIVE ${title(snap.drive) || 'UNKNOWN'}`, detail: `Drive state as reported by the firmware (not measured motion); safety state ${title(snap.safety_state) || 'unknown'}` };
+    : { tone: snap.safety_state === 'OK' ? 'ok' : 'warn', label: `DRIVE ${title(snap.drive) || 'UNKNOWN'}`, detail: `Drive state as reported by the firmware (not measured motion); device state ${title(snap.safety_state) || 'unknown'}` };
 
   const layers = snap.analysis?.layers || {};
   // AI layers that report the same status and reason are listed once, by product name ("Anomaly Detection, Failure Prediction, …: Waiting …").
@@ -101,7 +101,7 @@ export function physTwin(snap, { unreachable = false } = {}) {
   const findings = [
     ...groups.map((g) => ({ tone: ['ACTIVE', 'AVAILABLE', 'READY', 'VERIFIED'].includes(g.status) ? 'ok' : 'off', label: plainText(`${g.keys.join(', ')}: ${title(g.status)}`), detail: g.reason })),
   ];
-  if (!handshake) findings.push({ tone: 'info', label: 'Connect a board', detail: 'Connection is managed on Device & Safety.', go: ['device', 'Device & Safety'] });
+  if (!handshake) findings.push({ tone: 'info', label: 'Connect a board', detail: 'Connection is managed in Hardware Manager.', go: ['device', 'Hardware Manager'] });
   const facts = [
     ['Origin', physical ? 'Physical device measurements (USB serial)' : handshake ? 'Board in firmware simulation mode' : 'None: no board connected'],
     ['Connection', snap.state_label || snap.connection || 'unknown'],

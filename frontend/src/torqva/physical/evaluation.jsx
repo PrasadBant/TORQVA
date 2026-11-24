@@ -93,7 +93,7 @@ export function PhysicalEvaluation({ simView, physicalMode = true }) {
           >
             <p>
               Streaming real-time performance evaluation computed from <strong>{data?.sample_count ?? 0} physical telemetry frames</strong> on {data?.device_id || 'RIG-1'} (Firmware {data?.firmware || '3.0.1-dev'}).
-              Safety state: <strong>{data?.safety_state || 'OK'}</strong> {data?.trip_reason && data.trip_reason !== 'NONE' ? `(${data.trip_reason})` : ''}.
+              Device state: <strong>{data?.safety_state || 'OK'}</strong> {data?.trip_reason && data.trip_reason !== 'NONE' ? `(${data.trip_reason})` : ''}.
               All metrics are direct sensor measurements, never simulated.
             </p>
           </AlertPanel>

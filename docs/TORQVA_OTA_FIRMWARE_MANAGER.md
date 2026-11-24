@@ -15,7 +15,7 @@ Firmware Manager page ──upload .bin + signature──▶ FastAPI /firmware/r
                                                      │ SHA-256, ECDSA P-256 signature (TORQVA_OTA_PUBLIC_KEY)
                                                      ▼
                                             backend/data/firmware (images/<sha256>.bin, releases.json, history.jsonl)
-Admin: Update Firmware ──▶ /firmware/deployments ──▶ eligibility (device, session, ota_info, version, attestation)
+Admin: Upload wirelessly ──▶ /firmware/deployments ──▶ eligibility (device, session, ota_info, version)
                                                      │ one-time download token
                                                      ▼
                           serial bridge ──{"t":"ota",rel,ver,tok,seq,sid,m}──▶ ESP32-S3 Device (MAC with the live session key)
@@ -108,10 +108,7 @@ Admin only, one at a time, at most one per device per minute, audited. **Update 
   - device reports OTA capability and no blocker;
   - no latched trip, drive idle;
   - release deployable, fits the device's slot and is newer than the installed version.
-- **Then the administrator:**
-  - ticks "the motor power stage is physically disconnected";
-  - types `INSTALL <version> ON <device>`;
-  - confirms a second time.
+- **Then the administrator** selects the compatible release and clicks **Upload wirelessly** once. The device's measured idle, output-off, zero-speed and absent-motor-supply checks remain mandatory; the backend and device repeat eligibility checks before any flash write.
 - **The device re-checks on its own, in `Device::ota_block_reason`:**
   - OTA-capable, not busy, not unconfirmed;
   - fresh telemetry;
@@ -171,7 +168,7 @@ Nothing in this repository runs these steps, and none of them has been carried o
 | 2 | OTA partition verification | `esptool.py read_flash 0x8000 0xC00 pt.bin`, then `gen_esp32part.py pt.bin`; compare with section 5. Check `ota_info.run` and `psz` on the page | Table identical to section 5; running `ota_0`; inactive slot 3264 KB |
 | 3 | Wi-Fi connection | Start a deployment of N+1 (step 5); watch the `WIFI` stage. Also try once with the access point off | Reaches `MANIFEST`. With the access point off: `FAILED WIFI_UNAVAILABLE`, N keeps running |
 | 4 | HTTPS connectivity | Same run reaches `MANIFEST`. Repeat once with a wrong CA in NVS, and once with an `http://` base URL | Wrong CA: `FAILED SERVER_UNAVAILABLE`. `http://`: refused (`NO_HTTPS_BASE_URL`). TLS verification never disabled |
-| 5 | Firmware release retrieval | Build N+1, sign, upload on the page; deploy with the confirmations | Upload: every check VERIFIED. Backend log shows one manifest and one image download with the deployment token |
+| 5 | Firmware release retrieval | Build N+1, sign, upload on the page; deploy once eligible | Upload: every check VERIFIED. Backend log shows one manifest and one image download with the deployment token |
 | 6 | Device-side signature verification | Observed in the same run: `MANIFEST`, then `DOWNLOADING` | The device proceeds only after its own ECDSA check (a refusal would show `FAILED SIGNATURE_INVALID`) |
 | 7 | Download and installation | Watch `DOWNLOADING` (bytes), `VERIFYING`, `READY` | Byte count reaches the image size; no `CHECKSUM_MISMATCH` |
 | 8 | Reboot and reconnection | `REBOOTING`; the USB link drops and comes back | The page shows **WAITING FOR DEVICE RECONNECTION**, not a failure, then the authenticated session again |

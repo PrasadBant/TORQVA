@@ -412,9 +412,6 @@ export function MotionPanel({ stream, role, go }) {
       setAutoStopDeadline(null);
     }
     try {
-      if (override) {
-        api.setDirectMode(true).catch(() => { });
-      }
       setLast(await api.deviceCommand(payload));
     } catch (e) {
       setErr(e);
@@ -714,7 +711,7 @@ export function physHealth(snap) {
   const override = isOverrideActive(snap);
   if (snap?.connection === 'ERROR') return { status: 'Unavailable', why: `Connection error${snap?.error?.message ? `: ${snap.error.message}` : ''}.`, next: ['connection', 'Check the connection'] };
   if (!isLive(snap) && !override) return { status: 'Unavailable', why: snap?.handshake ? 'The board reports firmware simulation mode, not physical readings.' : 'No device is connected, so there are no physical readings.', next: ['connection', 'Connect a device'] };
-  if (snap?.safety_state === 'EMERGENCY_STOP') return { status: 'Critical', why: `The board latched an emergency stop${snap?.trip_reason ? `: ${title(snap.trip_reason)}` : ''}.`, next: ['control', 'Review safety'] };
+  if (snap?.safety_state === 'EMERGENCY_STOP') return { status: 'Critical', why: `The board stopped the motor${snap?.trip_reason ? `: ${title(snap.trip_reason)}` : ''}.`, next: ['control', 'Review device'] };
   if (!snap?.telemetry_fresh && !override) return { status: 'Unavailable', why: 'Device telemetry is stale.', next: ['connection', 'Check the connection'] };
   return { status: 'Normal', why: override ? 'Direct device connection active. Motor controls ready.' : 'Motor is healthy and ready for operation.', next: ['live', 'Watch Live Monitor'] };
 }
@@ -1018,7 +1015,7 @@ export function PhysicalAiPage({ stream, layer, go }) {
   const statusMsg = l?.status || (connected ? WAITING : 'DEVICE DISCONNECTED');
   const reasonMsg = l?.reason
     || (connected ? 'Device is connected. Waiting for valid telemetry frames to activate this layer.'
-      : 'Connect a physical device on Device & Safety to activate this layer.');
+      : 'Connect a physical device in Hardware Manager to activate this layer.');
   const action = !connected
     ? <button type="button" className="tq-btn tq-primary" onClick={() => go('connection')}><Usb size={14} aria-hidden="true" />Connect a device</button>
     : layer === 'C3' ? <button type="button" className="tq-btn" onClick={() => go('overview')}>Open the motor controls</button> : null;

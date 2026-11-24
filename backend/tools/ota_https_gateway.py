@@ -202,13 +202,26 @@ def serve(a) -> int:
                 return self._no()
             try:
                 with urllib.request.urlopen(urllib.request.Request(backend + self.path, method="GET"), timeout=60) as r:
-                    body, status, ctype = r.read(), r.status, r.headers.get("Content-Type", "application/octet-stream")
+                    length = r.headers.get("Content-Length", "")
+                    if not length.isdecimal() or not 0 < int(length) <= 8 * 1024 * 1024:
+                        return self._no(502)
+                    remaining = int(length)
+                    self.send_response(r.status)
+                    self.send_header("Content-Type", r.headers.get("Content-Type", "application/octet-stream"))
+                    self.send_header("Content-Length", length)
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    while remaining:
+                        chunk = r.read(min(64 * 1024, remaining))
+                        if not chunk:
+                            self.close_connection = True
+                            return                         # truncated transfer: the ESP32 rejects it
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
             except urllib.error.HTTPError as e:
                 return self._no(e.code)
             except OSError:
-                return self._no(502)
-            self.send_response(status); self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(body))); self.end_headers()
-            self.wfile.write(body)
+                self.close_connection = True
 
         def _refuse(self):
             self._no(405)

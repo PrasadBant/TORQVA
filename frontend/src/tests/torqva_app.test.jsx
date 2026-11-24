@@ -53,7 +53,7 @@ describe('redesigned application shell', () => {
   it('every page is reachable from the navigation and the physical device is shown as not connected', async () => {
     server(); setToken('t'); render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
-    for (const n of ['Live Monitor', 'Anomaly Detection', 'Failure Prediction', 'Diagnostic Investigation', 'Action Recommendations', 'Recovery Verification', 'Continuous Intelligence', 'Performance Evaluation', 'Device & Safety']) {
+    for (const n of ['Live Monitor', 'Anomaly Detection', 'Failure Prediction', 'Diagnostic Investigation', 'Action Recommendations', 'Recovery Verification', 'Continuous Intelligence', 'Performance Evaluation', 'Hardware Manager']) {
       fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${n}`) }));
       await waitFor(() => expect(screen.getByRole('button', { name: new RegExp(`^${n}`) })).toHaveAttribute('aria-current', 'page'));
     }
@@ -64,7 +64,7 @@ describe('redesigned application shell', () => {
   it('no page ever labels simulator data as physical-device data (no HW badge while the backend says SIMULATED)', async () => {
     server(); setToken('t'); render(<TorqvaApp pollMs={100000} />);
     await screen.findByText(/tester · /);
-    for (const n of ['Overview', 'Live Monitor', 'Anomaly Detection', 'Failure Prediction', 'Diagnostic Investigation', 'Action Recommendations', 'Recovery Verification', 'Continuous Intelligence', 'Performance Evaluation', 'Device & Safety']) {
+    for (const n of ['Overview', 'Live Monitor', 'Anomaly Detection', 'Failure Prediction', 'Diagnostic Investigation', 'Action Recommendations', 'Recovery Verification', 'Continuous Intelligence', 'Performance Evaluation', 'Hardware Manager']) {
       fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${n}`) }));
       await waitFor(() => expect(screen.getByRole('button', { name: new RegExp(`^${n}`) })).toHaveAttribute('aria-current', 'page'));
       expect(screen.queryAllByText('HW'), n).toHaveLength(0);
@@ -115,7 +115,7 @@ describe('redesigned application shell', () => {
 
 describe('application shell behaviour (audit)', () => {
   // The full sidebar, in order: one entry per page in both modes (Device & Safety holds the device, safety and audit sections).
-  const NAV_SIM = ['Overview', 'Live Monitor', 'Digital Twin', 'Diagnostic Workflow', 'Anomaly Detection', 'Failure Prediction', 'Action Recommendations', 'Diagnostic Investigation', 'Recovery Verification', 'Continuous Intelligence', 'Performance Evaluation', 'Scenario Studio', 'Lab', 'Device & Safety', 'Firmware Manager'];
+  const NAV_SIM = ['Overview', 'Live Monitor', 'Digital Twin', 'Diagnostic Workflow', 'Anomaly Detection', 'Failure Prediction', 'Action Recommendations', 'Diagnostic Investigation', 'Recovery Verification', 'Continuous Intelligence', 'Performance Evaluation', 'Scenario Studio', 'Lab', 'Hardware Manager', 'Firmware Manager'];
   const navButton = (n) => {
     const nav = screen.getByRole('navigation', { name: /TORQVA sections/i });
     return within(nav).getByRole('button', { name: new RegExp(`^${n}$`) });
