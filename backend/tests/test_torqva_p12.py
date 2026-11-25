@@ -7,7 +7,9 @@ import time
 
 import pytest
 
-from torqva import c2cov_study as c2s, c4cal_study as c4s, generalization_study as gs
+from torqva.research import c2cov_study as c2s
+from torqva.research import c4cal_study as c4s
+from torqva.research import generalization_study as gs
 
 DOCS = os.path.join(os.path.dirname(__file__), "..", "..", "docs", "eval")
 
@@ -58,8 +60,8 @@ def test_latest_evaluation_run_selection_does_not_depend_on_file_modification_ti
     import hashlib
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from torqva.api import create_router
-    from torqva.auth import TokenAuth
+    from torqva.api.routes import create_router
+    from torqva.access.auth import TokenAuth
     from torqva.service import SimulationService
     app = FastAPI()
     app.include_router(create_router(SimulationService(), TokenAuth([{"sha256": hashlib.sha256(b"v-tok").hexdigest(), "user": "v", "role": "viewer"}])))

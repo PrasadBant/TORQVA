@@ -18,11 +18,11 @@ os.environ["TORQVA_AUTOCONNECT"] = "0"
 os.environ["TORQVA_COMMISSIONING_FILE"] = os.path.join(_ISOLATED, "commissioning.json")
 os.environ["TORQVA_DEVICE_KEYS_FILE"] = os.path.join(_ISOLATED, "device_keys.json")
 
-from torqva.detection import BaselineDetector, ThermalTracker
-from torqva.diagnostics import DiagnosticsModel
-from torqva.hypotheses import HYPS, HypothesisModel
-from torqva.schemas import Hypothesis
-from torqva.sim import MotorSim
+from torqva.analysis.detection import BaselineDetector, ThermalTracker
+from torqva.analysis.diagnostics import DiagnosticsModel
+from torqva.analysis.hypotheses import HYPS, HypothesisModel
+from torqva.models.schemas import Hypothesis
+from torqva.simulation.sim import MotorSim
 
 SPEEDS = [900, 1200, 1500, 1800, 2100]
 

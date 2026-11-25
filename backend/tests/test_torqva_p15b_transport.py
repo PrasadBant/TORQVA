@@ -15,11 +15,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 pytest.importorskip("cryptography")
 
 import pki_helper as pki
-from torqva.device_protocol import MAX_MSG_BYTES, ProtocolError, encode, parse_message
-from torqva.device_transport import (CmdState, DeviceGateway, DeviceRegistry, DeviceUnavailable, DispatchRefused, MockLink, PhysicalControlPolicy, SecurityConfigError,
+from torqva.legacy.device_protocol import MAX_MSG_BYTES, ProtocolError, encode, parse_message
+from torqva.legacy.device_transport import (CmdState, DeviceGateway, DeviceRegistry, DeviceUnavailable, DispatchRefused, MockLink, PhysicalControlPolicy, SecurityConfigError,
                                      TlsDeviceServer, TlsPolicy, build_server_context)
-from torqva.schemas import ActionType, Connection, DecisionVerdict, DeviceSafetyState, Mode, ProposalSource, ProposedAction, Role
-from torqva.supervisor import SafetySupervisor, SupervisorContext, SupervisorLimits
+from torqva.models.schemas import ActionType, Connection, DecisionVerdict, DeviceSafetyState, Mode, ProposalSource, ProposedAction, Role
+from torqva.legacy.supervisor import SafetySupervisor, SupervisorContext, SupervisorLimits
 
 
 def approved(action=ActionType.SET_SPEED, params=None, role=Role.OPERATOR):
@@ -429,7 +429,7 @@ def test_mock_link_is_never_physical_and_simulation_cannot_masquerade_as_a_devic
         cr2 = await gw.dispatch(approved(), "rig-1")
         assert cr2.physical is False
         # telemetry provenance records the link kind, so it can never be displayed as a physical-device observation
-        from torqva.device_protocol import parse_message as pm
+        from torqva.legacy.device_protocol import parse_message as pm
         gw.handle(s, pm(json.dumps({**GOOD, "dev": "sim-1", "sid": s.sid})))
         assert gw.latest_telemetry["sim-1"]["provenance"] == "DEVICE_TELEMETRY_MOCK"
     run(go())
@@ -474,8 +474,8 @@ def test_devices_endpoint_reports_unavailable_without_a_transport_and_never_a_he
     import hashlib
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from torqva.api import create_router
-    from torqva.auth import TokenAuth
+    from torqva.api.routes import create_router
+    from torqva.access.auth import TokenAuth
     from torqva.service import SimulationService
     svc = SimulationService()
     app = FastAPI(); app.include_router(create_router(svc, TokenAuth([{"sha256": hashlib.sha256(b"v").hexdigest(), "user": "v", "role": "viewer"}])))

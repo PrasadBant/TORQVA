@@ -11,11 +11,11 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva import workbench as wb
-from torqva import workflow as wf
-from torqva.api import create_router
-from torqva.auth import TokenAuth
-from torqva.schemas import Role
+from torqva.analysis import workbench as wb
+from torqva.legacy import workflow as wf
+from torqva.api.routes import create_router
+from torqva.access.auth import TokenAuth
+from torqva.models.schemas import Role
 from torqva.service import SimulationService
 
 
@@ -375,7 +375,7 @@ def _v(label, action, target, risk, status="supported", env=True, default=False)
 
 
 def test_ranking_follows_the_pipeline_rule_and_never_prefers_a_lower_speed_for_its_own_sake():
-    from torqva.gate import GateConfig
+    from torqva.legacy.gate import GateConfig
     g = GateConfig()
     views = [_v("A", "REDUCE_SPEED", 1260, 0.0, default=True), _v("B", "REDUCE_SPEED", 1530, 0.0), _v("C", "REDUCE_SPEED", 900, 0.0),
              _v("Continue", "CONTINUE_MONITORING", None, 0.0), _v("Stop", "STOP", 0.0, 0.0)]

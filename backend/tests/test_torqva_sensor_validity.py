@@ -1,6 +1,7 @@
 import json
 import math
-from torqva.serial_bridge import DeviceModel, parse_frame
+from torqva.telemetry.device_state import DeviceModel
+from torqva.device.wire_protocol import parse_frame
 
 
 def test_sensor_validity_outlier_rejection_and_derived_power():

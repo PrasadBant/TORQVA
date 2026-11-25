@@ -11,11 +11,16 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva import serial_bridge as sb
-from torqva.schemas import Role
-from torqva.serial_bridge import CmdState, Conn, DeviceBridge, FrameError, MemoryTransport, SerialTransport, parse_frame
+from torqva.device import serial_bridge as sb
+from torqva.device.wire_protocol import MAX_LINE
+from torqva.models.schemas import Role
+from torqva.control.commands import CmdState
+from torqva.telemetry.device_state import Conn
+from torqva.device.serial_bridge import DeviceBridge
+from torqva.device.wire_protocol import FrameError, parse_frame
+from torqva.device.transport import MemoryTransport, SerialTransport
 
-FITL = Path(__file__).resolve().parents[2] / "esp32" / "torqva_fw" / ".pio" / "build" / "fitl" / "program.exe"
+FITL = Path(__file__).resolve().parents[2] / "firmware" / ".pio" / "build" / "fitl" / "program.exe"
 
 
 class FakeSerial:
@@ -116,7 +121,7 @@ def test_a_megabyte_without_a_newline_keeps_the_buffer_bounded_and_the_next_vali
         biggest = max(biggest, len(t._buf))
         if ln is not None:
             lines.append(ln)
-    assert biggest <= sb.MAX_LINE * 2 + 300, biggest
+    assert biggest <= MAX_LINE * 2 + 300, biggest
     assert any(l.startswith(b"{") and parse_frame(l)["seq"] == 7 for l in lines)
 
 

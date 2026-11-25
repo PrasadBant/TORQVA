@@ -13,21 +13,21 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import torqva.c2cov_study as cov
-import torqva.c4cal_study as c4s
-from torqva.c2_conditional import (DOMAIN_NOISE_RATIO, MIN_CLASS_N, ConditionalPredictor, RegimeGatedPredictor, weighted_quantile)
-from torqva.c2_robust import NoiseAwarePredictor, make_case
-from torqva.c4_robust import (CalibratedDiagnostics, StyleAwareDiagnosticsModel, chi2_sf_df3, classify_test_result, expected_calibration_error, fit_joint_temperatures, fit_temperature)
-from torqva.gate import GateInputs, decide
-from torqva.hypotheses import HYPS, Posterior
-from torqva.incident import S
-from torqva.pipeline import Orchestrator, PipelineConfig
-from torqva.prediction import SIGNALS, InterventionPredictor, StateSummary
-from torqva.schemas import GateVerdict, Hypothesis as Hy, Mode
-from torqva.sim import REGIMES, MotorSim, Window
-from torqva.simdevice import SimDevice
-from torqva.store import Store
-from torqva.supervisor import SafetySupervisor, SupervisorLimits
+import torqva.research.c2cov_study as cov
+import torqva.research.c4cal_study as c4s
+from torqva.research.c2_conditional import (DOMAIN_NOISE_RATIO, MIN_CLASS_N, ConditionalPredictor, RegimeGatedPredictor, weighted_quantile)
+from torqva.research.c2_robust import NoiseAwarePredictor, make_case
+from torqva.research.c4_robust import (CalibratedDiagnostics, StyleAwareDiagnosticsModel, chi2_sf_df3, classify_test_result, expected_calibration_error, fit_joint_temperatures, fit_temperature)
+from torqva.legacy.gate import GateInputs, decide
+from torqva.analysis.hypotheses import HYPS, Posterior
+from torqva.analysis.incident import S
+from torqva.analysis.pipeline import Orchestrator, PipelineConfig
+from torqva.analysis.prediction import SIGNALS, InterventionPredictor, StateSummary
+from torqva.models.schemas import GateVerdict, Hypothesis as Hy, Mode
+from torqva.simulation.sim import REGIMES, MotorSim, Window
+from torqva.simulation.simdevice import SimDevice
+from torqva.shared.store import Store
+from torqva.legacy.supervisor import SafetySupervisor, SupervisorLimits
 
 LIM = SupervisorLimits(vib_rms_stop_g=2.0, max_rpm=3000.0)
 
@@ -267,7 +267,7 @@ def test_c4_and_c2_study_seeds_are_unique_disjoint_and_unseen_before():
     for mod, parts, sets in ((c4s, c4s.BASES, lambda p: c4s.all_seeds(p, c4s.RNAMES, c4s.HYPS)), (cov, cov.BASES, lambda p: cov.seeds_of(p, cov.RNAMES))):
         allv = [x for p in parts for x in sets(p)]
         assert len(allv) == len(set(allv))                                                   # no seed reused across partitions, regimes, faults or severities
-    from torqva.c2c4_study import EARLIER_SEEDS
+    from torqva.research.c2c4_study import EARLIER_SEEDS
     all_c4 = set().union(*[set(c4s.all_seeds(p, c4s.RNAMES, c4s.HYPS)) for p in c4s.BASES])
     all_c2 = set().union(*[set(cov.seeds_of(p, cov.RNAMES)) for p in cov.BASES])
     assert not (all_c4 | all_c2) & EARLIER_SEEDS and not all_c4 & all_c2
@@ -295,7 +295,7 @@ def test_final_stages_refuse_without_a_frozen_selection(monkeypatch, tmp_path):
 
 
 def test_opt_in_variants_are_not_the_default_and_unknown_names_are_rejected():
-    from torqva.evaluation import build_models
+    from torqva.analysis.evaluation import build_models
     from torqva.service import SimulationService
     assert SimulationService().c2_variant in ("control", "noise_aware")
     with pytest.raises(ValueError):

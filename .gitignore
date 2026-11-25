@@ -25,7 +25,6 @@ build/
 *.elf
 *.bin
 *.hex
-esp32/firmware/*/build/
 
 # Databases & Runtime Data
 *.db
@@ -51,11 +50,19 @@ graphify-out/
 .graphify_python
 
 # TORQVA
-esp32/torqva_fw/.pio/
+firmware/.pio/
 backend/data/commissioning.json
 backend/data/device_keys.json
 
 # OTA: the generated release-signing PUBLIC key header (per deployment) and any signing material
-esp32/torqva_fw/src/ota_pubkey.h
+firmware/src/ota_pubkey.h
 *.pem
 backend/data/firmware/
+
+# Local operating state, seeded from config/defaults
+backend/data/device_config.json
+.coverage
+htmlcov/
+coverage/
+playwright-report/
+test-results/

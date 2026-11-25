@@ -10,16 +10,16 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.hypotheses import HYPS
-from torqva.incident import S
-from torqva.pipeline import Orchestrator, PipelineConfig
-from torqva.prediction import InterventionPredictor
-from torqva.scenarios import action_cases
-from torqva.schemas import ActionType, Hypothesis, Mode, Provenance, Role
-from torqva.simdevice import SimDevice
-from torqva.sim import MotorSim
-from torqva.store import Store
-from torqva.supervisor import SafetySupervisor, SupervisorLimits
+from torqva.analysis.hypotheses import HYPS
+from torqva.analysis.incident import S
+from torqva.analysis.pipeline import Orchestrator, PipelineConfig
+from torqva.analysis.prediction import InterventionPredictor
+from torqva.simulation.scenarios import action_cases
+from torqva.models.schemas import ActionType, Hypothesis, Mode, Provenance, Role
+from torqva.simulation.simdevice import SimDevice
+from torqva.simulation.sim import MotorSim
+from torqva.shared.store import Store
+from torqva.legacy.supervisor import SafetySupervisor, SupervisorLimits
 
 LIM = SupervisorLimits(vib_rms_stop_g=2.0, max_rpm=3000.0)
 
@@ -153,7 +153,7 @@ def test_heartbeat_loss_trips_device_and_latches_until_button(stack, predictor):
     assert o.dev.estop and o.inc is not None and o.inc.state == S.EMERGENCY_STOP
     assert o.dev.sim.rpm < 1800
     # commands are refused while latched
-    from torqva.schemas import ProposedAction, ProposalSource
+    from torqva.models.schemas import ProposedAction, ProposalSource
     d = o.sup.check(ProposedAction(action=ActionType.START, params={"duty_pct": 20}, source=ProposalSource.HUMAN,
                                    role=Role.OPERATOR, human_approved=True), o._ctx())
     assert d.approved is None and "mandatory_stop_active" in d.reasons

@@ -3,8 +3,8 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import TorqvaApp, { parseRoute, routeHash } from '../torqva/TorqvaApp.jsx';
-import { setToken } from '../torqva/api.js';
+import TorqvaApp, { parseRoute, routeHash } from '../app/TorqvaApp.jsx';
+import { setToken } from '../access/token.js';
 
 const ok = (j) => ({ ok: true, status: 200, json: async () => j });
 let posts;

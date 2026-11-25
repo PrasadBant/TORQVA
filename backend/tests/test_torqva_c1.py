@@ -7,9 +7,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.detection import BaselineDetector, DriftGuard, ThermalTracker, continual_update_allowed
-from torqva.schemas import Hypothesis
-from torqva.sim import MotorSim
+from torqva.analysis.detection import BaselineDetector, DriftGuard, ThermalTracker, continual_update_allowed
+from torqva.models.schemas import Hypothesis
+from torqva.simulation.sim import MotorSim
 
 SPEEDS = [900, 1200, 1500, 1800, 2100]
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { api, ApiError, READ_TIMEOUT_MS } from '../torqva/api.js';
+import { api, ApiError, READ_TIMEOUT_MS } from '../shared/api.js';
 
 // A fetch that never answers until its signal aborts (as a hung backend would behave).
 const hangingFetch = () => vi.fn((url, o = {}) => new Promise((_, reject) => {

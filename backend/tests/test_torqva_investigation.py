@@ -11,13 +11,13 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.api import create_router
-from torqva.auth import TokenAuth
-from torqva.hypotheses import HYPS, Posterior
-from torqva.schemas import Hypothesis
+from torqva.api.routes import create_router
+from torqva.access.auth import TokenAuth
+from torqva.analysis.hypotheses import HYPS, Posterior
+from torqva.models.schemas import Hypothesis
 from torqva.service import SimulationService
-from torqva import workbench as wb
-from torqva import investigation as inv
+from torqva.analysis import workbench as wb
+from torqva.analysis import investigation as inv
 
 H = lambda t: {"Authorization": f"Bearer {t}"}
 B = "/api/torqva"

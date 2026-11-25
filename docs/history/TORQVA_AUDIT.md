@@ -1,6 +1,6 @@
 # TORQVA — Phase 0 Audit
 
-> **RETIRED / HISTORICAL.** This Phase 0 audit (the state as found) describes the legacy `smart_motor_monitor` Arduino sketch, which was **retired from the current tree** (Git history only; not to be recovered, built or uploaded). It is preserved as a record and is not current instructions. `esp32/torqva_fw/` is the sole supported firmware, and the hardware is not ready for physical motor operation (`docs/TORQVA_HARDWARE_READINESS.md`).
+> **RETIRED / HISTORICAL.** This Phase 0 audit (the state as found) describes the legacy `smart_motor_monitor` Arduino sketch, which was **retired from the current tree** (Git history only; not to be recovered, built or uploaded). It is preserved as a record and is not current instructions. `firmware/` is the sole supported firmware, and the hardware is not ready for physical motor operation (`docs/hardware/TORQVA_HARDWARE_READINESS.md`).
 
 Audited: 2026-10-10. Source: the repo as found (snapshot commit `855f282`). Nothing was changed in code during the audit.
 
@@ -39,7 +39,7 @@ Status: `exists` / `partial` / `missing` / `needs-hardware-work`.
 | BTS7960 IS current sense | missing | Not wired, not read | Human task (verify ≤ 3.3 V) + firmware read on ADC1 |
 | Relay / E-stop path | missing / needs-hardware-work | No relay, no E-stop | Human task (Section 2.1 of the master prompt); highest-priority hardware item |
 | EN pull-downs (motor off at boot) | missing / needs-hardware-work | No external pull-downs mentioned anywhere. Firmware sets pin modes only at `setup()` after USB/boot delay (`delay(1000)` first), so EN lines float until then | Human task: 10 kΩ pull-downs on R_EN/L_EN |
-| Hall RPM | partial | GPIO 9, `INPUT_PULLUP`, FALLING ISR with 5 ms debounce, RPM from pulse **count over ~1 s** (1 pulse/rev assumed). Coarse at low RPM; `docs/HARDWARE_WIRING.md` says 3.3 V supply, the spec says A3144 needs ≥ 4.5 V | Move to pulse-period timing, 5 V supply + 10 kΩ pull-up (Human task) |
+| Hall RPM | partial | GPIO 9, `INPUT_PULLUP`, FALLING ISR with 5 ms debounce, RPM from pulse **count over ~1 s** (1 pulse/rev assumed). Coarse at low RPM; `docs/hardware/HARDWARE_WIRING.md` says 3.3 V supply, the spec says A3144 needs ≥ 4.5 V | Move to pulse-period timing, 5 V supply + 10 kΩ pull-up (Human task) |
 | PI speed control | missing | — | Build in `control` task |
 | Telemetry transport & format | partial | TCP 1 Hz JSON, ~25 fields incl. duplicated names (`vibration`, `vibration_rms`, `status`/`hardware_condition`…). **No `seq`, no firmware-side quality flags, no `wiring_id`, no provenance** | New frame protocol (fast/vib/slow/status). USB-CDC JSON lines for P0 via serial bridge |
 | Command / ack | partial | Plain text `MOTOR_ON` / `MOTOR_OFF`, ack strings. No id, TTL, sequence, idempotency, params; backend awaits ack with a 5 s timeout | Replace with typed command set `{id,type,params,ttl_ms,seq}` |
@@ -67,9 +67,9 @@ Ordered by consequence.
 **R-1 — The current motor path has no safety layer.** `MOTOR_ON` from any TCP/HTTP client sets duty 200/255 (78 %) in one step, with no ramp, no current limit, no temperature or RPM trip, no authentication, and no hardware E-stop. The RS-775's inrush on a 3–5 A PSU can brown out or trip the supply. The master prompt's default cap is 70 %. **Recommendation: do not run the motor with firmware 2.0.0 beyond brief supervised tests until Phase 1 hardware (E-stop + EN pull-downs) is in place.** I have not changed this firmware and will not flash anything without your say-so.
 
 **R-2 — Docs contradict the firmware.**
-- `docs/HARDWARE_WIRING.md` states "the ESP32 does NOT drive PWM, relays, MOSFETs", uses a single I2C bus on GPIO 8/9, DS18B20 on GPIO 4, Hall on GPIO 5, HTTP ingestion, and Windows paths from another machine. The firmware has BTS7960 control, two I2C buses (GPIO 4/5 and 7/8), DS18B20 on GPIO 6, Hall on GPIO 9, and TCP.
+- `docs/hardware/HARDWARE_WIRING.md` states "the ESP32 does NOT drive PWM, relays, MOSFETs", uses a single I2C bus on GPIO 8/9, DS18B20 on GPIO 4, Hall on GPIO 5, HTTP ingestion, and Windows paths from another machine. The firmware has BTS7960 control, two I2C buses (GPIO 4/5 and 7/8), DS18B20 on GPIO 6, Hall on GPIO 9, and TCP.
 - The README says "pin assignments strictly preserved from firmware" and matches the firmware. It also lists `backend/serial_bridge.py`, which **does not exist**.
-- The wiring doc is therefore not safe to wire from. It is superseded by `docs/TORQVA_WIRING.md` (draft, awaiting your confirmation of what is physically connected). I have not deleted or edited the old file.
+- The wiring doc is therefore not safe to wire from. It is superseded by `docs/hardware/TORQVA_WIRING.md` (draft, awaiting your confirmation of what is physically connected). I have not deleted or edited the old file.
 
 **R-3 — Dead code path.** Baseline start/cancel/reset commands are queued by the backend, but the firmware never fetches them (no HTTP poll in `loop()`; `HTTPClient` is included but unused). `/api/baseline/result` is only reachable by an external caller.
 
@@ -77,7 +77,7 @@ Ordered by consequence.
 
 **R-5 — Loop timing is unmanaged.** The main loop does I2C reads for three sensors as fast as it can, with Wi-Fi/TCP polling and OLED redraw once a second in the same thread. A blocking `tcpClient.connect()` can stall the loop, and with it the only code that could turn the motor off.
 
-**R-6 — Pin plan compatibility (ESP32-S3 N16R8).** The existing map (GPIO 4–18) avoids the strapping pins (0, 3, 45, 46), USB pins (19/20) and the octal-PSRAM pins (35–37), so it is *valid* on this board. The master prompt's suggested map (SPI ADXL on 10–14, etc.) would require rewiring. See `docs/TORQVA_WIRING.md` §4 for the proposal.
+**R-6 — Pin plan compatibility (ESP32-S3 N16R8).** The existing map (GPIO 4–18) avoids the strapping pins (0, 3, 45, 46), USB pins (19/20) and the octal-PSRAM pins (35–37), so it is *valid* on this board. The master prompt's suggested map (SPI ADXL on 10–14, etc.) would require rewiring. See `docs/hardware/TORQVA_WIRING.md` §4 for the proposal.
 
 ## 5. Capability-gap rule applied
 

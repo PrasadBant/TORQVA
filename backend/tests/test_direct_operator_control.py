@@ -5,13 +5,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from torqva.api import create_router
-from torqva.auth import TokenAuth
+from torqva.api.routes import create_router
+from torqva.access.auth import TokenAuth
 from torqva.service import SimulationService
 
 
 def test_direct_mode_bypass_disabled_and_operating_config_loaded(tmp_path, monkeypatch):
-    from torqva.device_config import OperatingConfigManager
+    from torqva.safety.device_config import OperatingConfigManager
     monkeypatch.setenv("TORQVA_DEVICE_CONFIG_FILE", str(tmp_path / "device_config.json"))
     svc = SimulationService()
     bridge = svc.bridge

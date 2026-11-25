@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-FW = ROOT / "esp32" / "torqva_fw"
+FW = ROOT / "firmware"
 INI = chr(10).join(l for l in (FW / "platformio.ini").read_text().splitlines() if not l.lstrip().startswith(";"))      # comments are not configuration
 MAIN = (FW / "src" / "main.cpp").read_text()
 

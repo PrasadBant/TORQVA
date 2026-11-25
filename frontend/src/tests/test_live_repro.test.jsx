@@ -1,8 +1,8 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import TorqvaApp from '../torqva/TorqvaApp.jsx';
-import { setToken } from '../torqva/api.js';
+import TorqvaApp from '../app/TorqvaApp.jsx';
+import { setToken } from '../access/token.js';
 
 const mockSnap = {
   connection: "CONNECTING",

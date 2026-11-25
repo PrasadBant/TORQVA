@@ -12,15 +12,15 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.api import create_router, install_error_handlers
-from torqva.auth import TokenAuth
-from torqva.dispatch import CommandDispatcher
-from torqva.gate import GateInputs, decide
-from torqva.hypotheses import Posterior
-from torqva.schemas import (ActionType, CommandStatus, Connection, DecisionVerdict, DeviceSafetyState, GateVerdict, Hypothesis as Hy, Mode, ProposalSource,
+from torqva.api.routes import create_router, install_error_handlers
+from torqva.access.auth import TokenAuth
+from torqva.legacy.dispatch import CommandDispatcher
+from torqva.legacy.gate import GateInputs, decide
+from torqva.analysis.hypotheses import Posterior
+from torqva.models.schemas import (ActionType, CommandStatus, Connection, DecisionVerdict, DeviceSafetyState, GateVerdict, Hypothesis as Hy, Mode, ProposalSource,
                             ProposedAction, Role)
 from torqva.service import SimulationService
-from torqva.supervisor import SafetySupervisor, SupervisorContext, SupervisorLimits, mandatory_stop_reasons
+from torqva.legacy.supervisor import SafetySupervisor, SupervisorContext, SupervisorLimits, mandatory_stop_reasons
 
 
 def entry(token, user, role):

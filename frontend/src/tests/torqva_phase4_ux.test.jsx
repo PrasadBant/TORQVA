@@ -1,8 +1,8 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { OfflineSetupGuide, ExperimentalPhysicalAiWidget, SpeedStatus } from '../torqva/physical/physical.jsx';
-import { RunComparisonTable, SessionNoteEditor } from '../torqva/shared/recording.jsx';
+import { OfflineSetupGuide, ExperimentalPhysicalAiWidget, SpeedStatus } from '../pages/physical/physical.jsx';
+import { RunComparisonTable, SessionNoteEditor } from '../shared/recording.jsx';
 
 describe('Phase 4 Physical Mode UX Enhancements', () => {
   beforeEach(() => {

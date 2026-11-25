@@ -6,9 +6,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import { vi, describe, it, expect, afterEach } from 'vitest';
-import { simTwin, SimTwinPage } from '../torqva/simulation/twin.jsx';
-import { physTwin, PhysTwinPage } from '../torqva/physical/twin.jsx';
-import { spinPeriod } from '../torqva/shared/twinModel.jsx';
+import { simTwin, SimTwinPage } from '../pages/simulation/twin.jsx';
+import { physTwin, PhysTwinPage } from '../pages/physical/twin.jsx';
+import { spinPeriod } from '../shared/twinModel.jsx';
 
 const now = Date.now() / 1000;
 const W = { t: 120, rpm: 1500.4, duty: 34.2, voltage: 23.6, current: 1.25, housing: 31.4, vib_rms: 0.071, valid: true };
@@ -230,8 +230,8 @@ describe('twin pages', () => {
   });
 
   it('the twin modules reference no command, start, step or commissioning API', () => {
-    const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'torqva');
-    for (const f of ['shared/twin.jsx', 'shared/twinModel.jsx', 'simulation/twin.jsx', 'physical/twin.jsx']) {
+    const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    for (const f of ['shared/twin.jsx', 'shared/twinModel.jsx', 'pages/simulation/twin.jsx', 'pages/physical/twin.jsx']) {
       const src = fs.readFileSync(path.join(dir, f), 'utf8');
       expect(src, f).not.toMatch(/api\.(deviceCommand|start|step|stop|approve|reject|resetEstop|deviceConnect|deviceDisconnect|commissioning\w*)\b/);
       expect(src, f).not.toMatch(/method:\s*['"](POST|PUT|DELETE)/);

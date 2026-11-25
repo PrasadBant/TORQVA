@@ -10,11 +10,15 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from torqva import serial_bridge as sb
-from torqva.serial_bridge import Conn, DeviceBridge, DeviceModel, FrameError, MemoryTransport, parse_frame
+from torqva.device import serial_bridge as sb
+from torqva.telemetry import device_state
+from torqva.telemetry.device_state import Conn, DeviceModel
+from torqva.device.serial_bridge import DeviceBridge
+from torqva.device.wire_protocol import FrameError, parse_frame
+from torqva.device.transport import MemoryTransport
 from test_torqva_p16_serial import fast, slow, status, wait
 
-FITL = Path(__file__).resolve().parents[2] / "esp32" / "torqva_fw" / ".pio" / "build" / "fitl" / "program.exe"
+FITL = Path(__file__).resolve().parents[2] / "firmware" / ".pio" / "build" / "fitl" / "program.exe"
 
 
 def accel(seq, ok=1, **kw):
@@ -79,7 +83,7 @@ def test_state_labels_follow_the_real_connection_state_never_the_websocket():
 
 
 def test_the_selected_port_is_reported_and_stale_label(monkeypatch):
-    monkeypatch.setattr(sb, "STALE_AFTER_S", 0.3)
+    monkeypatch.setattr(device_state, "STALE_AFTER_S", 0.3)
     class Named(MemoryTransport):
         port = "COM7"
     b = DeviceBridge(); tr = Named(); b.connect(tr); tr.feed(status(0)); tr.feed(fast(1))

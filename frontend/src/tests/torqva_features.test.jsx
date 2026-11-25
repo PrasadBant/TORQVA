@@ -1,12 +1,12 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { RecordingIndicator, CopySummaryButton, formatSummaryText, formatDuration, copyToClipboard } from '../torqva/shared/recording.jsx';
-import { TelemetryWindowControl, TELEMETRY_WINDOWS } from '../torqva/shared/windows.jsx';
-import { ChartInspectPopover } from '../torqva/shared/charts.jsx';
-import { AlarmProvider, useAlarmContext, RpmAlarmBanner } from '../torqva/shared/alarmContext.jsx';
-import { LimitsPanel } from '../torqva/shared/limits.jsx';
-import { api } from '../torqva/api.js';
+import { RecordingIndicator, CopySummaryButton, formatSummaryText, formatDuration, copyToClipboard } from '../shared/recording.jsx';
+import { TelemetryWindowControl, TELEMETRY_WINDOWS } from '../shared/windows.jsx';
+import { ChartInspectPopover } from '../shared/charts.jsx';
+import { AlarmProvider, useAlarmContext, RpmAlarmBanner } from '../safety/alarmContext.jsx';
+import { LimitsPanel } from '../safety/limits.jsx';
+import { api } from '../shared/api.js';
 
 describe('Feature 4: CSV Recording & Feature 5: Report/Export', () => {
   beforeEach(() => {

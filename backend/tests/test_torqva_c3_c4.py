@@ -6,11 +6,11 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.diagnostics import run_test_on_sim
-from torqva.gate import GateInputs, TestOption, decide
-from torqva.hypotheses import HYPS, Posterior
-from torqva.schemas import GateVerdict, Hypothesis
-from torqva.sim import MotorSim
+from torqva.analysis.diagnostics import run_test_on_sim
+from torqva.legacy.gate import GateInputs, TestOption, decide
+from torqva.analysis.hypotheses import HYPS, Posterior
+from torqva.models.schemas import GateVerdict, Hypothesis
+from torqva.simulation.sim import MotorSim
 
 def test_posterior_identifies_true_fault_on_held_out_sessions(stack):
     det, tt, hm, dm, zs_for = stack
@@ -215,7 +215,7 @@ def test_ood_flags_evidence_unlike_any_signature_but_not_in_distribution_evidenc
 
 def test_temperature_calibration_picks_the_lowest_validation_nll(stack):
     import copy
-    from torqva.hypotheses import calibrate_temperature
+    from torqva.analysis.hypotheses import calibrate_temperature
     det, tt, hm, dm, zs_for = stack
     m = copy.deepcopy(hm)
     cases = [(zs_for(h, 0.5, 950 + i)[-12:], h) for i, h in enumerate(HYPS)]

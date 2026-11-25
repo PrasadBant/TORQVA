@@ -2,6 +2,8 @@
 (fitl CLI, SimPlant) behind a pipe adapter. Nothing here is hardware validation."""
 import hashlib
 import json
+from torqva.device import serial_bridge
+from torqva.telemetry import device_state
 import subprocess
 import sys
 import threading
@@ -14,14 +16,22 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva import serial_bridge as sb
-from torqva.api import create_router, install_error_handlers
-from torqva.auth import TokenAuth
-from torqva.schemas import Role
-from torqva.serial_bridge import CmdState, Conn, DeviceBridge, DeviceModel, FrameError, MemoryTransport, PhysicalControlPolicy, TransportError, parse_frame
+from torqva.device.transport import Transport
+from torqva.telemetry.device_state import STALE_AFTER_S
+from torqva.telemetry.device_state import HISTORY_SAMPLES
+from torqva.telemetry.events import EventHub
+from torqva.api.routes import create_router, install_error_handlers
+from torqva.access.auth import TokenAuth
+from torqva.models.schemas import Role
+from torqva.control.commands import CmdState
+from torqva.telemetry.device_state import Conn, DeviceModel
+from torqva.device.serial_bridge import DeviceBridge
+from torqva.device.wire_protocol import FrameError, parse_frame
+from torqva.device.transport import MemoryTransport, TransportError
+from torqva.safety.operating_policy import PhysicalControlPolicy
 from torqva.service import SimulationService
 
-FITL = Path(__file__).resolve().parents[2] / "esp32" / "torqva_fw" / ".pio" / "build" / "fitl" / "program.exe"
+FITL = Path(__file__).resolve().parents[2] / "firmware" / ".pio" / "build" / "fitl" / "program.exe"
 
 
 def fast(seq, rpm=1200.0, q=63, i=1.5, v=24.0, duty=30.0):
@@ -105,16 +115,16 @@ def test_sequence_gaps_duplicates_and_restarts_are_counted_and_duplicates_do_not
 
 def test_history_is_bounded():
     m = DeviceModel()
-    for i in range(sb.HISTORY_SAMPLES + 500):
+    for i in range(HISTORY_SAMPLES + 500):
         m.ingest(parse_frame(fast(i)), float(i), float(i))
-    assert len(m.history) == sb.HISTORY_SAMPLES
+    assert len(m.history) == HISTORY_SAMPLES
 
 
 def test_telemetry_goes_stale_and_is_never_presented_as_live():
     m = DeviceModel(); m.conn = Conn.CONNECTED
     m.ingest(parse_frame(fast(0)), 10.0, 10.0)
     assert m.snapshot(10.5)["telemetry_fresh"] is True
-    s = m.snapshot(10.0 + sb.STALE_AFTER_S + 1)
+    s = m.snapshot(10.0 + STALE_AFTER_S + 1)
     assert s["telemetry_fresh"] is False and s["values"]["rpm"]["stale"] is True
 
 
@@ -172,7 +182,7 @@ def test_open_failure_is_a_clear_error_and_leaves_nothing_open():
 
 
 def test_stale_telemetry_event_and_state(monkeypatch):
-    monkeypatch.setattr(sb, "STALE_AFTER_S", 0.3)
+    monkeypatch.setattr(device_state, "STALE_AFTER_S", 0.3)
     b, tr = connected_bridge(); ev = b.hub.subscribe()
     tr.feed(fast(1)); assert wait(lambda: b.model.last_fast_rx is not None)
     assert wait(lambda: b.model.conn == Conn.STALE, 3)
@@ -225,7 +235,7 @@ def test_wrong_device_unknown_id_and_rejected_command_acks_are_handled_safely():
 
 
 def test_command_without_acknowledgement_times_out_and_is_never_retried(monkeypatch):
-    monkeypatch.setattr(sb, "COMMAND_TIMEOUT_S", 0.3)
+    monkeypatch.setattr(serial_bridge, "COMMAND_TIMEOUT_S", 0.3)
     b, tr = connected_bridge()
     rec = b.request_command("STOP", {}, "vera", Role.VIEWER)
     assert wait(lambda: rec.state == CmdState.TIMED_OUT, 3)
@@ -294,7 +304,7 @@ def test_safety_fault_status_is_published_and_listed_as_a_blocker():
 
 
 def test_event_hub_is_bounded_and_coalesces_telemetry():
-    hub = sb.EventHub(max_queue=5); c = hub.subscribe()
+    hub = EventHub(max_queue=5); c = hub.subscribe()
     for i in range(50):
         hub.publish("command_sent", {"i": i})
         hub.publish("telemetry", {"i": i})
@@ -304,7 +314,7 @@ def test_event_hub_is_bounded_and_coalesces_telemetry():
 
 
 # =============================================================================================== real firmware core behind a pipe (not hardware)
-class FitlTransport(sb.Transport):
+class FitlTransport(Transport):
     """Runs the REAL C++ torqva_core Device (fitl CLI with its SimPlant) and exposes it through the Transport interface."""
 
     def __init__(self, *flags):
@@ -396,10 +406,12 @@ def test_device_routes_enforce_authentication_and_roles(api):
     assert c.post("/api/torqva/device/connect", headers=H("o"), json={"port": "COM250"}).status_code == 403
     assert c.post("/api/torqva/device/disconnect", headers=H("v")).status_code == 403
     assert c.post("/api/torqva/device/commands", headers=H("v"), json={"action": "START", "duty_pct": 20}).status_code == 403
-    assert c.post("/api/torqva/device/commands", headers=H("o"), json={"action": "START", "duty_pct": 20}).status_code == 403          # starting and speed changes are admin-only
-    assert c.post("/api/torqva/device/commands", headers=H("o"), json={"action": "SET_SPEED", "rpm": 500}).status_code == 403
-    r = c.post("/api/torqva/device/commands", headers=H("a"), json={"action": "START", "duty_pct": 20}).json()
-    assert r["state"] == "REJECTED" and "PHYSICAL CONTROL DISABLED" in r["reasons"]
+    for command in ({"action": "START", "duty_pct": 20}, {"action": "SET_SPEED", "rpm": 500}):
+        r = c.post("/api/torqva/device/commands", headers=H("o"), json=command)
+        assert r.status_code == 200
+        assert r.json()["state"] == "REJECTED"
+        assert "DEVICE NOT CONNECTED" in r.json()["reasons"]
+    assert c.post("/api/torqva/device/commands", headers=H("o"), json={"action": "RESET_ESTOP"}).status_code == 403
     assert c.post("/api/torqva/device/commands", headers=H("v"), json={"action": "STOP"}).status_code == 200                           # STOP stays open to every signed-in role
 
 
@@ -426,7 +438,7 @@ def test_status_history_and_commands_over_rest_with_a_connected_memory_device(ap
 
 
 def test_websocket_requires_the_auth_first_message_and_rejects_bad_tokens_and_timeouts(api, monkeypatch):
-    from torqva import device_routes
+    from torqva.api import device_routes
     svc, c = api
     monkeypatch.setattr(device_routes, "WS_AUTH_TIMEOUT_S", 0.4)
     with pytest.raises(Exception):
@@ -486,12 +498,29 @@ def test_websocket_disconnect_event_reaches_clients_and_marks_the_device_disconn
     assert svc.bridge.snapshot()["label"] == "SIMULATION"
 
 
-def test_operators_and_viewers_cannot_start_or_change_speed_even_when_everything_else_allows_it():
-    b, tr = connected_bridge()
-    for role in (Role.OPERATOR, Role.VIEWER):
-        for action, params in (("START", {"duty_pct": 20}), ("SET_SPEED", {"rpm": 500})):
-            rec = b.request_command(action, params, "olga", role)
-            assert rec.state == CmdState.REJECTED and rec.reasons[0].startswith("ADMIN_REQUIRED")
-    assert tr.written == []
-    assert b.request_command("STOP", {}, "vera", Role.VIEWER).state in (CmdState.SENT, CmdState.ACKNOWLEDGED)
-    b.disconnect()
+def test_operator_commands_use_the_transport_and_viewers_keep_stop(monkeypatch):
+    b, tr = connected_bridge(policy=PhysicalControlPolicy(physical_control_enabled=True, max_duty_pct=50, max_rpm=2000))
+    monkeypatch.setattr(b, "control_blockers", lambda: [])
+    try:
+        for action, params, p1, p2 in (
+            ("START", {"duty_pct": 20}, 20, 0),
+            ("SET_SPEED", {"rpm": 500}, 500, 0),
+            ("SET_PWM", {"duty_pct": 15}, 15, 0),
+            ("SET_RAMP", {"ramp_up": 10, "ramp_down": 5}, 10, 5),
+        ):
+            rejected = b.request_command(action, params, "vera", Role.VIEWER)
+            assert rejected.reasons == ["OPERATOR_REQUIRED"]
+            rec = b.request_command(action, params, "olga", Role.OPERATOR)
+            assert rec.state == CmdState.SENT
+            msg = json.loads(tr.written[-1])
+            assert (msg["id"], msg["type"], msg["p"], msg["p2"]) == (rec.id, action, p1, p2)
+            tr.feed(json.dumps({"t": "ack", "id": rec.id, "status": "ACCEPTED", "reason": "OK"}))
+            assert wait(lambda: rec.state == CmdState.ACKNOWLEDGED)
+        guard = b.diagnostic_guard()
+        assert b.request_command("STOP", {}, "vera", Role.VIEWER).state == CmdState.SENT
+        written = len(tr.written)
+        step = b.request_command("SET_SPEED", {"rpm": 500}, "olga", Role.OPERATOR, diagnostic_guard=guard)
+        assert step.reasons == ["DIAGNOSTIC_INTERRUPTED"]
+        assert len(tr.written) == written
+    finally:
+        b.disconnect()

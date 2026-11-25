@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/dev.mjs",
-    "dev:sim": "node scripts/dev.mjs --sim",
+    "dev": "node ../scripts/development/dev.mjs",
+    "dev:sim": "node ../scripts/development/dev.mjs --sim",
     "dev:ui": "vite",
     "build": "vite build",
     "preview": "vite preview",

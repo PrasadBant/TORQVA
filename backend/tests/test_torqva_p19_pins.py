@@ -2,10 +2,10 @@
 import re
 from pathlib import Path
 
-FW = Path(__file__).resolve().parents[2] / "esp32" / "torqva_fw"
-PINMAP = (FW / "lib" / "torqva_core" / "pinmap.h").read_text()
+FW = Path(__file__).resolve().parents[2] / "firmware"
+PINMAP = (FW / "lib" / "torqva_core" / "drivers" / "pinmap.h").read_text()
 MAIN = (FW / "src" / "main.cpp").read_text()
-CONF = (FW / "src" / "config_pins.h").read_text()
+CONF = (FW / "src" / "drivers" / "config_pins.h").read_text()
 
 INTENDED = {"OLED_SCL": 5, "OLED_SDA": 4, "ADXL_SDA": 16, "ADXL_SCL": 17, "INA_SDA": 7, "INA_SCL": 8, "TEMP_DATA": 6, "HALL_INPUT": 9, "LED_MOTOR": 10, "LED_TEMP": 11,
             "LED_ACCEL": 12, "LED_INA": 13, "BUZZER": 14, "R_EN": 18, "L_EN": 21, "RPWM": 38, "LPWM": 39}
@@ -39,7 +39,7 @@ def test_main_cpp_uses_named_pins_only_and_no_other_file_defines_a_gpio():
     for pat in (r"pinMode\(\s*\d", r"digitalWrite\(\s*\d", r"digitalRead\(\s*\d", r"digitalPinToInterrupt\(\s*\d", r"Wire1?\.begin\(\s*\d", r"OneWire \w+\(\s*\d", r"ledc\w+\(\s*\d{2}"):
         assert not re.search(pat, main_no_boot), pat
     assert "#define PIN_" not in CONF and "#define PIN_" not in MAIN
-    for f in (FW / "lib" / "torqva_core").glob("*"):
+    for f in (FW / "lib" / "torqva_core").rglob("*"):
         if f.name != "pinmap.h" and f.suffix in (".h", ".cpp"):
             assert not re.search(r"\bGPIO\s*\d|constexpr int \w+ = \d+;", f.read_text()) or f.name in ("estop.h",), f.name
 
@@ -55,7 +55,7 @@ def test_adxl345_and_oled_use_only_their_documented_pins_and_the_ina219_bus_is_s
 
 
 def test_raw_acceleration_is_never_labelled_vibration_in_the_firmware():
-    adxl = (FW / "lib" / "torqva_core" / "adxl345.h").read_text() + MAIN
+    adxl = (FW / "lib" / "torqva_core" / "drivers" / "adxl345.h").read_text() + MAIN
     assert "NOT vibration RMS" in adxl or "not vibration RMS" in adxl
     assert "in.vib_valid = false" in MAIN                                   # vibration RMS stays unimplemented/invalid
 

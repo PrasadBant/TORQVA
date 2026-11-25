@@ -1,8 +1,8 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import TorqvaApp from '../torqva/TorqvaApp.jsx';
-import { setToken } from '../torqva/api.js';
+import TorqvaApp from '../app/TorqvaApp.jsx';
+import { setToken } from '../access/token.js';
 
 const CHECK = { items: [{ key: 'guard', text: 'Guard fitted' }, { key: 'estop', text: 'E-stop tested' }], note: 'x' };
 const REGIMES = [

@@ -23,9 +23,9 @@ vi.mock('three', async (importOriginal) => {
   return { ...T, WebGLRenderer: FakeRenderer, PMREMGenerator: FakePMREM };
 });
 
-const { TwinEngine } = await import('../torqva/shared/twin3d/engine.js');
-const { QualityGovernor } = await import('../torqva/shared/twin3d/quality.js');
-const { spinRate } = await import('../torqva/shared/twinParts.js');
+const { TwinEngine } = await import('../shared/twin3d/engine.js');
+const { QualityGovernor } = await import('../shared/twin3d/quality.js');
+const { spinRate } = await import('../shared/twinParts.js');
 
 let queue, now;
 const tick = () => { const q = queue; queue = []; now += 16.7; for (const f of q) f(now); return q.length; };

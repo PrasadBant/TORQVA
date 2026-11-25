@@ -15,8 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from torqva.api import create_router, install_error_handlers
-from torqva.auth import TokenAuth
+from torqva.api.routes import create_router, install_error_handlers
+from torqva.access.auth import TokenAuth
 from torqva.service import SimulationService
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")

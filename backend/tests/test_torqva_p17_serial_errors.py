@@ -13,11 +13,16 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva import serial_bridge as sb
-from torqva.api import create_router, install_error_handlers
-from torqva.auth import TokenAuth
-from torqva.schemas import Role
-from torqva.serial_bridge import CmdState, Conn, DeviceBridge, MemoryTransport, SerialTransport, TransportError, classify_open_error
+from torqva.device import serial_bridge as sb
+from torqva.device.transport import _winerror_code
+from torqva.device.transport import ERROR_HELP
+from torqva.api.routes import create_router, install_error_handlers
+from torqva.access.auth import TokenAuth
+from torqva.models.schemas import Role
+from torqva.control.commands import CmdState
+from torqva.telemetry.device_state import Conn
+from torqva.device.serial_bridge import DeviceBridge
+from torqva.device.transport import MemoryTransport, SerialTransport, TransportError, classify_open_error
 from torqva.service import SimulationService
 
 # the exact text pyserial 3.5 produced for the operator on COM7
@@ -87,16 +92,16 @@ def test_an_unknown_windows_code_is_never_classified_as_a_known_cause(text):
 
 def test_the_classifier_patterns_hold_no_control_characters():
     import inspect
-    src = inspect.getsource(sb.classify_open_error) + inspect.getsource(sb._winerror_code)
+    src = inspect.getsource(classify_open_error) + inspect.getsource(_winerror_code)
     assert not any(ord(ch) < 32 and ch not in "\n\t" for ch in src)                       # a literal backspace once stood in for a word boundary
 
 
 def test_access_denied_is_never_reported_as_port_in_use():
     code, detail = classify_open_error(Exception(REAL_COM7))
-    summary = sb.ERROR_HELP[code][0].lower()
+    summary = ERROR_HELP[code][0].lower()
     assert code == "ACCESS_DENIED" and "already in use" not in summary and "in use" not in summary
     assert "REAL" not in detail and "PermissionError(13" in detail                  # the exact underlying error is kept
-    assert any("another program" in r.lower() for r in sb.ERROR_HELP[code][1])         # the recovery text says another program MAY hold it: it cannot know
+    assert any("another program" in r.lower() for r in ERROR_HELP[code][1])         # the recovery text says another program MAY hold it: it cannot know
 
 
 class FakeSerialModule:
@@ -305,8 +310,7 @@ def api():
 def test_connect_route_reports_access_denied_truthfully_and_status_carries_the_structured_error(api, monkeypatch):
     svc, c = api
     install_fake_serial(monkeypatch, REAL_COM7)
-    monkeypatch.setattr(sb, "possible_port_holders", lambda: ["Arduino IDE.exe", "serial-monitor.exe"])
-    import torqva.device_routes as dr
+    import torqva.api.device_routes as dr
     monkeypatch.setattr(dr, "possible_port_holders", lambda: ["Arduino IDE.exe", "serial-monitor.exe"])
     r = c.post("/api/torqva/device/connect", headers=H("a"), json={"port": "COM7"})
     assert r.status_code == 502

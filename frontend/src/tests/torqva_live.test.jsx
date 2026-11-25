@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
-import { LivePage, eventMarks } from '../torqva/simulation/pages.jsx';
+import { LivePage, eventMarks } from '../pages/simulation/pages.jsx';
 
 const samples = [10, 11, 12, 13, 14, 15].map((t) => ({ t, rpm: 1800, setpoint: 1800, housing: 30, vib_rms: 0.1, current: 1.2, score: 0.5 }));
 const d = {

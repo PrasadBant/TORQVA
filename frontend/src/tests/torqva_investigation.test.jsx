@@ -4,11 +4,11 @@
 import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { InvestigationTrace } from '../torqva/simulation/trace.jsx';
-import { AdaptivePanel } from '../torqva/simulation/adaptive.jsx';
-import { CounterfactualLab, mergeBranches } from '../torqva/simulation/counterfactual.jsx';
-import { ReceiptsPanel, exportReceipt } from '../torqva/simulation/receipts.jsx';
-import { setToken } from '../torqva/api.js';
+import { InvestigationTrace } from '../pages/simulation/trace.jsx';
+import { AdaptivePanel } from '../pages/simulation/adaptive.jsx';
+import { CounterfactualLab, mergeBranches } from '../pages/simulation/counterfactual.jsx';
+import { ReceiptsPanel, exportReceipt } from '../pages/simulation/receipts.jsx';
+import { setToken } from '../access/token.js';
 
 const D = { status: { t: 100, device: {} }, log: [{ t: 1, kind: 'x' }], commands: [] };
 function server(h) {

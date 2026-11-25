@@ -1,7 +1,7 @@
 """Phase 14: firmware <-> software telemetry/command contract, verified against the REAL C++ torqva_core (firmware-in-the-loop CLI on the host).
 
 This is NOT hardware validation: the plant is the deterministic SimPlant, nothing runs on an ESP32, and no wiring or electrical assumption is checked here.
-Build the CLI first:  cd esp32/torqva_fw && pio run -e fitl
+Build the CLI first:  cd firmware && pio run -e fitl
 """
 import json
 import math
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-EXE = Path(__file__).resolve().parents[2] / "esp32" / "torqva_fw" / ".pio" / "build" / "fitl" / "program.exe"
+EXE = Path(__file__).resolve().parents[2] / "firmware" / ".pio" / "build" / "fitl" / "program.exe"
 pytestmark = pytest.mark.skipif(not EXE.exists(), reason="fitl CLI not built (pio run -e fitl)")
 
 KEY = "sim-key"
@@ -66,8 +66,10 @@ def test_frame_schema_types_finite_and_units(fw):
     fast = [f for f in frames if f["t"] == "fast"]; slow = [f for f in frames if f["t"] == "slow"]; status = [f for f in frames if f["t"] == "status"]
     assert fast and slow and status
     for f in fast:
-        assert set(f) == {"t", "seq", "ts", "rpm", "sp", "duty", "v", "i", "p", "q"}
-        assert all(isinstance(f[k], (int, float)) and math.isfinite(f[k]) for k in f if k != "t")
+        assert set(f) == {"t", "seq", "ts", "rpm", "sp", "duty", "v", "i", "p", "q", "pwm_req", "ramp_up", "ramp_down", "stop_reason"}
+        assert f["pwm_req"] == 30 and f["ramp_up"] > 0 and f["ramp_down"] > 0
+        assert f["stop_reason"] == "NONE"
+        assert all(isinstance(f[k], (int, float)) and math.isfinite(f[k]) for k in f if k not in ("t", "stop_reason"))
         assert 0 <= f["rpm"] <= 3500 and 0 <= f["duty"] <= 70.0 + 1e-6 and 0 <= f["v"] <= 30 and -0.5 <= f["i"] <= 5.0 and f["p"] >= -0.5       # rpm, % duty (cap 70), V, A, W
         assert abs(f["p"] - f["v"] * f["i"]) < 0.6                                                               # power is V x I
         assert 0 <= f["q"] <= 63

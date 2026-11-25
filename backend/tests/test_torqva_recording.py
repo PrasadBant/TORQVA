@@ -7,10 +7,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from torqva.api import create_router
-from torqva.auth import TokenAuth
-from torqva.recording import SessionRecorder, READINGS_HEADER, EVENTS_HEADER
-from torqva.schemas import Role
+from torqva.api.routes import create_router
+from torqva.access.auth import TokenAuth
+from torqva.telemetry.recording import SessionRecorder, READINGS_HEADER, EVENTS_HEADER
+from torqva.models.schemas import Role
 from torqva.service import SimulationService
 
 
@@ -132,7 +132,7 @@ def test_zip_export(temp_recorder):
 
 
 def test_recording_api_endpoints(tmp_path, monkeypatch):
-    from torqva.recording import recorder
+    from torqva.telemetry.recording import recorder
     monkeypatch.setattr(recorder, "base_dir", tmp_path / "sessions")
     if recorder.is_active():
         recorder.stop_session()

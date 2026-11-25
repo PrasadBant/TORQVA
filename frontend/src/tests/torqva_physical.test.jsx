@@ -1,9 +1,9 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import TorqvaApp from '../torqva/TorqvaApp.jsx';
-import { setToken } from '../torqva/api.js';
-import { classifyRpm, SpeedStatus } from '../torqva/physical/physical.jsx';
+import TorqvaApp from '../app/TorqvaApp.jsx';
+import { setToken } from '../access/token.js';
+import { classifyRpm, SpeedStatus } from '../pages/physical/physical.jsx';
 
 // Mocked backend responses (frontend behaviour only: NOT physical-device verification).
 const ok = (j) => ({ ok: true, status: 200, json: async () => j });
@@ -93,11 +93,11 @@ describe('physical-device-first application', () => {
     expect(screen.getByTestId('status-strip')).toHaveTextContent(/sensors/);
   });
 
-  it('a stale device is never shown as live and the motor state is UNKNOWN', async () => {
+  it('a stale device reports a telemetry timeout', async () => {
     await open({ ...CONNECTED, telemetry_fresh: false, values: { ...CONNECTED.values, rpm: val(1200, 'rpm', { stale: true }) } });
     await screen.findByTestId('motor-state');
     expect(screen.getByTestId('phys-banner')).toHaveTextContent('TELEMETRY STALE');
-    expect(screen.getByTestId('motor-state')).toHaveTextContent('UNKNOWN');
+    expect(screen.getByTestId('motor-state')).toHaveTextContent('TELEMETRY TIMEOUT');
     expect(within(screen.getByTestId('tile-Measured speed (Hall)')).getByText(/STALE/)).toBeInTheDocument();
   });
 
@@ -214,14 +214,21 @@ describe('physical-device-first application', () => {
     await waitFor(() => expect(posted).toEqual([{ action: 'SET_SPEED', rpm: 900 }]));
   });
 
-  for (const role of ['operator', 'viewer']) {
-    it(`a ${role} cannot start or change speed, is told why, and keeps STOP`, async () => {
-      withPosts({ ...CONNECTED, control_blockers: [] }, {}, role);
-      expect(await screen.findByTestId('btn-stop')).toBeEnabled();
-      expect(screen.getByTestId('btn-start')).toBeDisabled(); expect(screen.getByTestId('btn-speed')).toBeDisabled();
-      expect(screen.getByText(`Your role (${role}) can request STOP only.`)).toBeInTheDocument();
-    });
-  }
+  it('lets an operator change PWM while the board reports active drive', async () => {
+    const posted = withPosts({ ...CONNECTED, drive: 'OPEN_LOOP', control_blockers: [] },
+      { id: 11, action: 'SET_PWM', state: 'SENT' }, 'operator');
+    fireEvent.change(await screen.findByLabelText('Duty percent'), { target: { value: '15' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply PWM' }));
+    await waitFor(() => expect(posted).toEqual([{ action: 'SET_PWM', duty_pct: 15 }]));
+  });
+
+  it('gives a viewer STOP access and disables motion controls', async () => {
+    withPosts({ ...CONNECTED, control_blockers: [] }, {}, 'viewer');
+    expect(await screen.findByTestId('btn-stop')).toBeEnabled();
+    expect(screen.getByTestId('btn-start')).toBeDisabled();
+    expect(screen.getByTestId('btn-speed')).toBeDisabled();
+    expect(screen.getByText('Your role (viewer) can request STOP only.')).toBeInTheDocument();
+  });
 
   it('has no commissioning or interlock page', async () => {
     await open(CONNECTED);

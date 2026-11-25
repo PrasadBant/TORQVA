@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { plainText, plainify, plainLabel } from '../torqva/shared/plain.js';
+import { plainText, plainify, plainLabel } from '../shared/plain.js';
 
 describe('product wording for backend text', () => {
   it('replaces internal layer ids in prose with the product names', () => {

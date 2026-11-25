@@ -1,10 +1,10 @@
 import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import TorqvaApp from '../torqva/TorqvaApp.jsx';
-import { C2C4Validation, DiagnosticTests, PredictionChecks, StatusPill } from '../torqva/simulation/c2c4.jsx';
-import { setToken } from '../torqva/api.js';
-import { TestsPage, TEST_SPECS } from '../torqva/simulation/pages.jsx';
+import TorqvaApp from '../app/TorqvaApp.jsx';
+import { C2C4Validation, DiagnosticTests, PredictionChecks, StatusPill } from '../pages/simulation/c2c4.jsx';
+import { setToken } from '../access/token.js';
+import { TestsPage, TEST_SPECS } from '../pages/simulation/pages.jsx';
 
 const row = (o = {}) => ({ signal: 'housing', horizon_s: 60, observed: 25.4, predicted: 25.1, lo: 24.8, hi: 25.4, covered: true, ...o });
 const check = (o = {}) => ({ comparison: 'available', action: 'REDUCE_SPEED', interval_method: 'noise_aware_conformal', status: 'supported',

@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
-import { JourneyBar } from '../torqva/simulation/journey.jsx';
+import { JourneyBar } from '../pages/simulation/journey.jsx';
 
 describe('investigation progress bar', () => {
   it('without a simulation every step says it is unavailable or not reached, never complete', () => {

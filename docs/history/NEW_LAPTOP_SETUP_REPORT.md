@@ -1,6 +1,6 @@
 # NEW LAPTOP SETUP REPORT
 
-> **RETIRED / HISTORICAL.** This setup report (its Arduino IDE compile/upload lines) describes the legacy `smart_motor_monitor` Arduino sketch, which was **retired from the current tree** (Git history only; not to be recovered, built or uploaded). It is preserved as a record and is not current instructions. `esp32/torqva_fw/` is the sole supported firmware, and the hardware is not ready for physical motor operation (`docs/TORQVA_HARDWARE_READINESS.md`).
+> **RETIRED / HISTORICAL.** This setup report (its Arduino IDE compile/upload lines) describes the legacy `smart_motor_monitor` Arduino sketch, which was **retired from the current tree** (Git history only; not to be recovered, built or uploaded). It is preserved as a record and is not current instructions. `firmware/` is the sole supported firmware, and the hardware is not ready for physical motor operation (`docs/hardware/TORQVA_HARDWARE_READINESS.md`).
 
 ## 1. Environment
 

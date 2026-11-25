@@ -58,7 +58,7 @@ await shot('overview-1440');
 
 const pages = [['Live Monitor', 'Current readings'], ['Diagnostic Workflow', 'Diagnostic Workflow'], ['Anomaly Detection', 'Anomaly severity'], ['Failure Prediction', 'Candidate|Failure Prediction'],
   ['Action Recommendations', 'Decision gate|decision gate'], ['Diagnostic Investigation', 'Available tests|Available Tests'], ['Recovery Verification', 'Outcomes'], ['Continuous Intelligence', 'Learning dataset'],
-  ['Performance Evaluation', 'versus baselines|Evaluation run'], ['Scenario Studio', 'Scenario'], ['Lab', 'Lab|session|Session'], ['Hardware & Device', 'Device inventory'], ['Firmware Manager', 'Firmware']];
+  ['Performance Evaluation', 'versus baselines|Evaluation run'], ['Scenario Studio', 'Scenario'], ['Lab', 'Lab|session|Session'], ['Hardware Manager', 'Device inventory'], ['Firmware Manager', 'Firmware']];
 for (const [nav, expect] of pages) {
   await page.click(`nav button.tq-nav:has-text("${nav}")`); await page.waitForTimeout(700);
   const txt = await page.textContent('main');
@@ -69,14 +69,14 @@ for (const [nav, expect] of pages) {
   check(`  ${nav}: no horizontal overflow at 1440px`, (await overflow()) <= 1);
   await shot(nav.replace(/\W+/g, '-').toLowerCase() + '-1440');
 }
-await page.click('nav button.tq-nav:has-text("Hardware & Device")'); await page.waitForTimeout(600);
+await page.click('nav button.tq-nav:has-text("Hardware Manager")'); await page.waitForTimeout(600);
 await page.click('[role=tab]:has-text("Connection & Readiness")'); await page.waitForTimeout(400);
 const devTxt = await page.textContent('main');
 check('Device page keeps simulation controls separate from device data', !devTxt.includes('Request START') && devTxt.length > 100);
 check('simulation mode lists no Motor Control and offers no physical START/STOP', await page.locator('nav button.tq-nav:has-text("Motor Control")').count() === 0 && await page.locator('button:has-text("Request START"), button:has-text("Send STOP to device")').count() === 0);
 await page.click('nav button.tq-nav:has-text("Scenario Studio")'); await page.waitForTimeout(600);
 check('Device & Safety links the simulator controls to Scenario Studio', (await page.textContent('main h2')).includes('Scenario Studio'));
-await page.click('nav button.tq-nav:has-text("Hardware & Device")'); await page.waitForTimeout(400);
+await page.click('nav button.tq-nav:has-text("Hardware Manager")'); await page.waitForTimeout(400);
 check('simulation mode has no Safety & Commissioning section', (await page.locator('[role=tab]:has-text("Safety & Commissioning")').count()) === 0);
 await page.getByRole('tab', { name: 'Device', exact: true }).click(); await page.waitForTimeout(400);
 const dev = await page.textContent('main');
@@ -116,7 +116,7 @@ const navClick = async (name) => {
 };
 for (const w of [1440, 1024, 768, 390]) {
   await page.setViewportSize({ width: w, height: 900 });
-  for (const nav of ['Overview', 'Live Monitor', 'Failure Prediction', 'Performance Evaluation', 'Hardware & Device']) {
+  for (const nav of ['Overview', 'Live Monitor', 'Failure Prediction', 'Performance Evaluation', 'Hardware Manager']) {
     await navClick(nav); await page.waitForTimeout(400);
     check(`no horizontal overflow at ${w}px: ${nav}`, (await overflow()) <= 1, `(${await overflow()}px)`);
   }

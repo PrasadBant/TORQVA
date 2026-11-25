@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decimateMinMax } from '../torqva/shared/charts.jsx';
+import { decimateMinMax } from '../shared/charts.jsx';
 
 describe('decimateMinMax', () => {
   it('returns original points if length is within maxPoints limit', () => {

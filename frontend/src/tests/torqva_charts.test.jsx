@@ -1,7 +1,7 @@
 // Shared chart rules (shared/charts.jsx): one precision per chart for ticks and tooltips, units shown, intervals as ranges, a missing value never
 // turned into a number. These are display rules only: no metric changes meaning.
 import { describe, it, expect } from 'vitest';
-import { fixed, tipValue } from '../torqva/shared/charts.jsx';
+import { fixed, tipValue } from '../shared/charts.jsx';
 
 describe('chart value formatting', () => {
   it('uses the chart precision on ticks, and no decimals on large axis values', () => {

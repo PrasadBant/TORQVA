@@ -3,12 +3,12 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { validateSequence } from '../torqva/simulation/tests.jsx';
-import { explainPrediction, SimPredictionsPage } from '../torqva/simulation/predict.jsx';
-import { lifecycleOf, SimInterventionsPage } from '../torqva/simulation/intervene.jsx';
-import { conditionOf } from '../torqva/simulation/diagnose.jsx';
-import { PhysicalAiPage } from '../torqva/physical/physical.jsx';
-import { setToken } from '../torqva/api.js';
+import { validateSequence } from '../pages/simulation/tests.jsx';
+import { explainPrediction, SimPredictionsPage } from '../pages/simulation/predict.jsx';
+import { lifecycleOf, SimInterventionsPage } from '../pages/simulation/intervene.jsx';
+import { conditionOf } from '../pages/simulation/diagnose.jsx';
+import { PhysicalAiPage } from '../pages/physical/physical.jsx';
+import { setToken } from '../access/token.js';
 
 const LIMITS = { max_rpm: 3000, profile_max_s: 1800, sequence_max_s: 2400, max_steps: 6, setpoint_rpm: 1800, reduce_envelope_rpm: [540, 1800] };
 const W = { t: 100, rpm: 1799, voltage: 23.6, current: 1.35, housing: 23, vib_rms: 0.3, valid: true };
@@ -51,7 +51,7 @@ describe('sequence validation (mirrors the backend limits)', () => {
 describe('Diagnostic Investigation: the edited sequence is exactly what is submitted', () => {
   it('adding, editing, reordering and removing steps changes the request body', async () => {
     setToken('t');
-    const { SimTestsPage } = await import('../torqva/simulation/tests.jsx');
+    const { SimTestsPage } = await import('../pages/simulation/tests.jsx');
     const calls = server({
       '/simulation/workbench/plan': () => ({ ...PLAN, tests: [{ test: 'T3', fixed_parameters: 'hold speed and observe 300 s' }] }),
       '/simulation/workbench/sequence': () => ({ id: 'D-1', results: [], series: [], assessment: { category: 'inconclusive', detail: 'x', tested_setpoints_rpm: [], baseline_note: 'b' },
@@ -76,7 +76,7 @@ describe('Diagnostic Investigation: the edited sequence is exactly what is submi
   });
   it('an invalid step disables the run with the reason', async () => {
     setToken('t');
-    const { SimTestsPage } = await import('../torqva/simulation/tests.jsx');
+    const { SimTestsPage } = await import('../pages/simulation/tests.jsx');
     server({ '/simulation/workbench/plan': () => PLAN });
     render(<SimTestsPage d={{ status: STATUS, log: [] }} role="operator" wb={{}} setWb={() => {}} />);
     fireEvent.click((await screen.findAllByRole('button', { name: /Add to sequence/ }))[0]);

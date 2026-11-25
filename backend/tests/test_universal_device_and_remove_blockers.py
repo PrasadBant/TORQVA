@@ -3,7 +3,8 @@ import time
 
 import pytest
 
-from torqva.serial_bridge import Conn, DeviceBridge
+from torqva.telemetry.device_state import Conn
+from torqva.device.serial_bridge import DeviceBridge
 
 
 class UnknownTransport:

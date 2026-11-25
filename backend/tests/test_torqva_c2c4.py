@@ -14,21 +14,22 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import torqva.c2_robust as c2r
-import torqva.c2c4_study as study
-from torqva.c2_robust import (MIN_CELL_N, NONNEGATIVE, NoiseAwarePredictor, PREDICTION_TARGETS, PersistenceConformalPredictor, build_noise_aware, make_case)
-from torqva.c4_robust import ConflictGuard, StyleAwareDiagnosticsModel, TEST_SPECS, classify_test_result, style_regime
-from torqva.diagnostics import run_test_on_sim
-from torqva.gate import GateInputs, decide
-from torqva.hypotheses import HYPS, Posterior
-from torqva.incident import S
-from torqva.pipeline import Orchestrator, PipelineConfig
-from torqva.prediction import ACTIONS, NOISE_FLOOR, SIGNALS, InterventionPredictor, StateSummary, estimate_noise
-from torqva.schemas import ActionType, GateVerdict, Hypothesis, Mode, ProposalSource, ProposedAction, Role
-from torqva.sim import REGIMES, MotorSim
-from torqva.simdevice import SimDevice
-from torqva.store import Store
-from torqva.supervisor import SafetySupervisor, SupervisorLimits
+import torqva.research.c2_robust as c2r
+import torqva.research.c2c4_study as study
+from torqva.research.c2_robust import (MIN_CELL_N, NONNEGATIVE, NoiseAwarePredictor, PREDICTION_TARGETS, PersistenceConformalPredictor, build_noise_aware, make_case)
+from torqva.research.c4_robust import ConflictGuard, StyleAwareDiagnosticsModel, TEST_SPECS, classify_test_result, style_regime
+from torqva.analysis.diagnostics import run_test_on_sim
+from torqva.legacy.gate import GateInputs, decide
+from torqva.analysis.hypotheses import HYPS, Posterior
+from torqva.analysis.incident import S
+from torqva.analysis.pipeline import Orchestrator, PipelineConfig
+from torqva.analysis import prediction
+from torqva.analysis.prediction import ACTIONS, NOISE_FLOOR, SIGNALS, InterventionPredictor, StateSummary, estimate_noise
+from torqva.models.schemas import ActionType, GateVerdict, Hypothesis, Mode, ProposalSource, ProposedAction, Role
+from torqva.simulation.sim import REGIMES, MotorSim
+from torqva.simulation.simdevice import SimDevice
+from torqva.shared.store import Store
+from torqva.legacy.supervisor import SafetySupervisor, SupervisorLimits
 
 LIM = SupervisorLimits(vib_rms_stop_g=2.0, max_rpm=3000.0)
 Hy = Hypothesis
@@ -305,11 +306,11 @@ def flat(stack):
 
 
 def test_c2_has_no_path_to_the_device():
-    src = Path(c2r.__file__).read_text() + Path(c2r.__file__).with_name("prediction.py").read_text()
+    src = Path(c2r.__file__).read_text() + Path(prediction.__file__).read_text()
     for banned in ("ApprovedAction", "CommandDispatcher", "SafetySupervisor", "dispatch(", "send_line"):
         assert banned not in src, banned
-    from torqva.api import create_router
-    from torqva.auth import TokenAuth
+    from torqva.api.routes import create_router
+    from torqva.access.auth import TokenAuth
     from torqva.service import SimulationService
     routes = [(r.path, sorted(getattr(r, "methods", None) or ())) for r in create_router(SimulationService(), TokenAuth([])).routes]
     assert not [p for p, m in routes if "predict" in p and "POST" in m]
@@ -349,8 +350,8 @@ def test_prediction_check_record_integrity(stack, noise_aware):
 
 
 def test_a_prediction_comparison_exists_only_for_the_action_that_was_actually_executed(stack, noise_aware):
-    from torqva.dispatch import CommandRecord
-    from torqva.schemas import CommandStatus
+    from torqva.legacy.dispatch import CommandRecord
+    from torqva.models.schemas import CommandStatus
     o = build(stack, noise_aware, warm=70)
     o._new_incident()
     st = StateSummary.from_windows(o.buf)
@@ -443,8 +444,8 @@ def test_evaluation_latest_returns_an_evaluation_run_not_other_study_artifacts()
     import hashlib as h
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from torqva.api import create_router
-    from torqva.auth import TokenAuth
+    from torqva.api.routes import create_router
+    from torqva.access.auth import TokenAuth
     from torqva.service import SimulationService
     ent = [{"sha256": h.sha256(b"v").hexdigest(), "user": "vera", "role": "viewer"}]
     app = FastAPI(); app.include_router(create_router(SimulationService(), TokenAuth(ent))); c = TestClient(app)

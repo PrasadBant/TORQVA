@@ -1,6 +1,6 @@
 # Phase 6: Real ESP32-S3 Hardware Integration & End-to-End Validation Report
 
-> **RETIRED / HISTORICAL.** This report describes the legacy `smart_motor_monitor` Arduino sketch, which was **retired from the current tree** (Git history only; not to be recovered, built or uploaded). It is preserved as a record and is not current instructions. `esp32/torqva_fw/` is the sole supported firmware, and the hardware is not ready for physical motor operation (`docs/TORQVA_HARDWARE_READINESS.md`).
+> **RETIRED / HISTORICAL.** This report describes the legacy `smart_motor_monitor` Arduino sketch, which was **retired from the current tree** (Git history only; not to be recovered, built or uploaded). It is preserved as a record and is not current instructions. `firmware/` is the sole supported firmware, and the hardware is not ready for physical motor operation (`docs/hardware/TORQVA_HARDWARE_READINESS.md`).
 
 ## 1. Hardware Used
 - **Microcontroller**: ESP32-S3 Dual-Core Xtensa LX7 MCU (Targeted architecture).
@@ -48,7 +48,7 @@
 ## 6. I2C Addresses
 - **ADXL345**: `0x53` (with SDO grounded) or alternate `0x1D` (with SDO pulled high).
 - **INA219**: `0x40` (with A0/A1 tied to GND).
-- **I2C Scanner Tooling**: Documented in [docs/HARDWARE_WIRING.md](file:///c:/Users/dkdar/.gemini/antigravity-ide/scratch/smart-motor-monitor/docs/HARDWARE_WIRING.md).
+- **I2C Scanner Tooling**: Documented in [docs/hardware/HARDWARE_WIRING.md](file:///c:/Users/dkdar/.gemini/antigravity-ide/scratch/smart-motor-monitor/docs/HARDWARE_WIRING.md).
 - **Status**: `NOT TESTED` (Awaiting physical I2C bus scan on bench).
 
 ---
@@ -155,7 +155,7 @@
 ---
 
 ## 25. Fixes Applied
-1. Created comprehensive bench safety and wiring specification in [docs/HARDWARE_WIRING.md](file:///c:/Users/dkdar/.gemini/antigravity-ide/scratch/smart-motor-monitor/docs/HARDWARE_WIRING.md).
+1. Created comprehensive bench safety and wiring specification in [docs/hardware/HARDWARE_WIRING.md](file:///c:/Users/dkdar/.gemini/antigravity-ide/scratch/smart-motor-monitor/docs/HARDWARE_WIRING.md).
 2. Clarified I2C scanner diagnostic procedures and pull-up resistor requirements for DS18B20 and A3144.
 3. Enhanced `/api/alerts` endpoint with optional active and source filtering.
 4. Maintained strict separation between software unit tests and physical bench claims.

@@ -2,8 +2,8 @@
 import sys
 sys.path.insert(0, "backend")
 import numpy as np
-from torqva.detection import BaselineDetector, ThermalTracker
-from torqva.sim import FEATURES, REGIMES, MotorSim, Regime
+from torqva.analysis.detection import BaselineDetector, ThermalTracker
+from torqva.simulation.sim import FEATURES, REGIMES, MotorSim, Regime
 
 SPEEDS = [900, 1200, 1500, 1800, 2100]
 det, tt = BaselineDetector(), ThermalTracker()

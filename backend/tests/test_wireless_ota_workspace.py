@@ -11,20 +11,22 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from torqva.api import create_router
-from torqva.auth import TokenAuth
-from torqva.compiler import (
+from torqva.api.routes import create_router
+from torqva.access.auth import TokenAuth
+from torqva.device.firmware.compiler import (
     CompilerError,
     FirmwareCompiler,
     _extract_memory_usage,
     _parse_diagnostics,
     _safe_rel_path,
 )
-from torqva.device_config import OperatingConfigManager, validate_operating_limits
-from torqva.discovery import DeviceDiscoveryManager, _build_ptr_query, _parse_mdns_response
-from torqva.firmware import FirmwareManager
-from torqva.schemas import Role
-from torqva.serial_bridge import Conn, DeviceBridge, MemoryTransport
+from torqva.safety.device_config import OperatingConfigManager, validate_operating_limits
+from torqva.device.discovery import DeviceDiscoveryManager, _build_ptr_query, _parse_mdns_response
+from torqva.device.firmware.firmware import FirmwareManager
+from torqva.models.schemas import Role
+from torqva.telemetry.device_state import Conn
+from torqva.device.serial_bridge import DeviceBridge
+from torqva.device.transport import MemoryTransport
 from torqva.service import SimulationService
 
 from test_torqva_firmware import esp_image, keys as _keys_fixture, ota_info, sign
@@ -165,7 +167,7 @@ def test_firmware_rollback_http_range_and_deployment_persistence(client_and_svc,
     monkeypatch.setenv("TORQVA_OTA_PUBLIC_BASE_URL", "https://192.168.1.10:8443")
     c, svc = client_and_svc
     # Reload FirmwareManager with test key and public HTTPS base URL pointing to the same bridge
-    from torqva.firmware import FirmwareManager
+    from torqva.device.firmware.firmware import FirmwareManager
     svc.firmware = FirmwareManager(svc.bridge, root=str(tmp_path / "fw_store"), public_key=keys["pub"], base_url="https://192.168.1.10:8443")
     auth = TokenAuth([{"sha256": hashlib.sha256(t.encode()).hexdigest(), "user": f"{r}-u", "role": r} for t, r in TOKENS.items()])
     app = FastAPI()
@@ -247,7 +249,7 @@ def test_unified_provision_wireless_builds_nvs_tls_and_signing_keys(tmp_path):
     import subprocess
     import sys
 
-    tool_path = Path(__file__).resolve().parents[1] / "tools" / "provision_wireless.py"
+    tool_path = Path(__file__).resolve().parents[2] / "scripts" / "setup" / "provision_wireless.py"
     spec = importlib.util.spec_from_file_location("provision_wireless", str(tool_path))
     pw_mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader

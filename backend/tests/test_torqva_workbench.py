@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.api import create_router
-from torqva.auth import TokenAuth
+from torqva.api.routes import create_router
+from torqva.access.auth import TokenAuth
 from torqva.service import SimulationService
 
 

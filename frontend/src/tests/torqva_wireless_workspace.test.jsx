@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { SourceWorkspace, WirelessControlCard, WirelessSerialMonitor } from '../torqva/physical/wirelessWorkspace.jsx';
+import { SourceWorkspace, WirelessControlCard, WirelessSerialMonitor } from '../device/wirelessWorkspace.jsx';
 
 describe('Wireless OTA Engineering Workspace', () => {
   const origFetch = global.fetch;

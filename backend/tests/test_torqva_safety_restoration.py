@@ -10,11 +10,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva import serial_bridge as sb
-from torqva.serial_bridge import Conn, DeviceBridge, MemoryTransport
+from torqva.device.wire_protocol import Q_BITS
+from torqva.telemetry.device_state import Conn
+from torqva.device.serial_bridge import DeviceBridge
+from torqva.device.transport import MemoryTransport
 
 ROOT = Path(__file__).resolve().parents[2]
-VOLTAGE_BIT = sb.Q_BITS["voltage"]
+VOLTAGE_BIT = Q_BITS["voltage"]
 
 
 def fast(seq, v=24.0, q=63):
@@ -51,21 +53,21 @@ def bridge_with(v, q):
     return b
 
 
-def test_the_supervisor_sees_the_measured_supply_voltage_not_a_fixed_value():
+def test_physical_status_reports_the_measured_supply_voltage():
     b = bridge_with(v=18.5, q=63)
     try:
-        ctx = b._ctx()
-        assert ctx.voltage_v == pytest.approx(18.5)                         # was always 24.0 after 319fb7b
+        assert b.snapshot()["values"]["voltage"]["value"] == pytest.approx(18.5)
     finally:
         b.disconnect()
 
 
-def test_an_invalid_supply_voltage_is_never_presented_as_valid_to_the_supervisor_or_the_interlocks():
+def test_invalid_supply_voltage_remains_invalid_in_status_and_interlocks():
     b = bridge_with(v=24.0, q=63 & ~VOLTAGE_BIT)
     try:
-        ctx = b._ctx()
-        assert ctx.sensors_valid is False                                    # voltage counts as a critical sensor again
-        il = {r["id"]: r for r in b.snapshot()["interlocks"]}
+        snap = b.snapshot()
+        assert snap["values"]["voltage"]["valid"] is False
+        assert snap["values"]["voltage"]["value"] is None
+        il = {r["id"]: r for r in snap["interlocks"]}
         assert il["sensors"]["status"] == "BLOCKED" and "voltage" in il["sensors"]["detail"]
     finally:
         b.disconnect()
@@ -84,7 +86,7 @@ def test_without_a_configured_firmware_key_no_placeholder_key_is_sent(monkeypatc
     monkeypatch.delenv("TORQVA_FW_COMMAND_KEY", raising=False)
     b = DeviceBridge()
     assert not hasattr(b, "command_key")
-    src = (ROOT / "backend" / "torqva" / "serial_bridge.py").read_text(encoding="utf-8")
+    src = (ROOT / "backend" / "torqva" / "device" / "serial_bridge.py").read_text(encoding="utf-8")
     assert "authenticated-session-only" not in src                          # the firmware build sentinel must never be the backend's default key
     assert "dev-key-change-me" not in src
     assert 'v["voltage"] = 24.0' not in src and "voltage_v=24.0" not in src

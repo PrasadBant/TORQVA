@@ -10,14 +10,13 @@ from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.api import create_router, install_error_handlers
-from torqva.auth import TokenAuth
+from torqva.api.routes import create_router, install_error_handlers
+from torqva.access.auth import TokenAuth
 from torqva.service import SimulationService
 
 P = "/api/torqva"
@@ -102,12 +101,14 @@ def ctx():
 
 
 def http_routes(app):
-    out = []
-    for r in app.routes:
-        if isinstance(r, APIRoute):
-            for m in r.methods - {"HEAD", "OPTIONS"}:
-                out.append((m, r.path[len(P):]))
-    return out
+    # OpenAPI exposes effective HTTP paths for both flattened and deferred FastAPI routers.
+    return [
+        (method.upper(), path[len(P):])
+        for path, operations in app.openapi()["paths"].items()
+        if path.startswith(P + "/")
+        for method in operations
+        if method in ("get", "post", "put", "patch", "delete")
+    ]
 
 
 def call(c, method, path, token=None):
@@ -161,11 +162,14 @@ def test_viewer_and_operator_are_refused_every_route_above_their_role_and_the_re
 
 
 # ------------------------------------------------------------------------------------------------ physical commands (no device attached)
-def test_only_an_admin_may_request_start_or_speed_and_every_role_may_request_stop(ctx):
+def test_operator_may_request_motion_and_every_role_may_request_stop(ctx):
     service, _, c = ctx
-    for token in ("v-tok", "o-tok"):
-        for body in ({"action": "START", "duty_pct": 20}, {"action": "SET_SPEED", "rpm": 900}):
-            assert c.post(P + "/device/commands", json=body, headers=H(token)).status_code == 403, (token, body)
+    for body in ({"action": "START", "duty_pct": 20}, {"action": "SET_SPEED", "rpm": 900},
+                 {"action": "SET_PWM", "duty_pct": 20}, {"action": "SET_RAMP", "ramp_up": 10, "ramp_down": 5}):
+        assert c.post(P + "/device/commands", json=body, headers=H("v-tok")).status_code == 403
+        r = c.post(P + "/device/commands", json=body, headers=H("o-tok"))
+        assert r.status_code == 200 and r.json()["state"] == "REJECTED"
+        assert "DEVICE NOT CONNECTED" in r.json()["reasons"]
     for token in ("v-tok", "o-tok", "a-tok"):
         r = c.post(P + "/device/commands", json={"action": "STOP"}, headers=H(token))
         assert r.status_code == 200 and r.json()["state"] in ("REJECTED", "FAILED"), r.json()     # accepted as a request, refused: no device
@@ -189,7 +193,7 @@ def test_the_retired_force_unlock_flag_relaxes_nothing(ctx, monkeypatch):
     assert r["state"] == "REJECTED" and r["reasons"], r
     assert len(b.command_list()) == n + 1 and not any(x["state"] in ("EXECUTED", "ACKNOWLEDGED", "SENT") for x in b.command_list())
     src = Path(__file__).resolve().parents[1] / "torqva"
-    assert not [f.name for f in src.glob("*.py") if "FORCE_UNLOCK" in f.read_text(encoding="utf-8")]
+    assert not [f.name for f in src.rglob("*.py") if "FORCE_UNLOCK" in f.read_text(encoding="utf-8")]
 
 
 def test_device_command_payloads_are_validated_and_bad_requests_are_recorded_as_rejected_never_sent(ctx):
@@ -263,7 +267,7 @@ def test_a_fault_that_does_not_clear_is_never_reported_as_recovered():
 # ------------------------------------------------------------------------------------------------ C1: missing data is never a healthy score
 def test_c1_never_scores_an_invalid_or_non_finite_window_as_ok(stack):
     import dataclasses
-    from torqva.sim import MotorSim
+    from torqva.simulation.sim import MotorSim
     det = stack[0]
     s = MotorSim(1); s.set_setpoint(1500); w = s.run(60)[-1]
     assert det.score(w).status == "OK" and det.score(w).value is not None                        # control: a healthy, valid window is scored

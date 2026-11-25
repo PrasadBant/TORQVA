@@ -10,20 +10,20 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from .attestation import AttestationService
-from .serial_bridge import DeviceBridge
-from .evaluation import build_models
-from .pipeline import Orchestrator, PipelineConfig
-from .recording import recorder
-from .schemas import Hypothesis, Mode, Role
-from .sim import MotorSim
-from .simdevice import SimDevice
-from .store import Store
-from .supervisor import SafetySupervisor, SupervisorLimits
+from torqva.analysis.attestation import AttestationService
+from torqva.device.serial_bridge import DeviceBridge
+from torqva.analysis.evaluation import build_models
+from torqva.analysis.pipeline import Orchestrator, PipelineConfig
+from torqva.telemetry.recording import recorder
+from torqva.models.schemas import Hypothesis, Mode, Role
+from torqva.simulation.sim import MotorSim
+from torqva.simulation.simdevice import SimDevice
+from torqva.shared.store import Store
+from torqva.legacy.supervisor import SafetySupervisor, SupervisorLimits
 
 DEFAULT_LIMITS = SupervisorLimits(vib_rms_stop_g=2.0, max_rpm=3000.0)
 
-from . import lab as _lab
+from torqva.analysis import lab as _lab
 
 
 class SimulationService:
@@ -42,14 +42,14 @@ class SimulationService:
         self.bridge = DeviceBridge(expected_device_id=os.environ.get("TORQVA_EXPECTED_DEVICE_ID") or None)   # USB serial bridge: never connects by itself
         self.bridge.store = self.store
         self.bridge.load_persisted_commands()
-        from .device_keys import KeyStore
-        from .device_config import OperatingConfigManager
+        from torqva.access.device_keys import KeyStore
+        from torqva.safety.device_config import OperatingConfigManager
         self.bridge.keystore = KeyStore(os.environ.get("TORQVA_DEVICE_KEYS_FILE") or str(Path(__file__).resolve().parents[1] / "data" / "device_keys.json"))
         self.bridge.commissioning = OperatingConfigManager(
             os.environ.get("TORQVA_DEVICE_CONFIG_FILE") or os.environ.get("TORQVA_COMMISSIONING_FILE") or str(Path(__file__).resolve().parents[1] / "data" / "device_config.json"),
             auto_init=("PYTEST_CURRENT_TEST" not in os.environ),
         )
-        from .autoconnect import AutoConnector
+        from torqva.device.autoconnect import AutoConnector
         self.bridge.autoconnect = AutoConnector(self.bridge, os.environ.get("TORQVA_DEVICE_PORT") or None, scan=os.environ.get("TORQVA_AUTOCONNECT", "1") != "0")
         if os.environ.get("TORQVA_AUTOCONNECT", "1") != "0":
             self.bridge.autoconnect.start()                       # a TORQVA connection is attempted whenever a USB-serial board appears

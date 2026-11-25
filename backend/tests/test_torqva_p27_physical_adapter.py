@@ -7,8 +7,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.physical_adapter import c1_gaps, c1_window, physical_window
-from torqva.serial_bridge import Conn, DeviceBridge, MemoryTransport
+from torqva.analysis.physical_adapter import c1_gaps, c1_window, physical_window
+from torqva.telemetry.device_state import Conn
+from torqva.device.serial_bridge import DeviceBridge
+from torqva.device.transport import MemoryTransport
 from test_torqva_p16_serial import FITL, FitlTransport, status, fast, slow, wait
 
 

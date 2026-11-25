@@ -9,7 +9,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { Vector3 } from 'three';
 
 const engines = [];
-vi.mock('../torqva/shared/twin3d/engine.js', () => {
+vi.mock('../shared/twin3d/engine.js', () => {
   class FakeEngine {
     constructor(opts) {
       if (globalThis.__failEngine) throw new Error('no context');
@@ -24,13 +24,13 @@ vi.mock('../torqva/shared/twin3d/engine.js', () => {
   return { TwinEngine: FakeEngine, PRESETS: { iso: { label: 'Isometric' }, front: { label: 'Front' }, side: { label: 'Side (shaft end)' }, top: { label: 'Top' } } };
 });
 
-const { COMPONENT, COMPONENTS, EXPLODE, STRUCTURE_IDS, anchorAt, advanceAngle, spinRate, SPIN_SCALE } = await import('../torqva/shared/twinParts.js');
-const { buildRig, revolve, SPIN_NODES } = await import('../torqva/shared/twin3d/assembly.js');
-const { layoutCallouts } = await import('../torqva/shared/twin3d/overlay.js');
-const { default: TwinViewport } = await import('../torqva/shared/twin3d/viewport.jsx');
-const { simTwin, SimTwinPage } = await import('../torqva/simulation/twin.jsx');
-const { physTwin, PhysTwinPage } = await import('../torqva/physical/twin.jsx');
-const { twinItems } = await import('../torqva/shared/twin.jsx');
+const { COMPONENT, COMPONENTS, EXPLODE, STRUCTURE_IDS, anchorAt, advanceAngle, spinRate, SPIN_SCALE } = await import('../shared/twinParts.js');
+const { buildRig, revolve, SPIN_NODES } = await import('../shared/twin3d/assembly.js');
+const { layoutCallouts } = await import('../shared/twin3d/overlay.js');
+const { default: TwinViewport } = await import('../shared/twin3d/viewport.jsx');
+const { simTwin, SimTwinPage } = await import('../pages/simulation/twin.jsx');
+const { physTwin, PhysTwinPage } = await import('../pages/physical/twin.jsx');
+const { twinItems } = await import('../shared/twin.jsx');
 
 const now = Date.now() / 1000;
 const W = { t: 120, rpm: 1500, duty: 34, voltage: 23.6, current: 1.25, housing: 31.4, vib_rms: 0.07, valid: true };
@@ -285,11 +285,11 @@ describe('twin page without WebGL 2 (jsdom)', () => {
 
 describe('source guard', () => {
   it('the 3D modules fetch nothing, send nothing and import no mode-specific data module', () => {
-    const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'torqva', 'shared');
+    const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'shared');
     for (const f of ['twinParts.js', 'twin3d/assembly.js', 'twin3d/engine.js', 'twin3d/overlay.js', 'twin3d/support.js', 'twin3d/viewport.jsx']) {
       const src = fs.readFileSync(path.join(dir, f), 'utf8');
       expect(src, f).not.toMatch(/\bfetch\(|WebSocket|XMLHttpRequest|sendBeacon|EventSource/);
-      expect(src, f).not.toMatch(/from ['"][./]*(api\.js|\.\.\/api\.js|.*physical\/|.*simulation\/)/);
+      expect(src, f).not.toMatch(/from ['"][./]*((?:shared\/)?api\.js|.*physical\/|.*simulation\/)/);
       expect(src, f).not.toMatch(/api\.\w+\(/);
     }
   });

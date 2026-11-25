@@ -8,12 +8,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.dispatch import CommandDispatcher
-from torqva.schemas import (
+from torqva.legacy.dispatch import CommandDispatcher
+from torqva.models.schemas import (
     ActionType, CommandStatus, Connection, DecisionVerdict, DeviceSafetyState, Mode,
     ProposalSource, ProposedAction, Role,
 )
-from torqva.supervisor import (
+from torqva.legacy.supervisor import (
     ApprovedAction, SafetySupervisor, SupervisorContext, SupervisorLimits,
 )
 

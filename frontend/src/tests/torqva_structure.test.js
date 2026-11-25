@@ -5,30 +5,32 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'torqva');
-const files = (dir) => fs.readdirSync(path.join(ROOT, dir)).filter((f) => /\.jsx?$/.test(f)).map((f) => path.join(ROOT, dir, f));
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const files = (dir) => fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap((entry) => {
+  const relative = path.join(dir, entry.name);
+  if (entry.isDirectory()) return entry.name === 'tests' ? [] : files(relative);
+  return /\.jsx?$/.test(entry.name) ? [path.join(ROOT, relative)] : [];
+});
 const imports = (file) => [...fs.readFileSync(file, 'utf8').matchAll(/(?:from\s+|import\s*\(\s*|import\s+)['"]([^'"]+)['"]/g)].map((m) => m[1]);
 const resolved = (file) => imports(file).filter((s) => s.startsWith('.')).map((s) => path.relative(ROOT, path.resolve(path.dirname(file), s)).replace(/\\/g, '/'));
 
 describe('frontend source layout', () => {
-  it('physical/ and simulation/ depend only on shared/ and api.js, never on each other', () => {
-    for (const [dir, other] of [['physical', 'simulation'], ['simulation', 'physical']]) {
+  it('physical and simulation pages do not import each other or the app shell', () => {
+    for (const [dir, other] of [['pages/physical', 'pages/simulation'], ['pages/simulation', 'pages/physical']]) {
       for (const f of files(dir)) {
         const deps = resolved(f);
         expect(deps.filter((d) => d.startsWith(`${other}/`)), path.relative(ROOT, f)).toEqual([]);
-        expect(deps.filter((d) => d === 'TorqvaApp.jsx'), path.relative(ROOT, f)).toEqual([]);
+        expect(deps.filter((d) => d === 'app/TorqvaApp.jsx'), path.relative(ROOT, f)).toEqual([]);
       }
     }
   });
 
   it('every relative import points at an existing file', () => {
-    for (const dir of ['.', 'shared', 'physical', 'simulation']) {
-      for (const f of files(dir)) for (const d of resolved(f)) expect(fs.existsSync(path.join(ROOT, d)), `${path.relative(ROOT, f)} -> ${d}`).toBe(true);
-    }
+    for (const f of files('.')) for (const d of resolved(f)) expect(fs.existsSync(path.join(ROOT, d)), `${path.relative(ROOT, f)} -> ${d}`).toBe(true);
   });
 
   it('only shared/charts.jsx imports recharts', () => {
-    const users = ['.', 'shared', 'physical', 'simulation'].flatMap(files).filter((f) => imports(f).includes('recharts')).map((f) => path.relative(ROOT, f).replace(/\\/g, '/'));
+    const users = files('.').filter((f) => imports(f).includes('recharts')).map((f) => path.relative(ROOT, f).replace(/\\/g, '/'));
     expect(users).toEqual(['shared/charts.jsx']);
   });
 });

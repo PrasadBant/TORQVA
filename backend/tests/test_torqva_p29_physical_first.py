@@ -7,9 +7,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.autoconnect import AutoConnector
-from torqva.physical_adapter import WAITING
-from torqva.serial_bridge import Conn, DeviceBridge, MemoryTransport, TransportError
+from torqva.device.autoconnect import AutoConnector
+from torqva.analysis.physical_adapter import WAITING
+from torqva.telemetry.device_state import Conn
+from torqva.device.serial_bridge import DeviceBridge
+from torqva.device.transport import MemoryTransport, TransportError
 from test_torqva_p16_serial import FITL, FitlTransport, fast, slow, status, wait
 
 
@@ -114,5 +116,5 @@ def test_only_allow_listed_vendor_ids_are_candidates(monkeypatch):
     import types, serial.tools.list_ports as lp
     fake = [types.SimpleNamespace(device="COM3", vid=0x0A5C), types.SimpleNamespace(device="COM7", vid=0x1A86), types.SimpleNamespace(device="COM5", vid=None)]
     monkeypatch.setattr(lp, "comports", lambda: fake)
-    from torqva.autoconnect import _list_usb_ports
+    from torqva.device.autoconnect import _list_usb_ports
     assert _list_usb_ports() == ["COM7"]                                                               # Bluetooth serial links and unknown devices are never opened

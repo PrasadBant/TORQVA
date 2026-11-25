@@ -5,12 +5,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.dispatch import CommandDispatcher
-from torqva.schemas import ActionType, CommandStatus, Connection, DecisionVerdict, DeviceSafetyState, Mode, ProposalSource, ProposedAction, Role
-from torqva.supervisor import SafetySupervisor, SupervisorContext, SupervisorLimits
+from torqva.legacy.dispatch import CommandDispatcher
+from torqva.models.schemas import ActionType, CommandStatus, Connection, DecisionVerdict, DeviceSafetyState, Mode, ProposalSource, ProposedAction, Role
+from torqva.legacy.supervisor import SafetySupervisor, SupervisorContext, SupervisorLimits
 
 ROOT = Path(__file__).resolve().parents[2]
-MAIN = (ROOT / "esp32" / "torqva_fw" / "src" / "main.cpp").read_text()
+MAIN = (ROOT / "firmware" / "src" / "main.cpp").read_text()
 
 
 def approved():
@@ -70,13 +70,13 @@ def test_simulation_dispatch_needs_no_device_identity():
 
 # ------------------------------------------------------------------------------------------------ simulation never becomes physical control
 def test_no_backend_code_path_constructs_the_hardware_mode():
-    for f in (ROOT / "backend" / "torqva").glob("*.py"):
+    for f in (ROOT / "backend" / "torqva").rglob("*.py"):
         text = f.read_text()
         if f.name in ("schemas.py",) or "test" in f.name:
             continue
-        if f.name == "serial_bridge.py":                                  # builds a HARDWARE-mode supervisor CONTEXT only; hardware control is never a literal True: it is derived from the human commissioning record
+        if f.name == "serial_bridge.py":                                  # Only a real, handshaken device can report hardware control.
             t = f.read_text()
-            assert "hardware_control_enabled=True" not in t and "hardware_control_enabled=self._hardware_control_enabled()" in t
+            assert "hardware_control_enabled=True" not in t and "Mode.HARDWARE" not in t
             fn = t[t.index("def _hardware_control_enabled"):]
             fn = fn[:fn.index("# Most actionable first")]
             assert "physical_control_enabled()" in fn and 'snap["origin"] == "physical_device"' in fn and 'snap["handshake"]' in fn and "return False" in fn

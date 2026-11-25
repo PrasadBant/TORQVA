@@ -1,5 +1,5 @@
 import math
-from torqva.physical_adapter import (
+from torqva.analysis.physical_adapter import (
     PhysicalWindow,
     measured_c1_gaps,
     measured_c1_window,

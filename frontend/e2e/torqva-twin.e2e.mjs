@@ -30,7 +30,7 @@ const settle = () => page.waitForTimeout(900);
 const modules3d = []; page.on('request', (r) => { if (/\/twin3d\/|\/three(\.module)?[.-]|\/deps\/three|OrbitControls/.test(r.url())) modules3d.push(r.url()); });
 await page.goto(URL);
 await page.waitForSelector('nav button.tq-nav:has-text("Digital Twin")', { timeout: 20000 });
-for (const l of ['Live Monitor', 'Anomaly Detection', 'Hardware & Device', 'Overview']) await nav(l);
+for (const l of ['Live Monitor', 'Anomaly Detection', 'Hardware Manager', 'Overview']) await nav(l);
 check('the 3D code is not loaded on other pages', modules3d.length === 0, modules3d.slice(0, 2).join(' '));
 
 // ---- physical mode, no board

@@ -1,9 +1,11 @@
 import json
 import tempfile
 from pathlib import Path
-from torqva.serial_bridge import DeviceBridge, MemoryTransport, CmdState
-from torqva.schemas import Role
-from torqva.store import Store
+from torqva.device.serial_bridge import DeviceBridge
+from torqva.device.transport import MemoryTransport
+from torqva.control.commands import CmdState
+from torqva.models.schemas import Role
+from torqva.shared.store import Store
 
 class DummyCommissioning:
     def __init__(self, path=None):

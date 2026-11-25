@@ -1,8 +1,8 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import TorqvaApp from '../torqva/TorqvaApp.jsx';
-import { setToken } from '../torqva/api.js';
+import TorqvaApp from '../app/TorqvaApp.jsx';
+import { setToken } from '../access/token.js';
 
 const ok = (j) => ({ ok: true, status: 200, json: async () => j });
 const window60 = { t: 60, rpm: 1795, duty: 0.5, voltage: 12, current: 1.3, housing: 24.5, vib_rms: 0.08, valid: true };

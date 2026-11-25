@@ -9,11 +9,11 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.api import create_router
-from torqva.auth import TokenAuth
-from torqva.schemas import Hypothesis
+from torqva.api.routes import create_router
+from torqva.access.auth import TokenAuth
+from torqva.models.schemas import Hypothesis
 from torqva.service import SimulationService
-from torqva.sim import REGIMES, MotorSim
+from torqva.simulation.sim import REGIMES, MotorSim
 
 
 def entry(t, u, r):

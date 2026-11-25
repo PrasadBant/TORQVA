@@ -3,9 +3,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from torqva.api import create_router
-from torqva.auth import TokenAuth
-from torqva.schemas import Role
+from torqva.api.routes import create_router
+from torqva.access.auth import TokenAuth
+from torqva.models.schemas import Role
 from torqva.service import SimulationService
 
 

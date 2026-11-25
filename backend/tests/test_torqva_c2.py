@@ -7,10 +7,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.hypotheses import HYPS, Posterior
-from torqva.prediction import SIGNALS, InterventionPredictor, StateSummary, persistence_prediction
-from torqva.scenarios import action_cases
-from torqva.schemas import Hypothesis
+from torqva.analysis.hypotheses import HYPS, Posterior
+from torqva.analysis.prediction import SIGNALS, InterventionPredictor, StateSummary, persistence_prediction
+from torqva.simulation.scenarios import action_cases
+from torqva.models.schemas import Hypothesis
 
 A = ("CONTINUE_MONITORING", "REDUCE_SPEED", "STOP")
 

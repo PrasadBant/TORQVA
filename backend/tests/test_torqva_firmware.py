@@ -16,11 +16,13 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva import firmware as fwm
-from torqva.api import create_router, install_error_handlers
-from torqva.auth import TokenAuth
-from torqva.firmware import FirmwareError, FirmwareManager, canonical, parse_esp_image, version_compare
-from torqva.serial_bridge import Conn, FrameError, MemoryTransport, parse_frame
+from torqva.device.firmware import firmware as fwm
+from torqva.api.routes import create_router, install_error_handlers
+from torqva.access.auth import TokenAuth
+from torqva.device.firmware.firmware import FirmwareError, FirmwareManager, canonical, parse_esp_image, version_compare
+from torqva.telemetry.device_state import Conn
+from torqva.device.wire_protocol import FrameError, parse_frame
+from torqva.device.transport import MemoryTransport
 from torqva.service import SimulationService
 from test_torqva_p16_serial import ENTRIES, H, fast, slow, status, wait
 
@@ -692,7 +694,7 @@ def test_a_bench_release_deploys_to_a_bench_device_through_the_normal_checks(api
 
 
 def test_a_bench_device_refuses_every_motor_command_but_stop(api):
-    from torqva.auth import Role
+    from torqva.access.auth import Role
     svc, _ = api
     tr = connect_device(svc, info=ota_info(prof="ota_led_bench"))
     b = svc.bridge

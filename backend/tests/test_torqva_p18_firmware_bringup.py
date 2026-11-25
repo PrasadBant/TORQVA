@@ -9,10 +9,11 @@ import pytest
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from torqva.serial_bridge import FrameError, parse_frame, DeviceModel
+from torqva.device.wire_protocol import FrameError, parse_frame
+from torqva.telemetry.device_state import DeviceModel
 
 ROOT = Path(__file__).resolve().parents[2]
-FW = ROOT / "esp32" / "torqva_fw"
+FW = ROOT / "firmware"
 EXE = FW / ".pio" / "build" / "fitl" / "program.exe"
 INI = "\n".join(l for l in (FW / "platformio.ini").read_text().splitlines() if not l.lstrip().startswith(";"))
 
@@ -82,7 +83,7 @@ def test_platformio_environments_match_the_bringup_procedure():
     for name in ("esp32s3", "esp32s3_uart"):
         assert "TORQVA_WIFI_LINK" not in env(name), name
     assert "TORQVA_WIFI_LINK=1" in env("esp32s3_ota_led_v111")
-    # 1.1.2 = 1.1.1 plus the USB serial robustness fix (src/usb_out.cpp): same flags apart from the version
+    # 1.1.2 = 1.1.1 plus the USB serial robustness fix (src/communication/usb_out.cpp): same flags apart from the version
     flags = lambda name: re.search(r"build_flags = (.*)", env(name)).group(1)
     assert flags("esp32s3_ota_led_v112") == flags("esp32s3_ota_led_v111").replace('TORQVA_FW_VERSION=\\"1.1.1\\"', 'TORQVA_FW_VERSION=\\"1.1.2\\"')
 

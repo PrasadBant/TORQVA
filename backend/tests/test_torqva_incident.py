@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.incident import E, IllegalTransition, Incident, S, T
+from torqva.analysis.incident import E, IllegalTransition, Incident, S, T
 
 
 @pytest.mark.parametrize("key,to", list(T.items()), ids=[f"{k[0].value}-{k[1].value}" for k in T])
@@ -88,7 +88,7 @@ def test_cannot_skip_ack_to_verification():
 
 
 def test_mandatory_stop_jumps_to_command_from_every_pre_command_state():
-    from torqva.incident import _PRE_COMMAND
+    from torqva.analysis.incident import _PRE_COMMAND
     for s in _PRE_COMMAND:
         assert Incident("i", state=s).fire(E.MANDATORY_STOP) == S.COMMAND_SENT
 

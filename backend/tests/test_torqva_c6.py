@@ -9,10 +9,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.hypotheses import HYPS, HypothesisModel
-from torqva.learning import CaseRecord, LabelSource, LearningRegistry, Status, eligible, split_by_provenance
-from torqva.scenarios import posterior_from, warm_session
-from torqva.schemas import Hypothesis, Provenance, RecoveryOutcome
+from torqva.analysis.hypotheses import HYPS, HypothesisModel
+from torqva.analysis import learning
+from torqva.analysis.learning import CaseRecord, LabelSource, LearningRegistry, Status, eligible, split_by_provenance
+from torqva.simulation.scenarios import posterior_from, warm_session
+from torqva.models.schemas import Hypothesis, Provenance, RecoveryOutcome
 
 
 def make_case(stack, h, sev, seed, sp=1500, src=LabelSource.LAB_GROUND_TRUTH, outcome=RecoveryOutcome.RECOVERED,
@@ -126,7 +127,7 @@ def test_rollback_never_lands_on_a_rejected_candidate(stack, pool):
 
 def test_learning_module_cannot_reach_safety_code():
     """Invariant: C6 has no import path to the supervisor, dispatcher or limits."""
-    src = (Path(__file__).parent.parent / "torqva" / "learning.py").read_text()
+    src = Path(learning.__file__).read_text()
     imported = set()
     for node in ast.walk(ast.parse(src)):
         if isinstance(node, ast.ImportFrom):
@@ -135,12 +136,12 @@ def test_learning_module_cannot_reach_safety_code():
         elif isinstance(node, ast.Import):
             imported.update(n.name for n in node.names)
     flat = " ".join(str(x) for x in imported)
-    for forbidden in ("supervisor", "dispatch", "incident"):
+    for forbidden in ("supervisor", "dispatch", "incident", "torqva.control", "torqva.safety", "torqva.device"):
         assert forbidden not in flat
 
 
 def test_supervisor_limits_unchanged_by_learning(stack, pool):
-    from torqva.supervisor import SupervisorLimits
+    from torqva.legacy.supervisor import SupervisorLimits
     before = SupervisorLimits()
     det, tt, hm, *_ = stack
     reg = LearningRegistry(copy.deepcopy(hm), Provenance.SIMULATED)

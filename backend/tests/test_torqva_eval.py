@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva import evaluation
+from torqva.analysis import evaluation
 
 
 @pytest.fixture(scope="module")

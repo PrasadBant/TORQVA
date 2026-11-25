@@ -23,8 +23,8 @@ const signIn = async (tok) => { await page.goto(URL + '#/firmware'); await page.
 const sig = fs.readFileSync(FW_SIG, 'utf8').trim();
 
 await signIn(ADMIN);
-check('the page opens from its URL in physical mode, inside the Device & Safety group', (await page.textContent('main h2')).includes('Firmware Manager')
-  && (await page.locator('.tq-navgroup:has(button[aria-label="Show or hide Hardware & Device"]) button.tq-nav:has-text("Firmware Manager")').count()) === 1);
+check('the page opens from its URL in physical mode, inside the Hardware Manager group', (await page.textContent('main h2')).includes('Firmware Manager')
+  && (await page.locator('.tq-navgroup:has(button[aria-label="Show or hide Hardware Manager"]) button.tq-nav:has-text("Firmware Manager")').count()) === 1);
 check('without a board the device is not connected and no update capability is claimed', /not connected/.test(await page.textContent('[data-testid=fw-device]')) && !/OTA ready/.test(await page.textContent('[data-testid=fw-device]')));
 check('the page states that firmware updates never enable motor operation', (await page.textContent('[data-testid=fw-banner]')).includes('never enable motor operation'));
 
@@ -41,10 +41,9 @@ check('the release is listed', (await page.textContent('[data-testid=fw-releases
 
 // nothing can be deployed without a connected OTA-capable device
 await page.click('[data-testid=fw-releases] button:has-text("3.0.1-dev")');
-await page.waitForSelector('[data-testid=fw-blockers]', { timeout: 10000 });
-check('Update Firmware stays disabled and names the reason', await page.isDisabled('[data-testid=fw-deploy]') && /device not connected/.test(await page.textContent('[data-testid=fw-blockers]')));
-await page.check('[data-testid=fw-bench]');
-check('the attestation alone does not enable it', await page.isDisabled('[data-testid=fw-deploy]'));
+await page.waitForSelector('[data-testid=fw-readiness]', { timeout: 10000 });
+check('Upload wirelessly stays disabled and names the reason', await page.isDisabled('[data-testid=fw-deploy]') && /device not connected/i.test(await page.textContent('[data-testid=fw-readiness]')));
+check('slot rollback is unavailable while the device is disconnected', await page.locator('[data-testid=fw-slot-rollback]').count() === 0);
 
 // a tampered copy and a duplicate are refused
 const tampered = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fwe2e-')), 'firmware.bin');

@@ -16,12 +16,13 @@ from starlette.websockets import WebSocketDisconnect
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva import device_link as dl
-from torqva.api import create_router, install_error_handlers
-from torqva.auth import TokenAuth
-from torqva.device_keys import KeyStore
-from torqva.schemas import Role
-from torqva.serial_bridge import Conn, MemoryTransport
+from torqva.device import device_link as dl
+from torqva.api.routes import create_router, install_error_handlers
+from torqva.access.auth import TokenAuth
+from torqva.access.device_keys import KeyStore
+from torqva.models.schemas import Role
+from torqva.telemetry.device_state import Conn
+from torqva.device.transport import MemoryTransport
 from torqva.service import SimulationService
 from test_torqva_p16_serial import ENTRIES, status, wait
 

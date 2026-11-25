@@ -3,11 +3,11 @@
 import React, { useState } from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import TorqvaApp from '../torqva/TorqvaApp.jsx';
-import { setToken } from '../torqva/api.js';
-import { AlertsMenu, deviceAlerts, simAlerts } from '../torqva/shared/alerts.jsx';
-import { ScenarioPage } from '../torqva/simulation/scenario.jsx';
-import { ConfirmButton, DataTable, StepTracker, Tabs, TabPanel, MetricList, ChartPanel } from '../torqva/shared/components.jsx';
+import TorqvaApp from '../app/TorqvaApp.jsx';
+import { setToken } from '../access/token.js';
+import { AlertsMenu, deviceAlerts, simAlerts } from '../safety/alerts.jsx';
+import { ScenarioPage } from '../pages/simulation/scenario.jsx';
+import { ConfirmButton, DataTable, StepTracker, Tabs, TabPanel, MetricList, ChartPanel } from '../components/components.jsx';
 
 const ok = (j) => ({ ok: true, status: 200, json: async () => j });
 function server() {

@@ -11,9 +11,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.device_keys import KeyStore, KeyStoreError
-from torqva.schemas import Role
-from torqva.serial_bridge import CmdState, Conn, DeviceBridge, FrameError, MemoryTransport, parse_frame
+from torqva.access.device_keys import KeyStore, KeyStoreError
+from torqva.models.schemas import Role
+from torqva.control.commands import CmdState
+from torqva.telemetry.device_state import Conn
+from torqva.device.serial_bridge import DeviceBridge
+from torqva.device.wire_protocol import FrameError, parse_frame
+from torqva.device.transport import MemoryTransport
 from test_torqva_p16_serial import FITL, FitlTransport, wait
 
 KEY = bytes(range(1, 33))
@@ -139,7 +143,7 @@ def test_a_disconnect_drops_the_session_and_nothing_is_replayed(tmp_path):
 # ------------------------------------------------------------------------------------------ runtime limits pushed over the authenticated session (real C++ core)
 @pytest.mark.skipif(not FITL.exists(), reason="fitl CLI not built (pio run -e fitl)")
 def test_approved_limits_are_pushed_authenticated_and_applied_by_the_real_firmware_core(tmp_path):
-    from torqva.device_config import OperatingConfigManager
+    from torqva.safety.device_config import OperatingConfigManager
     c = OperatingConfigManager(str(tmp_path / "device_config.json"), auto_init=False)
     tr = FitlTransport("--strict", "--auth-key", KEY.hex())
     b = DeviceBridge(expected_device_id="FITL-1"); b.keystore = keystore(tmp_path); b.commissioning = c; b.connect(tr)
@@ -161,7 +165,7 @@ def test_approved_limits_are_pushed_authenticated_and_applied_by_the_real_firmwa
 
 @pytest.mark.skipif(not FITL.exists(), reason="fitl CLI not built (pio run -e fitl)")
 def test_a_device_that_refuses_the_configuration_keeps_motion_blocked_and_the_reason_is_shown(tmp_path):
-    from torqva.device_config import OperatingConfigManager
+    from torqva.safety.device_config import OperatingConfigManager
     c = OperatingConfigManager(str(tmp_path / "device_config.json"), auto_init=False)
     c.update_limits({"max_current_a": 3.0, "min_voltage_v": 18.0, "max_voltage_v": 24.0, "max_temp_c": 60.0, "max_rpm": 3000.0, "max_duty_pct": 30.0})
     tr = FitlTransport("--strict", "--auth-key", KEY.hex())

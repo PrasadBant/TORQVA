@@ -6,10 +6,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.dispatch import CommandRecord
-from torqva.recovery import assess
-from torqva.schemas import ActionType, CommandStatus, Hypothesis, RecoveryOutcome
-from torqva.sim import MotorSim
+from torqva.legacy.dispatch import CommandRecord
+from torqva.analysis.recovery import assess
+from torqva.models.schemas import ActionType, CommandStatus, Hypothesis, RecoveryOutcome
+from torqva.simulation.sim import MotorSim
 
 
 def rec(action=ActionType.REDUCE_SPEED, status=CommandStatus.COMPLETED, acked_at=100.0):

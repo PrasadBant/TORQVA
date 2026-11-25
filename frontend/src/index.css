@@ -1,4 +1,4 @@
-/* Global base. Design tokens and components live in src/torqva/torqva.css. */
+/* Global base. Design tokens and components live in src/app/torqva.css. */
 *, *::before, *::after { box-sizing: border-box; }
 
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }

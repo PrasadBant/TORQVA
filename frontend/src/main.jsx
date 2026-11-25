@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import TorqvaApp from './torqva/TorqvaApp.jsx';
+import TorqvaApp from './app/TorqvaApp.jsx';
 import './index.css';
 
 class ErrorBoundary extends React.Component {

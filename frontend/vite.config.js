@@ -9,7 +9,7 @@ export default defineConfig({
     watch: { ignored: ['**/e2e-shots/**'] },
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: process.env.TORQVA_VITE_PROXY_TARGET || 'http://127.0.0.1:8000',
         changeOrigin: true,
         ws: true,           // the device WebSocket lives under /api/torqva/ws
       },

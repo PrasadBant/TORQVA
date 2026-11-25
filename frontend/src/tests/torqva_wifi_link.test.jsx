@@ -3,7 +3,8 @@
 import React from 'react';
 import { render, screen, act } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
-import { DevicePage, transportOf } from '../torqva/physical/device.jsx';
+import { DevicePage } from '../device/device.jsx';
+import { transportOf } from '../telemetry/devicePresentation.js';
 
 const base = { connection: 'CONNECTED', handshake: true, origin: 'physical_device', telemetry_fresh: true, firmware: '1.1.1', device_profile: 'ota_led_bench',
   control_blockers: ['OTA LED BENCH DEVICE: this board runs the LED-only OTA bench firmware, which has no motor control'], counters: {}, sensor_status: {}, values: {},

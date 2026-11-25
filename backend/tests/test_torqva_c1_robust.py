@@ -9,20 +9,20 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva import c1_study
-from torqva.c1_robust import (AdaptiveBaselineDetector, CoherenceConfig, ReferenceConfig, ReferenceRegistry,
+from torqva.research import c1_study
+from torqva.research.c1_robust import (AdaptiveBaselineDetector, CoherenceConfig, ReferenceConfig, ReferenceRegistry,
                               RobustBaselineDetector, assess_session)
-from torqva.detection import BaselineDetector
-from torqva.hypotheses import HYPS
-from torqva.pipeline import Orchestrator, PipelineConfig
-from torqva.prediction import InterventionPredictor
-from torqva.scenarios import action_cases
-from torqva.schemas import Hypothesis, Mode
-from torqva.sim import MotorSim
-from torqva.simdevice import SimDevice
-from torqva.store import Store
-from torqva.supervisor import SafetySupervisor, SupervisorLimits
-from torqva.c1_study import Condition, build_session, train_models
+from torqva.analysis.detection import BaselineDetector
+from torqva.analysis.hypotheses import HYPS
+from torqva.analysis.pipeline import Orchestrator, PipelineConfig
+from torqva.analysis.prediction import InterventionPredictor
+from torqva.simulation.scenarios import action_cases
+from torqva.models.schemas import Hypothesis, Mode
+from torqva.simulation.sim import MotorSim
+from torqva.simulation.simdevice import SimDevice
+from torqva.shared.store import Store
+from torqva.legacy.supervisor import SafetySupervisor, SupervisorLimits
+from torqva.research.c1_study import Condition, build_session, train_models
 
 
 @pytest.fixture(scope="module")
@@ -270,7 +270,7 @@ def test_pipeline_real_fault_after_attested_warmup_is_still_detected(pstack):
 
 
 def test_pipeline_hard_limits_are_not_delayed_by_a_pending_warmup(pstack, monkeypatch):
-    import torqva.pipeline as pl
+    import torqva.analysis.pipeline as pl
     o = make_orch(pstack, PipelineConfig(adaptive_warmup_s=60), attest=True)
     for _ in range(10):
         o.step()

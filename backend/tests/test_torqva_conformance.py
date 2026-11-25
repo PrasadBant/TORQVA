@@ -1,7 +1,7 @@
 """Conformance: the same command scripts through the REAL C++ firmware core (fitl CLI) and the Python SimDevice
 must produce identical acknowledgements. The C++ build is the source of truth.
 
-Build the CLI first:  cd esp32/torqva_fw && pio run -e fitl
+Build the CLI first:  cd firmware && pio run -e fitl
 """
 import json
 import subprocess
@@ -12,10 +12,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.sim import MotorSim
-from torqva.simdevice import SimDevice
+from torqva.simulation.sim import MotorSim
+from torqva.simulation.simdevice import SimDevice
 
-EXE = Path(__file__).resolve().parents[2] / "esp32" / "torqva_fw" / ".pio" / "build" / "fitl" / "program.exe"
+EXE = Path(__file__).resolve().parents[2] / "firmware" / ".pio" / "build" / "fitl" / "program.exe"
 pytestmark = pytest.mark.skipif(not EXE.exists(), reason="fitl CLI not built (pio run -e fitl)")
 
 

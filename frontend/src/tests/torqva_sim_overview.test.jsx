@@ -3,10 +3,10 @@
 import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import { lifecycle, pipelineStages } from '../torqva/simulation/pipeline.js';
-import { ScenarioStudio, ScenarioPage } from '../torqva/simulation/scenario.jsx';
-import { SimOverview } from '../torqva/simulation/overview.jsx';
-import { IncidentStory } from '../torqva/simulation/story.jsx';
+import { lifecycle, pipelineStages } from '../pages/simulation/pipeline.js';
+import { ScenarioStudio, ScenarioPage } from '../pages/simulation/scenario.jsx';
+import { SimOverview } from '../pages/simulation/overview.jsx';
+import { IncidentStory } from '../pages/simulation/story.jsx';
 
 const W = { t: 120, rpm: 1799, duty: 40, voltage: 24, current: 1.5, housing: 31, vib_rms: 0.05, valid: true };
 const STATUS = { mode: 'SIMULATION', provenance: 'SIMULATED', t: 120, scenario: { fault: 'imbalance', severity: 0.6, seed: 3, setpoint_rpm: 1800, inject_after_s: 40, human_approval_required: false, clears_below_rpm: null },

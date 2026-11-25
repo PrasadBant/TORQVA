@@ -16,14 +16,14 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import torqva.attestation as att_mod
-import torqva.pipeline as pl
-from torqva.api import create_router
-from torqva.attestation import AttestConfig, CState, TRANSITIONS, run_checks
-from torqva.auth import TokenAuth
+import torqva.analysis.attestation as att_mod
+import torqva.analysis.pipeline as pl
+from torqva.api.routes import create_router
+from torqva.analysis.attestation import AttestConfig, CState, TRANSITIONS, run_checks
+from torqva.access.auth import TokenAuth
 from torqva.service import SimulationService
-from torqva.sim import MotorSim
-from torqva.store import Store
+from torqva.simulation.sim import MotorSim
+from torqva.shared.store import Store
 
 P = "/api/torqva"
 H = lambda t: {"Authorization": f"Bearer {t}"}
@@ -109,8 +109,8 @@ def test_viewer_can_read_but_every_mutation_is_403_and_audited(env):
 
 
 def test_service_layer_rechecks_the_role_even_if_the_route_were_bypassed(env):
-    from torqva.attestation import AttestationError
-    from torqva.schemas import Role
+    from torqva.analysis.attestation import AttestationError
+    from torqva.models.schemas import Role
     svc, c = env
     cand = eligible(svc, c)
     with pytest.raises(AttestationError) as e:
@@ -429,7 +429,7 @@ def test_stop_and_mandatory_stop_stay_effective_throughout_the_workflow(env, mon
     cand = capture(c).json()
     v = attest(c, cand["id"], cand["rev"]).json()["reference_version"]
     assert c.post(f"{P}/attestation/references/{v}/activate", headers=H("o"), json={"reason": REASON}).status_code == 200
-    svc.orch.dev.sim.inject(__import__("torqva.schemas", fromlist=["Hypothesis"]).Hypothesis.IMBALANCE, 0.9)
+    svc.orch.dev.sim.inject(__import__("torqva.models.schemas", fromlist=["Hypothesis"]).Hypothesis.IMBALANCE, 0.9)
     for _ in range(60):
         svc.step(1)
         if svc.orch.inc is not None:
@@ -499,7 +499,7 @@ def test_ordinary_faults_open_an_incident_within_seconds_even_during_a_hold(env,
     svc, c = env
     run(svc, steps=30, hold=True)
     assert svc.orch.hold_active()
-    svc.orch.dev.sim.inject(__import__("torqva.schemas", fromlist=["Hypothesis"]).Hypothesis(fault), 0.5)
+    svc.orch.dev.sim.inject(__import__("torqva.models.schemas", fromlist=["Hypothesis"]).Hypothesis(fault), 0.5)
     d = first_incident_delay(svc)
     assert d is not None and d <= 8, (fault, d)                                    # seconds, not the hold length (up to 300 s)
     assert not svc.orch.hold_active() and svc.orch.hold_info["released"].startswith("fault_suspected")
@@ -510,7 +510,7 @@ def test_escalating_fault_on_top_of_a_healthy_shift_is_caught_not_deferred(env):
     svc, c = env
     run(svc, steps=30, gain=1.2, hold=True)
     assert svc.orch.inc is None and svc.orch.hold_info.get("deferred_windows", 0) > 0     # the shift alone is deferred ...
-    H = __import__("torqva.schemas", fromlist=["Hypothesis"]).Hypothesis
+    H = __import__("torqva.models.schemas", fromlist=["Hypothesis"]).Hypothesis
     delay = None
     for i, sev in enumerate((0.1, 0.1, 0.2, 0.2, 0.4, 0.4, 0.6, 0.6, 0.8, 0.8, 0.9, 0.9)):   # ... a growing fault is not
         svc.orch.dev.sim.inject(H.IMBALANCE, sev)
@@ -556,7 +556,7 @@ def test_communication_loss_during_a_hold_trips_the_device_and_opens_an_incident
 
 
 # ---------------- selective deferral: exactly what may be deferred, and for how long ----------------
-from torqva.c1_robust import SessionAssessment
+from torqva.research.c1_robust import SessionAssessment
 
 
 def fake_assess(verdict, reason, scored, flagged=10):
@@ -598,14 +598,14 @@ def test_only_the_approved_explanation_can_be_deferred(env, monkeypatch, reason)
     svc, c = env
     run(svc, steps=40, hold=True)
     monkeypatch.setattr(pl, "assess_session", fake_assess("UNFAMILIAR" if reason != "channel_selective_anomaly" else "FAULT", reason, scored=20))
-    svc.orch.dev.sim.inject(__import__("torqva.schemas", fromlist=["Hypothesis"]).Hypothesis.IMBALANCE, 0.5)
+    svc.orch.dev.sim.inject(__import__("torqva.models.schemas", fromlist=["Hypothesis"]).Hypothesis.IMBALANCE, 0.5)
     assert first_incident_delay(svc, 10) is not None and not svc.orch.hold_active()
     assert svc.orch.hold_info["released"].endswith(reason)
 
 
 def test_minimum_of_eight_steady_windows_is_enforced_exactly(env, monkeypatch):
     svc, c = env
-    H_ = __import__("torqva.schemas", fromlist=["Hypothesis"]).Hypothesis
+    H_ = __import__("torqva.models.schemas", fromlist=["Hypothesis"]).Hypothesis
     run(svc, steps=40, hold=True)
     svc.orch.dev.sim.inject(H_.IMBALANCE, 0.5)
     monkeypatch.setattr(pl, "assess_session", fake_assess("FAULT", "channel_selective_anomaly", scored=pl.Orchestrator.DEFER_MIN_SCORED - 1))
@@ -643,7 +643,7 @@ def test_gradual_drift_during_a_hold_is_escalated_and_capped(env):
 
 def test_independently_detectable_faults_on_top_of_a_shift_open_incidents_promptly(env):
     svc, c = env
-    H_ = __import__("torqva.schemas", fromlist=["Hypothesis"]).Hypothesis
+    H_ = __import__("torqva.models.schemas", fromlist=["Hypothesis"]).Hypothesis
     for fault in (H_.IMBALANCE, H_.LOOSENESS, H_.OVERLOAD, H_.SENSOR_FAULT):
         o = hold_run(svc, 30, gain=1.2)
         assert o.inc is None

@@ -1,4 +1,4 @@
-"""Phase 21: the legacy smart_motor_monitor firmware is RETIRED from the tracked tree; esp32/torqva_fw is the sole supported firmware. Replaces the old quarantine tests (compile guards of the
+"""Phase 21: the legacy smart_motor_monitor firmware is RETIRED from the tracked tree; firmware is the sole supported firmware. Replaces the old quarantine tests (compile guards of the
 removed sketch). Static repository checks plus MemoryTransport protocol tests: no serial port is opened, nothing is flashed, no device command reaches any device."""
 import json
 import re
@@ -12,25 +12,29 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from torqva.schemas import Role
-from torqva.serial_bridge import CmdState, Conn, DeviceBridge, FrameError, MemoryTransport, parse_frame
-from torqva import serial_bridge as sb
+from torqva.models.schemas import Role
+from torqva.control.commands import CmdState
+from torqva.telemetry.device_state import Conn
+from torqva.device.serial_bridge import DeviceBridge
+from torqva.device.wire_protocol import FrameError, parse_frame
+from torqva.device.transport import MemoryTransport
+from torqva.device import serial_bridge as sb
 
 ROOT = Path(__file__).resolve().parents[2]
-FW = ROOT / "esp32" / "torqva_fw"
+FW = ROOT / "firmware"
 INI_RAW = (FW / "platformio.ini").read_text()
 INI = "\n".join(l for l in INI_RAW.splitlines() if not l.lstrip().startswith(";"))          # comments are not configuration
 
 # historical records: allowed to MENTION the retired sketch, but only together with the word "retired" (they are annotated, not rewritten)
-HISTORICAL = {"docs/history/ARCHITECTURE.md", "docs/history/NEW_LAPTOP_SETUP_REPORT.md", "docs/history/PHASE_6_HARDWARE_VALIDATION_REPORT.md", "docs/history/TORQVA_AUDIT.md", "docs/TORQVA_HARDWARE_READINESS.md",
-              "docs/TORQVA_PROGRESS.md"}
-CURRENT_DOCS = ["README.md", "esp32/README.md", "docs/software.md", "docs/hardware.md", "docs/HARDWARE_WIRING.md"]
+HISTORICAL = {"docs/history/ARCHITECTURE.md", "docs/history/NEW_LAPTOP_SETUP_REPORT.md", "docs/history/PHASE_6_HARDWARE_VALIDATION_REPORT.md", "docs/history/TORQVA_AUDIT.md", "docs/hardware/TORQVA_HARDWARE_READINESS.md",
+              "docs/reports/TORQVA_PROGRESS.md"}
+CURRENT_DOCS = ["README.md", "firmware/README.md", "docs/architecture/software.md", "docs/hardware/hardware.md", "docs/hardware/HARDWARE_WIRING.md"]
 
 
 def tracked():
     if not shutil.which("git"):
         pytest.skip("git not available")
-    r = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True)
+    r = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=ROOT, capture_output=True, text=True)
     if r.returncode != 0:
         pytest.skip("not a git checkout")
     return [f for f in r.stdout.split("\0") if f and (ROOT / f).is_file()]      # tracked AND present (a staged deletion is not "present")
@@ -73,7 +77,7 @@ def test_no_tracked_source_contains_the_legacy_compile_guards_or_the_tcp_motor_c
         t = text(f)
         assert "TORQVA_LEGACY_UNSAFE_ACKNOWLEDGED" not in t and "TORQVA_LEGACY_ENABLE_MOTOR" not in t, f
     for f in tracked():
-        if f.startswith("esp32/"):
+        if f.startswith("firmware/"):
             assert "MOTOR_ON" not in text(f) or f.endswith(".md"), f              # the supported firmware has no text MOTOR_ON command
 
 
@@ -107,14 +111,14 @@ def test_every_mention_of_the_legacy_sketch_is_marked_retired_and_current_docs_g
 
 
 def test_current_docs_state_the_supported_firmware_the_retirement_and_that_hardware_is_not_ready():
-    for f in ("README.md", "docs/software.md", "esp32/README.md"):
+    for f in ("README.md", "docs/architecture/software.md", "firmware/README.md"):
         t = text(f)
-        assert "esp32/torqva_fw" in t and "sole supported firmware" in t, f
+        assert "firmware" in t and "sole supported firmware" in t, f
         assert re.search(r"retired", t, re.I), f
         assert "STATUS: MOTOR OFF" in t, f"{f} must say old serial text is not valid TORQVA telemetry"
         assert "not ready for physical motor operation" in t, f
     assert "current TORQVA" in text("README.md") and "protocol" in text("README.md")
-    e = text("esp32/README.md")
+    e = text("firmware/README.md")
     for env in ("native", "fitl", "esp32s3_uart", "esp32s3"):
         assert f"`{env}`" in e, env
     assert "UART0" in e and "native USB" in e and "not merged" in e
@@ -132,7 +136,7 @@ def test_supported_platformio_environments_remain_and_are_not_merged():
 
 
 def test_gpio_map_is_unchanged_by_the_retirement():
-    pm = text("esp32/torqva_fw/lib/torqva_core/pinmap.h")
+    pm = text("firmware/lib/torqva_core/drivers/pinmap.h")
     expected = (("OLED_SDA", 4), ("OLED_SCL", 5), ("TEMP_DATA", 6), ("INA_SDA", 7), ("INA_SCL", 8), ("HALL_INPUT", 9), ("LED_MOTOR", 10), ("LED_TEMP", 11), ("LED_ACCEL", 12), ("LED_INA", 13),
                 ("BUZZER", 14), ("ADXL_SDA", 16), ("ADXL_SCL", 17), ("R_EN", 18), ("L_EN", 21), ("RPWM", 38), ("LPWM", 39))
     for name, pin in expected:
@@ -203,7 +207,7 @@ def test_physical_motor_controls_stay_disabled_while_commissioning_is_incomplete
 
 def test_supported_firmware_default_build_keeps_motor_control_compiled_out():
     assert "TORQVA_LIMITS_APPROVED" not in INI and "TORQVA_ESTOP_INPUT_WIRED" not in INI      # the limits / E-stop declarations are deliberate, separate human decisions
-    main = text("esp32/torqva_fw/src/main.cpp")
+    main = text("firmware/src/main.cpp")
     assert ("#ifdef TORQVA_CONTROL_ENABLED" in main or "defined(TORQVA_CONTROL_ENABLED)" in main) and "#define TORQVA_CONTROL_ENABLED" not in main      # only an explicit build flag can compile the actuation path in
 
 
@@ -233,7 +237,7 @@ def test_a_healthy_handshake_still_leaves_every_physical_interlock_open():
 
 # ====================================================================================== approved command ranges (Phase 24)
 def test_no_approved_limit_blocks_start_and_speed_and_an_approved_limit_only_removes_that_one_blocker():
-    from torqva.serial_bridge import PhysicalControlPolicy
+    from torqva.safety.operating_policy import PhysicalControlPolicy
     b = DeviceBridge(); tr = MemoryTransport(); b.connect(tr)
     tr.feed(status(0))
     assert wait(lambda: b.model.conn == Conn.CONNECTED)

@@ -5,8 +5,8 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { WorkflowPage, STAGES, OUTCOME } from '../torqva/workflow/workflow.jsx';
-import { setToken } from '../torqva/api.js';
+import { WorkflowPage, STAGES, OUTCOME } from '../pages/workflow/workflow.jsx';
+import { setToken } from '../access/token.js';
 import FX from './fixtures/workflow.json';
 
 const D = { status: { t: 60, device: {} } };
