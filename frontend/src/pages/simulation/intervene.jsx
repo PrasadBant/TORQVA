@@ -144,7 +144,7 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
   const checks = chk ? [
     { key: 'gate', label: 'Decision gate', state: !chk.gate ? 'unknown' : chk.gate.verdict === 'ACT' ? 'ok' : ['SAFE_STOP', 'SENSOR_UNRELIABLE'].includes(chk.gate.verdict) ? 'fail' : 'warn',
       status: chk.gate ? title(chk.gate.verdict) : 'not evaluated', detail: chk.gate ? chk.gate.reason : 'cannot evaluate without an incident and a ranking' },
-    { key: 'sup', label: 'Safety Supervisor', state: chk.supervisor.verdict === 'REJECT' ? 'fail' : chk.supervisor.verdict === 'DEFER' ? 'pending' : 'ok',
+    { key: 'sup', label: 'Control Gate', state: chk.supervisor.verdict === 'REJECT' ? 'fail' : chk.supervisor.verdict === 'DEFER' ? 'pending' : 'ok',
       status: chk.supervisor.verdict, detail: chk.supervisor.reasons.map(title).join(', ') || undefined },
     { key: 'held', label: 'Held for a human decision', state: chk.awaiting_decision ? 'ok' : 'warn', status: chk.awaiting_decision ? 'yes' : 'no',
       detail: chk.awaiting_decision ? `${title(chk.pending.action)}${chk.pending.params?.rpm ? ` to ${fmtRpm(chk.pending.params.rpm)} rpm` : ''} (as proposed by the pipeline)` : 'the pipeline is not holding an action' },

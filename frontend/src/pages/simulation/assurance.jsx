@@ -139,8 +139,8 @@ export function InterventionsPage({ d, role, actions, error, isPhys: isPhysProp,
             ]} />
         </Card>
         <div className="tq-split">
-          <Card title="Safety Supervisor decisions" id="c-sup" icon={ShieldCheck} sub="Most recent first" right={<ProvBadge kind={provKind} />}>
-            <DataTable caption="Safety Supervisor decisions" rows={sup} rowKey={(x) => x._i} empty="No Safety Supervisor decisions yet."
+          <Card title="Control Gate decisions" id="c-sup" icon={ShieldCheck} sub="Most recent first" right={<ProvBadge kind={provKind} />}>
+            <DataTable caption="Control Gate decisions" rows={sup} rowKey={(x) => x._i} empty="No gate decisions yet."
               columns={[
                 { key: 't', label: 't (s)', align: 'num', render: (x) => fmt(x.t, 0) },
                 { key: 'action', label: 'Action', render: (x) => title(x.action) },

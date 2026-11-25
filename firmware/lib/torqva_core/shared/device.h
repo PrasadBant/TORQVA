@@ -10,7 +10,6 @@
 #include "control/commands.h"
 #include "control/testexec.h"
 #include "communication/protocol.h"
-#include "safety/interlock.h"
 #include "communication/auth.h"
 #include "safety/runtime_config.h"
 #include "communication/ota.h"

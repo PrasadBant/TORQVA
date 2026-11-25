@@ -560,7 +560,7 @@ function Recommendation({ wf }) {
                 <td>{r.candidate_id === rec.candidate_id ? <Pill tone="ok">recommended</Pill> : r.eligible ? 'eligible' : <span className="tq-muted">{r.excluded_because}</span>}</td></tr>); })}</tbody></table></div>
         </div>)}
       {chk && !awaiting && !wf.context.intervention && rec.actionable && (
-        <p className="tq-muted tq-small" data-testid="wf-exec-check">Control pipeline check: gate {chk.gate ? title(chk.gate.verdict) : '—'} · Safety Supervisor {title(chk.supervisor?.verdict)} · {chk.awaiting_decision ? 'an action is held for a human decision' : 'no action is held for a human decision'}.</p>)}
+        <p className="tq-muted tq-small" data-testid="wf-exec-check">Control pipeline check: gate {chk.gate ? title(chk.gate.verdict) : '—'} · {chk.awaiting_decision ? 'an action is held for an operator decision' : 'ready for direct execution'}.</p>)}
     </Card>
   );
 }
@@ -583,7 +583,7 @@ function Authorization({ wf, ctl, busy, onAuthorize, onDecline }) {
             <dt>Evidence basis</dt><dd className="tq-num">{wf.mode === 'PHYSICAL' ? 'Live physical measurements' : `simulation t = ${fmt(rec.basis?.t, 0)} s`}{rec.basis?.posterior_top ? ` · ${title(rec.basis.posterior_top)} (${rec.basis.posterior_label})` : ''}</dd>
             {auth?.expires && <><dt>Expires</dt><dd>{auth.expires}</dd></>}
           </dl>
-          <p className="tq-small">Nothing has been sent. Authorizing re-runs every safety check first.</p>
+          <p className="tq-small">Nothing has been sent yet. Click below to execute this command.</p>
           <div className="tq-row">
             <button type="button" className="tq-btn tq-primary" onClick={onAuthorize} disabled={!ctl || !!busy} data-testid="wf-authorize">
               {busy === 'authorize' ? <Loader2 size={14} className="tq-spin" aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />} {busy === 'authorize' ? 'Sending…' : 'Authorize and execute'}</button>

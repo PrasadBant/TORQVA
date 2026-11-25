@@ -106,7 +106,7 @@ export function Pill({ tone = 'info', children }) {
 export function stateTone(state) {
   if (!state) return 'off';
   if (['RECOVERED', 'CLOSED', 'NORMAL'].includes(state)) return 'ok';
-  if (['EMERGENCY_STOP'].includes(state)) return 'stop';
+  if (['STOP', 'STOPPED'].includes(state)) return 'stop';
   if (['HUMAN_INSPECTION_REQUIRED', 'UNRESOLVED', 'COMMAND_FAILED', 'SENSOR_UNRELIABLE'].includes(state)) return 'crit';
   if (['AWAITING_APPROVAL', 'AWAITING_ACK', 'AWAITING_MORE_DATA', 'DIAGNOSTIC_PROPOSED', 'VERIFYING_RECOVERY'].includes(state)) return 'wait';
   return 'info';

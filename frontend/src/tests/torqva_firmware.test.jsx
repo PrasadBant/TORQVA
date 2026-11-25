@@ -32,12 +32,12 @@ function server({ st = status(), releases = [REL], eligibility = [] } = {}) {
 beforeEach(() => { vi.unstubAllGlobals(); setToken('t'); });
 
 describe('Firmware Manager page', () => {
-  it('shows the device firmware facts and the separation from motor operation', async () => {
+  it('shows the device firmware facts', async () => {
     server(); render(<FirmwarePage role="admin" go={() => {}} />);
     const dev = await screen.findByTestId('fw-device');
     await waitFor(() => expect(dev).toHaveTextContent('3.0.1'));
     expect(dev).toHaveTextContent('OTA capable'); expect(dev).toHaveTextContent('running ota_0');
-    expect(screen.getByTestId('fw-banner')).toHaveTextContent('never enable motor operation');
+    expect(screen.queryByTestId('fw-banner')).toBeNull();
   });
 
   it('a device without OTA support says OTA NOT CONFIGURED and needs the initial USB installation', async () => {

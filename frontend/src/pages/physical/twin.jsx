@@ -10,7 +10,7 @@ const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 const ago = (unix) => (unix ? `${fmt(Math.max(0, Date.now() / 1000 - unix), 1)} s ago` : 'never');
 // Signals the backend keeps history for (serial_bridge.history_series); anything else has no trend.
 const HISTORY = new Set(['rpm', 'current', 'voltage', 'power', 'duty', 'housing', 'acceleration']);
-// Firmware trip reasons (torqva_core/safety.h TripReason) and the component whose reading or state the firmware tripped on. EXTERNAL_ESTOP and
+// Firmware trip reasons (torqva_core/safety.h TripReason) and the component whose reading or state the firmware tripped on.
 // SENSOR_INVALID name no single drawn part (the latter shows up as the invalid reading itself).
 const TRIP_PART = {
   OVER_CURRENT_SUSTAINED: ['ina', 'the INA219 current reading'], OVER_CURRENT_INSTANT: ['ina', 'the INA219 current reading'],

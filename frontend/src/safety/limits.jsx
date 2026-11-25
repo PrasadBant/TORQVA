@@ -93,7 +93,7 @@ export function LimitsPanel({ role = 'operator', onUpdated }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Sliders size={18} style={{ color: 'var(--tq-accent, #38bdf8)' }} aria-hidden="true" />
-          <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Operational &amp; Safety Limits</h3>
+          <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Operational Limits</h3>
           <span className="tq-small tq-muted">(Source: torqva_limits.h)</span>
         </div>
 

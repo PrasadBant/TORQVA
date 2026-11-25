@@ -26,7 +26,7 @@ INI_RAW = (FW / "platformio.ini").read_text()
 INI = "\n".join(l for l in INI_RAW.splitlines() if not l.lstrip().startswith(";"))          # comments are not configuration
 
 # historical records: allowed to MENTION the retired sketch, but only together with the word "retired" (they are annotated, not rewritten)
-HISTORICAL = {"docs/history/ARCHITECTURE.md", "docs/history/NEW_LAPTOP_SETUP_REPORT.md", "docs/history/PHASE_6_HARDWARE_VALIDATION_REPORT.md", "docs/history/TORQVA_AUDIT.md", "docs/hardware/TORQVA_HARDWARE_READINESS.md",
+HISTORICAL = {"docs/history/ARCHITECTURE.md", "docs/history/NEW_LAPTOP_SETUP_REPORT.md", "docs/hardware/TORQVA_HARDWARE_READINESS.md",
               "docs/reports/TORQVA_PROGRESS.md"}
 CURRENT_DOCS = ["README.md", "firmware/README.md", "docs/architecture/software.md", "docs/hardware/hardware.md", "docs/hardware/HARDWARE_WIRING.md"]
 
@@ -127,7 +127,7 @@ def test_current_docs_state_the_supported_firmware_the_retirement_and_that_hardw
 # ====================================================================================== supported PlatformIO environments
 def test_supported_platformio_environments_remain_and_are_not_merged():
     # the two OTA LED bench profiles are additional, separately named environments (checked in test_torqva_p18_firmware_bringup.py); the production ones are unchanged
-    assert re.findall(r"^\[env:(\w+)\]", INI, re.M) == ["native", "fitl", "esp32s3", "esp32s3_uart", "esp32s3_wireless", "esp32s3_ota_led_v100", "esp32s3_ota_led_v110", "esp32s3_ota_led_v111", "esp32s3_ota_led_v112"]
+    assert re.findall(r"^\[env:(\w+)\]", INI, re.M) == ["native", "fitl", "esp32s3", "esp32s3_uart", "esp32s3_wireless", "esp32s3_uart_wireless", "esp32s3_ota_led_v100", "esp32s3_ota_led_v110", "esp32s3_ota_led_v111", "esp32s3_ota_led_v112"]
     uart =re.search(r"\[env:esp32s3_uart\](.*?)(?:\n\[|\Z)", INI, re.S).group(1)
     usb = re.search(r"\[env:esp32s3\](.*?)(?:\n\[|\Z)", INI, re.S).group(1)
     assert "ARDUINO_USB_CDC_ON_BOOT=1" in usb and "ARDUINO_USB_CDC_ON_BOOT=0" in uart and "extends = env:esp32s3" in uart

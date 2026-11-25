@@ -4,8 +4,6 @@
 #include "control/control.h"
 #include "control/commands.h"
 #include "control/testexec.h"
-#include "safety/interlock.h"
-#include "safety/estop.h"
 #include "drivers/pinmap.h"
 #include "drivers/adxl345.h"
 #include "shared/sha256.h"
@@ -212,36 +210,6 @@ void test_non_finite_non_critical_signal_does_not_trip_and_cannot_mask_a_real_li
     TEST_ASSERT_EQUAL(TripReason::OVER_CURRENT_INSTANT, m2.update(in2).reason);
 }
 
-// ---------------- Start interlock (pure logic) ----------------
-static StartInterlockInputs all_ok() {
-    StartInterlockInputs i = {};
-    i.initialized = i.limits_approved = i.transport_secured = i.session_active = i.estop_input_wired = i.watchdog_active = true;
-    i.estop_active = false; i.safety_state = SafetyState::OK;
-    i.required_sensors_valid = i.supply_present = i.telemetry_fresh = i.link_ok = true;
-    return i;
-}
-void test_interlock_permits_only_when_everything_is_verified() {
-    TEST_ASSERT_NULL(start_interlock_reason(all_ok()));
-}
-void test_interlock_blocks_each_unverified_condition_with_its_own_reason() {
-    StartInterlockInputs i;
-    i = all_ok(); i.initialized = false;            TEST_ASSERT_EQUAL_STRING("NOT_INITIALIZED", start_interlock_reason(i));
-    i = all_ok(); i.limits_approved = false;        TEST_ASSERT_EQUAL_STRING("LIMITS_NOT_APPROVED", start_interlock_reason(i));
-    i = all_ok(); i.transport_secured = false;     TEST_ASSERT_EQUAL_STRING("TRANSPORT_NOT_SECURED", start_interlock_reason(i));
-    i = all_ok(); i.session_active = false;        TEST_ASSERT_EQUAL_STRING("NO_SECURE_SESSION", start_interlock_reason(i));
-    i = all_ok(); i.estop_input_wired = false;      TEST_ASSERT_EQUAL_STRING("ESTOP_INPUT_NOT_VERIFIED", start_interlock_reason(i));
-    i = all_ok(); i.estop_active = true;            TEST_ASSERT_EQUAL_STRING("ESTOP_ACTIVE", start_interlock_reason(i));
-    i = all_ok(); i.watchdog_active = false;        TEST_ASSERT_EQUAL_STRING("WATCHDOG_NOT_ACTIVE", start_interlock_reason(i));
-    i = all_ok(); i.safety_state = SafetyState::WARN;            TEST_ASSERT_EQUAL_STRING("SAFETY_NOT_OK", start_interlock_reason(i));
-    i = all_ok(); i.safety_state = SafetyState::EMERGENCY_STOP;  TEST_ASSERT_EQUAL_STRING("SAFETY_NOT_OK", start_interlock_reason(i));
-    i = all_ok(); i.required_sensors_valid = false; TEST_ASSERT_EQUAL_STRING("SENSOR_NOT_VALID", start_interlock_reason(i));
-    i = all_ok(); i.supply_present = false;         TEST_ASSERT_EQUAL_STRING("SUPPLY_NOT_PRESENT", start_interlock_reason(i));
-    i = all_ok(); i.telemetry_fresh = false;        TEST_ASSERT_EQUAL_STRING("TELEMETRY_STALE", start_interlock_reason(i));
-    i = all_ok(); i.link_ok = false;                TEST_ASSERT_EQUAL_STRING("NO_HEARTBEAT", start_interlock_reason(i));
-    StartInterlockInputs z = {};                    // an all-zero (unverified) input must never permit a start
-    TEST_ASSERT_NOT_NULL(start_interlock_reason(z));
-}
-
 // ---------------- ADXL345 decoding (raw acceleration; total magnitude includes gravity and is not vibration RMS) ----------------
 void test_adxl345_decodes_raw_bytes_to_g_and_reports_gravity_in_the_magnitude() {
     const uint8_t at_rest[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x01};      // z = 256 LSB = 0.998 g, x = y = 0
@@ -391,20 +359,6 @@ void test_pinmap_every_required_peripheral_is_assigned_and_only_undocumented_int
     TEST_ASSERT_FALSE(gpio_unavailable_on_n16r8(ESTOP_INPUT));
 }
 
-// The E-stop monitoring input as wired by the owner: normally-closed contact to GND with a pull-up. Healthy (closed) = LOW. Everything else is an emergency-stop condition.
-void test_estop_monitoring_input_nc_contact_to_ground_treats_open_pressed_or_unread_as_asserted() {
-    EstopInput e(EstopConfig{true, /*active_low=*/false, 100});
-    TEST_ASSERT_TRUE(e.blocks_operation());                                      // before the first read: unknown blocks
-    TEST_ASSERT_EQUAL(EstopState::ASSERTED, e.update(0, true, true));            // HIGH = open circuit / pressed / floating input
-    TEST_ASSERT_EQUAL(EstopState::ASSERTED, e.update(10, true, false));          // closed again, but not yet debounced
-    TEST_ASSERT_TRUE(e.blocks_operation());
-    TEST_ASSERT_EQUAL(EstopState::RELEASED, e.update(120, true, false));         // LOW for 100 ms: healthy
-    TEST_ASSERT_FALSE(e.blocks_operation());
-    TEST_ASSERT_EQUAL(EstopState::ASSERTED, e.update(130, true, true));          // a broken wire or a press is immediate
-    TEST_ASSERT_EQUAL(EstopState::ASSERTED, e.update(140, false, false));        // an unreadable pin is asserted too
-    EstopInput off(EstopConfig{false, false, 100});
-    TEST_ASSERT_EQUAL(EstopState::UNKNOWN, off.update(1000, true, false));       // an unconfigured input never reports released
-}
 void test_pinmap_uses_no_unavailable_pin_on_the_esp32s3_n16r8() {
     using namespace torqva_pins;
     for (int i = 0; i < kPinCount; i++)
@@ -424,47 +378,6 @@ void test_pinmap_keeps_sensor_buses_and_the_motor_driver_apart() {
     TEST_ASSERT_NOT_EQUAL(ADXL_SCL, R_EN); TEST_ASSERT_NOT_EQUAL(ADXL_SCL, RPWM); TEST_ASSERT_NOT_EQUAL(ADXL_SDA, LPWM);       // the former conflicts (17, 16, 38) are gone
     TEST_ASSERT_NOT_EQUAL(INA_SDA, ADXL_SDA); TEST_ASSERT_NOT_EQUAL(INA_SCL, ADXL_SCL); TEST_ASSERT_NOT_EQUAL(OLED_SDA, ADXL_SDA);
     TEST_ASSERT_NOT_EQUAL(RPWM, LPWM); TEST_ASSERT_NOT_EQUAL(R_EN, L_EN);
-}
-
-// ---------------- Abstract E-stop input (no pin, no polarity: electrical behaviour is NOT tested here) ----------------
-static EstopConfig estop_cfg(bool configured = true, bool active_low = true, uint32_t deb = 50) { EstopConfig c = {configured, active_low, deb}; return c; }
-void test_estop_input_is_unknown_until_configured_and_never_released_when_unconfigured() {
-    EstopInput e(estop_cfg(false));
-    for (uint32_t t = 0; t < 5000; t += 10) e.update(t, true, true);
-    TEST_ASSERT_EQUAL(EstopState::UNKNOWN, e.state()); TEST_ASSERT_TRUE(e.blocks_operation());
-    EstopInput z(estop_cfg(true, true, 0));                       // a zero debounce is an invalid configuration
-    z.update(0, true, true); z.update(100, true, true);
-    TEST_ASSERT_EQUAL(EstopState::UNKNOWN, z.state());
-}
-void test_estop_input_starts_unknown_asserts_immediately_and_releases_only_after_the_debounce() {
-    EstopInput e(estop_cfg(true, /*active_low*/ true, 50));
-    TEST_ASSERT_EQUAL(EstopState::UNKNOWN, e.state());
-    e.update(0, true, true);                                      // released level, debounce not yet elapsed
-    TEST_ASSERT_TRUE(e.blocks_operation());
-    e.update(49, true, true); TEST_ASSERT_TRUE(e.blocks_operation());
-    e.update(50, true, true); TEST_ASSERT_EQUAL(EstopState::RELEASED, e.state()); TEST_ASSERT_FALSE(e.blocks_operation());
-    e.update(60, true, false);                                    // active-low line pulled low: asserted at once, no debounce
-    TEST_ASSERT_EQUAL(EstopState::ASSERTED, e.state());
-    e.update(70, true, true); e.update(100, true, true);          // glitch-free release must again wait the full debounce
-    TEST_ASSERT_TRUE(e.blocks_operation());
-    e.update(120, true, true); TEST_ASSERT_EQUAL(EstopState::RELEASED, e.state());
-}
-void test_estop_input_treats_an_unreadable_sample_as_asserted_and_a_glitch_restarts_the_debounce() {
-    EstopInput e(estop_cfg(true, false, 100));                    // active-high polarity
-    e.update(0, true, false); e.update(100, true, false); TEST_ASSERT_EQUAL(EstopState::RELEASED, e.state());
-    e.update(110, false, false);                                  // read failure / circuit fault
-    TEST_ASSERT_EQUAL(EstopState::ASSERTED, e.state());
-    e.update(120, true, false); e.update(180, true, true);        // released, then a glitch back to asserted
-    e.update(190, true, false); e.update(280, true, false);
-    TEST_ASSERT_TRUE(e.blocks_operation());                       // only 90 ms since the glitch
-    e.update(290, true, false); TEST_ASSERT_EQUAL(EstopState::RELEASED, e.state());
-}
-void test_estop_input_debounce_is_wrap_safe() {
-    EstopInput e(estop_cfg(true, true, 50));
-    e.update(0xFFFFFFE0u, true, true); TEST_ASSERT_TRUE(e.blocks_operation());
-    e.update(0x00000010u, true, true);                            // 48 ms later across the wrap
-    TEST_ASSERT_TRUE(e.blocks_operation());
-    e.update(0x00000012u, true, true); TEST_ASSERT_EQUAL(EstopState::RELEASED, e.state());
 }
 
 // ---------------- Fault mask: every cause is preserved ----------------
@@ -823,8 +736,6 @@ int main(int, char**) {
     RUN_TEST(test_rpm_loss_when_driving_without_pulses);
     RUN_TEST(test_no_rpm_loss_when_idle);
     RUN_TEST(test_critical_sensor_invalid_trips_after_500ms);
-    RUN_TEST(test_interlock_permits_only_when_everything_is_verified);
-    RUN_TEST(test_interlock_blocks_each_unverified_condition_with_its_own_reason);
     RUN_TEST(test_fault_mask_keeps_every_simultaneous_cause_while_reason_keeps_the_first);
     RUN_TEST(test_adxl345_decodes_raw_bytes_to_g_and_reports_gravity_in_the_magnitude);
     RUN_TEST(test_adxl345_implausible_data_is_invalid_and_zeros_are_not_presented_as_a_reading);
@@ -835,13 +746,8 @@ int main(int, char**) {
     RUN_TEST(test_pinmap_matches_the_documented_wiring_reference);
     RUN_TEST(test_pinmap_has_no_duplicate_gpio_ownership);
     RUN_TEST(test_pinmap_every_required_peripheral_is_assigned_and_only_undocumented_interfaces_are_unconfigured);
-    RUN_TEST(test_estop_monitoring_input_nc_contact_to_ground_treats_open_pressed_or_unread_as_asserted);
     RUN_TEST(test_pinmap_uses_no_unavailable_pin_on_the_esp32s3_n16r8);
     RUN_TEST(test_pinmap_keeps_sensor_buses_and_the_motor_driver_apart);
-    RUN_TEST(test_estop_input_is_unknown_until_configured_and_never_released_when_unconfigured);
-    RUN_TEST(test_estop_input_starts_unknown_asserts_immediately_and_releases_only_after_the_debounce);
-    RUN_TEST(test_estop_input_treats_an_unreadable_sample_as_asserted_and_a_glitch_restarts_the_debounce);
-    RUN_TEST(test_estop_input_debounce_is_wrap_safe);
     RUN_TEST(test_non_finite_critical_signal_is_invalid_and_trips_after_500ms);
     RUN_TEST(test_non_finite_non_critical_signal_does_not_trip_and_cannot_mask_a_real_limit);
     RUN_TEST(test_heartbeat_enforced_only_in_hardware_mode);

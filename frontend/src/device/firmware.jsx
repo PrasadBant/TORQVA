@@ -308,11 +308,7 @@ export function FirmwarePage({ role, go }) {
   const cfg = s?.config;
   return (
     <>
-      <PageHead title="Firmware Manager" sub="Upload, validate and install signed firmware on the ESP32-S3 over Wi-Fi." />
-      <AlertPanel tone="info" icon={ShieldCheck} title="Firmware updates never enable motor operation" testid="fw-banner">
-        <p>Updating firmware and operating the motor are separate. The hardware is not validated for physical operation; after any update the existing
-          Bench updates need the motor power stage disconnected.</p>
-      </AlertPanel>
+      <PageHead title="Firmware Manager" sub="Compile, validate and install signed firmware on the ESP32-S3 over Wi-Fi." />
       {err && <ErrorBox error={err} />}
       {cfg && (cfg.signature_verification !== 'AVAILABLE' || cfg.device_url_problem || cfg.storage !== 'OK') && (
         <p className="tq-callout warn" role="note" data-testid="fw-config">Backend not ready for deployments: {[cfg.signature_verification !== 'AVAILABLE' && `signature verification unavailable (${cfg.signature_detail})`, cfg.device_url_problem, cfg.storage !== 'OK' && cfg.storage_detail].filter(Boolean).join('; ')}.</p>)}

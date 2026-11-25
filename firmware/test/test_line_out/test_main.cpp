@@ -152,7 +152,7 @@ static bool uses(const std::string& code, const char* w) {
 void test_no_firmware_source_writes_to_serial_except_usb_out() {
     const char* files[] = {"src/main.cpp", "src/communication/ota_esp32.cpp", "src/communication/wifi_link.cpp", "lib/torqva_core/shared/device.cpp", "lib/torqva_core/telemetry/device_telemetry.cpp", "lib/torqva_core/communication/ota.cpp",
                            "lib/torqva_core/control/control.cpp", "lib/torqva_core/safety/safety.cpp", "lib/torqva_core/communication/protocol.cpp", "lib/torqva_core/communication/auth.cpp",
-                           "lib/torqva_core/control/commands.cpp", "lib/torqva_core/safety/interlock.cpp", "lib/torqva_core/safety/estop.cpp", "lib/torqva_core/control/testexec.cpp",
+                           "lib/torqva_core/control/commands.cpp", "lib/torqva_core/control/testexec.cpp",
                            "lib/torqva_core/safety/runtime_config.cpp", "lib/torqva_core/drivers/adxl345.cpp", "lib/torqva_core/shared/sha256.cpp", "lib/torqva_core/testing/simplant.cpp"};
     const char* writers[] = {"Serial.print", "Serial.write", "Serial.flush", "Serial.begin", "Serial.setTx", "printf(", "puts(", "putchar(",
                              "ESP_LOG", "ESP_EARLY_LOG", "log_e(", "log_w(", "log_i(", "log_d(", "log_v(", "log_printf("};

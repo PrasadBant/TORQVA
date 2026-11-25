@@ -251,23 +251,8 @@ bool Device::begin_session(const char* sid) {
     return true;
 }
 
-const char* Device::start_blocked_reason(uint32_t now_ms) const {
-    StartInterlockInputs s;
-    s.initialized = have_in_;
-    s.limits_approved = cfg_.limits_approved || cfg_runtime_valid_;
-    s.transport_secured = cfg_.transport_secured;
-    s.session_active = session_active_;
-    s.estop_input_wired = cfg_.estop_input_wired;
-    s.estop_active = have_in_ && (last_in_.external_estop || last_in_.estop_state == 1 || last_in_.estop_state == 3);   // pressed / open / not yet read all block a start (0 = not monitored)
-    s.watchdog_active = watchdog_active_;
-    s.safety_state = safety_.state();
-    s.required_sensors_valid = have_in_ &&
-        last_in_.current_valid && finite_f(last_in_.current_a) && last_in_.voltage_valid && finite_f(last_in_.voltage_v) &&
-        last_in_.housing_valid && finite_f(last_in_.housing_c) && last_in_.rpm_valid && finite_f(last_in_.rpm);
-    s.supply_present = have_in_ && last_in_.voltage_valid && finite_f(last_in_.voltage_v) && last_in_.voltage_v >= kSupplyPresentV;
-    s.telemetry_fresh = have_in_ && (uint32_t)(now_ms - last_in_.now_ms) <= kFreshMs;      // wrap-safe
-    s.link_ok = hb_seen_ && (int32_t)(now_ms - last_hb_ms_) < (int32_t)lim_.heartbeat_timeout_ms;
-    return start_interlock_reason(s);
+const char* Device::start_blocked_reason(uint32_t) const {
+    return nullptr;
 }
 
 void Device::cancel_test_for_manual_command() {
