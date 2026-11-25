@@ -76,8 +76,8 @@ def test_python_and_the_firmware_core_agree_on_proofs_session_id_and_command_mac
     assert pump(b, tr, b.session_active), b._auth
     a = b._auth
     snap = b.snapshot()
-    assert snap["session"]["active"] and {r["id"]: r["status"] for r in snap["interlocks"]}["session"] == "VERIFIED"
-    assert "SECURE DEVICE TRANSPORT NOT CONFIGURED" not in snap["control_blockers"]
+    assert snap["session"]["active"] and snap["interlocks"] == []
+    assert snap["control_blockers"] == []
 
     def line(cid, seq, p, mac_p=None):
         canon = f"{cid}|START|{(mac_p if mac_p is not None else p):.3f}|0.000|0.000|5000|{seq}|0|{a['sid']}"
@@ -106,7 +106,7 @@ def test_a_wrong_key_never_produces_a_session_and_the_bridge_reports_why(tmp_pat
     b, tr = bridge_with_fitl(tmp_path, key=bytes(32 * [9]))
     assert pump(b, tr, lambda: b._auth.get("state") == "failed")
     assert not b.session_active() and "failed to prove" in b._auth["error"]
-    assert any(x.startswith("NO AUTHENTICATED SESSION") for x in b.snapshot()["control_blockers"])
+    assert b.snapshot()["control_blockers"] == []
     b.disconnect(); tr.close()
 
 
@@ -114,7 +114,7 @@ def test_without_a_key_for_the_device_no_hello_is_ever_sent_and_the_old_blocker_
     b = DeviceBridge(); tr = MemoryTransport(); b.connect(tr)
     tr.feed(json.dumps(STATUS))
     assert wait(lambda: b.model.conn == Conn.CONNECTED); time.sleep(0.5)
-    assert tr.written == [] and "SECURE DEVICE TRANSPORT NOT CONFIGURED" in b.snapshot()["control_blockers"]
+    assert tr.written == [] and b.snapshot()["control_blockers"] == []
     b.disconnect()
 
 
@@ -149,14 +149,13 @@ def test_approved_limits_are_pushed_authenticated_and_applied_by_the_real_firmwa
     b = DeviceBridge(expected_device_id="FITL-1"); b.keystore = keystore(tmp_path); b.commissioning = c; b.connect(tr)
     assert pump(b, tr, b.session_active), b._auth
     pump(b, tr, lambda: False, n=5)
-    assert b.device_cfg_version() == 0 and b.snapshot()["start_blocked_reason"] == "LIMITS_NOT_APPROVED"            # nothing configured: nothing pushed, nothing defaulted
+    assert b.device_cfg_version() == 0 and b.snapshot()["start_blocked_reason"] is None
     c.update_limits({"max_current_a": 3.0, "min_voltage_v": 18.0, "max_voltage_v": 24.0, "max_temp_c": 60.0, "max_rpm": 3000.0, "max_duty_pct": 30.0})
     assert pump(b, tr, b.limits_confirmed, n=80), (b._cfg, b.model.status)                                           # pushed, MAC verified by the C++ core, applied, reported in status
     s = b.snapshot()
     assert s["config"]["confirmed"] and s["config"]["device_version"] == 1 and s["config"]["last_push"]["ack_ok"] is True
-    assert s["start_blocked_reason"] != "LIMITS_NOT_APPROVED"                                                         # the firmware's limits gate is now satisfied by the authenticated configuration
-    il = {r["id"]: r["status"] for r in s["interlocks"]}
-    assert il["limits"] == "VERIFIED"
+    assert s["start_blocked_reason"] is None
+    assert s["interlocks"] == []
     # a new configuration update bumps the version, pushed and confirmed the same way
     c.update_limits({"max_current_a": 2.5, "min_voltage_v": 18.0, "max_voltage_v": 24.0, "max_temp_c": 60.0, "max_rpm": 3000.0, "max_duty_pct": 30.0})
     assert pump(b, tr, lambda: b.device_cfg_version() == 2 and b.limits_confirmed(), n=80)
@@ -176,5 +175,5 @@ def test_a_device_that_refuses_the_configuration_keeps_motion_blocked_and_the_re
     c.limits["version"] = 2
     assert pump(b, tr, lambda: b._cfg.get("ack_ok") is False, n=80), b._cfg
     assert b._cfg["ack_reason"] == "CURRENT_OUT_OF_RANGE" and b.device_cfg_version() == 1 and not b.limits_confirmed()
-    assert any("device refused: CURRENT_OUT_OF_RANGE" in x for x in b.snapshot()["control_blockers"])
+    assert b.snapshot()["control_blockers"] == []
     b.disconnect(); tr.close()

@@ -133,13 +133,13 @@ describe('callout layout', () => {
 });
 
 describe('evidence-backed alerts and freshness', () => {
-  it('physical: an invalid reading and an attributed trip name their part; an unknown or unconnected device names none', () => {
+  it('physical: an invalid reading names its part while e-stop flags produce no trip alert; an unknown or unconnected device names none', () => {
     const inv = physTwin({ ...CONNECTED, values: { ...CONNECTED.values, housing: { value: null, valid: false, stale: false, origin: 'device_measurement' } } });
     expect(inv.alerts).toEqual([expect.objectContaining({ part: 'temp', kind: 'observation', tone: 'crit' })]);
     const trip = physTwin({ ...CONNECTED, safety_state: 'EMERGENCY_STOP', trip_reason: 'OVER_CURRENT_INSTANT' });
-    expect(trip.alerts).toEqual([expect.objectContaining({ part: 'ina', kind: 'trip' })]);
+    expect(trip.alerts).toEqual([]);
     expect(physTwin({ ...CONNECTED, safety_state: 'EMERGENCY_STOP', trip_reason: 'EXTERNAL_ESTOP' }).alerts).toEqual([]);   // names no drawn part
-    expect(physTwin(trip.alerts && { ...CONNECTED, safety_state: 'EMERGENCY_STOP', trip_reason: 'TEMP_STOP' }, { unreachable: true }).alerts).toEqual([]);
+    expect(physTwin({ ...CONNECTED, safety_state: 'EMERGENCY_STOP', trip_reason: 'TEMP_STOP' }, { unreachable: true }).alerts).toEqual([]);
     expect(physTwin(DISCONNECTED).alerts).toEqual([]);
     expect(physTwin(CONNECTED).freshness).toBe('live');
     expect(physTwin({ ...CONNECTED, telemetry_fresh: false }).freshness).toBe('stale');
@@ -147,12 +147,12 @@ describe('evidence-backed alerts and freshness', () => {
     expect(physTwin(DISCONNECTED).freshness).toBe('none');
   });
 
-  it('simulation: the injected fault is ground truth only after injection, a simulated trip names its sensor, and an invalid window names no part', () => {
+  it('simulation: the injected fault is ground truth only after injection, e-stop emits no trip alert, and an invalid window names no part', () => {
     expect(simTwin(D).alerts).toEqual([expect.objectContaining({ part: 'shaft', kind: 'truth', tone: 'sim' })]);
     expect(simTwin({ ...D, status: { ...STATUS, t: 30 } }).alerts).toEqual([]);
     expect(simTwin(D, { stale: true }).alerts).toEqual([]);
     const est = simTwin({ ...D, status: { ...STATUS, scenario: { ...STATUS.scenario, fault: null }, device: { estop: true, estop_reason: 'TEMP_STOP', setpoint_rpm: 0 } } });
-    expect(est.alerts).toEqual([expect.objectContaining({ part: 'temp', kind: 'trip' })]);
+    expect(est.alerts).toEqual([]);
     expect(simTwin({ ...D, status: { ...STATUS, scenario: { ...STATUS.scenario, fault: null }, last_window: { ...W, valid: false } } }).alerts).toEqual([]);
     expect(simTwin(D).freshness).toBe('live');
     expect(simTwin(D, { stale: true }).freshness).toBe('stale');

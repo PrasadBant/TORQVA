@@ -1,5 +1,5 @@
 /* TORQVA design system v3: token refinements, the application shell (sidebar, top bar, page header) and the shared primitives in
-   shared/components.jsx (StatTile, StepTracker, CheckList, AlertPanel, BlockedReason, MetricList, Tabs, ChartPanel, DataTable, Skeleton,
+   shared/components.jsx (StatTile, StepTracker, CheckList, AlertPanel, MetricList, Tabs, ChartPanel, DataTable, Skeleton,
    ConfirmButton, SourceTag). Owner: the lead. Loaded after torqva.css; area stylesheets (styles/<area>.css) load after this file.
 
    Visual direction: deep-navy navigation, a cool light canvas, white cards with hairline borders, one restrained blue for actions and
@@ -178,7 +178,7 @@ button.tq-step-btn { cursor: pointer; } button.tq-step-btn:hover { background: v
 .tq-checks.is-dense .tq-check-row { padding: 6px 2px; }
 @media (max-width: 560px) { .tq-check-row { grid-template-columns: 20px minmax(0, 1fr) auto; } .tq-check-action { grid-column: 2 / -1; } }
 
-/* ------------------------------------------------------------------ AlertPanel and BlockedReason */
+/* ------------------------------------------------------------------ AlertPanel */
 .tq-alertpanel { --tone: var(--tq-accent); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px 18px; margin: 0 0 16px;
   border-radius: var(--tq-r-l); background: color-mix(in srgb, var(--tone) 6%, var(--tq-s1)); border: 1px solid color-mix(in srgb, var(--tone) 30%, var(--tq-border)); }
 .tq-alertpanel-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; color: #fff; background: var(--tone); }
@@ -190,13 +190,6 @@ button.tq-step-btn { cursor: pointer; } button.tq-step-btn:hover { background: v
 .tq-alertpanel-text p { margin: 2px 0 0; }
 .tq-card .tq-alertpanel { margin: 0 0 14px; }
 @media (max-width: 640px) { .tq-alertpanel { grid-template-columns: auto minmax(0, 1fr); } .tq-alertpanel-action { grid-column: 1 / -1; } }
-
-.tq-blocked { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 10px 12px; border-radius: var(--tq-r);
-  background: color-mix(in srgb, var(--tq-crit) 5%, var(--tq-s1)); border: 1px solid color-mix(in srgb, var(--tq-crit) 26%, var(--tq-border)); font-size: 13px; }
-.tq-blocked-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; color: var(--tq-crit); background: color-mix(in srgb, var(--tq-crit) 12%, var(--tq-s1)); }
-.tq-blocked-body { display: grid; gap: 2px; min-width: 0; color: var(--tq-text-2); overflow-wrap: anywhere; }
-.tq-blocked-body > strong { color: var(--tq-crit); font-size: 13px; }
-.tq-blocked details { margin-top: 4px; } .tq-blocked ul { margin: 4px 0 0; padding-left: 18px; }
 
 /* ------------------------------------------------------------------ MetricList */
 .tq-metrics { margin: 0; display: grid; }

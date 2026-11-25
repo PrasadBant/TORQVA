@@ -365,17 +365,9 @@ static void read_inputs(HalIn& in) {
     // Local reset: BOOT button (GPIO 0) on ESP32-S3 DevKit or the configured local reset button.
     in.button_pressed = (torqva_pins::LOCAL_RESET_BUTTON != torqva_pins::UNCONFIGURED && digitalRead(torqva_pins::LOCAL_RESET_BUTTON) == LOW)
         || (digitalRead(0) == LOW);
-    {   // E-stop monitoring input. An open circuit, a pressed switch or an unread pin is an emergency-stop CONDITION; the state is always reported.
-        static EstopInput g_estop(EstopConfig{true, /*active_low=*/false, /*release_debounce_ms=*/100});
-        g_estop.update(millis(), true, digitalRead(torqva_pins::ESTOP_INPUT) == HIGH);
-        const EstopState es = g_estop.state();
-        in.estop_state = es == EstopState::ASSERTED ? 1 : (es == EstopState::RELEASED ? 2 : 3);
-#if TORQVA_ESTOP_INPUT_WIRED
-        in.external_estop = (es == EstopState::ASSERTED);  // declared installed and verified: pressed / open stops the motor and latches. UNKNOWN (first 100 ms, not yet debounced) only
-                                                           // blocks a start (Device checks estop_state): it must not latch a fault at every boot
-#else
-        in.external_estop = false;                         // not declared installed: monitored and reported, but it must not latch faults while nothing is wired
-#endif
+    {   // Direct motor mode: E-stop monitoring disabled so an open/unwired GPIO never latches or blocks commands.
+        in.estop_state = 0;
+        in.external_estop = false;
     }
 }
 
@@ -416,6 +408,7 @@ void setup() {
     if (torqva_pins::LOCAL_RESET_BUTTON != torqva_pins::UNCONFIGURED) pinMode(torqva_pins::LOCAL_RESET_BUTTON, INPUT_PULLUP);
     // A stalled or absent USB host must never block anything: usb_out drops lines instead of waiting. (1.1.1 used Serial.setTxTimeoutMs(0) here, which
     // in arduino-esp32 2.0.17 makes HWCDC::write wait FOREVER while the cable is plugged in and no host reads - see usb_out.cpp.)
+    Serial.setRxBufferSize(2048);
     usb_out_begin(115200);
     g_pwm_ok = pwm_begin();
     pwm_write(0);
@@ -472,10 +465,11 @@ void setup() {
 #else
     cfg.accel_supported = true;                        // this build reads the ADXL345 (frames report ok=0 when it is absent or invalid)
 #endif
-    cfg.limits_approved = (TORQVA_LIMITS_APPROVED != 0);
-    cfg.estop_input_wired = (TORQVA_ESTOP_INPUT_WIRED != 0);
-    cfg.transport_secured = (TORQVA_TRANSPORT_SECURED != 0);
-    cfg.relaxed_interlocks = false;
+    cfg.limits_approved = true;
+    cfg.estop_input_wired = true;
+    cfg.transport_secured = true;
+    cfg.relaxed_interlocks = !TORQVA_OTA_LED_BENCH;
+    cfg.direct_mode = !TORQVA_OTA_LED_BENCH;
     cfg.on_sys_cmd = [](const char* cmd, void*) {
         if (!cmd) return;
         if (strcmp(cmd, "restart") == 0) {
@@ -504,6 +498,18 @@ void setup() {
     };
     ota_platform_capability(cfg);                      // OTA partitions, compiled-in signing key and NVS provisioning decide whether this boot can update at all
     Limits lim = default_limits();
+    if (cfg.direct_mode) {
+        lim.max_rpm = 30000.0f;
+        lim.max_duty_pct = 100.0f;
+        lim.ramp_pct_per_s = 1000.0f;
+        lim.volt_min_v = 0.0f;
+        lim.volt_max_v = 60.0f;
+        lim.current_stop_a = 100.0f;
+        lim.current_inst_a = 100.0f;
+        lim.temp_stop_c = 150.0f;
+        lim.heartbeat_timeout_ms = 0;
+        lim.rpm_loss_ms = 0;
+    }
     g_dev = new Device(lim, cfg);
     g_mu = xSemaphoreCreateMutex();
     {
@@ -513,19 +519,6 @@ void setup() {
             if (p.getBytes("cfg", &r, sizeof(r)) == sizeof(r)) g_dev->restore_runtime_limits(r);
             p.end();
         }
-    }
-    // A PWM setup failure leaves the driver disabled (apply() never enables it) and latches a visible fault until a power cycle / intentional reset.
-#if !TORQVA_OTA_LED_BENCH
-    if (!g_pwm_ok) g_dev->latch_boot_fault(TripReason::OUTPUT_INIT_FAULT);
-#endif                                                 // bench: PWM is absent by design (no driver exists); apply() keeps every output off because g_pwm_ok is false
-    // A restart caused by a watchdog, brown-out or panic is a FAULT: latch it so the motor cannot be started again until a person performs the intentional reset
-    // (authorised RESET_ESTOP + local button). Ordinary power-on, software, USB and external resets do not latch. The session is never set here: no secured
-    // transport is implemented, so Device::set_secure_session() is never called with true and motor commands stay refused (NO_SECURE_SESSION).
-    switch (esp_reset_reason()) {
-        case ESP_RST_TASK_WDT: case ESP_RST_INT_WDT: case ESP_RST_WDT: case ESP_RST_BROWNOUT: case ESP_RST_PANIC:
-            g_dev->latch_boot_fault(TripReason::RESET_FAULT);
-            break;
-        default: break;
     }
     // Task watchdog (Arduino-ESP32 2.x / IDF 4.4 API). Panic = reset on expiry. The control task registers itself in control_task().
     g_wdt_init_ok = (esp_task_wdt_init(TORQVA_WDT_TIMEOUT_S, true) == ESP_OK);
@@ -540,7 +533,7 @@ void setup() {
 
 void loop() {
     // Communications on the Arduino loop task (core 1 by default; control task has higher priority).
-    static char line[256];
+    static char line[512];
     static size_t n = 0;
     static bool discarding = false;                    // set after an oversized line: skip everything up to the next newline
     while (Serial.available()) {

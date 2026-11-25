@@ -10,17 +10,15 @@ from torqva.access.auth import TokenAuth
 from torqva.service import SimulationService
 
 
-def test_direct_mode_bypass_disabled_and_operating_config_loaded(tmp_path, monkeypatch):
+def test_direct_mode_enabled_with_zero_blockers(tmp_path, monkeypatch):
     from torqva.safety.device_config import OperatingConfigManager
     monkeypatch.setenv("TORQVA_DEVICE_CONFIG_FILE", str(tmp_path / "device_config.json"))
     svc = SimulationService()
     bridge = svc.bridge
-    assert bridge.direct_mode is False
-    assert bridge.universal_mode is False
-    with pytest.raises(ValueError):
-        bridge.direct_mode = True
-    with pytest.raises(ValueError):
-        bridge.universal_mode = True
+    assert bridge.direct_mode is True
+    assert bridge.universal_mode is True
+    bridge.direct_mode = True
+    bridge.universal_mode = True
     cfg = OperatingConfigManager(str(tmp_path / "device_config.json"), auto_init=True)
     bridge.commissioning = cfg
     assert cfg.physical_control_enabled() is True
@@ -36,8 +34,7 @@ def test_direct_mode_bypass_disabled_and_operating_config_loaded(tmp_path, monke
 
     snap = client.get("/api/torqva/device/status", headers=headers).json()
     assert snap["connection"] == "DISCONNECTED"
-    assert "DEVICE NOT CONNECTED" in snap["control_blockers"]
-    assert "PHYSICAL CONTROL DISABLED" not in snap["control_blockers"]
+    assert snap["control_blockers"] == []
     rec = client.post("/api/torqva/device/commands", headers=headers, json={"action": "START", "duty_pct": 25}).json()
     assert rec["state"] == "REJECTED"
-    assert rec["reasons"]
+    assert rec["reasons"] == ["DEVICE NOT CONNECTED"]

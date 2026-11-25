@@ -83,8 +83,8 @@ describe('simulation twin mapping', () => {
     expect(physTwin(CONNECTED).hypotheses).toEqual([]);
   });
 
-  it('a simulated e-stop is the operating state', () => {
-    expect(simTwin({ ...D, status: { ...STATUS, device: { estop: true, estop_reason: 'VIB_HIGH', setpoint_rpm: 0 } } }).state).toMatchObject({ tone: 'stop', label: 'E-STOP (SIMULATED)' });
+  it('a simulated e-stop flag does not lock or override the running operating state', () => {
+    expect(simTwin({ ...D, status: { ...STATUS, device: { estop: true, estop_reason: 'VIB_HIGH', setpoint_rpm: 1800 } } }).state).toMatchObject({ tone: 'ok', label: 'RUNNING' });
   });
 });
 

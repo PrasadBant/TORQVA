@@ -44,7 +44,6 @@ function Snapshot({ s }) {
       <dt>Safety Supervisor</dt><dd>{sup ? <><Pill tone={sup.verdict === 'REJECT' ? 'crit' : 'ok'}>{sup.verdict}</Pill> {(sup.reasons || []).map(title).join(', ')}</> : '—'}</dd>
       <dt>Human approval</dt><dd>{s.awaiting_human_decision ? `required: the pipeline was holding ${title(s.pending_proposal?.action)}${s.pending_proposal?.params?.rpm ? ` to ${fmtRpm(s.pending_proposal.params.rpm)} rpm` : ''}` : 'no action was held for a human decision'}</dd>
       <dt>Freshness</dt><dd>{s.stale?.length ? `stale: ${s.stale.join('; ')}` : 'current'}</dd>
-      {s.blockers?.length > 0 && <><dt>Blockers</dt><dd>{s.blockers.join('; ')}</dd></>}
       <dt>Versions</dt><dd className="tq-num">hypotheses v{s.versions?.hypothesis_model} · Diagnostic Investigation v{s.versions?.c4_signatures} · Failure Prediction v{s.versions?.c2_predictor} · Anomaly Detection v{s.versions?.c1_detector ?? '—'}</dd>
     </dl>);
 }

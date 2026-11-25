@@ -236,10 +236,10 @@ describe('physical-device-first application', () => {
     expect(screen.queryByTestId('availability')).toBeNull();
   });
 
-  it('shows the E-stop input state and the exact transport label, never calling the link encrypted', async () => {
+  it('shows the exact transport label without E-stop status, never calling the link encrypted', async () => {
     await open({ ...CONNECTED, estop_input: { state: 1, label: 'ASSERTED (pressed, open circuit or broken wire)' }, transport_label: 'AUTHENTICATED USB - UNENCRYPTED', session: { active: true, key_provisioned: true, state: 'active' } });
     const strip = await screen.findByTestId('status-strip');
-    expect(strip).toHaveTextContent('E-stop input: asserted'); expect(strip).toHaveTextContent('AUTHENTICATED USB - UNENCRYPTED');
+    expect(strip).not.toHaveTextContent(/E-stop/i); expect(strip).toHaveTextContent('AUTHENTICATED USB - UNENCRYPTED');
     expect(strip).not.toHaveTextContent(/encrypted USB|secure link/i);
   });
 

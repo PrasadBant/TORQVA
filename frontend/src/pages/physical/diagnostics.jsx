@@ -10,7 +10,7 @@ import {
 import { api, ApiError } from '../../shared/api.js';
 import {
   Card, Empty, ErrorBox, Pill, PageHead, ProvBadge, fmt, title, pct, fmtRpm as rpm,
-  StatTile, StatGrid, AlertPanel, BlockedReason, LinkButton, CheckList, StepTracker,
+  StatTile, StatGrid, AlertPanel, LinkButton, CheckList, StepTracker,
   DataTable, SourceTag, ConditionBanner, AXIS, GRID, TOOLTIP, LEGEND
 } from '../../components/components.jsx';
 import { TrendLines } from '../../shared/lazyCharts.jsx';
@@ -85,7 +85,7 @@ function getPhysicalDiag(snap) {
       target_rpm: score >= 1.5 ? 0 : score >= 1.0 ? target_red : spVal,
       change_rpm: score >= 1.5 ? -rpmVal : score >= 1.0 ? target_red - spVal : 0,
       candidate_id: score >= 1.5 ? 'STOP' : score >= 1.0 ? 'REDUCE_SPEED' : 'MAINTAIN_SPEED',
-      headline: score >= 1.5 ? 'Emergency Stop Recommended' : score >= 1.0 ? `Reduce Speed to ${target_red} rpm` : `Maintain Speed at ${Math.round(spVal)} rpm`,
+      headline: score >= 1.5 ? 'Stop Motor Recommended' : score >= 1.0 ? `Reduce Speed to ${target_red} rpm` : `Maintain Speed at ${Math.round(spVal)} rpm`,
       rationale: score >= 1.0 ? [`Anomaly detected (severity ${score.toFixed(2)} × threshold)`, 'Projected to reduce thermal dissipation and vibration by ~40%'] : ['Operating parameters within nominal envelope', 'No speed adjustment required'],
       actionable: score >= 1.0,
       decision_rule: 'physical safety & degradation mitigation',
@@ -458,7 +458,7 @@ export function PhysicalTestsPage({ stream, go }) {
       <div data-testid="layer-C4" className={live ? 'tq-hidden-test-only' : 'tq-alertpanel tq-warn'}>
         <div className="tq-alertpanel-body">
           <strong>{l?.status || WAITING}</strong>
-          <p>{l?.reason || 'diagnostic tests depend on C1/C2 evidence'}</p>
+          <p>{l?.reason || 'diagnostic tests depend on anomaly and prediction evidence'}</p>
         </div>
       </div>
 

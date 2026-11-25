@@ -65,7 +65,6 @@ export function simTwin(d, { running = false, stale = false } = {}) {
   const inc = st.incident;
   const state = stale ? { tone: 'crit', label: 'BACKEND UNREACHABLE', detail: hasRun ? `Simulator state unknown. The values shown are the last ones received (${when}), not current.` : 'Simulator state unknown.' }
     : !hasRun ? { tone: 'off', label: 'NO SIMULATION RUNNING', detail: 'Start a scenario in Scenario Studio.' }
-    : st.device?.estop ? { tone: 'stop', label: 'E-STOP (SIMULATED)', detail: st.device.estop_reason || 'The simulated device latched a stop.' }
     : inc ? { tone: stateTone(inc.state), label: `INCIDENT ${inc.id}: ${title(inc.state)}`, detail: 'An open incident in the simulated pipeline.' }
     : !finite(rpm) ? { tone: 'off', label: 'SPEED UNAVAILABLE', detail: why }
     : (sp ?? 0) <= 0 ? (rpm > 5 ? { tone: 'info', label: 'COASTING DOWN', detail: `${fmt(rpm, 0)} rpm, setpoint 0` } : { tone: 'off', label: 'STOPPED', detail: 'Simulated motor at rest.' })
@@ -102,9 +101,6 @@ export function simTwin(d, { running = false, stale = false } = {}) {
   // the simulation itself defines. An invalid window is system-wide, so it marks no single part. Nothing is inferred from scores or hypotheses.
   const alerts = [];
   if (hasRun && !stale) {
-    const reason = st.device?.estop ? st.device.estop_reason : null;
-    if (reason && SIM_TRIP_PART[reason]) alerts.push({ part: SIM_TRIP_PART[reason], tone: 'stop', kind: 'trip', label: `Simulated safety trip: ${title(reason)}`,
-      detail: 'The simulated device latched this stop from this sensor\'s simulated reading. It records what tripped, not which part failed.' });
     const fp = sc.fault && FAULT_PART[sc.fault];
     if (fp && finite(st.t) && finite(sc.inject_after_s) && st.t >= sc.inject_after_s) alerts.push({ part: fp[0], tone: 'sim', kind: 'truth', label: `Injected fault: ${title(sc.fault)}`,
       detail: `The scenario injects ${fp[1]} at severity ${fmt(sc.severity, 2)} from t = ${sc.inject_after_s} s${sc.clears_below_rpm ? ` (the simulator clears it below ${sc.clears_below_rpm} rpm)` : ''}. Shown because this is a simulation; TORQVA did not detect or diagnose it.` });

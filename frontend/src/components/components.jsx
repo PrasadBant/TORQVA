@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
-import { Activity, AlertTriangle, CheckCircle2, ShieldAlert, Info, XOctagon, Clock, XCircle, FlaskConical, Inbox, Loader2, AlertCircle, ArrowRight, CircleDashed, CircleDot, HelpCircle, Lock } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, ShieldAlert, Info, XOctagon, Clock, XCircle, FlaskConical, Inbox, Loader2, AlertCircle, ArrowRight, CircleDashed, CircleDot, HelpCircle } from 'lucide-react';
 
 /** Where the current page sits in the navigation (icon and group), provided by the application shell. */
 export const NavContext = createContext(null);
@@ -280,24 +280,6 @@ export function AlertPanel({ tone = 'info', icon, title: t, children, action, te
       <span className="tq-alertpanel-icon" aria-hidden="true"><I size={20} /></span>
       <div className="tq-alertpanel-body"><strong>{t}</strong>{children && <div className="tq-alertpanel-text">{children}</div>}</div>
       {action && <div className="tq-alertpanel-action">{action}</div>}
-    </div>
-  );
-}
-
-/** Why an action cannot run: the first reason in full, the rest behind a disclosure. Reasons come from the backend; never write your own. */
-// `expanded` lists every reason in the open (use it where a hidden blocker would mislead, e.g. a decision check).
-export function BlockedReason({ title: t = 'Action unavailable', reasons = [], action, testid, expanded = false }) {
-  if (!reasons.length) return null;
-  return (
-    <div className="tq-blocked" role="status" data-testid={testid}>
-      <span className="tq-blocked-icon" aria-hidden="true"><Lock size={15} /></span>
-      <div className="tq-blocked-body">
-        <strong>{t}</strong>
-        {expanded ? <ul>{reasons.map((r) => <li key={r}>{r}</li>)}</ul> : <span>{reasons[0]}</span>}
-        {!expanded && reasons.length > 1 && (
-          <details><summary>{reasons.length - 1} more reason{reasons.length > 2 ? 's' : ''}</summary><ul>{reasons.slice(1).map((r) => <li key={r}>{r}</li>)}</ul></details>)}
-      </div>
-      {action && <div className="tq-blocked-action">{action}</div>}
     </div>
   );
 }

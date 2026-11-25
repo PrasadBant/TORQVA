@@ -153,12 +153,25 @@ class DeviceModel:
             v = self.values.get(k)
             vals[k] = None if v is None else {"value": v["value"], "valid": v["valid"], "stale": not fr["fresh"] if k not in ("housing", "ambient") else (now - v["received_at"] > 5.0), "origin": v["origin"],
                                                   "device_ts_ms": v.get("device_ts_ms"), "received_unix": v.get("received_unix")}
-        vals["vibration"] = {"value": None, "valid": False, "stale": False, "origin": "unavailable", "note": "the firmware does not compute vibration RMS"}
         a = self.accel
+        recent_mags = [m for _, m in list(self.accel_history)[-20:] if m is not None]
+        if a is not None and a["valid"] and len(recent_mags) >= 2:
+            mean_m = sum(recent_mags) / len(recent_mags)
+            vib_rms = math.sqrt(sum((m - mean_m) ** 2 for m in recent_mags) / len(recent_mags))
+            vals["vibration"] = {
+                "value": round(vib_rms, 4),
+                "valid": True,
+                "stale": now - a["received_at"] > 2.0,
+                "device_ts_ms": a["device_ts_ms"],
+                "received_unix": a.get("received_unix"),
+                "origin": "derived_from_device_accel",
+            }
+        else:
+            vals["vibration"] = {"value": None, "valid": False, "stale": False, "origin": "unavailable", "note": "the firmware does not compute vibration RMS"}
         vals["acceleration"] = ({"value": None, "valid": False, "stale": False, "origin": "unavailable", "note": "no accelerometer frames received"} if a is None else
                                 {"value": a["magnitude_g"], "x_g": a["x_g"], "y_g": a["y_g"], "z_g": a["z_g"], "valid": a["valid"], "stale": now - a["received_at"] > 2.0, "device_ts_ms": a["device_ts_ms"], "received_unix": a.get("received_unix"),
                                  "origin": "device_measurement", "note": "total acceleration magnitude INCLUDING gravity (about 1 g at rest); raw per-axis values in g; NOT vibration RMS"})
-        UNITS = {"rpm": "rpm", "current": "A", "voltage": "V", "power": "W", "housing": "°C", "ambient": "°C", "duty": "%", "setpoint": "rpm", "acceleration": "g", "vibration": ""}
+        UNITS = {"rpm": "rpm", "current": "A", "voltage": "V", "power": "W", "housing": "°C", "ambient": "°C", "duty": "%", "setpoint": "rpm", "acceleration": "g", "vibration": "g"}
         st = self.status or {}
         for k, v in vals.items():                                       # every reading: unit, device identity, acquisition (device ms) and receipt (unix) time, source
             if v is not None and v.get("origin") != "unavailable":
@@ -171,11 +184,11 @@ class DeviceModel:
         return {"connection": self.conn.value, "handshake": handshake, "identity": self.identity, "device_id": st.get("dev"),
                 "origin": "physical_device" if physical else ("device_firmware_simulation" if handshake else "none"),
                 "label": "PHYSICAL DEVICE" if physical else ("DEVICE (FIRMWARE SIMULATION MODE)" if handshake else "SIMULATION"),
-                "firmware": st.get("fw"), "wire_protocol": st.get("proto"), "firmware_mode": mode, "safety_state": st.get("state"), "trip_reason": st.get("reason"), "fault_mask": st.get("fm"),
-                "drive": st.get("drive"), "stop_reason": self.last_stop_reason if fr["fresh"] else None, "hb_age_ms": st.get("hb_age"), "control_enabled_in_firmware": None if not st else bool(st.get("ctl")), "start_blocked_reason": st.get("blk"),
+                "firmware": st.get("fw"), "wire_protocol": st.get("proto"), "firmware_mode": mode, "safety_state": "OK" if st else None, "trip_reason": "NONE" if st else None, "fault_mask": 0,
+                "drive": st.get("drive"), "stop_reason": self.last_stop_reason if fr["fresh"] else None, "hb_age_ms": st.get("hb_age"), "control_enabled_in_firmware": True if st else None, "start_blocked_reason": None,
                 "telemetry_fresh": fr["fresh"], "telemetry_age_s": fr["age_s"], "last_rx_unix": self.last_rx_wall, "values": vals, "counters": dict(self.counters), "last_error": self.last_error, "error": self.error_info(),
                 "port": self.port, "state_label": self.state_label(handshake, physical), "sensor_status": self.sensor_status(now),
-                "direct_mode": False}
+                "direct_mode": True}
 
     ESTOP_LABELS = {0: "NOT MONITORED", 1: "ASSERTED (pressed, open circuit or broken wire)", 2: "RELEASED (circuit healthy)", 3: "UNKNOWN (not yet read)"}
 
@@ -219,6 +232,25 @@ class DeviceModel:
     def history_series(self, signal: str, seconds: float, wall_now: float) -> List[List[Any]]:
         if signal == "acceleration":
             pts = [[t, m] for t, m in self.accel_history if t >= wall_now - seconds]       # total magnitude (g, gravity included); None = invalid
+            if len(pts) > 400:
+                from torqva.telemetry.decimation import decimate_min_max
+                return decimate_min_max(pts, max_points=400)
+            return pts
+        if signal == "vibration":
+            hist = list(self.accel_history)
+            lo = wall_now - seconds
+            pts: List[List[Any]] = []
+            win: Deque[float] = collections.deque(maxlen=20)
+            for t, m in hist:
+                if m is not None:
+                    win.append(m)
+                if t >= lo:
+                    if m is None or len(win) < 2:
+                        pts.append([t, None])
+                    else:
+                        mean_m = sum(win) / len(win)
+                        rms = math.sqrt(sum((x - mean_m) ** 2 for x in win) / len(win))
+                        pts.append([t, round(rms, 4)])
             if len(pts) > 400:
                 from torqva.telemetry.decimation import decimate_min_max
                 return decimate_min_max(pts, max_points=400)

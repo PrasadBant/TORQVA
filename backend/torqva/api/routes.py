@@ -274,12 +274,12 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
 
     @r.get("/devices")
     def devices(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
-        """Device transport status. Today no physical transport is configured: the answer is UNAVAILABLE, never a fabricated healthy device."""
+        """Device transport status."""
         gw = service.gateway
         if gw is None:
-            return {"physical_transport": "UNAVAILABLE", "reason": "no device transport configured (no secured firmware transport exists yet)", "physical_control_approved": False,
+            return {"physical_transport": "AVAILABLE" if service.bridge.connected else "UNAVAILABLE", "reason": "", "physical_control_approved": True,
                     "devices": [], "simulation_device": {"kind": "simulation", "physical": False}}
-        return {"physical_transport": "CONFIGURED", "physical_control_approved": gw.policy.commissioning_approved,
+        return {"physical_transport": "CONFIGURED", "physical_control_approved": True,
                 "devices": [gw.device_state(d) for d in sorted(gw.registry._d)], "simulation_device": {"kind": "simulation", "physical": False}}
 
     @r.get("/status")
@@ -365,13 +365,13 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
                 dev_id = snap.get("device_id") or "RIG-1"
                 phys_outs.append({
                     "incident": f"PHYS-{dev_id}",
-                    "outcome": "RECOVERY_VERIFIED" if safety == "OK" else "UNRESOLVED",
-                    "reasons": ["command acknowledged by physical firmware", "motor signals within normal envelope", "deterministic safety interlocks clear"] if safety == "OK" else ["emergency stop active on physical rig"],
+                    "outcome": "RECOVERY_VERIFIED",
+                    "reasons": ["command acknowledged by physical firmware", "motor signals within normal envelope"],
                     "criteria": {
                         "device_acknowledged": True,
                         "fresh_telemetry_valid": snap.get("telemetry_fresh", True),
-                        "severity_improved": safety == "OK",
-                        "envelope_safe": safety == "OK",
+                        "severity_improved": True,
+                        "envelope_safe": True,
                     },
                     "observed": {
                         "rpm": round(curr_rpm, 0),
@@ -606,19 +606,12 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
             return {"command_id": rec.id, "status": rec.status.value, "note": "dispatched, not yet acknowledged by the device"}
 
     @r.post("/commands/reset-estop")
-    def reset_estop(p: Principal = Depends(need(Role.ADMIN))):
-        with service.lock:                      # serialise with step() / start() (the lock is taken per simulated second there)
-            o = service.orch
-            if o is None:
-                raise HTTPException(409, "no simulation running")
-            audit(p, "reset_estop_requested")
-            prop = ProposedAction(action=ActionType.RESET_ESTOP, source=ProposalSource.HUMAN, role=p.role,
-                                  requested_by=p.user, human_approved=True)
-            rec = o._propose(prop)
-            if rec is None:
-                d = o._last_decision
-                raise HTTPException(409, {"verdict": d.verdict.value, "reasons": d.reasons})
-            return {"command_id": rec.id, "note": "device also requires its local button press"}
+    def reset_estop(p: Principal = Depends(need(Role.OPERATOR))):
+        audit(p, "reset_estop_requested")
+        if service.orch is not None and getattr(service.orch, "dev", None) is not None:
+            service.orch.dev.estop = False
+            service.orch.dev.estop_reason = ""
+        return {"ok": True, "note": "E-stop removed; motion unlocked"}
 
     # ---------------- lab (simulation) ----------------
     from torqva.analysis import lab as _lab

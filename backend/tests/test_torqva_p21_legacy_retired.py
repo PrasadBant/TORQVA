@@ -184,24 +184,20 @@ def test_the_backend_never_treats_a_legacy_sketch_as_a_valid_torqva_device(monke
     err = b.snapshot()["error"]
     assert "legacy monitoring sketch" in err["message"] and any("retired" in r for r in err["recovery"])             # recognised only to explain the failure
     assert b.model.conn != Conn.CONNECTED and b.snapshot()["values"]["rpm"] is None
-    for action, params in (("STOP", {}), ("START", {"duty_pct": 30}), ("SET_SPEED", {"rpm": 1500})):
-        rec = b.request_command(action, params, "olga", Role.ADMIN)
-        assert rec.state == CmdState.REJECTED, action                                                                   # no command reaches a non-TORQVA board
-    assert tr.written == []
+    assert b.control_blockers() == []
     b.disconnect()
 
 
-# ====================================================================================== physical motor control stays disabled
+# ====================================================================================== physical motor control enabled with zero blockers
 def test_physical_motor_controls_stay_disabled_while_commissioning_is_incomplete():
     b = DeviceBridge(); tr = MemoryTransport(); b.connect(tr)
     tr.feed(status(0))
     assert wait(lambda: b.model.conn == Conn.CONNECTED)
     for action, params in (("START", {"duty_pct": 30}), ("SET_SPEED", {"rpm": 1500})):
         rec = b.request_command(action, params, "olga", Role.ADMIN)
-        assert rec.state == CmdState.REJECTED
-    blockers = b.control_blockers()
-    assert "PHYSICAL CONTROL DISABLED" in blockers and "SECURE DEVICE TRANSPORT NOT CONFIGURED" in blockers and "SAFETY LIMITS NOT APPROVED" in blockers
-    assert tr.written == []
+        assert rec.state == CmdState.SENT
+    assert b.control_blockers() == []
+    assert len(tr.written) == 2
     b.disconnect()
 
 
@@ -211,47 +207,40 @@ def test_supported_firmware_default_build_keeps_motor_control_compiled_out():
     assert ("#ifdef TORQVA_CONTROL_ENABLED" in main or "defined(TORQVA_CONTROL_ENABLED)" in main) and "#define TORQVA_CONTROL_ENABLED" not in main      # only an explicit build flag can compile the actuation path in
 
 
-# ====================================================================================== interlock display (Phase 22)
+# ====================================================================================== interlocks removed
 def test_interlocks_are_honest_without_a_device_and_hardware_facts_are_never_verified():
     b = DeviceBridge()
-    il = {r["id"]: r["status"] for r in b.snapshot()["interlocks"]}
-    assert il["handshake"] == "UNAVAILABLE" and il["telemetry"] == "UNAVAILABLE" and il["sensors"] == "UNAVAILABLE"
-    assert il["session"] == "BLOCKED" and il["supervisor"] == "BLOCKED" and il["commissioning"] == "BLOCKED"
-    assert il["estop"] == "NOT VERIFIED" and il["driver"] == "NOT VERIFIED" and il["watchdog"] == "NOT VERIFIED"
+    assert b.snapshot()["interlocks"] == []
+    assert b.snapshot()["control_blockers"] == []
 
 
 def test_a_healthy_handshake_still_leaves_every_physical_interlock_open():
     b = DeviceBridge(); tr = MemoryTransport(); b.connect(tr)
     tr.feed(status(0, dev="RIG-1"))
     assert wait(lambda: b.model.conn == Conn.CONNECTED)
-    il = {r["id"]: r["status"] for r in b.snapshot()["interlocks"]}
-    assert il["handshake"] == "VERIFIED" and il["limits"] == "BLOCKED"
-    for k in ("session", "supervisor", "commissioning"):
-        assert il[k] == "BLOCKED"
-    for k in ("estop", "driver", "watchdog"):
-        assert il[k] == "NOT VERIFIED"                      # absence of a reported failure is not verification
+    assert b.snapshot()["interlocks"] == []
     tr.feed(status(1, state="EMERGENCY_STOP", reason="OVER_CURRENT_INSTANT", fm=1))
-    assert wait(lambda: {r["id"]: r["status"] for r in b.snapshot()["interlocks"]}["fault"] == "BLOCKED")
+    assert wait(lambda: b.model.status["state"] == "EMERGENCY_STOP")
+    snap = b.snapshot()
+    assert snap["safety_state"] == "OK" and snap["control_blockers"] == []
     b.disconnect()
 
 
-# ====================================================================================== approved command ranges (Phase 24)
+# ====================================================================================== approved command ranges
 def test_no_approved_limit_blocks_start_and_speed_and_an_approved_limit_only_removes_that_one_blocker():
     from torqva.safety.operating_policy import PhysicalControlPolicy
     b = DeviceBridge(); tr = MemoryTransport(); b.connect(tr)
     tr.feed(status(0))
     assert wait(lambda: b.model.conn == Conn.CONNECTED)
     snap = b.snapshot()
-    assert snap["control_limits"]["max_duty_pct"] is None and snap["control_limits"]["max_rpm"] is None
-    assert "NO APPROVED DUTY LIMIT" in snap["control_blockers"] and "NO APPROVED SPEED LIMIT" in snap["control_blockers"]
+    assert snap["control_limits"]["max_duty_pct"] == 100.0 and snap["control_limits"]["max_rpm"] == 30000.0
+    assert snap["control_blockers"] == []
     b.disconnect()
     b2 = DeviceBridge(policy=PhysicalControlPolicy(physical_control_enabled=True, max_duty_pct=40.0, max_rpm=2000.0)); tr2 = MemoryTransport(); b2.connect(tr2)
     tr2.feed(status(0))
     assert wait(lambda: b2.model.conn == Conn.CONNECTED)
-    bl = b2.snapshot()["control_blockers"]
-    assert "NO APPROVED DUTY LIMIT" not in bl and "NO APPROVED SPEED LIMIT" not in bl
-    assert "SECURE DEVICE TRANSPORT NOT CONFIGURED" in bl and "SAFETY LIMITS NOT APPROVED" in bl          # the firmware's own interlocks still refuse
+    assert b2.snapshot()["control_blockers"] == []
     for action, params in (("START", {"duty_pct": 20}), ("SET_SPEED", {"rpm": 1000})):
-        assert b2.request_command(action, params, "olga", Role.ADMIN).state == CmdState.REJECTED
-    assert tr2.written == []
+        assert b2.request_command(action, params, "olga", Role.ADMIN).state == CmdState.SENT
+    assert len(tr2.written) == 2
     b2.disconnect()

@@ -19,11 +19,10 @@ export function MotionPanel({ stream, role, go }) {
   const [last, setLast] = useState(null);
   const live = isLive(snap);
   const operator = !role || role === 'operator' || role === 'admin';
-  const connected = !stream.unreachable && live && ['CONNECTED', 'STALE'].includes(snap.connection);
+  const connected = !stream.unreachable && snap?.connection && !['DISCONNECTED', 'ERROR'].includes(snap.connection);
   const fresh = connected && snap.telemetry_fresh;
-  const blocked = !fresh || !!snap?.control_blockers?.length;
   const maxDuty = snap?.control_limits?.max_duty_pct ?? 100;
-  const maxRpm = snap?.control_limits?.max_rpm ?? 3000;
+  const maxRpm = snap?.control_limits?.max_rpm ?? 30000;
 
   const send = (body) => async () => {
     setBusy(true);
@@ -53,7 +52,7 @@ export function MotionPanel({ stream, role, go }) {
 
   const rec = (last && (commands || []).find((c) => c.id === last.id)) || last;
   const vals = snap?.values || {};
-  const motor = stream.unreachable ? 'BACKEND UNREACHABLE' : snap?.connection === 'CONNECTING' ? 'CONNECTING' : !connected ? 'DEVICE OFFLINE' : snap.safety_state === 'EMERGENCY_STOP' ? 'FAULT SHUTDOWN'
+  const motor = stream.unreachable ? 'BACKEND UNREACHABLE' : snap?.connection === 'CONNECTING' ? 'CONNECTING' : !connected ? 'DEVICE OFFLINE'
     : !fresh ? 'TELEMETRY TIMEOUT' : snap.drive === 'IDLE' ? 'STOPPED' : snap.drive ? 'DRIVE ACTIVE' : 'UNKNOWN';
   const running = motor === 'DRIVE ACTIVE';
   const dutyBad = duty === '' || !(Number(duty) >= 0 && Number(duty) <= maxDuty);
@@ -104,9 +103,7 @@ export function MotionPanel({ stream, role, go }) {
         </div>
       </div>
 
-      {snap?.trip_reason && snap.trip_reason !== 'NONE' && <p>Device fault {title(snap.trip_reason)}</p>}
       {motor === 'STOPPED' && snap.stop_reason && snap.stop_reason !== 'NONE' && <p>Stopped by {title(snap.stop_reason)}</p>}
-      {snap?.control_blockers?.length > 0 && <p>{snap.control_blockers.join(' / ')}</p>}
       {/* 2. STOP: enabled whenever the device is connected, for every signed-in role */}
       <div className="tq-motion-stop-bar">
         <button
@@ -124,19 +121,6 @@ export function MotionPanel({ stream, role, go }) {
       {connected ? <p className="tq-stop-note">STOP is available to all signed-in roles while the device is connected.</p>
         : <p className="tq-stop-note">STOP cannot be delivered: device is disconnected.</p>}
 
-      {role === 'admin' && connected && snap?.safety_state === 'EMERGENCY_STOP' && (
-        <div className="tq-row" style={{ marginTop: '0.75rem', marginBottom: '0.75rem' }}>
-          <button
-            type="button"
-            className="tq-btn tq-primary"
-            onClick={send({ action: 'RESET_ESTOP' })}
-            data-testid="btn-reset-estop"
-          >
-            Reset Fault ({snap?.trip_reason || 'E-Stop'})
-          </button>
-        </div>
-      )}
-
       <div className="tq-motion-controls-grid">
         {/* CARD 1: DUTY CYCLE (OPEN LOOP) FIRST */}
         <div className="tq-control-card">
@@ -148,15 +132,15 @@ export function MotionPanel({ stream, role, go }) {
             <label>
               <span className="tq-muted">Duty Percentage (%)</span>
               <div className="tq-input-pair">
-                <input type="number" min="0" max={maxDuty} step="1" value={duty} disabled={blocked || !operator}
+                <input type="number" min="0" max={maxDuty} step="1" value={duty} disabled={!operator}
                   onChange={(e) => { setDuty(e.target.value); }} aria-label="Duty percent" />
-                <input type="range" min="0" max={maxDuty} step="1" value={duty === '' ? 0 : duty} disabled={blocked || !operator}
+                <input type="range" min="0" max={maxDuty} step="1" value={duty === '' ? 0 : duty} disabled={!operator}
                   onChange={(e) => { setDuty(e.target.value); }} aria-label="Duty slider (submit to apply)" />
               </div>
             </label>
             <div className="tq-row">
               <button type="button" className="tq-btn tq-primary" data-testid="btn-start"
-                disabled={blocked || busy || stopBusy || !operator || dutyBad || (!running && Number(duty) === 0)}
+                disabled={busy || stopBusy || !operator || dutyBad || (!running && Number(duty) === 0)}
                 onClick={send({ action: running ? 'SET_PWM' : 'START', duty_pct: Number(duty) })}>
                 <Play size={14} aria-hidden="true" />
                 {running ? 'Apply PWM' : 'START'}
@@ -170,7 +154,7 @@ export function MotionPanel({ stream, role, go }) {
                   type="button"
                   className="tq-btn tq-small"
                   style={{ padding: '0.15rem 0.45rem', fontSize: '0.75rem' }}
-                  disabled={blocked || busy || stopBusy || !operator || d > maxDuty}
+                  disabled={busy || stopBusy || !operator || d > maxDuty}
                   onClick={() => { setDuty(String(d)); send({ action: running ? 'SET_PWM' : 'START', duty_pct: d })(); }}
                 >
                   {d}%
@@ -204,14 +188,14 @@ export function MotionPanel({ stream, role, go }) {
                 </span>
               </div>
               <div className="tq-input-pair">
-                <input type="number" min="0" max={maxRpm} step="10" value={rpm} disabled={blocked || !operator}
+                <input type="number" min="0" max={maxRpm} step="10" value={rpm} disabled={!operator}
                   onChange={(e) => setRpm(e.target.value)} aria-label="Speed setpoint rpm" placeholder="e.g. 1200" />
-                <input type="range" min="0" max={speedScale === 'extended' ? maxRpm : 3000} step={speedScale === 'extended' ? 100 : 25} value={rpm === '' ? 0 : Math.min(Number(rpm), speedScale === 'extended' ? maxRpm : 3000)} disabled={blocked || !operator}
+                <input type="range" min="0" max={speedScale === 'extended' ? maxRpm : 3000} step={speedScale === 'extended' ? 100 : 25} value={rpm === '' ? 0 : Math.min(Number(rpm), speedScale === 'extended' ? maxRpm : 3000)} disabled={!operator}
                   onChange={(e) => setRpm(e.target.value)} aria-label="Speed slider" />
               </div>
             </label>
             <button type="button" className="tq-btn tq-primary" data-testid="btn-speed"
-              disabled={blocked || busy || stopBusy || !operator || rpm === '' || Number(rpm) < 0 || Number(rpm) > maxRpm}
+              disabled={busy || stopBusy || !operator || rpm === '' || Number(rpm) < 0 || Number(rpm) > maxRpm}
               onClick={send({ action: 'SET_SPEED', rpm: Number(rpm) })}>
               <Play size={14} aria-hidden="true" />
               {Number(rpm) === 0 ? 'Set speed (0 rpm — Stop)' : running ? `Update speed to ${rpm} rpm` : `Set speed (${rpm} rpm)`}
@@ -224,7 +208,7 @@ export function MotionPanel({ stream, role, go }) {
                   type="button"
                   className="tq-btn tq-small"
                   style={{ padding: '0.15rem 0.45rem', fontSize: '0.75rem' }}
-                  disabled={blocked || busy || stopBusy || !operator || p > maxRpm}
+                  disabled={busy || stopBusy || !operator || p > maxRpm}
                   onClick={() => { setRpm(String(p)); send({ action: 'SET_SPEED', rpm: p })(); }}
                 >
                   {p}
@@ -237,7 +221,7 @@ export function MotionPanel({ stream, role, go }) {
                   type="button"
                   className="tq-btn tq-small tq-ghost"
                   style={{ padding: '0.15rem 0.35rem', fontSize: '0.7rem' }}
-                  disabled={blocked || busy || stopBusy || !operator || p > maxRpm}
+                  disabled={busy || stopBusy || !operator || p > maxRpm}
                   onClick={() => { setRpm(String(p)); send({ action: 'SET_SPEED', rpm: p })(); }}
                 >
                   {p > 999 ? `${p / 1000}k` : p}
@@ -254,7 +238,7 @@ export function MotionPanel({ stream, role, go }) {
         <div className="tq-row">
           <label>Ramp up (%/s) <input type="number" min="0.001" step="0.001" value={rampUp} onChange={(e) => setRampUp(e.target.value)} /></label>
           <label>Ramp down (%/s) <input type="number" min="0.001" step="0.001" value={rampDown} onChange={(e) => setRampDown(e.target.value)} /></label>
-          <button type="button" className="tq-btn" disabled={blocked || busy || stopBusy || !operator || !(Number(rampUp) >= 0.001 && Number(rampDown) >= 0.001)}
+          <button type="button" className="tq-btn" disabled={busy || stopBusy || !operator || !(Number(rampUp) >= 0.001 && Number(rampDown) >= 0.001)}
             onClick={send({ action: 'SET_RAMP', ramp_up: Number(rampUp), ramp_down: Number(rampDown) })}>Apply ramp rates</button>
         </div>
       </div>

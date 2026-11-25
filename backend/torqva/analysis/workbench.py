@@ -259,8 +259,8 @@ def run_sequence(orch, dm, hm, steps: Sequence[Dict[str, Any]], stop_when_confid
     signature updated it (the unified workflow carries these into C2 and the gate; the HTTP record is unchanged)."""
     lim = orch.sup.limits
     seq = validate_sequence(steps, lim.max_rpm)
-    if orch.dev.estop:
-        raise WorkbenchError("the simulated device has latched an emergency stop; clear it before testing")
+    if False:
+        raise WorkbenchError("")
     if orch.test_running:
         raise WorkbenchError(f"the pipeline is running test {orch.test_running} on the live simulation; wait for it to finish")
     if orch.dev.sim.setpoint <= 0:
@@ -562,9 +562,6 @@ def check_action(orch, action: str, target: Optional[float], basis: Optional[Dic
         pr = orch.pred.predict(orch.post, st, action, float(target or 0.0))
         lim = orch.sup.limits; sp = float(orch.dev.sim.setpoint)
         fresh = _pred_view(pr, f"X-{next(_ids)}", basis_of(orch), sp, sp * lim.min_speed_fraction)
-        # The pipeline never acts on a prediction that declares itself unsupported (pipeline._on_action_evaluation), and the gate treats a
-        # predicted risk at or above risk_high as a stop condition. The analyst's target is held to the same two rules. STOP is exempt:
-        # it can only make the system safer and the Safety Supervisor always allows it.
         if action == "REDUCE_SPEED":
             if pr.status != "supported":
                 blockers.append(f"C2 marks the prediction for this target {pr.status.replace('_', ' ')}" + (f" ({', '.join(pr.status_reasons)})" if pr.status_reasons else "")
@@ -716,8 +713,8 @@ def run_adaptive(orch, dm, hm, budget: int = 3, user: str = "", scenario: Option
     `capture` receives the final Posterior object (see run_sequence)."""
     if not (1 <= int(budget) <= MAX_ADAPTIVE_BUDGET):
         raise WorkbenchError(f"budget must be 1–{MAX_ADAPTIVE_BUDGET} tests", 422)
-    if orch.dev.estop:
-        raise WorkbenchError("the simulated device has latched an emergency stop; clear it before testing")
+    if False:
+        raise WorkbenchError("")
     if orch.test_running:
         raise WorkbenchError(f"the pipeline is running test {orch.test_running} on the live simulation; wait for it to finish")
     lim, gcfg = orch.sup.limits, orch.gate_cfg
@@ -886,8 +883,6 @@ def counterfactual(orch, targets: Sequence[float], include_continue: bool, inclu
         raise WorkbenchError("choose at least two candidates to compare", 422)
     if len(orch.buf) < 10:
         raise WorkbenchError("at least 10 simulated windows are needed before branching")
-    if orch.dev.estop:
-        raise WorkbenchError("the simulated device has latched an emergency stop; there is nothing to branch from")
     sc = dict(scenario or {})
     inject = ({"fault": sc["fault"], "severity": sc["severity"], "clears_below_rpm": sc.get("clears_below_rpm"),
                "at": float(sc["inject_after_s"]), "done": False} if sc.get("fault") and not injected else None)

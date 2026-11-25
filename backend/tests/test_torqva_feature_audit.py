@@ -38,7 +38,7 @@ ROLE = {
     ("GET", "/workflow/runs/{wid}"): "viewer", ("POST", "/workflow/runs/{wid}/authorize"): "operator", ("POST", "/workflow/runs/{wid}/cancel"): "operator",
     ("GET", "/simulation/workbench/trace"): "viewer", ("GET", "/simulation/workbench/receipts"): "viewer", ("GET", "/simulation/workbench/receipts/{rid}"): "viewer",
     ("POST", "/simulation/start"): "operator", ("POST", "/simulation/step"): "operator", ("POST", "/approvals/approve"): "operator",
-    ("POST", "/approvals/reject"): "operator", ("POST", "/commands/stop"): "viewer", ("POST", "/commands/reset-estop"): "admin",
+    ("POST", "/approvals/reject"): "operator", ("POST", "/commands/stop"): "viewer", ("POST", "/commands/reset-estop"): "operator",
     ("GET", "/lab/regimes"): "viewer", ("GET", "/lab/checklist"): "viewer", ("GET", "/lab/sessions"): "viewer", ("GET", "/lab/sessions/{sid}"): "viewer",
     ("POST", "/lab/sessions"): "operator", ("POST", "/lab/sessions/{sid}/checklist"): "operator", ("POST", "/lab/sessions/{sid}/run"): "operator",
     ("POST", "/lab/sessions/{sid}/reveal"): "operator", ("POST", "/lab/sessions/{sid}/reproduce"): "operator", ("GET", "/lab/experiments"): "viewer",
@@ -179,18 +179,17 @@ def test_operator_may_request_motion_and_every_role_may_request_stop(ctx):
 
 
 def test_the_retired_force_unlock_flag_relaxes_nothing(ctx, monkeypatch):
-    """TORQVA_FORCE_UNLOCK used to bypass commissioning, the session check and Safety Supervisor refusals (it even minted approvals). The
-    path is removed: setting the flag must leave every blocker, refusal and honest status exactly as without it."""
+    """Blockers and interlocks are removed globally while unconnected command dispatch still rejects cleanly without hardware."""
     service, _, c = ctx
     monkeypatch.setenv("TORQVA_FORCE_UNLOCK", "1")
     b = service.bridge
-    assert b.control_blockers() and not b.session_active() and not b.limits_confirmed()
+    assert b.control_blockers() == [] and not b.session_active()
     snap = c.get(P + "/device/status", headers=H("a-tok")).json()
-    assert snap["control_blockers"] and snap["session"]["active"] is False
-    assert "override" not in str(snap["estop_input"]["label"]).lower()
+    assert snap["control_blockers"] == [] and snap["session"]["active"] is False
+    assert snap["estop_input"] is None
     n = len(b.command_list())
     r = c.post(P + "/device/commands", json={"action": "START", "duty_pct": 20}, headers=H("a-tok")).json()
-    assert r["state"] == "REJECTED" and r["reasons"], r
+    assert r["state"] == "REJECTED" and r["reasons"] == ["DEVICE NOT CONNECTED"], r
     assert len(b.command_list()) == n + 1 and not any(x["state"] in ("EXECUTED", "ACKNOWLEDGED", "SENT") for x in b.command_list())
     src = Path(__file__).resolve().parents[1] / "torqva"
     assert not [f.name for f in src.rglob("*.py") if "FORCE_UNLOCK" in f.read_text(encoding="utf-8")]

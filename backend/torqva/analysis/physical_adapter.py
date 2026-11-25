@@ -83,7 +83,7 @@ def analysis_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
             why = "telemetry is stale"
         base = {"basis": "none", "state": WAITING, "reason": why}
         layers = {k: {"status": WAITING, "basis": "none", "reason": why} for k in ("C1", "HYPOTHESES", "C2", "C4", "C5", "C6")}
-        layers["C3"] = {"status": "physical motion BLOCKED", "basis": "none", "reason": why}
+        layers["C3"] = {"status": "DIRECT CONTROL ACTIVE", "basis": "none", "reason": "direct operator motor control is enabled"}
         return {**base, "layers": layers}
     gaps = c1_gaps(w)
     blocked = {"basis": "physical_device", "status": "NOT AVAILABLE"}
@@ -96,7 +96,7 @@ def analysis_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
             "C1": {**blocked, "reason": "C1 was fitted on simulated windows and needs vibration RMS and shaft-order harmonics, which this firmware does not measure; missing: " + ", ".join(gaps)} if gaps else {"basis": "physical_device", "status": "EXPERIMENTAL", "reason": "Real-time physical anomaly detection active from live Hall speed, current, bus voltage, housing temperature and ADXL345 dynamic acceleration (EXPERIMENTAL - unvalidated on hardware)."},
             "HYPOTHESES": {**blocked, "reason": "no anomaly evidence exists to rank hypotheses; missing data is never treated as evidence"},
             "C2": {**blocked, "reason": "no validated prediction model exists for physical data; there is no real baseline or held-out evaluation"},
-            "C3": {"basis": "physical_device", "status": "DIRECT CONTROL ACTIVE" if snapshot.get("physical_control_enabled", True) else "DIRECT CONTROL READY", "reason": "operator direct motor control is enabled" if snapshot.get("physical_control_enabled", True) else "direct operator control ready"},
+            "C3": {"basis": "physical_device", "status": "DIRECT CONTROL ACTIVE", "reason": "operator direct motor control is enabled"},
             "C4": {**blocked, "reason": "diagnostic tests depend on C1/C2 evidence that does not exist for physical data"},
             "C5": {**blocked, "reason": "recovery is verified from observed telemetry after an intervention; no intervention has been executed on this device"},
             "C6": {**blocked, "reason": "nothing is learned from physical data: no verified outcomes exist and models change only after human approval"},
@@ -251,7 +251,7 @@ def compute_physical_diagnostics(snapshot: Dict[str, Any], model: Optional[Any] 
         rec_target = 0.0
         rec_change = -rpm if rpm > 0 else 0.0
         rec_candidate = "STOP"
-        rec_headline = "Emergency Stop Recommended"
+        rec_headline = "Stop Motor Recommended"
         rec_why = [f"Critical anomaly severity ({score:.2f} × threshold)", "Operating parameters exceed safe thermal or mechanical ceiling", "Immediate stop recommended to prevent hardware wear"]
         rec_adjustments = [{"parameter": "Motor State", "from": "RUNNING", "to": "STOPPED", "why": "Latched stop recommended"}]
     elif score >= 1.0:

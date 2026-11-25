@@ -17,7 +17,7 @@ describe('Phase 4 Physical Mode UX Enhancements', () => {
       expect(screen.getByText(/Physical Hardware Setup & Offline Guide/i)).toBeInTheDocument();
       expect(screen.getByText(/USB Link & Serial Port/i)).toBeInTheDocument();
       expect(screen.getByText(/Firmware v3.1.0\+/i)).toBeInTheDocument();
-      expect(screen.getByText(/Motor Power & E-Stop/i)).toBeInTheDocument();
+      expect(screen.getByText(/Motor Power & Direct Drive/i)).toBeInTheDocument();
 
       const btn = screen.getByTestId('btn-try-simulation');
       expect(btn).toBeInTheDocument();

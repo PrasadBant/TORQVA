@@ -45,8 +45,8 @@ def make_client(service, entries=ENTRIES):
 
 # ----------------------------------------------------------------------------------------------------- authorization matrix
 OPERATOR_ROUTES = [("POST", "/simulation/start", {"fault": None}), ("POST", "/simulation/step", {"seconds": 1}), ("POST", "/approvals/approve", None), ("POST", "/approvals/reject", None),
-                   ("POST", "/lab/sessions", {}), ("POST", "/lab/experiments", {"fault": "imbalance"}), ("POST", "/attestation/candidates", None)]
-ADMIN_ROUTES = [("POST", "/commands/reset-estop", None), ("GET", "/audit", None)]
+                   ("POST", "/lab/sessions", {}), ("POST", "/lab/experiments", {"fault": "imbalance"}), ("POST", "/attestation/candidates", None), ("POST", "/commands/reset-estop", None)]
+ADMIN_ROUTES = [("GET", "/audit", None)]
 
 
 @pytest.mark.parametrize("method,path,body", OPERATOR_ROUTES)

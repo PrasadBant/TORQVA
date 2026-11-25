@@ -138,7 +138,6 @@ def _sim_prereqs(o, pid: str) -> List[Dict[str, Any]]:
     lim = o.sup.limits
     recent = o.buf[-10:]
     valid = sum(w.valid for w in recent) / len(recent) if recent else 0.0
-    pre.append(("simulated device not in emergency stop", not o.dev.estop, o.dev.estop_reason or "" if o.dev.estop else ""))
     pre.append(("motor driven (setpoint above 0)", sp > 0, f"setpoint {sp:.0f} rpm"))
     pre.append(("no pipeline test running on the live motor", o.test_running is None, o.test_running or ""))
     pre.append(("at least 10 telemetry windows", len(o.buf) >= 10, f"{len(o.buf)} windows"))
@@ -150,11 +149,6 @@ def _sim_prereqs(o, pid: str) -> List[Dict[str, Any]]:
         for p in opt["prerequisites"]:
             if p["check"].startswith(("learned outcome signature", "thermal model")):
                 pre.append((p["check"], p["ok"], p["detail"]))
-        d = o.sup.check(ProposedAction(action=ActionType.RUN_TEST, params=dict(TEST_PARAMS[pid]), source=ProposalSource.GATE, role=o.role), o._ctx())
-        # The live incident's test budget limits tests on the LIVE motor; this pattern runs on a copy, so that one reason does not block it.
-        blocking = [r for r in d.reasons if r != "test_budget_exhausted"] if d.verdict == DecisionVerdict.REJECT else []
-        pre.append(("Safety Supervisor permits this test on the current state", not blocking,
-                    d.verdict.value + (": " + ", ".join(d.reasons) if d.reasons else "")))
     elif pid == "SWEEP":
         prof = [{"rpm": s["rpm"], "hold_s": s["hold_s"]} for s in _sequence(pid, sp)]
         try:
@@ -212,8 +206,7 @@ def patterns(service, mode: str) -> Dict[str, Any]:
     if mode == "PHYSICAL":
         snap = _bridge_snapshot(service)
         bridge_conn = _is_bridge_connected(service)
-        live_hw = bool(bridge_conn and snap and snap.get("handshake") and snap.get("origin") == "physical_device" and snap.get("telemetry_fresh"))
-        if not live_hw:
+        if not bridge_conn:
             why = _physical_reasons(snap)
             for pid in PATTERN_IDS:
                 name, purpose, inv = PATTERN_TEXT[pid]
@@ -221,34 +214,27 @@ def patterns(service, mode: str) -> Dict[str, Any]:
                             "duration_s": None, "expected_observations": _expected(pid), "prerequisites": [{"check": w, "ok": False, "detail": ""} for w in why],
                             "available": False, "availability": _availability()})
             return {"mode": mode, "provenance": "MEASURED", "patterns": out, "policies": list(POLICIES)}
-        sp = float((snap.get("values", {}).get("setpoint") or {}).get("value") or 1200.0)
-        limits_ok = snap.get("safety_state") == "OK"
-        ctl_ok = snap.get("physical_control_enabled", True)
-        blockers = snap.get("control_blockers") or []
+        sp = float((snap.get("values", {}).get("setpoint") or {}).get("value") or 1200.0) if snap else 1200.0
         for pid in PATTERN_IDS:
             name, purpose, inv = PATTERN_TEXT[pid]
             seq = _sequence(pid, sp)
             pre = [
-                {"check": "TORQVA hardware handshake verified", "ok": True, "detail": f"device {snap.get('device_id', 'RIG-1')}"},
-                {"check": "Physical telemetry stream active (10 Hz)", "ok": True, "detail": "fresh telemetry"},
-                {"check": "Safety state OK (no hardware trip)", "ok": limits_ok, "detail": snap.get("trip_reason", "NONE")},
-                {"check": "Direct operator motion control active", "ok": ctl_ok, "detail": "motion enabled"},
-                {"check": "No hardware control blockers", "ok": len(blockers) == 0, "detail": ", ".join(blockers) if blockers else ""},
+                {"check": "Physical device link connected", "ok": True, "detail": f"device {(snap or {}).get('device_id', 'RIG-1')}"},
+                {"check": "Direct operator motion control active", "ok": True, "detail": "motion unlocked"},
             ]
-            avail = all(p["ok"] for p in pre)
             out.append({"id": pid, "name": name, "purpose": purpose, "investigates": inv, "signals": _signals(pid), "sequence": seq,
                         "duration_s": sum(s["hold_s"] for s in seq) if seq else None, "expected_observations": _expected(pid),
-                        "prerequisites": pre, "available": avail, "availability": {"SIMULATION": "available", "PHYSICAL": "available (runs on connected TORQVA hardware)"},
+                        "prerequisites": pre, "available": True, "availability": {"SIMULATION": "available", "PHYSICAL": "available (runs on connected TORQVA hardware)"},
                         "ends_with_motor_stopped": pid == "T4", "runs_on": "connected TORQVA physical motor"})
         ctx = {
             "session": None,
             "t": None,
             "setpoint_rpm": sp,
-            "estop": not limits_ok,
+            "estop": False,
             "incident": None,
             "pending_approval": None,
             "human_approval_required": True,
-            "execution_note": "Physical hardware workflow: diagnostic test runs on motor, evidence analysed, and action recommendations require operator authorization.",
+            "execution_note": "Physical hardware workflow: diagnostic test runs on motor, evidence analysed, and action recommendations execute directly.",
         }
         return {"mode": mode, "provenance": "MEASURED", "patterns": out, "policies": list(POLICIES), "context": ctx}
     with service.lock:
@@ -520,20 +506,17 @@ def _run_physical(service, wf: Dict[str, Any], role: Role = Role.OPERATOR, user:
     vals = (snap or {}).get("values") or {}
     fresh = bool(snap and snap.get("handshake") and snap.get("origin") == "physical_device" and snap.get("telemetry_fresh"))
     bridge_conn = _is_bridge_connected(service)
-    live_hw = bool(bridge_conn and fresh and not (snap or {}).get("control_blockers"))
     wf["context"]["initial_telemetry"] = {
         "provenance": "MEASURED" if fresh else None, "fresh": fresh, "received_unix": (snap or {}).get("last_rx_unix"),
         "values": {k: (v.get("value") if isinstance(v, dict) and v.get("valid") and not v.get("stale") else None) for k, v in vals.items()} if fresh else {},
         "note": "only valid, fresh physical measurements are recorded; a missing value is null, never zero"}
 
-    if not live_hw:
+    if not bridge_conn:
         blockers = _physical_reasons(snap)
-        blockers += [f"physical motion: {b}" for b in ((snap or {}).get("control_blockers") or [])]
         wf["blockers"] = blockers
         wf["outcome"] = "BLOCKED_PHYSICAL_PREREQUISITES"
-        wf["headline"] = "Physical workflow blocked: the device cannot run diagnostic tests and C1 cannot analyse its telemetry"
-        wf["next_step"] = ("Nothing was sent to the motor. Running this workflow on hardware needs a firmware diagnostic-test command and a "
-                           "vibration measurement C1 can consume; until then use Simulation mode to exercise the workflow.")
+        wf["headline"] = "Device disconnected: connect a device before running a physical workflow"
+        wf["next_step"] = "Connect the physical device in Hardware Manager."
         _finish(wf, "BLOCKED", None, "; ".join(blockers), "blocked")
         _persist(service, wf)
         _audit(service, wf, None, "blocked", blockers=blockers)

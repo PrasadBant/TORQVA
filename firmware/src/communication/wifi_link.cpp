@@ -64,7 +64,7 @@ void feed_lines(char* buf, size_t n) {
         char* nl = strchr(p, '\n');
         if (nl) *nl = 0;
         const size_t len = strlen(p);
-        if (len > 0 && len < 256 && xSemaphoreTake(g_mu, pdMS_TO_TICKS(200)) == pdTRUE) {   // the device's own line limit (main.cpp loop: 256)
+        if (len > 0 && len < 512 && xSemaphoreTake(g_mu, pdMS_TO_TICKS(200)) == pdTRUE) {
             g_dev->on_line(p, millis());
             xSemaphoreGive(g_mu);
         }

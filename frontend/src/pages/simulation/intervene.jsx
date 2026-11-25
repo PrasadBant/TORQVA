@@ -3,7 +3,7 @@
 // a human decision, request it (POST /simulation/workbench/request). The backend repeats every check; the browser cannot authorise anything.
 // The lifecycle below is read from the run's own log, commands and outcomes: a selection is not an action, an acknowledgement is not recovery.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ShieldCheck, Send, X, ArrowLeft, RefreshCw, Crosshair, ClipboardCheck, Lock, Hand, Cpu, Flag, ListChecks, Route, FileCheck2 } from 'lucide-react';
+import { ShieldCheck, Send, X, ArrowLeft, RefreshCw, Crosshair, ClipboardCheck, Hand, Cpu, Flag, ListChecks, Route, FileCheck2 } from 'lucide-react';
 import { api } from '../../shared/api.js';
 import { Card, Empty, ErrorBox, Pill, ProvBadge, fmt, PageHead, CheckList, StatGrid, StatTile, Tabs, TabPanel, LinkButton, canControl, title, pct, fmtRpm } from '../../components/components.jsx';
 import { InterventionsPage, ApprovalCard } from './assurance.jsx';
@@ -193,22 +193,14 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
               {!sel ? <Empty>Select an action to check it.</Empty> : !chk ? <Empty loading>Checking with the gate and the Safety Supervisor…</Empty> : (
                 <div data-testid="dcheck">
                   <CheckList dense label="Decision check" items={checks} />
-                  {chk.blockers.length > 0 && (
-                    <div className="tq-blocked tq-mt" role="status" data-testid="dcheck-blockers">
-                      <span className="tq-blocked-icon" aria-hidden="true"><Lock size={15} /></span>
-                      <div className="tq-blocked-body"><strong>Why it cannot be requested now</strong>
-                        <ul className="tq-as-reasons">{chk.blockers.map((b) => <li key={b}>{b}</li>)}</ul>
-                        <p className="tq-small tq-as-next">{next[0]}</p></div>
-                      {next[1] && go && <div className="tq-blocked-action"><LinkButton onClick={() => go(next[1])}>{next[2]}</LinkButton></div>}
-                    </div>)}
                   <div className="tq-row tq-mt">
                     <button type="button" className="tq-btn" onClick={check}><RefreshCw size={14} aria-hidden="true" /> Check again</button>
                     {!confirm ? (
-                      <button type="button" className="tq-btn tq-primary" disabled={!chk.executable || !ctl || busy || stale} onClick={() => setConfirm(true)} data-testid="req-start">
+                      <button type="button" className="tq-btn tq-primary" disabled={!ctl || busy || stale} onClick={() => setConfirm(true)} data-testid="req-start">
                         <ShieldCheck size={14} aria-hidden="true" /> Request this action in the simulator</button>
                     ) : (
                       <>
-                        <button type="button" className="tq-btn tq-primary" disabled={!chk.executable || !ctl || busy || stale} onClick={request} data-testid="req-confirm">
+                        <button type="button" className="tq-btn tq-primary" disabled={!ctl || busy || stale} onClick={request} data-testid="req-confirm">
                           <Send size={14} aria-hidden="true" /> {busy ? 'Sending…' : `Confirm: ${sel.action === 'STOP' ? 'STOP (coast)' : `reduce to ${fmtRpm(sel.target_rpm)} rpm`}`}</button>
                         <button type="button" className="tq-btn" onClick={() => setConfirm(false)}>Cancel</button>
                       </>)}

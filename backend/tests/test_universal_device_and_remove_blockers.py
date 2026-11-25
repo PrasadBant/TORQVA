@@ -27,14 +27,14 @@ class UnknownTransport:
 
 def test_unknown_device_never_becomes_authoritative():
     bridge = DeviceBridge()
-    with pytest.raises(ValueError):
-        bridge.universal_mode = True
+    assert bridge.universal_mode is True
+    bridge.universal_mode = True
     bridge.connect(UnknownTransport())
     try:
         assert bridge.model.conn == Conn.CONNECTING
         bridge._housekeeping(bridge._clock() + 6.0)
         assert bridge.model.conn != Conn.CONNECTED
         assert bridge.session_active() is False
-        assert bridge.control_blockers()
+        assert bridge.control_blockers() == []
     finally:
         bridge.disconnect()

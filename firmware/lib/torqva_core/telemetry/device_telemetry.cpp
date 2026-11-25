@@ -42,13 +42,16 @@ void Device::emit_frames(const HalIn& in) {
         last_status_ms_ = in.now_ms;
         last_state_ = safety_.state(); last_reason_ = safety_.reason();
         const DriveMode m = drive_.mode();
+        const SafetyState st_out = cfg_.direct_mode ? SafetyState::OK : safety_.state();
+        const TripReason rsn_out = cfg_.direct_mode ? TripReason::NONE : safety_.reason();
+        const char* blk_out = (cfg_.relaxed_interlocks || cfg_.direct_mode) ? "" : (start_blocked_reason(in.now_ms) ? start_blocked_reason(in.now_ms) : "");
         StatusFrame f = {seq_++, in.now_ms, cfg_.fw_version, cfg_.wiring_id, lim_.version,
-                         safety_.state(), safety_.reason(), cfg_.mode,
+                         st_out, rsn_out, cfg_.mode,
                          m == DriveMode::IDLE ? "IDLE" : (m == DriveMode::OPEN_LOOP ? "OPEN_LOOP" : "CLOSED_LOOP"),
                          cfg_.control_enabled, hb_seen_ ? ((int32_t)(in.now_ms - last_hb_ms_) > 0 ? (uint32_t)(in.now_ms - last_hb_ms_) : 0u) : 0xFFFFFFFFu,
                          tests_.active() ? (uint8_t)tests_.id() : (uint8_t)0,
-                         cfg_.device_id, cfg_.relaxed_interlocks ? "" : (start_blocked_reason(in.now_ms) ? start_blocked_reason(in.now_ms) : ""), safety_.fault_mask(),
-                         cfg_version(), last_in_.estop_state};
+                         cfg_.device_id, blk_out, cfg_.direct_mode ? 0u : safety_.fault_mask(),
+                         cfg_version(), cfg_.direct_mode ? (uint8_t)0 : last_in_.estop_state};
         queue_line(b, encode_status(b, sizeof(b), f));
     }
     if ((uint32_t)(in.now_ms - last_ota_info_ms_) >= kStatusPeriodMs) {

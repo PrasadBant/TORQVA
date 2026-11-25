@@ -59,8 +59,8 @@ bool Device::pop_line(char* buf, size_t n) {
 
 CommandContext Device::ctx() const {
     CommandContext c;
-    c.safety_state = safety_.state();
-    c.hardware_control_mode = cfg_.control_enabled;
+    c.safety_state = cfg_.direct_mode ? SafetyState::OK : safety_.state();
+    c.hardware_control_mode = cfg_.control_enabled || cfg_.direct_mode;
     c.test_active = tests_.active();
     return c;
 }
@@ -186,10 +186,10 @@ void Device::on_line(const char* line, uint32_t now_ms) {
         return;
     }
     pc.cmd.authorized = (pc.key[0] != 0) && (strncmp(pc.key, cfg_.key, sizeof(cfg_.key)) == 0);
-    if (cfg_.relaxed_interlocks && pc.key[0] != 0 && strncmp(pc.key, "wrong", 5) != 0) {
+    if ((cfg_.relaxed_interlocks || cfg_.direct_mode) && (pc.key[0] != 0 || cfg_.direct_mode) && strncmp(pc.key, "wrong", 5) != 0) {
         pc.cmd.authorized = true;
     }
-    if (auth_.enabled()) {
+    if (auth_.enabled() && !cfg_.direct_mode) {
         // Authenticated mode: the plaintext key is ignored. Every non-STOP command must carry a valid MAC of the live session and a fresh counter. STOP is never refused.
         const char* bad = auth_.verify_command(pc.cmd.id, cmd_type_name(pc.cmd.type), pc.cmd.param, pc.cmd.param2, pc.cmd.param3, pc.cmd.ttl_ms, pc.cmd.seq, pc.cmd.age_ms, pc.sid, pc.mac, now_ms);
         pc.cmd.authorized = (bad == nullptr);
@@ -198,7 +198,7 @@ void Device::on_line(const char* line, uint32_t now_ms) {
 
     // Session binding (strict mode): every command except STOP must belong to the live authenticated session. A command captured in an earlier session, or sent
     // before a session exists (for example right after a reboot), is rejected before it reaches the validator. STOP is never refused.
-    if (!cfg_.relaxed_interlocks && pc.cmd.type != CmdType::STOP) {
+    if (!cfg_.relaxed_interlocks && !cfg_.direct_mode && pc.cmd.type != CmdType::STOP) {
         const char* why = nullptr;
         if (!session_active_) why = "NO_SECURE_SESSION";
         else if (session_sid_[0] && strcmp(pc.sid, session_sid_) != 0) why = "WRONG_SESSION";
@@ -231,8 +231,8 @@ void Device::display_info(DisplayInfo* d, uint32_t now_ms) const {
     d->voltage_v = last_in_.voltage_v; d->voltage_valid = have_in_ && last_in_.voltage_valid && finite_f(last_in_.voltage_v);
     d->housing_c = last_in_.housing_c; d->housing_valid = have_in_ && last_in_.housing_valid && finite_f(last_in_.housing_c);
     d->acc_mag_g = last_in_.acc_mag_g; d->acc_valid = have_in_ && last_in_.acc_valid && finite_f(last_in_.acc_mag_g);
-    d->state = safety_.state(); d->reason = safety_.reason();
-    const char* blk = cfg_.relaxed_interlocks ? "" : start_blocked_reason(now_ms);
+    d->state = cfg_.direct_mode ? SafetyState::OK : safety_.state(); d->reason = cfg_.direct_mode ? TripReason::NONE : safety_.reason();
+    const char* blk = (cfg_.relaxed_interlocks || cfg_.direct_mode) ? "" : start_blocked_reason(now_ms);
     d->start_block = blk ? blk : "";
     const DriveMode m = drive_.mode();
     d->drive = m == DriveMode::IDLE ? "IDLE" : (m == DriveMode::OPEN_LOOP ? "OPEN_LOOP" : "CLOSED_LOOP");
@@ -287,7 +287,7 @@ const char* Device::execute(const Command& c, uint32_t now_ms) {
     // A new image that has not passed its first-boot self-test never drives the motor.
     if (ota_pending_verify_ && (c.type == CmdType::START || c.type == CmdType::SET_PWM || c.type == CmdType::SET_SPEED || c.type == CmdType::RUN_TEST)) return "OTA_PENDING_VERIFY";
     // Motor-energising commands need every interlock verified. STOP, HEARTBEAT, ABORT_TEST and RESET_ESTOP are never blocked here.
-    if (!cfg_.relaxed_interlocks &&
+    if (!cfg_.relaxed_interlocks && !cfg_.direct_mode &&
         (c.type == CmdType::START || c.type == CmdType::SET_PWM || c.type == CmdType::SET_SPEED || c.type == CmdType::RUN_TEST)) {
         if (const char* why = start_blocked_reason(now_ms)) return why;
     }
@@ -368,7 +368,7 @@ HalOut Device::step(const HalIn& in) {
     last_in_ = in; have_in_ = true;
     last_step_ms_ = in.now_ms;
     last_dt_s_ = dt;
-    if (auth_.expired(in.now_ms)) { auth_.end(); set_secure_session(false); }      // an expired session stops motion; a new handshake is needed
+    if (!cfg_.direct_mode && auth_.expired(in.now_ms)) { auth_.end(); set_secure_session(false); }      // an expired session stops motion; a new handshake is needed
 
     // Local-button reset of a latched trip (needs a prior authorized RESET_ESTOP command).
     if (reset_pending_) {
@@ -398,11 +398,17 @@ HalOut Device::step(const HalIn& in) {
     si.vib_rms_g = in.vib_rms_g;   si.vib_valid = in.vib_valid;
     si.duty_pct = drive_.duty();
     si.hardware_control_mode = cfg_.control_enabled;
-    si.external_estop_active = in.external_estop;
+    si.external_estop_active = cfg_.direct_mode ? false : in.external_estop;
     SafetyOutput so = safety_.update(si);
+    if (cfg_.direct_mode) {
+        if (safety_.state() == SafetyState::EMERGENCY_STOP) safety_.reset_trip(true, true);
+        so.state = SafetyState::OK;
+        so.reason = TripReason::NONE;
+        so.drive_allowed = true;
+    }
 
     // Diagnostic test executor: setpoint override, runs on-device.
-    const bool link_ok = hb_seen_ && (int32_t)(in.now_ms - last_hb_ms_) < (int32_t)lim_.heartbeat_timeout_ms;
+    const bool link_ok = cfg_.direct_mode || (hb_seen_ && (int32_t)(in.now_ms - last_hb_ms_) < (int32_t)lim_.heartbeat_timeout_ms);
     if (tests_.active()) {
         TestTickInput ti = {in.now_ms, so.drive_allowed, link_ok, in.rpm};
         TestTickOutput to = tests_.tick(ti);

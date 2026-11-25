@@ -20,7 +20,6 @@ export function conditionOf(d, plan, stale) {
   const s = d.status || {}; const w = s.last_window;
   if (stale) return ['crit', 'Uncertain: the backend is not answering', 'The values shown are the last received.'];
   if (s.t === undefined || s.t === null) return ['off', 'No simulation running', 'Start a scenario from the Simulation Overview.'];
-  if (s.device?.estop) return ['stop', 'Unsafe to continue: the simulated device latched a stop', title(s.device.estop_reason)];
   if (!w) return ['off', 'Uncertain: no telemetry window yet', ''];
   if (w.valid === false) return ['crit', 'Uncertain: the latest window is invalid', 'Sensor data is not trusted, so nothing is concluded from it.'];
   const c1 = plan?.c1;

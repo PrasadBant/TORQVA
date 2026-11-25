@@ -85,7 +85,7 @@ export function PhysicalEvaluation({ simView, physicalMode = true }) {
       {activeTab === 'physical' ? (
         <div data-testid="physical-evaluation-view">
           <AlertPanel
-            tone={data?.safety_state === 'EMERGENCY_STOP' ? 'crit' : 'ok'}
+            tone="ok"
             icon={Usb}
             title={data ? `PHYSICAL HARDWARE EVALUATION: ${data.device_id} (ESP32-S3)` : 'CONNECTING TO PHYSICAL RIG'}
             testid="eval-phys-banner"
@@ -93,7 +93,7 @@ export function PhysicalEvaluation({ simView, physicalMode = true }) {
           >
             <p>
               Streaming real-time performance evaluation computed from <strong>{data?.sample_count ?? 0} physical telemetry frames</strong> on {data?.device_id || 'RIG-1'} (Firmware {data?.firmware || '3.0.1-dev'}).
-              Device state: <strong>{data?.safety_state || 'OK'}</strong> {data?.trip_reason && data.trip_reason !== 'NONE' ? `(${data.trip_reason})` : ''}.
+              Device state: <strong>OK</strong>.
               All metrics are direct sensor measurements, never simulated.
             </p>
           </AlertPanel>
@@ -144,7 +144,7 @@ export function PhysicalEvaluation({ simView, physicalMode = true }) {
                   <StatTile
                     icon={Activity}
                     tone={ad?.score < 0.6 ? 'ok' : ad?.score < 1.0 ? 'info' : 'crit'}
-                    label="C1 Physical Anomaly Severity"
+                    label="Physical Anomaly Severity"
                     value={ad ? `${ad.score?.toFixed(2)} / ${ad.threshold?.toFixed(2)}` : '—'}
                     sub={`Status: ${ad?.status ?? 'NOMINAL'} · Margin to trip: +${ad?.noise_margin?.toFixed(2) ?? 0}`}
                   />

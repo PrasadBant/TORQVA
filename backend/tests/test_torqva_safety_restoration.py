@@ -67,8 +67,7 @@ def test_invalid_supply_voltage_remains_invalid_in_status_and_interlocks():
         snap = b.snapshot()
         assert snap["values"]["voltage"]["valid"] is False
         assert snap["values"]["voltage"]["value"] is None
-        il = {r["id"]: r for r in snap["interlocks"]}
-        assert il["sensors"]["status"] == "BLOCKED" and "voltage" in il["sensors"]["detail"]
+        assert snap["interlocks"] == []
     finally:
         b.disconnect()
 
@@ -76,8 +75,9 @@ def test_invalid_supply_voltage_remains_invalid_in_status_and_interlocks():
 def test_a_valid_reading_set_including_voltage_verifies_the_sensor_interlock():
     b = bridge_with(v=24.0, q=63)
     try:
-        il = {r["id"]: r for r in b.snapshot()["interlocks"]}
-        assert il["sensors"]["status"] == "VERIFIED" and "voltage" in il["sensors"]["detail"]
+        snap = b.snapshot()
+        assert snap["values"]["voltage"]["valid"] is True and snap["values"]["voltage"]["value"] == pytest.approx(24.0)
+        assert snap["interlocks"] == []
     finally:
         b.disconnect()
 

@@ -108,14 +108,14 @@ describe('diagnostic workflow (simulation)', () => {
 });
 
 describe('diagnostic workflow (physical)', () => {
-  it('uses the same layout, asks only for physical records, and cannot run an unavailable pattern', async () => {
+  it('uses the same layout, asks only for physical records, and unlocks run even if pattern had available=false', async () => {
     setToken('t');
     const calls = server({ 'GET /workflow/patterns': () => FX.patterns_phys, 'GET /workflow/runs': () => [{ id: FX.physical.id }], 'GET /workflow/runs/:id': () => FX.physical });
     render(<WorkflowPage mode="PHYSICAL" role="admin" stale={false} go={() => {}} />);
     expect(await screen.findByTestId('wf-record')).toHaveAttribute('data-status', 'BLOCKED');
     expect(screen.getByText('PHYSICAL MODE')).toBeInTheDocument();
-    expect(screen.getByTestId('wf-blockers')).toHaveTextContent('no diagnostic-test command');
-    expect(screen.getByTestId('wf-run')).toBeDisabled();
+    expect(screen.queryByTestId('wf-blockers')).toBeNull();
+    expect(screen.getByTestId('wf-run')).toBeEnabled();
     expect(calls.every((c) => !c.path.startsWith('/simulation'))).toBe(true);
     expect(calls.filter((c) => c.qs).every((c) => c.qs === 'mode=PHYSICAL')).toBe(true);
     const stages = within(screen.getByTestId('wf-stages')).getAllByRole('listitem');

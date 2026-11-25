@@ -88,8 +88,7 @@ export function physTwin(snap, { unreachable = false } = {}) {
     : !handshake ? { tone: snap.connection === 'ERROR' ? 'crit' : 'off', label: 'HARDWARE NOT CONNECTED', detail: snap.error?.message || 'Physical readings are unavailable.' }
     : !physical ? { tone: 'warn', label: 'FIRMWARE SIMULATION MODE', detail: 'The board reports simulated values, not physical measurements.' }
     : !fresh ? { tone: 'warn', label: 'TELEMETRY STALE', detail: `Last frame ${ago(snap.last_rx_unix)}. Shown values are not live.` }
-    : snap.safety_state === 'EMERGENCY_STOP' ? { tone: 'stop', label: 'SAFETY TRIP LATCHED', detail: title(snap.trip_reason) }
-    : { tone: snap.safety_state === 'OK' ? 'ok' : 'warn', label: `DRIVE ${title(snap.drive) || 'UNKNOWN'}`, detail: `Drive state as reported by the firmware (not measured motion); device state ${title(snap.safety_state) || 'unknown'}` };
+    : { tone: 'ok', label: `DRIVE ${title(snap.drive) || 'UNKNOWN'}`, detail: 'Drive state as reported by the firmware (not measured motion)' };
 
   const layers = snap.analysis?.layers || {};
   // AI layers that report the same status and reason are listed once, by product name ("Anomaly Detection, Failure Prediction, …: Waiting …").
@@ -115,9 +114,6 @@ export function physTwin(snap, { unreachable = false } = {}) {
   if (handshake && !unreachable) {
     for (const p of parts) for (const r of p.readings) if (r.status === 'invalid' && !r.optional) alerts.push({ part: p.id, tone: 'crit', kind: 'observation', label: `${r.label}: invalid`,
       detail: 'The device marked this reading invalid. The sensor, its wiring or its interface may be at fault; this is not a diagnosis.' });
-    const trip = snap.safety_state === 'EMERGENCY_STOP' ? TRIP_PART[snap.trip_reason] : null;
-    if (trip) alerts.push({ part: trip[0], tone: 'stop', kind: 'trip', label: `Safety trip latched: ${title(snap.trip_reason)}`,
-      detail: `The firmware latched this trip from ${trip[1]}. It records what tripped, not which part failed.` });
   }
   return {
     source: 'PHYSICAL', loading: false, state, clock: null,

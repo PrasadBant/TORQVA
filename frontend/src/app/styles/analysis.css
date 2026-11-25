@@ -50,22 +50,19 @@
 .tq-wf-detail > p:first-child { margin: 0 0 12px; color: var(--tq-text-2); }
 .tq-wf-run { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; justify-content: space-between; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--tq-border-soft); }
 .tq-wf-go { min-height: 42px; padding: 0 20px; font-size: 14.5px; font-weight: 600; }
-#wf-config .tq-blocked { margin-top: 10px; }
 
 /* Backend stage record: a compact 5 × 2 grid of the stages the backend reported (the analyst steps above summarise them). */
 .tq-wf-stages { list-style: none; margin: 0 0 4px; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
 .tq-wf-stage { --tone: var(--tq-off); display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; padding: 8px 10px; border-radius: var(--tq-r-s); min-width: 0;
   border: 1px solid var(--tq-border-soft); border-left: 3px solid color-mix(in srgb, var(--tone) 70%, var(--tq-border)); background: var(--tq-s1); }
 .tq-wf-stage.is-completed { --tone: var(--tq-ok); } .tq-wf-stage.is-active { --tone: var(--tq-accent); } .tq-wf-stage.is-waiting { --tone: var(--tq-learning); }
-.tq-wf-stage.is-blocked, .tq-wf-stage.is-failed { --tone: var(--tq-crit); } .tq-wf-stage.is-expired { --tone: var(--tq-warn); }
+.tq-wf-stage.is-failed { --tone: var(--tq-crit); } .tq-wf-stage.is-expired { --tone: var(--tq-warn); }
 .tq-wf-stage.is-skipped, .tq-wf-stage.is-todo { background: var(--tq-s2); }
 .tq-wf-stage.is-skipped strong, .tq-wf-stage.is-todo strong { color: var(--tq-muted); }
 .tq-wf-stage-n { width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 11px; font-weight: 600;
   color: var(--tone); border: 1.5px solid var(--tone); background: var(--tq-s1); }
 .tq-wf-stage-body { display: grid; gap: 2px; min-width: 0; font-size: 13px; }
 .tq-wf-stage-sum { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.tq-an-blockers { margin: 12px 0 0; }
-.tq-an-blockers ul { margin: 4px 0 0; }
 
 .tq-wf-rec { --tone: var(--tq-accent); padding: 16px 18px; border-radius: var(--tq-r); border: 1px solid color-mix(in srgb, var(--tone) 45%, var(--tq-border));
   background: color-mix(in srgb, var(--tone) 6%, var(--tq-s1)); }

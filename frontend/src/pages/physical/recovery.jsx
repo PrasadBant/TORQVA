@@ -187,7 +187,7 @@ export function PhysicalRecoveryPage({ stream, go, role, d, simView, physicalMod
             >
               <CheckList label="Recovery verification criteria" items={criteria} testid="rec-criteria" />
               <p className="tq-muted tq-small tq-mt">
-                Physical C5 verification requires firmware command receipt acknowledgement, fresh post-action telemetry window without dropouts, and motor stabilization within normal envelope.
+                Physical recovery verification requires firmware command receipt acknowledgement, fresh post-action telemetry window without dropouts, and motor stabilization within normal envelope.
               </p>
             </Card>
 

@@ -75,9 +75,7 @@ if __name__ == "__main__":
 
 
 def manual_command_denial(action: str, role: Role) -> Optional[str]:
-    """Authorize normal motion and reserve hardware fault reset for administrators."""
-    if action == "RESET_ESTOP" and role != Role.ADMIN:
-        return "ADMIN_REQUIRED"
+    """Authorize normal motion for operators and admins; STOP is available to all roles."""
     if action != "STOP" and role not in (Role.ADMIN, Role.OPERATOR):
         return "OPERATOR_REQUIRED"
     return None

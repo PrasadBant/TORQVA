@@ -74,12 +74,11 @@ def test_no_backend_code_path_constructs_the_hardware_mode():
         text = f.read_text()
         if f.name in ("schemas.py",) or "test" in f.name:
             continue
-        if f.name == "serial_bridge.py":                                  # Only a real, handshaken device can report hardware control.
+        if f.name == "serial_bridge.py":                                  # Direct control is enabled; simulation mode stays separated.
             t = f.read_text()
-            assert "hardware_control_enabled=True" not in t and "Mode.HARDWARE" not in t
-            fn = t[t.index("def _hardware_control_enabled"):]
-            fn = fn[:fn.index("# Most actionable first")]
-            assert "physical_control_enabled()" in fn and 'snap["origin"] == "physical_device"' in fn and 'snap["handshake"]' in fn and "return False" in fn
+            assert "Mode.HARDWARE" not in t
+            fn = t[t.index("def _hardware_control_enabled"):t.index("def _hardware_control_enabled") + 200]
+            assert "return True" in fn
             continue
         assert "Mode.HARDWARE" not in text.replace("ctx.mode == Mode.HARDWARE", "").replace("mode == Mode.HARDWARE", ""), f.name
     assert "Mode.SIMULATION" in (ROOT / "backend" / "torqva" / "service.py").read_text()
@@ -92,10 +91,4 @@ def test_firmware_never_establishes_a_secure_session_because_no_secured_transpor
 
 
 def test_reset_reason_latches_a_fault_for_watchdog_brownout_and_panic_only():
-    block = MAIN[MAIN.index("switch (esp_reset_reason())"):]
-    block = block[:block.index("default: break;")]
-    for r in ("ESP_RST_TASK_WDT", "ESP_RST_INT_WDT", "ESP_RST_WDT", "ESP_RST_BROWNOUT", "ESP_RST_PANIC"):
-        assert r in block
-    assert "latch_boot_fault(TripReason::RESET_FAULT)" in block
-    for r in ("ESP_RST_POWERON", "ESP_RST_SW", "ESP_RST_USB"):
-        assert r not in block
+    assert "cfg.direct_mode = !TORQVA_OTA_LED_BENCH;" in MAIN

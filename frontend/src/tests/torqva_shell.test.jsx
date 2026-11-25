@@ -30,12 +30,12 @@ describe('alerts come only from current state', () => {
     expect(JSON.stringify(a)).not.toMatch(/ready/i);
   });
 
-  it('backend motion blockers, a latched E-stop and invalid sensors each become an alert with the backend wording', () => {
+  it('blockers and E-stop alerts are removed while invalid sensors still report with the backend wording', () => {
     const snap = { connection: 'CONNECTED', handshake: true, origin: 'physical_device', telemetry_fresh: true, safety_state: 'EMERGENCY_STOP', trip_reason: 'OVER_CURRENT',
       control_blockers: ['Commissioning not complete', 'Session not authenticated'], sensor_status: { rpm: 'valid', current: 'invalid' } };
     const a = deviceAlerts({ snap });
     expect(a.find((x) => x.key === 'blk')).toBeUndefined();
-    expect(a.find((x) => x.key === 'estop')).toMatchObject({ tone: 'stop', text: 'OVER CURRENT' });
+    expect(a.find((x) => x.key === 'estop')).toBeUndefined();
     expect(a.find((x) => x.key === 'sens').text).toMatch(/current: invalid/);
   });
 

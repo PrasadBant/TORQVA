@@ -25,9 +25,8 @@ export function SimStatusStrip({ d, running, stale }) {
           sub={hasSim && sc.fault ? (injected ? `injected from t = ${sc.inject_after_s} s` : `scheduled at t = ${sc.inject_after_s} s`) : hasSim ? `seed ${sc.seed ?? '—'}` : 'start one in Scenario Studio'}>
           {hasSim && sc.human_approval_required && <span className="tq-mon-statpill"><Pill tone="wait">approval required</Pill></span>}
         </StatTile>
-        <StatTile icon={Gauge} tone={!hasSim ? 'off' : s.device?.estop ? 'stop' : T(tel[0])} label="Simulated motor" value={tel[1]} testid="sim-cell-motor"
+        <StatTile icon={Gauge} tone={!hasSim ? 'off' : T(tel[0])} label="Simulated motor" value={tel[1]} testid="sim-cell-motor"
           sub={hasSim ? `setpoint ${fmt(s.device?.setpoint_rpm, 0)} rpm` : null}>
-          {hasSim && <span className="tq-mon-statpill"><Pill tone={s.device?.estop ? 'stop' : 'ok'}>{s.device?.estop ? `simulated E-stop: ${title(s.device.estop_reason) || 'latched'}` : 'simulated E-stop clear'}</Pill></span>}
         </StatTile>
         <StatTile icon={Siren} tone={s.pending_approval ? 'warn' : inc ? T(stateTone(inc.state)) : hasSim ? 'ok' : 'off'} label="Incident" testid="sim-cell-incident"
           value={inc ? `${inc.id}: ${title(inc.state)}` : hasSim ? 'No open incident' : 'none'} sub={hasSim ? `${s.closed_incidents ?? 0} closed in this run` : null}>
@@ -68,7 +67,6 @@ export function simHealth(d, running, stale) {
   const samples = d.telemetry?.samples || []; const last = samples[samples.length - 1];
   if (stale) return { status: 'Unavailable', why: 'The backend is unreachable.', next: null };
   if (!hasSimOf(s)) return { status: 'Unavailable', why: 'No simulation is running.', next: ['scenario', 'Start a scenario in Scenario Studio'] };
-  if (s.device?.estop) return { status: 'Critical', why: `The simulated E-stop is latched${s.device.estop_reason ? ` (${title(s.device.estop_reason)})` : ''}.`, next: ['interventions', 'Review Action Recommendations'] };
   if (w && w.valid === false) return { status: 'Unavailable', why: 'The latest simulated window is flagged invalid; its values are not shown as numbers.', next: ['live', 'Check the readings in Live Monitor'] };
   if (pend) return { status: 'Action Verification', why: `TORQVA recommends ${title(pend.action)}; it waits for your decision.`, next: ['interventions', 'Review the recommendation'] };
   if (inc?.state === 'VERIFYING_RECOVERY') return { status: 'Action Verification', why: `The action for ${inc.id} was acknowledged; recovery is being verified.`, next: ['recovery', 'Follow Recovery Verification'] };

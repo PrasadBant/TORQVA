@@ -108,8 +108,8 @@ def test_a_device_authenticates_over_wifi_with_the_existing_mutual_handshake_and
         snap = b.snapshot()
         assert snap["transport"]["kind"] == "wifi" and snap["connection"] == "CONNECTED" and snap["device_profile"] == "ota_led_bench"
         assert snap["wifi_link"]["active"] and snap["session"]["active"]
-        rec = b.request_command("START", {"duty_pct": 10}, "adam", Role.ADMIN)          # the bench profile is refused over Wi-Fi too
-        assert rec.state.value == "REJECTED" and any("OTA LED BENCH DEVICE" in r for r in rec.reasons)
+        rec = b.request_command("START", {"duty_pct": 10}, "adam", Role.ADMIN)          # direct control: no blocker gates
+        assert rec.state.value == "SENT" and rec.reasons == []
     assert wait(lambda: not b.connected)
     snap = b.snapshot()
     assert snap["transport"] is None and snap["connection"] == "DISCONNECTED" and not snap["session"]["active"]

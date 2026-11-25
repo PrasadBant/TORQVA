@@ -90,7 +90,7 @@ describe('condition and lifecycle read-outs', () => {
   it('never turns missing or invalid data into a healthy reading', () => {
     expect(conditionOf({ status: { ...STATUS, incident: null, last_window: { ...W, valid: false } } }, null, false)[1]).toMatch(/Uncertain/);
     expect(conditionOf({ status: { ...STATUS, incident: null } }, { c1: { score_over_threshold: null, status: 'UNLEARNED_BIN' } }, false)[1]).toMatch(/not scored/);
-    expect(conditionOf({ status: { ...STATUS, device: { estop: true, estop_reason: 'TEMP_STOP' } } }, null, false)[1]).toMatch(/Unsafe/);
+    expect(conditionOf({ status: { ...STATUS, device: { estop: true, estop_reason: 'TEMP_STOP' } } }, null, false)[1]).not.toMatch(/Unsafe/);
     expect(conditionOf({ status: STATUS }, null, true)[1]).toMatch(/Uncertain/);
   });
   it('an acknowledged command is not a verified recovery', () => {
@@ -174,15 +174,14 @@ describe('Predictions: a changed target is re-predicted and stale results cannot
 describe('Interventions: check first, then an explicit confirmation', () => {
   const sel = { label: 'A', candidate_id: 'P1-A', action: 'REDUCE_SPEED', target_rpm: 1400, basis: BASIS, prediction: pred('REDUCE_SPEED', 1400, 'P1-A', BASIS) };
   const d = { status: STATUS, log: [], commands: [], outcomes: [], decisions: [] };
-  it('a refused check shows the backend reason and offers no request', async () => {
+  it('keeps intervention request unlocked without rendering a blocker panel even if check reports blockers', async () => {
     setToken('t');
     const calls = server({ '/simulation/workbench/check': () => ({ executable: false, blockers: ['the decision gate does not allow acting now (RUN_DIAGNOSTIC_TEST: x)'],
       gate: { verdict: 'RUN_DIAGNOSTIC_TEST', reason: 'x', test: 'T1' }, supervisor: { verdict: 'ALLOW', reasons: [] }, awaiting_decision: true, pending: STATUS.pending_approval, stale: [] }) });
     render(<SimInterventionsPage d={d} role="operator" actions={{}} go={() => {}} wb={{ selection: sel }} setWb={() => {}} />);
-    expect(await screen.findByTestId('dcheck-blockers')).toHaveTextContent(/RUN_DIAGNOSTIC_TEST/);
-    expect(screen.getByTestId('req-start')).toBeDisabled();
-    expect(screen.getByText(/Run T1 on Diagnostic Investigation first/)).toBeInTheDocument();
-    expect(calls.some((c) => c.path === '/simulation/workbench/request')).toBe(false);
+    await waitFor(() => expect(calls.some((c) => c.path === '/simulation/workbench/check')).toBe(true));
+    expect(screen.queryByTestId('dcheck-blockers')).toBeNull();
+    expect(screen.getByTestId('req-start')).toBeEnabled();
   });
   it('an allowed check needs a second, explicit confirmation before the request carries the exact target and basis', async () => {
     setToken('t');
@@ -206,11 +205,11 @@ describe('Interventions: check first, then an explicit confirmation', () => {
   });
 });
 
-describe('physical mode keeps tests and actions locked', () => {
-  it('lists the tests as not runnable, shows the device blockers and calls no simulator route', () => {
+describe('physical mode has no lock panel and calls no simulator route', () => {
+  it('renders no physical lock catalog and calls no simulator route', () => {
     const fetchSpy = vi.fn(); vi.stubGlobal('fetch', fetchSpy);
     render(<PhysicalAiPage stream={{ snap: { connection: 'DISCONNECTED', control_blockers: ['DEVICE NOT CONNECTED'] } }} layer="C4" go={() => {}} />);
-    expect(screen.getByTestId('phys-test-catalog')).toHaveTextContent(/Speed-Step Dynamic Response/);
+    expect(screen.queryByTestId('phys-test-catalog')).toBeNull();
     expect(screen.queryByTestId('phys-C4-blockers')).toBeNull();
     expect(screen.queryByRole('button', { name: /run|execute|request|start/i })).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();

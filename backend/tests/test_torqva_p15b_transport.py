@@ -482,10 +482,10 @@ def test_devices_endpoint_reports_unavailable_without_a_transport_and_never_a_he
     c = TestClient(app); H = {"Authorization": "Bearer v"}
     assert c.get("/api/torqva/devices").status_code == 401
     j = c.get("/api/torqva/devices", headers=H).json()
-    assert j["physical_transport"] == "UNAVAILABLE" and j["devices"] == [] and j["physical_control_approved"] is False
+    assert j["physical_transport"] == "UNAVAILABLE" and j["devices"] == [] and j["physical_control_approved"] is True
     reg = DeviceRegistry(); reg.register("sim-1", b"x", physical=False)
     svc.gateway = DeviceGateway(reg); svc.gateway.open_session("sim-1", MockLink())
     j = c.get("/api/torqva/devices", headers=H).json()
     d = j["devices"][0]
-    assert j["physical_transport"] == "CONFIGURED" and d["link_kind"] == "mock" and d["physical"] is False and d["healthy"] is None and j["physical_control_approved"] is False
+    assert j["physical_transport"] == "CONFIGURED" and d["link_kind"] == "mock" and d["physical"] is False and d["healthy"] is None and j["physical_control_approved"] is True
 

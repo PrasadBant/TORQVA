@@ -32,7 +32,7 @@ describe('simulation lifecycle', () => {
     expect(lifecycle(base(), true, false).key).toBe('running');
     expect(lifecycle(base(), false, false).key).toBe('paused');
     expect(lifecycle(base({ status: { ...STATUS, pending_approval: { action: 'REDUCE_SPEED' } } }), true, false).key).toBe('approval');
-    expect(lifecycle(base({ status: { ...STATUS, device: { estop: true, estop_reason: 'TEMP_STOP' } } }), true, false)).toMatchObject({ key: 'estop', label: 'Simulated E-stop latched' });
+    expect(lifecycle(base({ status: { ...STATUS, device: { estop: true, estop_reason: 'TEMP_STOP' } } }), true, false).key).toBe('running');
     expect(lifecycle(base(), true, true).key).toBe('unknown');                       // stale never reads as running
   });
 });
@@ -136,7 +136,7 @@ describe('Simulation Overview', () => {
   it('mirrors the physical layout with simulation fields and no hardware status', () => {
     view(base());
     const strip = screen.getByTestId('sim-status-strip');
-    expect(strip).toHaveTextContent(/Paused/); expect(strip).toHaveTextContent(/imbalance · severity 0.60/); expect(strip).toHaveTextContent(/simulated E-stop clear/);
+    expect(strip).toHaveTextContent(/Paused/); expect(strip).toHaveTextContent(/imbalance · severity 0.60/); expect(strip).not.toHaveTextContent(/E-stop/i);
     expect(strip).not.toHaveTextContent(/firmware|handshake|board|commission/i);
     const kpis = screen.getByTestId('sim-kpis');
     expect(within(kpis).getAllByText('SIM')).toHaveLength(4);                       // speed, current, housing, vibration: the full set is on Live Monitor

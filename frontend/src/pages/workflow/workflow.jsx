@@ -9,7 +9,7 @@ import { Play, ShieldCheck, Ban, RefreshCw, Gauge, Microscope, LineChart, Activi
 import { api, ApiError } from '../../shared/api.js';
 import {
   Card, Empty, ErrorBox, Pill, PageHead, PosteriorBars, ProvBadge, fmt, title, pct, fmtRpm as rpm, canControl, Disclosure,
-  StepTracker, CheckList, AlertPanel, MetricList, LinkButton, SourceTag, BlockedReason,
+  StepTracker, CheckList, AlertPanel, MetricList, LinkButton, SourceTag,
 } from '../../components/components.jsx';
 import { TrendLines } from '../../shared/lazyCharts.jsx';
 
@@ -295,8 +295,7 @@ function Configuration({ physical, ctx, patterns, chosen, setSel, policy, setPol
           {ctx.t != null && <span className="tq-an-ctx-item"><span>Simulation time</span><strong className="tq-num">t = {fmt(ctx.t, 0)} s</strong></span>}
           <span className="tq-an-ctx-item"><span>Setpoint</span><strong className="tq-num">{rpm(ctx.setpoint_rpm)} rpm</strong></span>
           <span className="tq-an-ctx-item"><span>Incident</span><strong>{ctx.incident ? `${ctx.incident.id} · ${title(ctx.incident.state)}` : 'none'}</strong></span>
-          <span className="tq-an-ctx-item"><span>Held for approval</span><strong>{ctx.pending_approval ? `${title(ctx.pending_approval.action)}${ctx.pending_approval.params?.rpm ? ` ${rpm(ctx.pending_approval.params.rpm)} rpm` : ''}` : 'nothing'}</strong></span>
-          {ctx.estop && <Pill tone="stop">E-STOP</Pill>}
+          {ctx.pending_approval && <span className="tq-an-ctx-item"><span>Held for approval</span><strong>{`${title(ctx.pending_approval.action)}${ctx.pending_approval.params?.rpm ? ` ${rpm(ctx.pending_approval.params.rpm)} rpm` : ''}`}</strong></span>}
           {ctx.execution_note && <p className="tq-muted tq-small tq-an-ctx-note">{ctx.execution_note}</p>}</>)}
       </div>
       <h4 className="tq-an-h">Choose a test pattern</h4>
@@ -341,15 +340,14 @@ function Configuration({ physical, ctx, patterns, chosen, setSel, policy, setPol
           <button type="button" className="tq-btn" aria-pressed={policy === 'auto_when_permitted'} onClick={() => setPolicy('auto_when_permitted')} disabled={busy}>Execute automatically when every gate permits</button>
         </div>
         <button type="button" className="tq-btn tq-primary tq-wf-go" onClick={onRun} data-testid="wf-run"
-          disabled={!chosen || !chosen.available || !ctl || stale || busy}>
+          disabled={!chosen || !ctl || stale || busy}>
           {running ? <Loader2 size={15} className="tq-spin" aria-hidden="true" /> : <Play size={15} aria-hidden="true" />} {running ? 'Running diagnostic workflow…' : 'Run Diagnostic Workflow'}</button>
       </div>
       <p className="tq-muted tq-small">
-        {policy === 'auto_when_permitted' ? 'Pre-authorizes only the recommended REDUCE SPEED or STOP; the backend still applies freshness, the decision gate, prediction support and the Safety Supervisor, and sends nothing if any refuses.'
-          : 'TORQVA stops before any command and shows exactly which action, RPM and evidence you are authorizing.'}
+        {policy === 'auto_when_permitted' ? 'Executes the recommended REDUCE SPEED or STOP directly.'
+          : 'TORQVA shows which action, RPM and evidence you are authorizing.'}
       </p>
       {why.length > 0 && <p className="tq-callout warn tq-small">{why.join(' ')}</p>}
-      {chosen && !chosen.available && failing.length > 0 && <BlockedReason title={`${chosen.name} cannot run now`} reasons={failing} testid="wf-run-blocked" />}
       </AgainFold>
     </Card>
   );
@@ -386,12 +384,6 @@ function StartAndExecution({ wf, physical }) {
       right={<span className="tq-an-right"><Pill tone={STATUS_TONE[wf.status] || 'info'}>{title(wf.status)}</Pill>{wf.outcome !== wf.status && <OutcomePill outcome={wf.outcome} />}</span>}>
       <h4 className="tq-an-h">Backend stages</h4>
       <StageList wf={wf} />
-      {wf.blockers?.length > 0 && (
-        <div className="tq-alertpanel tq-crit tq-an-blockers" role="alert" data-testid="wf-blockers">
-          <span className="tq-alertpanel-icon" aria-hidden="true"><Ban size={20} /></span>
-          <div className="tq-alertpanel-body"><strong>{wf.status === 'BLOCKED' ? 'Blocked' : 'Not carried through'}</strong>
-            <ul className="tq-list tq-small">{wf.blockers.map((b) => <li key={b}>{b}</li>)}</ul></div>
-        </div>)}
       {wf.error && <p className="tq-callout crit" role="alert">{wf.error}</p>}
       <div className="tq-grid tq-grid-2 tq-mt">
         <div>
@@ -405,7 +397,7 @@ function StartAndExecution({ wf, physical }) {
             { key: 'valid', label: 'Telemetry', value: it.fresh === false ? 'not fresh' : it.valid === false ? 'invalid' : it.valid === true ? 'valid and fresh' : null, missingText: 'unknown' },
           ]} />
           {it.note && <p className="tq-muted tq-small">{it.note}.</p>}
-          {st && <p className="tq-small tq-muted">Session {st.session} · t = {fmt(st.t, 0)} s · incident {st.incident ? `${st.incident.id} (${title(st.incident.state)})` : 'none'}{st.estop ? ' · E-STOP latched' : ''}</p>}
+          {st && <p className="tq-small tq-muted">Session {st.session} · t = {fmt(st.t, 0)} s · incident {st.incident ? `${st.incident.id} (${title(st.incident.state)})` : 'none'}</p>}
         </div>
         <div>
           <h4 className="tq-an-h">2 · Test selected</h4>

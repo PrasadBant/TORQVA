@@ -33,7 +33,7 @@ export function SourceWorkspace({ admin, deviceId, onCompiled, onDeployed }) {
   const handleSourceDrop = async (f) => {
     if (!f) return;
     setErr(null);
-    if (/\.zip$/i.test(f.name)) {
+    if (/\.(zip|bin)$/i.test(f.name)) {
       setZipFile(f);
       return;
     }
@@ -45,7 +45,7 @@ export function SourceWorkspace({ admin, deviceId, onCompiled, onDeployed }) {
       setActiveFile(targetPath);
       return;
     }
-    setErr(new Error('Supported source uploads: .ino, .cpp, .c, .h, .hpp, .zip'));
+    setErr(new Error('Supported uploads: .ino, .cpp, .c, .h, .hpp, .zip, .bin'));
   };
 
   const triggerZipCompile = async (autoDeploy) => {
@@ -227,11 +227,11 @@ export function SourceWorkspace({ admin, deviceId, onCompiled, onDeployed }) {
             onDrop={(e) => { e.preventDefault(); setDragOver(false); handleSourceDrop(e.dataTransfer.files?.[0]); }}
           >
             <p className="tq-small" style={{ margin: 0 }}>
-              <strong>Drop .ino, .cpp, .c, .h, .hpp or project .zip here</strong> or{' '}
+              <strong>Drop .ino, .cpp, .c, .h, .hpp, .zip or .bin here</strong> or{' '}
               <button type="button" className="tq-linkbtn" onClick={() => srcInputRef.current?.click()}>browse source</button>
-              {zipFile && <> · Archive ready: <strong>{zipFile.name}</strong> <button type="button" className="tq-btn tq-small tq-primary" onClick={() => triggerZipCompile(true)} disabled={busy}>Compile ZIP &amp; Deploy</button></>}
+              {zipFile && <> · File ready: <strong>{zipFile.name}</strong> <button type="button" className="tq-btn tq-small tq-primary" onClick={() => triggerZipCompile(true)} disabled={busy}>{/\.bin$/i.test(zipFile.name) ? 'Validate & Deploy .bin' : 'Compile ZIP & Deploy'}</button></>}
             </p>
-            <input ref={srcInputRef} type="file" accept=".ino,.cpp,.c,.h,.hpp,.zip" hidden data-testid="fw-source-file" onChange={(e) => handleSourceDrop(e.target.files?.[0])} />
+            <input ref={srcInputRef} type="file" accept=".ino,.cpp,.c,.h,.hpp,.zip,.bin" hidden data-testid="fw-source-file" onChange={(e) => handleSourceDrop(e.target.files?.[0])} />
           </div>
 
           {/* Multi-file tab bar + Add file */}

@@ -15,9 +15,6 @@ class ErrorBoundary extends React.Component {
     console.error('TORQVA Uncaught UI Error:', error, errorInfo);
   }
   handleReset = () => {
-    try {
-      localStorage.removeItem('torqva.override_blockers');
-    } catch {}
     this.setState({ hasError: false, error: null });
     window.location.reload();
   };

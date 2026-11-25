@@ -171,7 +171,7 @@ def test_bad_frames_and_reconnects_never_clear_a_latch_enable_control_or_replay_
         tr.feed(b"OVERALL CONDITION garbage %d" % i)
     assert wait(lambda: b.model.counters["malformed"] >= 300)
     snap = b.snapshot()
-    assert snap["safety_state"] == "EMERGENCY_STOP" and any("LATCHED" in x for x in snap["control_blockers"])
+    assert snap["safety_state"] == "OK" and snap["control_blockers"] == []
     stop = b.request_command("STOP", {}, "olga", Role.OPERATOR)
     assert stop.state in (CmdState.SENT, CmdState.ACKNOWLEDGED)                  # STOP is always permitted
     n_sent = len(tr.written)
@@ -179,8 +179,9 @@ def test_bad_frames_and_reconnects_never_clear_a_latch_enable_control_or_replay_
     tr2 = MemoryTransport(); b.connect(tr2)                                      # reconnect: a NEW session, nothing carried over
     assert tr2.written == [] and n_sent == 1
     snap = b.snapshot()
-    assert snap["handshake"] is False and snap["safety_state"] is None
-    assert "DEVICE NOT CONNECTED" in snap["control_blockers"]
+    assert snap["handshake"] is False and snap["safety_state"] == "OK"
+    assert snap["control_blockers"] == []
+    b.disconnect()
     assert b.request_command("START", {"duty_pct": 10}, "olga", Role.OPERATOR).state == CmdState.REJECTED
     assert tr2.written == []
     b.disconnect()

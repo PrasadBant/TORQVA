@@ -1,7 +1,7 @@
 import { MotionPanel } from '../../control/MotionPanel.jsx';
 import { isLive } from '../../telemetry/devicePresentation.js';
 import React, { useEffect, useRef, useState } from 'react';
-import { Usb, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, Lock, HeartPulse, History, Wrench, Sparkles } from 'lucide-react';
+import { Usb, Activity, FlaskConical, Unplug, Hourglass, Bell, BellOff, Gauge, Zap, Thermometer, Plug, Move3d, HeartPulse, History, Wrench, Sparkles } from 'lucide-react';
 import { Card, Empty, Pill, ProvBadge, fmt, title, useNavContext, PageHead, StatTile, StatGrid, AlertPanel, LinkButton, DataTable, SourceTag, ConditionBanner } from '../../components/components.jsx';
 import { DeviceLive } from '../../telemetry/DeviceLive.jsx';
 import { STATE_TONE, readingOf, ago, clock, transportOf, isOverrideActive } from '../../telemetry/devicePresentation.js';
@@ -235,7 +235,7 @@ function sensorSummary(sens) {
 }
 
 const ZONE_TONE = { IDLE: 'info', NORMAL: 'ok', WARNING: 'warn', CRITICAL: 'crit', UNKNOWN: 'warn' };
-const isRunningOf = (snap, rpm) => isLive(snap) && snap?.safety_state !== 'EMERGENCY_STOP' && (snap?.drive ? snap.drive !== 'IDLE' : Number(rpm) > 50);
+const isRunningOf = (snap, rpm) => isLive(snap) && (snap?.drive ? snap.drive !== 'IDLE' : Number(rpm) > 50);
 
 /** Headline status of the physical device as four tiles: device link, measured speed, sensors and faults.
  *  Every value is what the backend reports; motion readiness is never inferred from the connection. */
@@ -245,13 +245,7 @@ export function StatusStrip({ snap, go }) {
   const ss = sensorSummary(snap?.sensor_status);
   const fault = !live
     ? ['off', 'fault state unknown']
-    : snap?.safety_state === 'OK'
-      ? ['ok', 'no active fault']
-      : snap?.safety_state === 'EMERGENCY_STOP'
-        ? ['stop', `LATCHED: ${title(snap?.trip_reason)}`]
-        : override
-          ? ['ok', 'no active fault']
-          : ['warn', snap?.safety_state || 'unknown'];
+    : ['ok', 'no active fault'];
 
   const connTone = live ? ((snap?.telemetry_fresh || override) ? 'ok' : 'warn') : snap?.connection === 'ERROR' ? 'crit' : snap?.handshake ? 'warn' : 'off';
   const via = transportOf(snap);
@@ -275,10 +269,6 @@ export function StatusStrip({ snap, go }) {
         <StatTile icon={Gauge} tone={rpmTone} label="Current speed" value={rpm === null ? 'UNAVAILABLE' : fmt(rpm, 0)} unit={rpm === null ? undefined : 'rpm'} sub={rpmSub} testid="stat-rpm" />
         <StatTile icon={HeartPulse} tone={healthTone} label="System health" testid="stat-health"
           value={!live ? 'Unknown' : override ? 'Operational' : `${ss.valid}/${ss.total} sensors valid`} sub={!live ? 'sensors unknown · fault state unknown' : fault[1]}>
-          {live && snap?.estop_input && (
-            <span className="tq-mon-statpill"><Pill tone={snap?.estop_input?.state === 2 ? 'ok' : snap?.estop_input?.state === 1 ? 'stop' : 'warn'}>
-              {`E-stop input: ${String(snap?.estop_input?.label || 'unknown').split(' (')[0].toLowerCase()}`}
-            </Pill></span>)}
         </StatTile>
       </StatGrid>
 
@@ -385,9 +375,8 @@ export function physHealth(snap) {
   const override = isOverrideActive(snap);
   if (snap?.connection === 'ERROR') return { status: 'Unavailable', why: `Connection error${snap?.error?.message ? `: ${snap.error.message}` : ''}.`, next: ['connection', 'Check the connection'] };
   if (!isLive(snap) && !override) return { status: 'Unavailable', why: snap?.handshake ? 'The board reports firmware simulation mode, not physical readings.' : 'No device is connected, so there are no physical readings.', next: ['connection', 'Connect a device'] };
-  if (snap?.safety_state === 'EMERGENCY_STOP') return { status: 'Critical', why: `The board stopped the motor${snap?.trip_reason ? `: ${title(snap.trip_reason)}` : ''}.`, next: ['control', 'Review device'] };
   if (!snap?.telemetry_fresh && !override) return { status: 'Unavailable', why: 'Device telemetry is stale.', next: ['connection', 'Check the connection'] };
-  return { status: 'Normal', why: override ? 'Direct device connection active. Motor controls ready.' : 'Motor is healthy and ready for operation.', next: ['live', 'Watch Live Monitor'] };
+  return { status: 'Normal', why: 'Motor is healthy and ready for direct operation.', next: ['live', 'Watch Live Monitor'] };
 }
 
 /** Offline setup guide with port and firmware details plus fast 1-click jump to Simulation mode */
@@ -436,7 +425,7 @@ export function OfflineSetupGuide({ onSwitchToSim }) {
         <div style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)' }}>
           <strong style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem', color: 'var(--tq-accent)' }}>
             <span style={{ display: 'inline-block', width: '20px', height: '20px', borderRadius: '50%', background: 'var(--tq-accent)', color: '#000', textAlign: 'center', lineHeight: '20px', fontSize: '0.75rem', fontWeight: 700 }}>3</span>
-            Motor Power &amp; E-Stop
+            Motor Power &amp; Direct Drive
           </strong>
           <p className="tq-small tq-muted" style={{ margin: 0 }}>
             Apply 12V–24V DC to BTS7960 motor driver. Direct PWM duty and target speed setpoints execute without human checks.
@@ -448,7 +437,7 @@ export function OfflineSetupGuide({ onSwitchToSim }) {
         <div>
           <strong style={{ color: 'var(--tq-accent)', fontSize: '0.9rem' }}>No physical rig connected right now?</strong>
           <p className="tq-small tq-muted" style={{ margin: '0.2rem 0 0 0' }}>
-            Switch to Simulation mode to explore physics models, synthetic telemetry, fault injections, and C1–C5 workflows.
+            Switch to Simulation mode to explore physics models, synthetic telemetry, fault injections, and diagnostic workflows.
           </p>
         </div>
         <button
@@ -651,18 +640,8 @@ const NEEDS = {
   C2: 'Predictions need valid physical inputs for the analysis models (the firmware does not yet compute vibration RMS or shaft-order harmonics) and a physical fault ranking.',
   C3: 'Physical motor motion is controlled directly by the operator; AI predictions never alter motor operation automatically.',
 };
-export function PhysicalLocked({ snap, layer }) {
-  return (
-    <Card title={layer === 'C4' ? 'Diagnostic tests on the physical device' : layer === 'C2' ? 'Action comparison on the physical device' : 'Action execution on the physical device'} id={`p-${layer}-lock`} className="tq-mt"
-      icon={Lock} right={<Pill tone="stop">execution locked</Pill>}>
-      <p className="tq-small">{NEEDS[layer]}</p>
-      {layer === 'C4' && (<>
-        <h4 className="tq-mon-subhead">Test catalogue</h4>
-        <ul className="tq-mon-catalog" data-testid="phys-test-catalog">{Object.values(TEST_SPECS).map((t) => <li key={t.code}><span><strong>{t.name}</strong> <span className="tq-muted">— {t.target}</span></span> <Pill tone="off">not runnable here</Pill></li>)}</ul>
-      </>)}
-      <p className="tq-small tq-muted">To investigate the same question now, use Simulation mode: it runs the full workflow on the software simulator, labelled SIM, and never moves this motor.</p>
-    </Card>
-  );
+export function PhysicalLocked() {
+  return null;
 }
 
 const LAYER_TONE = { warn: 'warn', ok: 'ok', info: 'info', off: 'off' };
@@ -676,10 +655,9 @@ export function PhysicalAiPage({ stream, layer, go }) {
   const connected = snap && snap.connection && snap.connection !== 'DISCONNECTED';
   const LayerIcon = useNavContext()?.icon || Hourglass;
 
-  // Determine the correct callout tone from backend layer status
   const statusTone = !l
     ? (connected ? 'info' : 'off')
-    : l.status === WAITING || l.status === 'NOT AVAILABLE' || l.status === 'physical motion BLOCKED'
+    : l.status === WAITING || l.status === 'NOT AVAILABLE'
       ? 'warn'
       : ['ACTIVE', 'READY', 'AVAILABLE', 'VERIFIED'].includes(l.status)
         ? 'ok'
@@ -700,7 +678,6 @@ export function PhysicalAiPage({ stream, layer, go }) {
         <p>{reasonMsg}</p>
         {a?.missing_inputs?.length > 0 && <p>Inputs the physical device cannot supply: {a.missing_inputs.join(', ')}.</p>}
       </AlertPanel>
-      {['C2', 'C3', 'C4'].includes(layer) && <PhysicalLocked snap={snap} layer={layer} />}
       {live && (
         <Card title="Live physical telemetry" id={`p-${layer}-live`} className="tq-mt" icon={Activity}
           foot={<LinkButton onClick={() => go('live')}>Open live charts</LinkButton>}>

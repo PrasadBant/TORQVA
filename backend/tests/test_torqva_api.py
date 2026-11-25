@@ -60,7 +60,8 @@ def test_viewer_can_read_but_not_control(service):
     assert c.post("/api/torqva/simulation/start", json={}, headers=H("v-tok")).status_code == 403
     assert c.post("/api/torqva/approvals/approve", headers=H("v-tok")).status_code == 403
     assert c.get("/api/torqva/audit", headers=H("v-tok")).status_code == 403
-    assert c.post("/api/torqva/commands/reset-estop", headers=H("o-tok")).status_code == 403    # admin only
+    assert c.post("/api/torqva/commands/reset-estop", headers=H("v-tok")).status_code == 403    # viewer cannot reset estop
+    assert c.post("/api/torqva/commands/reset-estop", headers=H("o-tok")).status_code == 200    # operator allowed
 
 
 def test_denied_attempts_are_audited(service):

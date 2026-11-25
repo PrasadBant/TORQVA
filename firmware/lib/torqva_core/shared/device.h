@@ -32,6 +32,7 @@ struct DeviceConfig {
     bool accel_supported;        // an ADXL345 is read by this build: "accel" frames are emitted (ok=0 when the reading is invalid). False in host simulation: no frames, nothing invented
     bool transport_secured;      // declared by the deployment: the command link is an AUTHENTICATED USB link (per-device key, HMAC, replay protection, expiry). NOT encrypted. Valid only for a direct USB link to a local PC. (was: the serial/TCP protocol itself has a plaintext shared key and no challenge, so this stays false until a secured channel exists
     bool relaxed_interlocks;
+    bool direct_mode;            // true: zero blockers, zero interlocks, zero E-stop latches or trip cuts
     // Authenticated session (auth.h). auth_enabled = a per-device key was provisioned. Without it no session can exist and motion commands are refused (NO_SECURE_SESSION).
     bool auth_enabled;
     uint8_t auth_key[32];

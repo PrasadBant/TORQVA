@@ -392,24 +392,13 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     <AlertPanel tone="warn" icon={FlaskConical} title="SIMULATION ONLY" testid={testid}
       action={<button type="button" className="tq-btn" onClick={() => changeMode('SIMULATION')}><FlaskConical size={14} aria-hidden="true" />Switch to Simulation mode</button>}>
       {t} uses simulated data and is not available in physical mode. Nothing here can command the physical motor.</AlertPanel></>);
-  const phys = (layer, fallback) => {
-    const l = device.snap?.analysis?.layers?.[layer];
-    // Show waiting page when:
-    // 1. No snap yet (l is undefined - device not connected / snap not loaded)
-    // 2. Layer exists but is in a non-ready state
-    const isReady = l && ['ACTIVE', 'AVAILABLE', 'READY', 'VERIFIED'].includes(l.status);
-    if (!isReady) {
-      return <PhysicalAiPage stream={device} layer={layer} go={go} />;
-    }
-    return fallback;
-  };
-  const physDiag = (layer, fallbackComponent) => {
-    const s = device.snap;
-    if (s?.physical_diagnostics || (s?.telemetry_fresh && s?.origin === 'physical_device' && s?.handshake && !s?.analysis?.layers?.[layer]?.status?.includes('NOT AVAILABLE'))) {
-      return <Suspense fallback={pageFallback}>{fallbackComponent}</Suspense>;
-    }
-    return <PhysicalAiPage stream={device} layer={layer} go={go} />;
-  };
+  const physLiveNow = !!(device.data?.handshake && device.data?.origin === 'physical_device');
+  const phys = (layer, fallback) => (physLiveNow ? fallback : <PhysicalAiPage stream={device} layer={layer} go={go} />);
+  const physDiag = (layer, fallbackComponent) => (
+    physLiveNow
+      ? <Suspense fallback={pageFallback}>{fallbackComponent}</Suspense>
+      : <PhysicalAiPage stream={device} layer={layer} go={go} />
+  );
   const physPages = {
     overview: <PhysicalOverview stream={device} go={go} role={user.role} />,
     live: <PhysicalLive stream={device} go={go} />,
@@ -417,7 +406,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     diagnostics: physDiag('C1', <PhysicalDiagnosticsPage stream={device} go={go} role={user.role} />),
     predictions: physDiag('C2', <PhysicalPredictionsPage stream={device} go={go} role={user.role} />),
     tests: physDiag('C4', <PhysicalTestsPage stream={device} go={go} role={user.role} />),
-    interventions: physDiag('C3', <PhysicalInterventionsPage stream={device} go={go} role={user.role} />),
+    interventions: <Suspense fallback={pageFallback}><PhysicalInterventionsPage stream={device} go={go} role={user.role} /></Suspense>,
     workflow: <Suspense fallback={pageFallback}><WorkflowPage mode="PHYSICAL" role={user.role} stale={false} go={go} /></Suspense>,
     recovery: phys('C5', S(<PhysicalRecoveryPage stream={device} go={go} role={user.role} d={d} physicalMode={true} simView={S(<RecoveryPage {...ctx} />)} />)),
     learning: phys('C6', S(<PhysicalLearningPage stream={device} go={go} role={user.role} d={d} physicalMode={true} simView={S(<LearningPage {...ctx}>{S(<Attestation role={user.role} />)}</LearningPage>)} />)),

@@ -317,9 +317,8 @@ export function FirmwarePage({ role, go }) {
       {cfg && (cfg.signature_verification !== 'AVAILABLE' || cfg.device_url_problem || cfg.storage !== 'OK') && (
         <p className="tq-callout warn" role="note" data-testid="fw-config">Backend not ready for deployments: {[cfg.signature_verification !== 'AVAILABLE' && `signature verification unavailable (${cfg.signature_detail})`, cfg.device_url_problem, cfg.storage !== 'OK' && cfg.storage_detail].filter(Boolean).join('; ')}.</p>)}
       {cfg?.key_fingerprint && <p className="tq-small tq-muted" data-testid="fw-key">Release key {cfg.key_fingerprint} · device download URL {cfg.device_url}</p>}
-      <div className="tq-grid tq-grid-wide">
+      <div className="tq-mt">
         <DeviceStatus s={s} />
-        <UploadCard admin={admin} max={cfg?.max_image_bytes} onUploaded={(r) => { setSel(r.id); load(); }} />
       </div>
       <div className="tq-mt">
         <SourceWorkspace admin={admin} deviceId={s?.device?.device_id} onCompiled={(r) => { setSel(r.id); load(); }} onDeployed={() => load()} />

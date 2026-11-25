@@ -90,7 +90,7 @@ describe('device pages', () => {
     expect(await screen.findByText(/measurements reported by the connected ESP32-S3/)).toBeInTheDocument();
     expect(within(screen.getByTestId('dev-chart-rpm')).getByText('1200')).toBeInTheDocument();   // latest value on the speed chart (also listed in Telemetry details and the samples table)
     expect(screen.getAllByText('UNAVAILABLE').length).toBeGreaterThanOrEqual(3);          // voltage, power, vibration
-    expect(screen.getByText(/does not compute it/)).toBeInTheDocument();
+    expect(screen.getByTestId('dev-chart-vibration')).toBeInTheDocument();
   });
 
   it('stale telemetry is flagged and never presented as live', async () => {

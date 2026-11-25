@@ -49,26 +49,21 @@ describe('Firmware Manager page', () => {
   it('operators and viewers see the records but cannot upload or deploy', async () => {
     server(); render(<FirmwarePage role="operator" go={() => {}} />);
     await screen.findByTestId('fw-device');
-    expect(screen.getByText('Uploading firmware requires the admin role.')).toBeInTheDocument();
-    expect(screen.queryByTestId('fw-upload-btn')).toBeNull();
+    expect(screen.getByText('Source compilation and OTA deployment require the admin role.')).toBeInTheDocument();
+    expect(screen.queryByTestId('fw-source-file')).toBeNull();
     fireEvent.click(await screen.findByRole('button', { name: '3.1.0' }));
     expect(await screen.findByText('Deploying firmware requires the admin role.')).toBeInTheDocument();
     expect(screen.queryByTestId('fw-deploy')).toBeNull();
   });
 
-  it('checks a picked file in the browser and refuses source code or a non-ESP image', async () => {
+  it('accepts source, zip, and bin files in the workspace and rejects unsupported extensions', async () => {
     server(); render(<FirmwarePage role="admin" go={() => {}} />);
-    const input = await screen.findByTestId('fw-file');
-    await act(async () => { fireEvent.change(input, { target: { files: [new File(['void setup(){}'], 'main.cpp')] } }); });
-    expect(await screen.findByTestId('fw-precheck')).toHaveTextContent(/Only a compiled application image/);
-    expect(screen.getByTestId('fw-upload-btn')).toBeDisabled();
-    const bad = new Uint8Array(64); bad[0] = 0x7f;
-    await act(async () => { fireEvent.change(input, { target: { files: [new File([bad], 'firmware.bin')] } }); });
-    await waitFor(() => expect(screen.getByTestId('fw-precheck')).toHaveTextContent(/not an ESP application image/));
+    const input = await screen.findByTestId('fw-source-file');
+    await act(async () => { fireEvent.change(input, { target: { files: [new File(['bad'], 'readme.txt')] } }); });
+    expect(await screen.findByText(/Supported uploads:/)).toBeInTheDocument();
     const good = new Uint8Array(64); good[0] = 0xE9; good[12] = 9;
     await act(async () => { fireEvent.change(input, { target: { files: [new File([good], 'firmware.bin')] } }); });
-    await waitFor(() => expect(screen.queryByTestId('fw-precheck')).toBeNull());
-    expect(screen.getByTestId('fw-upload-btn')).not.toBeDisabled();
+    expect(await screen.findByText('Validate & Deploy .bin')).toBeInTheDocument();
   });
 
   it('shows each validation result separately for the selected release', async () => {

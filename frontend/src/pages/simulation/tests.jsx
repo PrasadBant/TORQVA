@@ -220,8 +220,8 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale, go }) {
     if (wb?.prefill && plan) { add(wb.prefill); setWb((x) => ({ ...x, prefill: null })); setTab('available'); }
   }, [wb?.prefill, plan]); // eslint-disable-line react-hooks/exhaustive-deps
   const { errs, total } = useMemo(() => validateSequence(seq, limits), [seq, limits]);
-  const blockers = [!hasSim && 'no simulation is running', stale && 'the backend is not answering', s.device?.estop && 'the simulated device has latched an emergency stop',
-    hasSim && (s.device?.setpoint_rpm ?? 0) <= 0 && 'the simulated motor is stopped', !ctl && `your role (${role}) cannot run tests`].filter(Boolean);
+  const unavailable = [!hasSim && 'no simulation is running', stale && 'the backend is not answering',
+    !ctl && `your role (${role}) cannot run tests`].filter(Boolean);
   const run = async () => {
     if (inFlight.current) return;                            // one request at a time: a second press while running sends nothing
     inFlight.current = true; setBusy(true); setErr(null);
@@ -252,8 +252,8 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale, go }) {
             sub={rec ? `${rec.worth_running ? 'expected' : 'best'} gain ${fmt(rec.expected_info_gain_nats, 2)} nats (needs ≥ ${fmt(rec.gate_min_info_gain_nats, 2)})` : 'needs a hypothesis ranking'} />
           <StatTile icon={FlaskConical} tone={lastA ? lastA[0] : 'off'} label="Latest sequence result" value={lastA ? lastA[1].split(' — ')[0] : 'No run yet'}
             sub={lastRun ? `${lastRun.id} · ${lastRun.results.length} test(s)` : 'run a sequence or a guided investigation'} />
-          <StatTile icon={Gauge} tone={blockers.length ? 'warn' : 'info'} label="Run conditions" value={blockers.length ? 'Blocked' : 'No blocker seen'}
-            sub={blockers.length ? blockers[0] : 'the backend re-checks every step before it runs'} />
+          <StatTile icon={Gauge} tone={unavailable.length ? 'warn' : 'info'} label="Run conditions" value={unavailable.length ? 'Waiting' : 'Ready'}
+            sub={unavailable.length ? unavailable[0] : 'the backend re-checks every step before it runs'} />
         </StatGrid>
 
         <Disclosure summary="Guided investigation" meta="TORQVA picks and runs the most informative test, then decides again" testid="c4-guided">
@@ -307,9 +307,9 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale, go }) {
                 </ol>)}
               <label className="tq-check"><input type="checkbox" checked={stopConfident} onChange={(e) => setStopConfident(e.target.checked)} disabled={busy} /> Skip the remaining tests once the ranking becomes confident</label>
               {seq.length > 0 && errs.length > 0 && <p className="tq-callout warn" role="alert">Cannot run yet: {errs.join('; ')}.</p>}
-              {blockers.length > 0 && <p className="tq-callout warn" data-testid="seq-blockers">Not available: {blockers.join('; ')}.</p>}
+              {unavailable.length > 0 && <p className="tq-callout warn" data-testid="seq-unavailable">Not available: {unavailable.join('; ')}.</p>}
               <div className="tq-row tq-mt">
-                <button type="button" className="tq-btn tq-primary" disabled={busy || !seq.length || errs.length > 0 || blockers.length > 0} onClick={run} data-testid="run-sequence">
+                <button type="button" className="tq-btn tq-primary" disabled={busy || !seq.length || errs.length > 0 || unavailable.length > 0} onClick={run} data-testid="run-sequence">
                   {busy ? <Loader2 size={14} className="tq-spin" aria-hidden="true" /> : <Play size={14} aria-hidden="true" />} {busy ? 'Running on the simulator copy…' : 'Run sequence on a simulator copy'}</button>
                 <span className="tq-muted tq-small"><Gauge size={13} aria-hidden="true" /> {busy ? `Waiting for the backend to run ${total} simulated seconds; the result opens under Test Results.` : 'The backend checks every value again before it runs.'}</span>
               </div>

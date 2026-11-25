@@ -37,7 +37,7 @@ def test_every_reading_carries_unit_identity_acquisition_and_receipt_time_and_so
 def test_analysis_waits_without_a_device_and_never_produces_a_result_for_missing_data():
     a = DeviceBridge().snapshot()["analysis"]
     assert a["state"] == WAITING and a["basis"] == "none" and all(a["layers"][k]["status"] == WAITING for k in ("C1", "HYPOTHESES", "C2", "C4", "C5", "C6"))
-    assert a["layers"]["C3"]["status"] == "physical motion BLOCKED"
+    assert a["layers"]["C3"]["status"] == "DIRECT CONTROL ACTIVE"
 
 
 def test_with_valid_physical_telemetry_the_layers_say_exactly_why_they_cannot_run():

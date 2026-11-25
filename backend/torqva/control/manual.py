@@ -40,18 +40,8 @@ def submit_manual_command(bridge: DeviceBridge, action: str, params: Optional[Di
     if reason:
         return bridge._reject(rec, [reason])
 
-    if action == "STOP" or action == "RESET_ESTOP":
-        if not bridge.connected or bridge.model.conn not in (Conn.CONNECTED, Conn.STALE):
-            return bridge._reject(rec, ["DEVICE NOT CONNECTED"])
-        if action == "RESET_ESTOP" and not bridge.session_active():
-            return bridge._reject(rec, ["NO AUTHENTICATED SESSION"])
-    else:
-        blockers = bridge.control_blockers()
-        if action == "SET_RAMP":
-            # A stationary motor can receive ramp settings before the supply is energized.
-            blockers = [b for b in blockers if not b.startswith("MOTOR SUPPLY NOT PRESENT")]
-        if blockers:
-            return bridge._reject(rec, blockers)
+    if not bridge.connected or transport is None:
+        return bridge._reject(rec, ["DEVICE NOT CONNECTED"])
 
     if diagnostic_guard is None:
         bridge._manual_revision += 1

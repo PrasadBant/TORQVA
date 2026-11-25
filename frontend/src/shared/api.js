@@ -145,7 +145,6 @@ export const api = {
   approve: () => req('/approvals/approve', { method: 'POST' }),
   reject: () => req('/approvals/reject', { method: 'POST' }),
   stop: () => req('/commands/stop', { method: 'POST' }),
-  resetEstop: () => req('/commands/reset-estop', { method: 'POST' }),
   labRegimes: () => req('/lab/regimes'),
   labChecklist: () => req('/lab/checklist'),
   labSessions: () => req('/lab/sessions'),

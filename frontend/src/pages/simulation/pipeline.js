@@ -15,7 +15,6 @@ export function lifecycle(d, running, stale) {
   if (stale) return { key: 'unknown', tone: 'crit', label: 'State unknown', detail: 'The backend is not answering; the values shown are the last ones received.' };
   if (!d?.status) return { key: 'loading', tone: 'off', label: 'Loading', detail: 'Waiting for the simulator state.' };
   if (!hasSimOf(s)) return { key: 'idle', tone: 'off', label: 'No simulation', detail: 'Configure a scenario and start it.' };
-  if (s.device?.estop) return { key: 'estop', tone: 'stop', label: 'Simulated E-stop latched', detail: s.device.estop_reason ? `Reason: ${title(s.device.estop_reason)}.` : 'The simulated device latched a stop.' };
   if (s.pending_approval) return { key: 'approval', tone: 'wait', label: 'Awaiting human approval', detail: `Proposed: ${title(s.pending_approval.action)}.` };
   if (running) return { key: 'running', tone: 'ok', label: 'Running', detail: 'Simulation time advances while this page is open.' };
   if (s.t === 0) return { key: 'ready', tone: 'info', label: 'Ready', detail: 'Started at t = 0 s; press Run or Step to advance time.' };

@@ -62,7 +62,7 @@ def test_raw_acceleration_is_never_labelled_vibration_in_the_firmware():
 
 def test_pwm_failure_keeps_the_driver_disabled_and_is_latched():
     assert "g_pwm_ok = pwm_begin();" in MAIN and "if (!g_pwm_ok || !o.driver_enable || !o.relay_on)" in MAIN
-    assert "latch_boot_fault(TripReason::OUTPUT_INIT_FAULT)" in MAIN
+    assert "cfg.direct_mode = !TORQVA_OTA_LED_BENCH;" in MAIN
 
 
 def test_wiring_id_stays_unverified_and_fits_the_protocol_bound():

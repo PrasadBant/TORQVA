@@ -40,9 +40,10 @@ export const LIVE_SIGNALS = [
   ['voltage', 'DC bus voltage', 'V', 1, 'MEASURED', 'var(--tq-sig-voltage)', 'supply'],
   ['power', 'Motor power', 'W', 1, 'DERIVED', 'var(--tq-sig-power)', 'computed by the firmware from V × I'],
   ['acceleration', 'Total acceleration', 'g', 3, 'MEASURED', 'var(--tq-sig-vib)', 'includes gravity; raw per-axis values; NOT vibration RMS'],
+  ['vibration', 'Vibration RMS', 'g', 4, 'DERIVED', 'var(--tq-sig-vib)', 'dynamic AC RMS derived from ADXL345'],
   ['duty', 'Drive duty (command)', '%', 1, 'COMMAND', 'var(--tq-chart-ink)', 'commanded, not measured'],
 ];
-const SIG_ICON = { rpm: Gauge, current: Zap, housing: Thermometer, voltage: Plug, power: Zap, acceleration: Move3d, duty: SlidersHorizontal };
+const SIG_ICON = { rpm: Gauge, current: Zap, housing: Thermometer, voltage: Plug, power: Zap, acceleration: Move3d, vibration: Waves, duty: SlidersHorizontal };
 const RANGES = [[60, '60 s'], [180, '3 min'], [360, '6 min']];
 const rangeName = (s) => (s < 120 ? `${s} s` : `${s / 60} min`);
 const SAMPLE_KEYS = ['rpm', 'current', 'voltage', 'power', 'housing', 'duty'];        // one backend history record per frame: these share timestamps
@@ -215,10 +216,6 @@ export function DeviceLive({ stream }) {
                   ) : <p className="tq-mon-nochart">No device history in this window. History exists only while a device is sending telemetry.</p>}
                 </ChartPanel>);
             })}
-            <ChartPanel id="dev-ch-vib" testid="dev-chart-vib" title={<><Waves size={15} aria-hidden="true" style={{ color: 'var(--tq-sig-vib)' }} /> Vibration RMS</>} value={null}
-              foot="see total acceleration for the raw accelerometer">
-              <p className="tq-mon-nochart">the firmware does not compute it</p>
-            </ChartPanel>
           </div>
           <div className="tq-stack">
             <Card title="Telemetry details" id="c-devdetails" sub={snap?.last_rx_unix ? `last frame ${clock(snap.last_rx_unix)}` : 'no frame received'}>
