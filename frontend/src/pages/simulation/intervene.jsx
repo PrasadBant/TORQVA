@@ -165,6 +165,7 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
 
       {tab === 'decision' && (
         <TabPanel tab="decision" idBase="tq-c3">
+          <div>
           <p className="tq-as-lede" role="note">A prediction never authorises an action, and nothing on this page reaches a physical motor: actions go to the simulated device only after the backend's checks.</p>
           <ApprovalCard d={d} role={role} actions={actions} error={error} busy={shellBusy} />
           <div className="tq-split tq-mt">
@@ -220,6 +221,7 @@ export function SimInterventionsPage({ d, role, actions, error, go, wb, setWb, s
             </div>)}
 
           <div className="tq-mt"><ActionLifecycle d={d} /></div>
+          </div>
         </TabPanel>)}
 
       {tab === 'history' && (

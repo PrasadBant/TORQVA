@@ -41,7 +41,19 @@ const uint32_t kWifiTimeoutMs = 20000;
 const uint32_t kReadTimeoutMs = 15000;
 const uint32_t kSelfTestWindowMs = 120000;      // the host must re-establish the authenticated session within this time after the restart
 
-String g_ssid, g_pass, g_base, g_ca;
+String g_ssid, g_pass, g_base, g_ca;                      // the network the link uses RIGHT NOW (the committed one, or the one on trial)
+String g_act_ssid, g_act_pass, g_act_base;                // the committed (NVS) network, kept while another is on trial
+WifiTrial g_trial;                                        // staged network lifecycle (wifi_trial.h)
+SemaphoreHandle_t g_cfg_mu = nullptr;                     // the link task and the main loop both read / change the strings above
+struct CfgLock {
+    CfgLock() { if (g_cfg_mu) xSemaphoreTake(g_cfg_mu, portMAX_DELAY); }
+    ~CfgLock() { if (g_cfg_mu) xSemaphoreGive(g_cfg_mu); }
+};
+const char* kStaged[] = {"n_ssid", "n_pass", "n_base", "n_try", "n_tr"};
+void drop_staged_keys() {
+    Preferences p;
+    if (p.begin(kNs, false)) { for (const char* k : kStaged) p.remove(k); p.end(); }
+}
 const char* g_why = "OTA_NOT_CONFIGURED";
 bool g_capable = false;
 Device* g_dev = nullptr;
@@ -278,10 +290,34 @@ void ota_platform_capability(DeviceConfig& cfg) {
     const esp_partition_t* run = esp_ota_get_running_partition();
     const esp_partition_t* next = esp_ota_get_next_update_partition(nullptr);
     const esp_partition_t* otad = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, nullptr);
+    if (!g_cfg_mu) g_cfg_mu = xSemaphoreCreateMutex();
     Preferences p;
     if (p.begin(kNs, true)) {
         g_ssid = p.getString("ssid", ""); g_pass = p.getString("pass", ""); g_base = p.getString("base", ""); g_ca = p.getString("ca", "");
         p.end();
+    }
+    // A network staged in NVS over USB provisioning (keys n_*) is TRIED, not adopted: the committed network above stays in NVS and is used again if no authenticated
+    // commit arrives within the trial, or if the board has already restarted kMaxBootTries times while it was staged (a boot loop must not strand the board).
+    {
+        Preferences w;
+        if (w.begin(kNs, false)) {
+            const String ns = w.getString("n_ssid", "");
+            if (ns.length() > 0) {
+                const String np = w.getString("n_pass", ""), nb = w.getString("n_base", "");
+                const uint8_t tries = w.getUChar("n_try", 0);
+                const uint32_t tr = w.getUInt("n_tr", 0);
+                const bool ok = WifiTrial::boot_trial_allowed(tries) && wifi_stage_check(ns.c_str(), np.c_str(), nb.c_str(), 0) == nullptr && (nb.length() == 0 || base_url_ok(nb));
+                if (ok) {
+                    w.putUChar("n_try", (uint8_t)(tries + 1));
+                    g_act_ssid = g_ssid; g_act_pass = g_pass; g_act_base = g_base;
+                    g_ssid = ns; g_pass = np; if (nb.length() > 0) g_base = nb;
+                    g_trial.start(millis(), tr ? tr : 300);
+                } else {
+                    for (const char* k : kStaged) w.remove(k);                  // abandoned: the committed network is used
+                }
+            }
+            w.end();
+        }
     }
     if (!otad || !next || !run || (run->subtype != ESP_PARTITION_SUBTYPE_APP_OTA_0 && run->subtype != ESP_PARTITION_SUBTYPE_APP_OTA_1)) g_why = "NO_OTA_PARTITIONS";
     else if (!TORQVA_OTA_HAVE_KEY) g_why = "NO_SIGNING_KEY";
@@ -320,6 +356,7 @@ void ota_platform_start(Device* dev, SemaphoreHandle_t mu, bool ina_ok, bool tem
 }
 
 bool ota_net_config(String* ssid, String* pass, String* base, String* ca) {
+    CfgLock lock;
     if (g_ssid.length() == 0 || !base_url_ok(g_base) || g_ca.indexOf("-----BEGIN CERTIFICATE-----") < 0) return false;
     if (ssid) *ssid = g_ssid;
     if (pass) *pass = g_pass;
@@ -331,16 +368,71 @@ bool ota_net_config(String* ssid, String* pass, String* base, String* ca) {
 bool ota_update_wifi_config(const String& ssid, const String& pass, const String& base) {
     if (ssid.length() == 0 || ssid.length() > 32) return false;
     if (base.length() > 0 && !base_url_ok(base)) return false;
+    CfgLock lock;
     Preferences p;
     if (!p.begin(kNs, false)) return false;
     p.putString("ssid", ssid);
     p.putString("pass", pass);
     if (base.length() > 0) p.putString("base", base);
+    for (const char* k : kStaged) p.remove(k);                 // a direct, authenticated overwrite supersedes any staged trial
     p.end();
     g_ssid = ssid;
     g_pass = pass;
     if (base.length() > 0) g_base = base;
+    g_act_ssid = g_ssid; g_act_pass = g_pass; g_act_base = g_base;
+    g_trial.finish();
     return true;
+}
+
+bool ota_wifi_stage(const String& ssid, const String& pass, const String& base, uint32_t trial_s) {
+    if (wifi_stage_check(ssid.c_str(), pass.c_str(), base.c_str(), trial_s) != nullptr) return false;
+    if (base.length() > 0 && !base_url_ok(base)) return false;
+    CfgLock lock;
+    if (!g_trial.active()) { g_act_ssid = g_ssid; g_act_pass = g_pass; g_act_base = g_base; }   // remember the working network; NVS is NOT touched
+    g_ssid = ssid; g_pass = pass;
+    if (base.length() > 0) g_base = base;
+    g_trial.start(millis(), trial_s);
+    return true;
+}
+
+bool ota_wifi_commit() {
+    CfgLock lock;
+    if (!g_trial.active()) return false;
+    Preferences p;
+    if (!p.begin(kNs, false)) return false;
+    bool ok = p.putString("ssid", g_ssid) > 0 && p.putString("pass", g_pass) > 0;
+    if (ok && g_base.length() > 0) ok = p.putString("base", g_base) > 0;
+    if (!ok) { p.end(); return false; }                        // the trial stays active; the committed network in NVS is unchanged or rewritten whole on the next try
+    for (const char* k : kStaged) p.remove(k);                 // committed first, staged copy removed second: a power loss between leaves an identical staged copy, which is harmless
+    p.end();
+    g_act_ssid = g_ssid; g_act_pass = g_pass; g_act_base = g_base;
+    g_trial.finish();
+    return true;
+}
+
+bool ota_wifi_trial_tick(uint32_t now_ms) {
+    bool reverted = false;
+    {
+        CfgLock lock;
+        if (g_trial.expired(now_ms)) {
+            g_ssid = g_act_ssid; g_pass = g_act_pass; g_base = g_act_base;
+            g_trial.finish();
+            drop_staged_keys();
+            reverted = true;
+        }
+    }
+    if (reverted) {
+        wifi_log("WARN", "Wi-Fi trial ended without a commit; previous network restored");
+        wifi_link_reconnect();
+    }
+    return reverted;
+}
+
+void ota_wifi_state(bool* trial, uint32_t* left_s, String* active_ssid, uint32_t now_ms) {
+    CfgLock lock;
+    if (trial) *trial = g_trial.active();
+    if (left_s) *left_s = g_trial.remaining_s(now_ms);
+    if (active_ssid) *active_ssid = g_trial.active() ? g_act_ssid : g_ssid;
 }
 
 bool ota_rollback_partition() {

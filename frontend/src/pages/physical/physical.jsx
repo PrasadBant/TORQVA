@@ -575,13 +575,10 @@ export function PhysicalOverview({ stream, go, role }) {
       {/* Speed status — shows zone and sounds alarm when motor is running */}
       {live && <SpeedStatus rpm={rpm} isRunning={isRunning} muted={alarmMuted} onToggleMute={() => setAlarmMuted((m) => !m)} />}
 
-      {/* Experimental Physical AI Health Score widget when live */}
-      {live && <ExperimentalPhysicalAiWidget vals={vals} live={live} isRunning={isRunning} />}
-
       {/* Offline setup guide with port/firmware instructions and 1-click jump to simulation */}
       {!live && <OfflineSetupGuide />}
 
-      <div className="tq-mon-ovgrid">
+      <div className="tq-mon-ovgrid tq-overview-workspace">
         <MotionPanel stream={stream} role={role} go={go} />
         <Card title="Live telemetry" id="p-meas" icon={Activity} sub={(live || override) ? 'Last 2 minutes; gaps are invalid readings' : 'No physical readings'}
           right={<><SourceTag kind={(!live && !override) ? 'UNKNOWN' : (snap?.telemetry_fresh || override) ? 'PHYSICAL' : 'STALE'} /></>}
@@ -596,7 +593,9 @@ export function PhysicalOverview({ stream, go, role }) {
         </Card>
       </div>
 
-      <div className="tq-mon-ovgrid tq-mon-ovgrid--even">
+      {live && <div className="tq-mt"><ExperimentalPhysicalAiWidget vals={vals} live={live} isRunning={isRunning} /></div>}
+
+      <div className="tq-mon-ovgrid tq-mon-ovgrid--even tq-overview-history">
         <Card title="Recent events" id="p-events" icon={History} sub="This session" foot={<LinkButton onClick={() => go('control')}>View all</LinkButton>}>
           <DataTable caption="Recent device commands and events" testid="phys-events" rows={ev} rowKey={(r) => r.k} maxRows={6} empty="No commands or device events in this session."
             columns={[{ key: 't', label: 'Time', render: (r) => <span className="tq-num">{clock(r.t)}</span> }, { key: 'level', label: 'Status', render: (r) => <Pill tone={r.tone}>{r.level}</Pill> }, { key: 'text', label: 'Event' }]} />

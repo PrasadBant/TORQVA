@@ -30,6 +30,7 @@ function server({ st = status(), releases = [REL], eligibility = [] } = {}) {
   }));
 }
 beforeEach(() => { vi.unstubAllGlobals(); setToken('t'); });
+const openWorkspace = async (name) => { fireEvent.click(await screen.findByRole('tab', { name: new RegExp(name, 'i') })); };
 
 describe('Firmware Manager page', () => {
   it('shows the device firmware facts', async () => {
@@ -49,15 +50,19 @@ describe('Firmware Manager page', () => {
   it('operators and viewers see the records but cannot upload or deploy', async () => {
     server(); render(<FirmwarePage role="operator" go={() => {}} />);
     await screen.findByTestId('fw-device');
+    await openWorkspace('Development');
     expect(screen.getByText('Source compilation and OTA deployment require the admin role.')).toBeInTheDocument();
     expect(screen.queryByTestId('fw-source-file')).toBeNull();
+    await openWorkspace('Firmware Library');
     fireEvent.click(await screen.findByRole('button', { name: '3.1.0' }));
+    await openWorkspace('Deployment');
     expect(await screen.findByText('Deploying firmware requires the admin role.')).toBeInTheDocument();
     expect(screen.queryByTestId('fw-deploy')).toBeNull();
   });
 
   it('accepts source, zip, and bin files in the workspace and rejects unsupported extensions', async () => {
     server(); render(<FirmwarePage role="admin" go={() => {}} />);
+    await openWorkspace('Development');
     const input = await screen.findByTestId('fw-source-file');
     await act(async () => { fireEvent.change(input, { target: { files: [new File(['bad'], 'readme.txt')] } }); });
     expect(await screen.findByText(/Supported uploads:/)).toBeInTheDocument();
@@ -69,6 +74,7 @@ describe('Firmware Manager page', () => {
   it('shows each validation result separately for the selected release', async () => {
     server({ releases: [{ ...REL, deployable: false, status: 'NOT DEPLOYABLE', checks: { ...REL.checks, signature: { status: 'FAILED', detail: 'does not match' } } }] });
     render(<FirmwarePage role="admin" go={() => {}} />);
+    await openWorkspace('Firmware Library');
     fireEvent.click(await screen.findByRole('button', { name: '3.1.0' }));
     const v = screen.getByTestId('fw-validation');
     expect(within(v).getByText('Signature verification').closest('li')).toHaveTextContent('FAILED');
@@ -83,7 +89,9 @@ describe('Firmware Manager page', () => {
     render(<FirmwarePage role="admin" go={() => {}} />);
     const dev = await screen.findByTestId('fw-device');
     await waitFor(() => expect(dev).toHaveTextContent('OTA LED bench (no motor control)'));
+    await openWorkspace('Firmware Library');
     fireEvent.click(await screen.findByRole('button', { name: '3.1.0' }));
+    await openWorkspace('Deployment');
     const upd = await screen.findByTestId('fw-update');
     await waitFor(() => expect(upd).toHaveTextContent('LED bench device: no motor hardware'));
     expect(upd).not.toHaveTextContent('as measured by the device');
@@ -93,13 +101,17 @@ describe('Firmware Manager page', () => {
     const st = status(); st.device = { ...st.device, profile: '', profile_label: 'production' };
     server({ st }); render(<FirmwarePage role="admin" go={() => {}} />);
     await waitFor(() => expect(screen.getByTestId('fw-device')).toHaveTextContent('production'));
+    await openWorkspace('Firmware Library');
     fireEvent.click(await screen.findByRole('button', { name: '3.1.0' }));
+    await openWorkspace('Deployment');
     await waitFor(() => expect(screen.getByTestId('fw-update')).toHaveTextContent('as measured by the device'));
   });
 
   it('an eligible signed release deploys with one action', async () => {
     server(); render(<FirmwarePage role="admin" go={() => {}} />);
+    await openWorkspace('Firmware Library');
     fireEvent.click(await screen.findByRole('button', { name: '3.1.0' }));
+    await openWorkspace('Deployment');
     const btn = await screen.findByTestId('fw-deploy');
     expect(btn).not.toBeDisabled();
     fireEvent.click(btn);
@@ -109,7 +121,9 @@ describe('Firmware Manager page', () => {
 
   it('an ineligible release lists the reasons and the update stays disabled', async () => {
     server({ eligibility: ['the device refuses an update now: MOTOR_POWER_CONNECTED'] }); render(<FirmwarePage role="admin" go={() => {}} />);
+    await openWorkspace('Firmware Library');
     fireEvent.click(await screen.findByRole('button', { name: '3.1.0' }));
+    await openWorkspace('Deployment');
     expect(await screen.findByTestId('fw-readiness')).toHaveTextContent('MOTOR_POWER_CONNECTED');
     expect(screen.getByTestId('fw-deploy')).toBeDisabled();
   });

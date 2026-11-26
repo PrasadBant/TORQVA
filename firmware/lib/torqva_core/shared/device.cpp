@@ -17,6 +17,7 @@ Device::Device(const Limits& l, const DeviceConfig& c)
       test_cmd_id_(0), test_cmd_valid_(false), reset_cmd_id_(0), reset_pending_(false),
       reset_deadline_ms_(0), last_out_(), last_dt_s_(0.01f),
       ota_active_(false), ota_has_req_(false), ota_pending_verify_(false), ota_req_(), ota_running_("?"), ota_psz_(0), ota_last_(""), ota_last_ver_(""), last_ota_info_ms_(0),
+      last_wifi_state_ms_(0), wifi_trial_(false), wifi_left_s_(0), wifi_act_(),
       q_head_(0), q_tail_(0), q_count_(0), dropped_(0) {
     memset(q_, 0, sizeof(q_));
     AuthConfig ac = {}; ac.enabled = c.auth_enabled && c.rand32 != nullptr; memcpy(ac.key, c.auth_key, 32); ac.device_id = c.device_id; ac.rand32 = c.rand32;
@@ -130,9 +131,52 @@ static bool extract_json_u32(const char* s, const char* key, uint32_t* out) {
     return true;
 }
 
+// Staged Wi-Fi network frames: wifi_stage (try a new network), wifi_commit (make it permanent), wifi_scan (list nearby networks). Same authentication as every other
+// host request: authenticated session, matching session id, fresh sequence number and an HMAC over a canonical string. Staging also needs a stopped drive because it
+// drops the link (losing the session stops a running motor anyway); commit and scan never interrupt the link.
+void Device::handle_wifi_frame(const char* ty, const char* line, uint32_t now_ms) {
+    uint32_t id = 0, seq = 0, tr = 0;
+    char sid[33] = "", mac[33] = "", ssid[34] = "", pass[66] = "", base[130] = "", canon[320];
+    const bool stage = strcmp(ty, "wifi_stage") == 0, commit = strcmp(ty, "wifi_commit") == 0;
+    const char* why = (!extract_json_u32(line, "id", &id) || !extract_json_u32(line, "seq", &seq)
+                       || !extract_json_str(line, "sid", sid, sizeof(sid)) || !extract_json_str(line, "m", mac, sizeof(mac))) ? "BAD_WIFI_MSG" : nullptr;
+    if (!why && !cfg_.wifi_stage_supported) why = "WIFI_STAGE_UNSUPPORTED";
+    if (!why && !auth_.enabled()) why = "NO_SECURE_SESSION";
+    if (!why && (!session_active_ || (session_sid_[0] && strcmp(sid, session_sid_) != 0))) why = "WRONG_SESSION";
+    if (stage) {
+        if (!why && (!extract_json_str(line, "ssid", ssid, sizeof(ssid)) || !extract_json_str(line, "pass", pass, sizeof(pass)) || !extract_json_str(line, "base", base, sizeof(base)))) why = "BAD_WIFI_MSG";
+        extract_json_u32(line, "tr", &tr);                                              // optional trial length in seconds (0 / absent = default)
+        snprintf(canon, sizeof(canon), "wstage|%lu|%lu|%s|%s|%s|%lu", (unsigned long)id, (unsigned long)seq, sid, ssid, base, (unsigned long)tr);
+    } else {
+        snprintf(canon, sizeof(canon), "%s|%lu|%lu|%s", commit ? "wcommit" : "wscan", (unsigned long)id, (unsigned long)seq, sid);
+    }
+    if (!why) why = auth_.verify_message(canon, sid, seq, mac, now_ms);
+    if (!why && stage) why = drive_.mode() != DriveMode::IDLE ? "MOTOR_NOT_STOPPED" : wifi_stage_check(ssid, pass, base, tr);
+    if (!why) {
+        if (stage) { if (!cfg_.on_wifi_stage || !cfg_.on_wifi_stage(ssid, pass, base, tr, cfg_.sys_ctx)) why = "WIFI_STAGE_FAILED"; }
+        else if (commit) { if (!cfg_.on_wifi_commit || !cfg_.on_wifi_commit(cfg_.sys_ctx)) why = "NO_TRIAL"; }
+        else { if (!cfg_.on_wifi_scan || !cfg_.on_wifi_scan(cfg_.sys_ctx)) why = "SCAN_BUSY"; }
+    }
+    Ack a = {id, why ? AckStatus::REJECTED : AckStatus::ACCEPTED, why ? why : "OK"};
+    queue_ack(a);
+}
+
+void Device::set_wifi_state(bool trial, uint32_t left_s, const char* active_ssid) {
+    wifi_trial_ = trial; wifi_left_s_ = left_s;
+    strncpy(wifi_act_, active_ssid ? active_ssid : "", sizeof(wifi_act_) - 1);
+    wifi_act_[sizeof(wifi_act_) - 1] = 0;
+}
+
 void Device::on_line(const char* line, uint32_t now_ms) {
     if (is_cfg_line(line)) { handle_cfg(line, now_ms); return; }
     if (is_ota_line(line)) { handle_ota(line, now_ms); return; }
+    {
+        char ty2[16] = "";
+        if (extract_json_str(line, "t", ty2, sizeof(ty2)) && (strcmp(ty2, "wifi_stage") == 0 || strcmp(ty2, "wifi_commit") == 0 || strcmp(ty2, "wifi_scan") == 0)) {
+            handle_wifi_frame(ty2, line, now_ms);
+            return;
+        }
+    }
     {
         char ty[16] = "";
         if (extract_json_str(line, "t", ty, sizeof(ty)) && (strcmp(ty, "sys") == 0 || strcmp(ty, "wifi_cfg") == 0)) {

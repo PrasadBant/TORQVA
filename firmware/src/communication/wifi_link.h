@@ -17,3 +17,7 @@ bool wifi_link_up();
 void wifi_log(const char* lvl, const char* msg);
 // Forces a Wi-Fi / WebSocket reconnect after credential update.
 void wifi_link_reconnect();
+// Starts one asynchronous scan (false: one is running, one ran within the last 10 s, or this build has no Wi-Fi). wifi_scan_poll() (call from the main loop) emits the
+// results as "wifi_net" lines followed by one "wifi_scan_end" line over Wi-Fi and USB. Neither call waits.
+bool wifi_scan_start();
+void wifi_scan_poll();

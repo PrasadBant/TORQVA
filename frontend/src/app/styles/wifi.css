@@ -1,0 +1,45 @@
+/* Configure Wi-Fi (Firmware Manager -> Device Management). Uses only the shared --tq-* tokens, so both themes follow automatically. */
+.wifi-prov { display: grid; gap: 12px; min-width: 0; }
+.wifi-prov > * { min-width: 0; }
+
+/* current network + device status */
+.wifi-now { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px; padding: 10px 12px; border: 1px solid var(--tq-border); border-radius: 10px; background: var(--tq-s1, transparent); }
+.wifi-now > div { min-width: 0; }
+.wifi-now dt { font-size: 11px; color: var(--tq-muted); text-transform: none; letter-spacing: 0; margin: 0 0 2px; }
+.wifi-now dd { margin: 0; font-size: 13px; color: var(--tq-text); overflow-wrap: anywhere; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.wifi-now .is-missing { color: var(--tq-faint); }
+
+/* signal strength: four bars, filled from the left; the label carries the real number so colour is never the only cue */
+.wifi-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; vertical-align: middle; }
+.wifi-bars i { display: block; width: 4px; border-radius: 1px; background: var(--tq-border-strong); }
+.wifi-bars i:nth-child(1) { height: 5px; } .wifi-bars i:nth-child(2) { height: 8px; } .wifi-bars i:nth-child(3) { height: 11px; } .wifi-bars i:nth-child(4) { height: 14px; }
+.wifi-bars[data-bars="1"] i:nth-child(-n+1), .wifi-bars[data-bars="2"] i:nth-child(-n+2),
+.wifi-bars[data-bars="3"] i:nth-child(-n+3), .wifi-bars[data-bars="4"] i:nth-child(-n+4) { background: var(--tq-ok); }
+.wifi-bars[data-bars="1"] i:nth-child(1) { background: var(--tq-warn); }
+
+/* form */
+.wifi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 14px; align-items: end; }
+.wifi-grid label { min-width: 0; }
+.wifi-grid select, .wifi-grid input[type="text"], .wifi-grid input[type="password"] { width: 100%; min-width: 0; }
+.wifi-span { grid-column: 1 / -1; }
+.wifi-inline { display: flex; gap: 6px; align-items: center; }
+.wifi-inline > select, .wifi-inline > input { flex: 1 1 auto; min-width: 0; }
+.wifi-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.wifi-netinfo { display: flex; gap: 8px 14px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--tq-muted); margin: 0; }
+.wifi-chip { display: inline-block; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--tq-border-strong); font-size: 11px; color: var(--tq-muted); white-space: nowrap; }
+.wifi-chip.is-current { border-color: var(--tq-ok); color: var(--tq-ok); }
+.wifi-chip.is-saved { border-color: var(--tq-accent); color: var(--tq-accent); }
+
+/* progress + results */
+.wifi-result { display: grid; gap: 8px; }
+.wifi-result .tq-steps { margin: 0; }
+.wifi-log { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; padding: 8px 10px; border: 1px solid var(--tq-border); border-radius: 8px; background: var(--tq-s1, transparent); font-family: var(--tq-mono); font-size: 11.5px; }
+.wifi-countdown { font-variant-numeric: tabular-nums; }
+
+/* history */
+.wifi-history { min-width: 0; overflow-x: auto; }
+
+@media (max-width: 640px) {
+  .wifi-actions > .tq-btn { flex: 1 1 100%; }
+  .wifi-now { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

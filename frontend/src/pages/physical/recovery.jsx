@@ -85,6 +85,7 @@ export function PhysicalRecoveryPage({ stream, go, role, d, simView, physicalMod
 
   return (
     <div className="tq-as-recovery" data-testid="recovery-workspace">
+      {(activeTab !== 'simulation' || !simView) && (
       <PageHead
         title="Recovery Verification"
         sub="Did the physical motor recover after the action? Verified from live hardware telemetry and firmware state."
@@ -114,6 +115,7 @@ export function PhysicalRecoveryPage({ stream, go, role, d, simView, physicalMod
           </div>
         }
       />
+      )}
 
       {/* Hidden test anchor ensuring backward compatibility with simulation audits */}
       <div data-testid="rec-sim-note" style={{ display: 'none' }} aria-hidden="true">

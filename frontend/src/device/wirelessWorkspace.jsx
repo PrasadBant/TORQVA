@@ -1,6 +1,6 @@
 // Engineering Workspace components: Multi-file Source Editor, Live Docker Compilation Console,
 // Automatic ESP32 Discovery, Manual IP Fallback, Wi-Fi Network Manager, Remote Restart, and Wireless Serial Monitor.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Code2, Play, Rocket, Terminal, Wifi, Radar, RefreshCw, Download, Search,
   Pause, Trash2, Plus, FileCode2, Cpu, RotateCcw, CheckCircle2, XCircle, Globe,
@@ -8,16 +8,43 @@ import {
 import { api } from '../shared/api.js';
 import { Card, Empty, ErrorBox, Pill, MetricList, fmt } from '../components/components.jsx';
 
+const MonacoEditor = lazy(() => import('./MonacoEditorLocal.jsx'));
+const DRAFT_KEY = 'torqva.firmware.workspace.v1';
+const initialFiles = () => {
+  try { const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); if (saved?.files && typeof saved.files === 'object') return saved.files; } catch { /* use safe default */ }
+  return { 'src/custom_sketch.ino': '// Custom Arduino sketch bridged with TORQVA Wireless OTA.\nvoid setup() {\n  // Initialize custom hardware or sensors\n}\n\nvoid loop() {\n  delay(100);\n}\n' };
+};
+
+export function FirmwareAssistantPanel({ context = '', defaultTask = 'code_review' }) {
+  const [status, setStatus] = useState(null); const [task, setTask] = useState(defaultTask); const [evidence, setEvidence] = useState(context);
+  const [consent, setConsent] = useState(false); const [result, setResult] = useState(null); const [err, setErr] = useState(null); const [busy, setBusy] = useState(false);
+  useEffect(() => { api.fwAssistantStatus().then(setStatus).catch((e) => setErr(e)); }, []);
+  useEffect(() => { if (context) setEvidence(context); }, [context]);
+  const run = async () => { setBusy(true); setErr(null); setResult(null); try { setResult(await api.fwAssistantAnalyze({ task, context: evidence, consent_external: consent })); } catch (e) { setErr(e); } finally { setBusy(false); } };
+  return <Card title="AI Firmware Assistant" icon={Code2} sub="Advisory analysis only; it cannot edit, deploy, sign or command a device" testid="fw-ai-assistant" right={<Pill tone={status?.available ? 'ok' : 'off'}>{status?.available ? `${status.provider} · ${status.model}` : 'Unavailable'}</Pill>}>
+    {!status?.available ? <Empty>{status?.detail || 'Checking configured AI provider…'}</Empty> : <>
+      <div className="tq-row" style={{ gap: '0.5rem', flexWrap: 'wrap' }}><select value={task} onChange={(e) => setTask(e.target.value)} aria-label="AI firmware task">
+        <option value="explain">Explain source</option><option value="compile_error">Analyze compilation error</option><option value="code_review">Review code quality</option>
+        <option value="crash_analysis">Analyze crash log</option><option value="memory">Memory optimization</option><option value="performance">Performance review</option>
+        <option value="security">Security review</option><option value="safety">Safety review</option><option value="compatibility">Hardware compatibility</option><option value="troubleshoot">Guided troubleshooting</option>
+      </select><label className="tq-check"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /> I authorize transmitting the evidence below to the configured provider</label></div>
+      <textarea rows={7} value={evidence} onChange={(e) => setEvidence(e.target.value)} placeholder="Selected source, compiler diagnostics or crash logs" aria-label="AI evidence" />
+      <button type="button" className="tq-btn tq-primary" onClick={run} disabled={busy || !consent || !evidence.trim()}>{busy ? 'Analyzing…' : 'Analyze Evidence'}</button>
+      {result && <div className="tq-callout info tq-mt"><p><strong>Advisory result — review required</strong></p><pre style={{ whiteSpace: 'pre-wrap', maxHeight: 420, overflow: 'auto' }}>{result.analysis}</pre><p className="tq-small">{result.notice}</p></div>}
+      <ErrorBox error={err} />
+    </>}
+  </Card>;
+}
+
 /* ------------------------------------------------------------------ 1. Multi-File Source Editor + Docker Compiler */
 export function SourceWorkspace({ admin, deviceId, onCompiled, onDeployed }) {
   const [docker, setDocker] = useState(null);
   const [templates, setTemplates] = useState([]);
-  const [files, setFiles] = useState({
-    'src/custom_sketch.ino':
-      '// Custom Arduino sketch bridged with TORQVA Wireless OTA.\nvoid setup() {\n  // Initialize custom hardware or sensors\n}\n\nvoid loop() {\n  delay(100);\n}\n',
-  });
+  const [files, setFiles] = useState(initialFiles);
+  const [baseline, setBaseline] = useState(initialFiles);
   const [activeFile, setActiveFile] = useState('src/custom_sketch.ino');
   const [newName, setNewName] = useState('');
+  const [renameTo, setRenameTo] = useState('');
   const [profile, setProfile] = useState('esp32s3_wireless');
   const [version, setVersion] = useState('');
   const [notes, setNotes] = useState('');
@@ -29,6 +56,12 @@ export function SourceWorkspace({ admin, deviceId, onCompiled, onDeployed }) {
   const [dragOver, setDragOver] = useState(false);
   const srcInputRef = useRef(null);
   const logRef = useRef(null);
+  const editorRef = useRef(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ files, activeFile, profile, savedAt: Date.now() })); } catch { /* storage unavailable */ } }, 350);
+    return () => clearTimeout(timer);
+  }, [files, activeFile, profile]);
 
   const handleSourceDrop = async (f) => {
     if (!f) return;
@@ -80,7 +113,7 @@ export function SourceWorkspace({ admin, deviceId, onCompiled, onDeployed }) {
 
   // Poll live compilation job while running
   useEffect(() => {
-    if (!job || ['SUCCEEDED', 'FAILED'].includes(job.state)) return undefined;
+    if (!job || ['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(job.state)) return undefined;
     const iv = setInterval(() => {
       api.fwCompileJob(job.id).then((updated) => {
         setJob(updated);
@@ -100,11 +133,13 @@ export function SourceWorkspace({ admin, deviceId, onCompiled, onDeployed }) {
   const fileKeys = Object.keys(files);
   const activeCode = files[activeFile] ?? '';
   const lineCount = Math.max(1, activeCode.split('\n').length);
+  const changedFiles = [...new Set([...Object.keys(files), ...Object.keys(baseline)])].filter((name) => files[name] !== baseline[name]);
 
   const loadTemplate = (tplId) => {
     const t = templates.find((x) => x.id === tplId);
     if (!t || !t.files) return;
     setFiles({ ...t.files });
+    setBaseline({ ...t.files });
     const first = Object.keys(t.files)[0];
     if (first) setActiveFile(first);
     if (t.profile) setProfile(t.profile);
@@ -136,6 +171,21 @@ export function SourceWorkspace({ admin, deviceId, onCompiled, onDeployed }) {
       const remaining = fileKeys.filter((k) => k !== path);
       setActiveFile(remaining[0] || '');
     }
+  };
+
+  const renameFile = () => {
+    const target = renameTo.trim().replace(/^\/+/, '');
+    if (!target || target === activeFile || !/\.(ino|cpp|c|h|hpp)$/i.test(target) || files[target]) { setErr(new Error('Choose a unique source path ending in .ino, .cpp, .c, .h or .hpp')); return; }
+    setFiles((prev) => { const next = { ...prev, [target]: prev[activeFile] }; delete next[activeFile]; return next; });
+    setActiveFile(target); setRenameTo(''); setErr(null);
+  };
+
+  const exportProject = async () => {
+    const { default: JSZip } = await import('jszip');
+    const zip = new JSZip(); Object.entries(files).forEach(([name, source]) => zip.file(name, source));
+    zip.file('platformio.ini', `[env:${profile}]\nplatform = espressif32\nboard = esp32-s3-devkitc-1\nframework = arduino\n`);
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `torqva-${version || 'draft'}.zip`; a.click(); URL.revokeObjectURL(url);
   };
 
   const triggerCompile = async (autoDeploy) => {
@@ -271,40 +321,29 @@ export function SourceWorkspace({ admin, deviceId, onCompiled, onDeployed }) {
               <button type="button" className="tq-btn tq-small" onClick={addFile} data-testid="fw-add-file">
                 <Plus size={13} aria-hidden="true" /> Add file
               </button>
+              <input value={renameTo} onChange={(e) => setRenameTo(e.target.value)} placeholder={activeFile} aria-label="Rename active file" style={{ width: '145px', fontSize: '0.8rem' }} />
+              <button type="button" className="tq-btn tq-small" onClick={renameFile}>Rename</button>
+              <button type="button" className="tq-btn tq-small" onClick={exportProject}><Download size={13} aria-hidden="true" /> Export ZIP</button>
+              <button type="button" className="tq-btn tq-small" onClick={() => setBaseline({ ...files })}>Set Compare Baseline</button>
             </div>
           </div>
+          <p className="tq-small tq-muted" data-testid="fw-source-comparison">Source comparison: {changedFiles.length ? `${changedFiles.length} changed file(s): ${changedFiles.join(', ')}` : 'workspace matches the selected baseline'}.</p>
 
-          {/* Line-numbered code editor */}
-          <div style={{ display: 'flex', border: '1px solid rgba(148,163,184,0.25)', borderRadius: '6px', overflow: 'hidden', background: '#0b1120' }}>
-            <pre
-              aria-hidden="true"
-              style={{
-                margin: 0, padding: '0.65rem 0.5rem', textAlign: 'right', userSelect: 'none',
-                color: '#64748b', background: 'rgba(15,23,42,0.8)', fontFamily: 'monospace',
-                fontSize: '0.82rem', lineHeight: '1.45', minWidth: '2.5rem', borderRight: '1px solid rgba(148,163,184,0.15)',
-              }}
-            >
-              {Array.from({ length: lineCount }, (_, i) => i + 1).join('\n')}
-            </pre>
-            <textarea
-              value={activeCode}
-              onChange={(e) => setFiles((prev) => ({ ...prev, [activeFile]: e.target.value }))}
-              spellCheck={false}
-              rows={13}
-              aria-label={`Source code for ${activeFile}`}
-              data-testid="fw-code-editor"
-              style={{
-                flex: 1, margin: 0, padding: '0.65rem 0.75rem', border: 0, outline: 'none', resize: 'vertical',
-                background: 'transparent', color: '#e2e8f0', fontFamily: 'monospace', fontSize: '0.82rem', lineHeight: '1.45',
-              }}
-            />
+          <div data-testid="fw-code-editor" style={{ border: '1px solid rgba(148,163,184,0.25)', borderRadius: '6px', overflow: 'hidden', minHeight: 360 }}>
+            {import.meta.env.MODE === 'test' ? <textarea value={activeCode} onChange={(e) => setFiles((prev) => ({ ...prev, [activeFile]: e.target.value }))} aria-label={`Source code for ${activeFile}`} rows={13} /> :
+              <Suspense fallback={<p className="tq-muted tq-small" style={{ padding: '1rem' }}>Loading Monaco editor…</p>}>
+                <MonacoEditor height="360px" path={activeFile} value={activeCode} language={/\.(c|cpp|ino)$/i.test(activeFile) ? 'cpp' : 'c'} theme="vs-dark"
+                  onMount={(editor) => { editorRef.current = editor; }} onChange={(value) => setFiles((prev) => ({ ...prev, [activeFile]: value ?? '' }))}
+                  options={{ automaticLayout: true, minimap: { enabled: false }, fontSize: 13, tabSize: 2, wordWrap: 'on', scrollBeyondLastLine: false, suggestOnTriggerCharacters: true }} />
+              </Suspense>}
           </div>
+          <p className="tq-muted tq-small">Draft saves automatically in this browser. Monaco provides C/C++ highlighting, completion, find/replace, undo/redo and keyboard navigation. {lineCount} lines.</p>
 
           <div className="tq-row tq-mt" style={{ gap: '0.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
             <button
               type="button"
               className="tq-btn"
-              disabled={busy || (job && !['SUCCEEDED', 'FAILED'].includes(job.state))}
+              disabled={busy || (job && !['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(job.state))}
               onClick={() => triggerCompile(false)}
               data-testid="fw-compile-only"
             >
@@ -313,7 +352,7 @@ export function SourceWorkspace({ admin, deviceId, onCompiled, onDeployed }) {
             <button
               type="button"
               className="tq-btn tq-primary"
-              disabled={busy || (job && !['SUCCEEDED', 'FAILED'].includes(job.state))}
+              disabled={busy || (job && !['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(job.state))}
               onClick={() => triggerCompile(true)}
               data-testid="fw-compile-and-deploy"
             >
@@ -331,6 +370,8 @@ export function SourceWorkspace({ admin, deviceId, onCompiled, onDeployed }) {
 
           <ErrorBox error={err} />
 
+          <div className="tq-mt"><FirmwareAssistantPanel context={`${Object.entries(files).map(([name, source]) => `// FILE: ${name}\n${source}`).join('\n\n')}${job?.diagnostics?.length ? `\n\n// BUILD DIAGNOSTICS\n${job.diagnostics.map((d) => `${d.file}:${d.line}:${d.col} ${d.severity} ${d.message}`).join('\n')}` : ''}`} defaultTask={job?.diagnostics?.length ? 'compile_error' : 'code_review'} /></div>
+
           {/* Live Compilation Console */}
           {job && (
             <div className="tq-mt" data-testid="fw-compile-console" style={{ border: '1px solid rgba(148,163,184,0.25)', borderRadius: '6px', padding: '0.75rem', background: '#070b14' }}>
@@ -338,8 +379,9 @@ export function SourceWorkspace({ admin, deviceId, onCompiled, onDeployed }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <Terminal size={15} aria-hidden="true" />
                   <strong>Compilation Job {job.id}</strong>
-                  <Pill tone={job.state === 'SUCCEEDED' ? 'ok' : job.state === 'FAILED' ? 'crit' : 'wait'}>{job.state}</Pill>
+                  <Pill tone={job.state === 'SUCCEEDED' ? 'ok' : job.state === 'FAILED' ? 'crit' : job.state === 'CANCELLED' ? 'warn' : 'wait'}>{job.state}</Pill>
                   {job.duration_s != null && <span className="tq-muted tq-small">{job.duration_s} s</span>}
+                  {['QUEUED', 'COMPILING'].includes(job.state) && <button type="button" className="tq-btn tq-small" onClick={async () => { try { setJob(await api.fwCancelCompile(job.id)); } catch (e) { setErr(e); } }}>Cancel build</button>}
                 </div>
                 {job.memory?.flash_pct != null && (
                   <span className="tq-small tq-num">
@@ -360,7 +402,7 @@ export function SourceWorkspace({ admin, deviceId, onCompiled, onDeployed }) {
               {job.diagnostics?.length > 0 && (
                 <ul className="tq-callout warn tq-list tq-small" style={{ marginBottom: '0.5rem' }}>
                   {job.diagnostics.map((d, i) => (
-                    <li key={i}><strong>{d.file}:{d.line}:{d.col}</strong> [{d.severity}] {d.message}</li>
+                    <li key={i}><button type="button" className="tq-linkbtn" onClick={() => { if (files[d.file] !== undefined) setActiveFile(d.file); requestAnimationFrame(() => { editorRef.current?.revealLineInCenter(Number(d.line) || 1); editorRef.current?.setPosition({ lineNumber: Number(d.line) || 1, column: Number(d.col) || 1 }); editorRef.current?.focus(); }); }}><strong>{d.file}:{d.line}:{d.col}</strong></button> [{d.severity}] {d.message}</li>
                   ))}
                 </ul>
               )}
@@ -528,8 +570,16 @@ export function WirelessControlCard({ admin, operator, snap, onRefreshed }) {
           <h4 className="tq-mon-subhead">Wi-Fi Network Manager (Authenticated NVS Update)</h4>
           {!admin ? (
             <Empty>Admin access required to update device Wi-Fi settings.</Empty>
+          ) : snap?.wifi_state?.supported ? (
+            <p className="tq-callout info tq-small" role="note" data-testid="wifi-legacy-retired">
+              This board supports staged network changes, which keep your working network until the new one is verified and restore it automatically if the new one fails.
+              Use <strong>Configure Wi-Fi</strong> above (Change Network); the direct update is not offered for this board.
+            </p>
           ) : (
             <form className="tq-form" onSubmit={updateWifi}>
+              <p className="tq-callout warn tq-small" role="note" data-testid="wifi-legacy-warning">
+                This firmware cannot stage a change. Saving replaces the working network immediately; if the new one fails the board stays offline until it is reconnected over USB.
+              </p>
               <label>Wi-Fi SSID
                 <input type="text" value={wifiForm.ssid} onChange={(e) => setWifiForm({ ...wifiForm, ssid: e.target.value })} placeholder="BenchWiFi" maxLength={32} required data-testid="wifi-ssid-input" />
               </label>
@@ -645,4 +695,21 @@ export function WirelessSerialMonitor() {
       </pre>
     </Card>
   );
+}
+
+export function FirmwareRuntimeDiagnostics({ device }) {
+  const net = device?.net_info || {}; const runtime = device?.runtime || {};
+  return <Card title="Firmware Runtime Diagnostics" icon={Cpu} sub="Device-reported metrics only; unsupported values are never estimated" testid="fw-runtime-diagnostics">
+    <MetricList label="Runtime resources" items={[
+      { key: 'up', label: 'Device uptime', value: net.uptime_s != null ? `${net.uptime_s} s` : null, missingText: 'UNAVAILABLE — device did not report uptime' },
+      { key: 'heap', label: 'Free heap', value: net.heap != null ? `${Math.round(net.heap / 1024)} KB` : null, missingText: 'UNAVAILABLE — device did not report free heap' },
+      { key: 'minheap', label: 'Minimum free heap', value: runtime.min_heap_bytes != null ? `${Math.round(runtime.min_heap_bytes / 1024)} KB` : null, missingText: 'UNAVAILABLE — current firmware protocol does not report it' },
+      { key: 'psram', label: 'PSRAM usage', value: runtime.psram_used_bytes != null ? `${Math.round(runtime.psram_used_bytes / 1024)} KB` : null, missingText: 'UNAVAILABLE — current firmware protocol does not report it' },
+      { key: 'flash', label: 'Runtime flash usage', value: runtime.flash_used_bytes != null ? `${Math.round(runtime.flash_used_bytes / 1024)} KB` : null, missingText: 'UNAVAILABLE — use signed build metadata' },
+      { key: 'cpu', label: 'CPU utilization', value: runtime.cpu_pct != null ? `${fmt(runtime.cpu_pct, 1)}%` : null, missingText: 'UNAVAILABLE — not measured by the device' },
+      { key: 'reset', label: 'Last restart reason', value: device?.reset_reason || null, missingText: 'UNAVAILABLE — firmware does not report reset reason' },
+      { key: 'loss', label: 'Packet loss', value: runtime.packet_loss_pct != null ? `${fmt(runtime.packet_loss_pct, 2)}%` : null, missingText: 'UNAVAILABLE — sequence loss is not currently aggregated' },
+    ]} />
+    <p className="tq-small tq-muted">Watchdog and crash evidence appears in the bounded log console when the firmware emits it. Absence of a log is not evidence that no reset occurred.</p>
+  </Card>;
 }

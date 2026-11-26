@@ -264,6 +264,11 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         ssid = str(body.get("ssid") or "").strip()
         password = str(body.get("password") or "")
         base_url = str(body.get("base_url") or "").strip()
+        ws = bridge.snapshot().get("wifi_state") or {}
+        if ws.get("supported"):
+            # This overwrites the working network at once and has no way back if the new one fails. A board that can stage a change must use the staged route.
+            raise HTTPException(409, {"code": "USE_STAGED_CHANGE", "message": "This board supports staged network changes, which keep the working network until the new one is verified. "
+                                                                              "Use Configure Wi-Fi (Change Network) instead of the direct update."})
         ok, why = bridge.request_wifi_config(ssid, password, base_url, p.user, p.role)
         if not ok:
             raise HTTPException(409, why)

@@ -64,7 +64,7 @@ function nextFor(detail, ctl) {
   }
 }
 
-export default function Attestation({ role }) {
+export default function Attestation({ role, hasSim = false }) {
   const ctl = canControl(role);
   const [list, setList] = useState([]);
   const [refs, setRefs] = useState({ versions: [], active_version: null });
@@ -141,7 +141,9 @@ export default function Attestation({ role }) {
       </div>
 
       <Card title="Candidate warm-up sessions" id="c-att-list" icon={Camera} sub="Open one to review its evidence" right={<ProvBadge kind="SIMULATED" />}>
-        <div className="tq-row tq-as-toolbar"><button type="button" className="tq-btn tq-primary" onClick={capture} disabled={!ctl || a.busy}>Capture candidate from current simulation</button></div>
+        <div className="tq-row tq-as-toolbar"><button type="button" className="tq-btn tq-primary" onClick={capture} disabled={!ctl || !hasSim || a.busy}
+          title={!hasSim ? 'Start a simulation and let it warm up before capturing evidence.' : undefined}>Capture candidate from current simulation</button></div>
+        {!hasSim && <p className="tq-muted tq-small">Start a simulation and let it warm up before capturing a candidate. The control remains unavailable until a simulation exists.</p>}
         <ErrorBox error={a.error} />
         <DataTable caption="Candidate warm-up sessions" rows={list} rowKey={(c) => c.id} rowClass={(c) => (c.id === sel ? 'tq-selected' : undefined)}
           empty="No candidates yet. Start a simulation, let it warm up, then capture a candidate."

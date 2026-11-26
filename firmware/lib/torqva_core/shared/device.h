@@ -13,6 +13,7 @@
 #include "communication/auth.h"
 #include "safety/runtime_config.h"
 #include "communication/ota.h"
+#include "communication/wifi_trial.h"
 
 namespace torqva {
 
@@ -50,6 +51,13 @@ struct DeviceConfig {
     void (*on_sys_cmd)(const char* cmd, void* ctx);
     void (*on_wifi_cfg)(const char* ssid, const char* pass, const char* base, void* ctx);
     void* sys_ctx;
+    // Staged Wi-Fi network changes (wifi_trial.h). wifi_stage_supported is set by a platform that implements all three hooks; zero-initialised = frames refused (WIFI_STAGE_UNSUPPORTED).
+    // on_wifi_stage tries a NEW network without overwriting the working one; on_wifi_commit makes the network being tried permanent (false: no trial active);
+    // on_wifi_scan starts an asynchronous scan whose results the platform emits itself (false: busy or unsupported). All three need the authenticated session.
+    bool wifi_stage_supported;
+    bool (*on_wifi_stage)(const char* ssid, const char* pass, const char* base, uint32_t trial_s, void* ctx);
+    bool (*on_wifi_commit)(void* ctx);
+    bool (*on_wifi_scan)(void* ctx);
 };
 
 // Sensor / input snapshot supplied by the platform (real HAL or SimPlant).
@@ -135,6 +143,8 @@ public:
     void set_ota_boot(const char* running, uint32_t inactive_size, bool pending_verify, const char* last_result, const char* last_ver);
     // The first-boot self-test outcome (pending_verify cleared on CONFIRMED).
     void ota_boot_result(OtaState s, const char* why);
+    // Reported in the periodic "wifi_state" frame (only when wifi_stage_supported): whether a staged network is being tried, seconds left, and the committed network name.
+    void set_wifi_state(bool trial, uint32_t left_s, const char* active_ssid);
 
 private:
     void queue_line(const char* s, size_t len);
@@ -159,6 +169,9 @@ private:
     OtaRequest ota_req_;
     const char* ota_running_; uint32_t ota_psz_; const char* ota_last_; const char* ota_last_ver_;
     uint32_t last_ota_info_ms_;
+    uint32_t last_wifi_state_ms_;
+    bool wifi_trial_; uint32_t wifi_left_s_; char wifi_act_[36];
+    void handle_wifi_frame(const char* ty, const char* line, uint32_t now_ms);
 
     HalIn last_in_; bool have_in_; bool watchdog_active_; bool session_active_; char session_sid_[33];
     uint32_t last_step_ms_; bool stepped_;

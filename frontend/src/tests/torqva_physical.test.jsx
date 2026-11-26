@@ -108,10 +108,12 @@ describe('physical-device-first application', () => {
     expect(screen.queryByText(/SIM$/)).toBeNull(); expect(screen.queryByText(/%/)).toBeNull();
   });
 
-  it('with a valid device the AI pages say exactly why they cannot run and never show a green status', async () => {
+  it('with fresh physical telemetry opens the measured experimental diagnostics workspace', async () => {
     await open(CONNECTED, 'Anomaly Detection');
-    const box = await screen.findByTestId('layer-C1');
-    expect(box).toHaveTextContent('NOT AVAILABLE'); expect(box).toHaveTextContent('vib_rms'); expect(box).not.toHaveTextContent(/NORMAL|HEALTHY/i);
+    expect(await screen.findByText('Physical Anomaly Severity')).toBeInTheDocument();
+    expect(screen.getByText('Live Physical Sensor Features')).toBeInTheDocument();
+    expect(screen.getByText('Competing Fault Hypotheses')).toBeInTheDocument();
+    expect(screen.getByText(/baseline trained on simulation physics/i)).toBeInTheDocument();
   });
 
   it('Live Monitor and Lab never use simulated data in physical mode', async () => {

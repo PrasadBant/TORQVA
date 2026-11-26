@@ -124,6 +124,10 @@ export function PhysicalDiagnosticsPage({ stream, go }) {
       <PageHead title="Anomaly Detection" sub="Real-time physical anomaly detection, sensor deviations, and fault hypotheses."
         right={<span className="tq-an-right"><Pill tone={live ? 'ok' : 'off'}>PHYSICAL TELEMETRY</Pill><ProvBadge kind="MEASURED" /></span>} />
 
+      {live && <AlertPanel tone="info" icon={Microscope} title="EXPERIMENTAL PHYSICAL ANALYSIS">
+        This analysis uses real measured telemetry with a baseline trained on simulation physics. It has not been validated on labelled physical hardware failure runs and never commands the motor automatically.
+      </AlertPanel>}
+
       {/* Test assertion element */}
       <div data-testid="layer-C1" className={live ? 'tq-hidden-test-only' : 'tq-alertpanel tq-warn'}>
         <div className="tq-alertpanel-body">

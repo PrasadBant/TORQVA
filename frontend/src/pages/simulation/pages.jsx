@@ -86,6 +86,16 @@ export function LivePage({ d, role, actions, running, setRunning, busy, error, s
   const marks = useMemo(() => (withEvents ? eventMarks(d, data) : []), [withEvents, d, data]);
   const last = data[data.length - 1]; const w = s.last_window;
   const missing = ['rpm', 'housing', 'vib_rms', 'current'].filter((k) => w && (w[k] === null || w[k] === undefined));
+  const signalStats = useMemo(() => Object.fromEntries(Object.keys(SIG).map((key) => {
+    let count = 0; let sum = 0; let min = Infinity; let max = -Infinity;
+    for (const sample of data) {
+      if (sample.valid === false) continue;
+      const value = num(sample[key]);
+      if (value === null) continue;
+      count += 1; sum += value; min = Math.min(min, value); max = Math.max(max, value);
+    }
+    return [key, { count, min: count ? min : null, max: count ? max : null, average: count ? sum / count : null }];
+  })), [data]);
   const physical = (deviceOn && device.snap.origin === 'physical_device') || isPhys;
   const invalid = w && w.valid === false;
   const latest = (k) => (invalid ? null : num(w?.[k]));          // an invalid window is unavailable, never a number
@@ -110,9 +120,13 @@ export function LivePage({ d, role, actions, running, setRunning, busy, error, s
   const panel = (key, id, label, lines) => {
     const [name, unit, digits, color, Icon] = SIG[key];
     const v = latest(key);
+    const stats = signalStats[key];
+    const summary = stats.count
+      ? `valid ${stats.count}/${data.length} · min ${fmt(stats.min, digits)} · avg ${fmt(stats.average, digits)} · max ${fmt(stats.max, digits)} ${unit}`
+      : `valid 0/${data.length} · no numeric summary`;
     return (
       <ChartPanel key={key} id={id} testid={`live-chart-${key}`} title={<><Icon size={15} aria-hidden="true" style={{ color }} /> {name}</>}
-        value={v === null ? null : fmt(v, digits)} unit={unit} prov={provKind} right={stale ? <SourceTag kind="STALE" /> : null} foot={foot}>
+        value={v === null ? null : fmt(v, digits)} unit={unit} prov={provKind} right={stale ? <SourceTag kind="STALE" /> : null} foot={`${foot} · ${summary}`}>
         <TrendChart data={data} marks={marks} label={label} digits={digits} unit={unit} lines={lines} />
       </ChartPanel>);
   };
@@ -122,12 +136,12 @@ export function LivePage({ d, role, actions, running, setRunning, busy, error, s
         right={<><ProvBadge kind={provKind} />{stale ? <Pill tone="crit">stale</Pill> : <Pill tone={isPhys ? 'ok' : running ? 'ok' : 'off'}>{isPhys ? 'live HW' : running ? 'running' : 'paused'}</Pill>}</>} />
       <RpmAlarmBanner rpm={currentRpm} />
       <div className="tq-toolbar tq-mon-toolbar">
-        {selector && <><span className="tq-toolbar-label">Source</span>{selector}</>}
+        {selector && <div className="tq-toolbar-group"><span className="tq-toolbar-label">Source</span>{selector}</div>}
         <TelemetryWindowControl seconds={range} onChange={setRange} role={role} />
-        <span className="tq-toolbar-label">Signals</span>
+        <div className="tq-toolbar-group"><span className="tq-toolbar-label">Signals</span>
         <div className="tq-seg" role="group" aria-label="Charts shown" data-testid="live-signals">
           {SIGNALS.map(([k, name]) => <button key={k} type="button" className="tq-btn" aria-pressed={shown.has(k)} onClick={() => toggle(k)}>{name}</button>)}
-        </div>
+        </div></div>
         <CopySummaryButton mode={isPhys ? 'PHYSICAL' : 'SIMULATION'} />
         <label className="tq-check tq-small"><input type="checkbox" checked={withEvents} onChange={(e) => setWithEvents(e.target.checked)} data-testid="live-events" /> Mark analysis events on the charts</label>
       </div>
@@ -190,7 +204,7 @@ export function DevicesPage({ d, user, role, rows, auditError, device, go, runni
       open: go ? <button type="button" className="tq-linkbtn" onClick={() => go('scenario')}>Scenario Studio</button> : null },
   ];
   return (
-    <>
+    <div className="tq-device-management">
       <div className="tq-mt">
         <Card title="Device inventory" id="c-devices">
           {/* The page link sits under the device name (no separate column), so the table fits laptop widths and stacks on phones. */}
@@ -219,7 +233,7 @@ export function DevicesPage({ d, user, role, rows, auditError, device, go, runni
           </>)}
         </Card>
       </div>
-    </>
+    </div>
   );
 }
 

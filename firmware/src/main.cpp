@@ -22,7 +22,6 @@
 #endif
 #include "drivers/config_pins.h"
 #include "shared/device.h"
-#include "safety/estop.h"
 #include "communication/wifi_link.h"
 #include "communication/ota_esp32.h"
 #include "communication/usb_out.h"                                   // the only USB serial writer: whole lines or nothing, never waits on the host (1.1.2)
@@ -496,6 +495,22 @@ void setup() {
             wifi_log("ERROR", "Failed to save Wi-Fi configuration");
         }
     };
+#if defined(TORQVA_WIFI_LINK) && TORQVA_WIFI_LINK
+    // Staged network changes (wifi_trial.h): the working network in NVS is not overwritten until the host commits over the NEW network. They change no motor behaviour.
+    cfg.wifi_stage_supported = true;
+    cfg.on_wifi_stage = [](const char* ssid, const char* pass, const char* base, uint32_t trial_s, void*) -> bool {
+        if (!ota_wifi_stage(String(ssid ? ssid : ""), String(pass ? pass : ""), String(base ? base : ""), trial_s)) return false;
+        wifi_log("WARN", "Wi-Fi trial started; the previous network returns unless the host commits");
+        wifi_link_reconnect();
+        return true;
+    };
+    cfg.on_wifi_commit = [](void*) -> bool {
+        if (!ota_wifi_commit()) return false;
+        wifi_log("INFO", "Wi-Fi configuration committed");
+        return true;
+    };
+    cfg.on_wifi_scan = [](void*) -> bool { return wifi_scan_start(); };
+#endif
     ota_platform_capability(cfg);                      // OTA partitions, compiled-in signing key and NVS provisioning decide whether this boot can update at all
     Limits lim = default_limits();
     if (cfg.direct_mode) {
@@ -561,6 +576,17 @@ void loop() {
         if (ok) oled_draw(di);
     }
 #endif
+    wifi_scan_poll();                                  // emits a finished scan's results (no-op without Wi-Fi or without a scan); never waits
+    ota_wifi_trial_tick(millis());                     // a staged network that was never committed is dropped here, and the previous one is used again
+    {
+        static uint32_t last_wifi_state = 0;
+        if ((uint32_t)(millis() - last_wifi_state) >= 500) {
+            last_wifi_state = millis();
+            bool trial = false; uint32_t left = 0; String act;
+            ota_wifi_state(&trial, &left, &act, millis());
+            if (xSemaphoreTake(g_mu, pdMS_TO_TICKS(5)) == pdTRUE) { g_dev->set_wifi_state(trial, left, act.c_str()); xSemaphoreGive(g_mu); }
+        }
+    }
     char out[320];
     for (int i = 0; i < 8; i++) {
         bool got;

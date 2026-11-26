@@ -50,6 +50,7 @@ export function PageHead({ title: t, sub, right, eyebrow }) {
   const nav = useNavContext();
   const I = nav?.icon;
   return (
+    <>
     <div className="tq-page-head">
       <div className="tq-page-head-main">
         {I && <span className="tq-page-icon" aria-hidden="true"><I size={20} /></span>}
@@ -57,6 +58,8 @@ export function PageHead({ title: t, sub, right, eyebrow }) {
       </div>
       <div className="tq-row"><ConditionBadge c={nav?.condition} />{right}</div>
     </div>
+    {nav?.progress}
+    </>
   );
 }
 

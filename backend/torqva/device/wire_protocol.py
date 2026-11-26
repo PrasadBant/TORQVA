@@ -141,6 +141,19 @@ def parse_frame(line: "bytes | str") -> Dict[str, Any]:
         return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "lvl": _str(o, "lvl", 12) if "lvl" in o else "INFO", "msg": _str(o, "msg", 256)}
     if t == "net_info":
         return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "ip": _str(o, "ip", 48), "ssid": _str(o, "ssid", 64), "rssi": _num(o, "rssi", -127, 20), "mac": _str(o, "mac", 24), "heap": _uint(o, "heap"), "up_s": _uint(o, "up_s")}
+    if t == "wifi_state":                                        # staged Wi-Fi support and trial state (additive; firmware lib/torqva_core/communication/wifi_trial.h)
+        wst, trial = o.get("wst"), o.get("trial")
+        if any(v not in (0, 1) or isinstance(v, bool) for v in (wst, trial)):
+            raise FrameError("BAD_FIELD", "wst")
+        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "wst": wst, "trial": trial, "left": _uint(o, "left", 600), "act": _str(o, "act", 64)}
+    if t == "wifi_net":                                          # one network of a scan (seq 0: not part of the telemetry sequence)
+        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "i": _uint(o, "i", 63), "n": _uint(o, "n", 64), "ssid": _str(o, "ssid", 64, False),
+                "rssi": _num(o, "rssi", -127, 0), "ch": _uint(o, "ch", 14), "auth": _str(o, "auth", 16, False)}
+    if t == "wifi_scan_end":
+        ok = o.get("ok")
+        if ok not in (0, 1) or isinstance(ok, bool):
+            raise FrameError("BAD_FIELD", "ok")
+        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "n": _uint(o, "n", 64), "ok": ok, "why": _str(o, "why", 24)}
     if t == "ota_info":                                          # this boot's OTA capability and the device's own eligibility verdict
         cap, pend, busy = o.get("cap"), o.get("pend"), o.get("busy")
         if any(v not in (0, 1) or isinstance(v, bool) for v in (cap, pend, busy)):

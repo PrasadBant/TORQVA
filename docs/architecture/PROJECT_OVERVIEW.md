@@ -16,48 +16,47 @@ The OTA slot is 3,342,336 bytes under the pinned `default_8MB.csv` partition tab
 
 ## 1. What TORQVA Is
 
-TORQVA is a **physical-AI platform for a DC motor test rig**. It reads live sensors on a real RS-775 motor through an ESP32-S3 board, streams the data to a React web app, runs a full AI diagnostic pipeline (anomaly detection → fault hypothesis ranking → outcome prediction → decision gate → diagnostic tests → recovery verification → continuous learning), and allows an authenticated operator to issue motor commands through a multi-layer safety stack.
+TORQVA is a motor monitoring, diagnostics, and protected control application for an ESP32-S3 and BTS7960/IBT-2 test rig. A React/Vite frontend communicates with an authenticated FastAPI service. The service connects to the board over USB serial or an authenticated outbound Wi-Fi WebSocket. Device telemetry flows back to the application over WebSocket with REST reconciliation.
 
-### Core Design Principles
+The product has two explicit modes. **Physical** is the default and presents the real device connection, live telemetry, diagnostics, and authorized operator controls. **Simulation** is selected in the header and provides software-only research workflows. Keep mode, device connection, and telemetry freshness as distinct visible states.
+
+### Core design principles
 
 | Principle | What it means in practice |
 |---|---|
-| **Physical-device first** | App opens in Physical mode; Simulation is an explicit, labelled opt-in |
-| **Never invent data** | Missing/invalid sensors show `UNAVAILABLE`, never `0`; every value carries a provenance badge (`MEASURED`, `DERIVED`, `SIM`, `CMD`, `PRED`) |
-| **Direct & safe operation** | Authenticated direct operator control to hardware with real-time feedback and instant response |
-| **Honest status** | "Sent" ≠ "Executed". Only a device ack counts. Hardware items are never marked VERIFIED by software |
-| **Architectural isolation** | `physical/` and `simulation/` frontend pages never import each other; only `shared/` and `api.js` are shared |
+| Physical-device first | Open in Physical mode. Make Simulation an explicit, clearly labelled mode. |
+| Never invent data | Missing or invalid readings display `UNAVAILABLE`, never zero. Show whether values are measured, derived, simulated, commanded, or predicted. |
+| Honest command feedback | Distinguish SENT, ACKNOWLEDGED, and EXECUTED. A requested speed is not evidence that measured RPM reached the target. |
+| Protected operation | Keep backend and firmware validation, authorization, limits, and device protections intact. The UI does not imply that a software STOP replaces the independent physical emergency stop. |
+| Separate physical and simulation views | Physical and simulation page modules remain isolated. Shared components and API utilities live in their shared modules. |
 
-### What Works Today (Nov 2026)
+### Current product experience
 
-- **Physical mode & live rig**:
-  - Live USB-serial bridge to ESP32-S3 (`RIG-1`, firmware `3.0.1-dev`, wire protocol v1) over COM10.
-  - Streaming 10 Hz fast telemetry frames (rpm, voltage, current, power, duty) and 1 Hz status frames.
-  - Direct operator motor control: open-loop PWM duty cycle (0–100%) with quick presets, plus closed-loop target speed (nominal 0–3,000 rpm, toggleable to 0–20,000 rpm ceiling).
-  - Hall sensor operates strictly as a tachometer to measure and note shaft speed without throttling, slowing down, or stalling the motor.
-  - Speed zone advisory system with Web Audio API alerts (Normal, Warning, Critical) that advise operators without cutting power unexpectedly.
-  - Complete Physical Intelligence workspace: **Recovery Verification** (`#/recovery`), **Continuous Intelligence** (`#/learning`), and **Performance Evaluation** (`#/evaluation`) all streaming live `MEASURED` hardware data.
-  - Interactive 3D Digital Twin (Three.js WebGL 2) mapping live hardware state onto procedural motor assembly without false fault alerts.
-  - Firmware OTA Manager (`#/firmware`) with multi-partition rollback and signed release deployment.
-- **7 Enhanced Operational Features (Physical & Simulation)**:
-  - **Feature 4 (CSV Telemetry Recording)**: Crash-safe session recording into `sessions/<date_mode>/` with `readings.csv` (units in headers, `_valid` quality flags per sensor), `events.csv`, and `session.json` with SHA-256 cryptographic hashes. Auto-starts on first motor drive command. Top-bar indicator `● REC` with elapsed time display and session dialog.
-  - **Feature 7 (Copy Summary)**: One-click formatted summary copy on Live Monitor & session popover (duration, peak rpm, peak current, max temp, data quality % valid) with clipboard fallback and visual confirmation.
-  - **Feature 6 (Click-to-Inspect)**: Clicking any data point on telemetry charts displays exact timestamp, signal value, unit, and quality provenance status (`VALID`, `STALE`, `UNAVAILABLE`).
-  - **Feature 3 (Telemetry Windows & Decimation)**: Selectable time windows (`1s`, `10s`, `30s`, `60s`, `3min`, `5min`, default `60s`) with min/max decimation preserving peaks/valleys and true telemetry gaps without smoothing. Audited operator/admin **Reset History** action.
-  - **Feature 2 (3000 RPM Advisory Alarm)**: Advisory-only alarm firing strictly on valid Hall tachometer data $\ge 3000$ RPM, clearing with hysteresis at $< 2900$ RPM. Flags `SPEED UNAVAILABLE` when pulses drop while driving. 10-second auto-expiring mute timer shared across Twin, Status Strip, and Live Monitor.
-  - **Feature 1 (Limits Panel)**: Operational and safety limits management under **Device & Safety** with individual ON/OFF toggle switches, numeric threshold inputs, validation bounds, defaults matching `torqva_limits.h`, and an immutable audit change log table.
-  - **Feature 5 (Report + ZIP Export)**: Standalone HTML run report generated from session folder, plus complete ZIP export bundle containing `readings.csv`, `events.csv`, `session.json`, `checksums.sha256`, and `report.html`.
-- **Simulation mode**: full C1–C6 AI pipeline, analyst workspaces (Anomaly Detection, Diagnostic Investigation, Failure Prediction, Action Recommendations), scenario studio, counterfactual lab, decision receipts, attestation.
-- **Unified Diagnostic Workflow**: one-click automated diagnosis and verification pipeline (`#/workflow`) operational across both physical and simulation modes.
+The application shell groups the pages into Monitor, Diagnose, Intelligence, Engineering, and Hardware & Device. Current navigation includes:
 
-### What Is NOT Ready
+- **Monitor**: Overview, Live Monitor, Digital Twin.
+- **Diagnose**: Diagnostic Workflow, Anomaly Detection, Failure Prediction, Action Recommendations, Diagnostic Investigation.
+- **Intelligence**: Recovery Verification, Continuous Intelligence, Performance Evaluation.
+- **Engineering**: Scenario Studio and Lab, primarily simulation research tools.
+- **Hardware & Device**: Hardware Manager and Firmware Manager.
 
-- Hardware E-stop circuit (designed but not installed or verified)
-- Physical C1 anomaly detection: labelled EXPERIMENTAL (simulation-trained, unvalidated on physical hardware). Operates on real measured signals (rpm, current, voltage, temperature) without requiring vibration RMS.
-- Physical motor operation on the real rig enabled with direct operator control (zero blockers, instant PWM duty cycle & RPM setpoint dispatch)
+The Physical Overview combines essential readings, active condition and recent activity with direct manual controls. Live Monitor provides time-series charts, event marks, current readings, provenance, and stale or invalid data warnings. The read-only Digital Twin provides a 3D view with a 2D fallback, component inspection, findings, and sensor details. Diagnostic pages support evidence review, hypotheses, predictions, recommendations, investigation, and recovery verification. Simulation pages provide scenario experiments, workflows, and evaluation tools.
+
+### Device readings and control semantics
+
+The physical interface can present Hall RPM, device-reported PWM, current, DC bus voltage, power, and temperature when available. Vibration RMS is not fitted on the physical adapter and must not be presented as a live physical measurement. Distinguish requested values from measured values and label simulated readings and model predictions explicitly.
+
+The manual control workflow includes a requested duty or speed, ramp settings, command feedback, live device telemetry, and Stop Motor. SENT means the transport accepted a write. ACKNOWLEDGED means the ESP32 accepted the request. EXECUTED means the device reported completion. Device-reported PWM and measured Hall RPM provide evidence of what the board observed. The independent emergency-stop circuit remains a separate physical control.
+
+### Current implementation and readiness
+
+The supported firmware is in `firmware/` and implements the current TORQVA device protocol. The backend uses FastAPI, authenticated APIs, a device bridge, USB serial or Wi-Fi transport, WebSocket telemetry, and safety and access layers. The frontend uses React and Vite, with separate Physical and Simulation page modules and lazy-loaded analysis and Digital Twin pages.
+
+Physical hardware readiness is **unverified**. Software builds and simulated tests do not establish safe physical operation. Board revision, wiring, driver reset behavior, and firmware protections require hardware confirmation. The physical emergency-stop circuit is not installed or verified. Keep this status clear in project-facing material and do not imply that physical motor operation has been proven.
+
+The current Firmware Manager validates and deploys signed compiled application `.bin` files. Website-based source editing and compilation are not implemented. Wireless and OTA support exist in the codebase, but physical deployment and hardware verification remain pending. See [WIRELESS_ARCHITECTURE.md](WIRELESS_ARCHITECTURE.md), [TORQVA_HARDWARE_READINESS.md](../hardware/TORQVA_HARDWARE_READINESS.md), and [TORQVA_UI_CONTENT_AUDIT.md](../reports/TORQVA_UI_CONTENT_AUDIT.md).
 
 ---
-
 ## 2. Hardware
 
 ### The Rig at a Glance

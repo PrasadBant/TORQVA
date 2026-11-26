@@ -623,10 +623,15 @@ class FirmwareCompiler:
     def _run_job(self, job_id: str) -> None:
         with self._lock:
             job = self.jobs[job_id]
+            # A queued job can be cancelled before its worker acquires the
+            # lock.  Do not let that worker resurrect it as COMPILING.
+            if job.get("_cancel_requested") or job.get("state") == "CANCELLED":
+                return
             job["state"] = "COMPILING"
             job_dir = Path(job["_dir"])
             profile = job["profile"]
             target_ver = job["version"]
+            job["_container"] = f"torqva-build-{job_id}"
 
         t0 = time.monotonic()
         container_name = f"torqva-build-{job_id}"
@@ -650,6 +655,7 @@ class FirmwareCompiler:
         ]
         try:
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            with self._lock: job["_process"] = proc
             deadline = t0 + COMPILE_TIMEOUT_S
             assert proc.stdout is not None
             for raw_line in proc.stdout:
@@ -657,6 +663,11 @@ class FirmwareCompiler:
                 with self._lock:
                     if len(job["logs"]) < 1500:
                         job["logs"].append(ln)
+                    cancelled = bool(job.get("_cancel_requested"))
+                if cancelled:
+                    proc.kill(); subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
+                    with self._lock: job.update({"state": "CANCELLED", "finished_at": time.time(), "duration_s": round(time.monotonic() - t0, 2), "error": "cancelled by operator"})
+                    return
                 if time.monotonic() > deadline:
                     proc.kill()
                     subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
@@ -740,7 +751,20 @@ class FirmwareCompiler:
                 })
                 job["logs"].append(f"[error] {exc}")
         finally:
+            with self._lock:
+                job.pop("_process", None); job.pop("_container", None)
             shutil.rmtree(job_dir, ignore_errors=True)
+
+    def cancel_job(self, job_id: str) -> Dict[str, Any]:
+        with self._lock:
+            job = self.jobs.get(job_id)
+            if not job: raise CompilerError("UNKNOWN_JOB", "no such compilation job", 404)
+            if job["state"] not in ("QUEUED", "COMPILING"):
+                raise CompilerError("NOT_CANCELLABLE", f"build is {job['state']}, not queued or compiling", 409)
+            job["_cancel_requested"] = True
+            job["logs"].append("[torqva] Cancellation requested by operator")
+            if job["state"] == "QUEUED": job.update({"state": "CANCELLED", "finished_at": time.time(), "error": "cancelled by operator"})
+            return self.public_job(job)
 
     def public_job(self, job: Dict[str, Any]) -> Dict[str, Any]:
         return {k: v for k, v in job.items() if not k.startswith("_")}

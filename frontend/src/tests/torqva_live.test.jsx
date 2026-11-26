@@ -19,6 +19,7 @@ describe('Live Monitor signal filter and event marks', () => {
   it('shows or hides each chart, keeps at least one, and draws event marks only when asked', () => {
     render(<LivePage d={d} role="viewer" actions={{}} running={false} setRunning={() => {}} busy={false} />);
     expect(charts()).toHaveLength(4);
+    expect(screen.getByTestId('live-chart-rpm')).toHaveTextContent('valid 6/6 · min 1800 · avg 1800 · max 1800 rpm');
     const sig = screen.getByTestId('live-signals');
     for (const n of ['Speed', 'Temperature', 'Vibration']) fireEvent.click(within(sig).getByRole('button', { name: n }));
     expect(charts()).toHaveLength(1);

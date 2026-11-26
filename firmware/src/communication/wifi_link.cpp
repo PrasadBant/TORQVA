@@ -88,16 +88,27 @@ void on_event(void*, esp_event_base_t, int32_t id, void* data) {
     }
 }
 
+// Joins (or stays on) the network the CURRENT configuration names. Already being associated is not enough: after a staged change or a revert the configured
+// SSID differs from the one joined, and the link must move to it.
 bool wifi_up() {
-    if (WiFi.status() == WL_CONNECTED) return true;
     String ssid, pass, base, ca;
-    if (!ota_net_config(&ssid, &pass, &base, &ca)) return false;
+    if (!ota_net_config(&ssid, &pass, &base, &ca)) return WiFi.status() == WL_CONNECTED;
+    if (WiFi.status() == WL_CONNECTED && WiFi.SSID() == ssid) return true;
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
+    if (WiFi.status() == WL_CONNECTED) WiFi.disconnect(false);
     WiFi.begin(ssid.c_str(), pass.c_str());
     const uint32_t t0 = millis();
     while (WiFi.status() != WL_CONNECTED) { if (millis() - t0 > kWifiWaitMs) return false; delay(100); }
     return true;
+}
+
+// The WebSocket address follows the current configuration (a staged or reverted network can carry another backend address).
+void refresh_uri() {
+    String ssid, pass, base, ca;
+    if (!ota_net_config(&ssid, &pass, &base, &ca)) return;
+    String host = base; if (host.endsWith("/")) host.remove(host.length() - 1);
+    g_uri = "wss://" + host.substring(8) + "/api/torqva/device/link";
 }
 
 void link_task(void*) {
@@ -105,6 +116,8 @@ void link_task(void*) {
     char item[kLine];
     for (;;) {
         uint32_t connected_at = 0;
+        ota_wifi_trial_tick(millis());
+        refresh_uri();
         if (wifi_up()) {
             esp_websocket_client_config_t c = {};
             c.uri = g_uri.c_str();
@@ -129,6 +142,7 @@ void link_task(void*) {
                         send_net_info();
                         uint32_t last_net = millis();
                         while (g_up && !g_closed && !g_reconnect_req && esp_websocket_client_is_connected(h)) {
+                            ota_wifi_trial_tick(millis());
                             if (xQueueReceive(g_q, item, pdMS_TO_TICKS(50)) == pdTRUE)
                                 if (esp_websocket_client_send_text(h, item, (int)strlen(item), pdMS_TO_TICKS(1000)) < 0) break;
                             if ((uint32_t)(millis() - last_net) >= 5000) {
@@ -192,12 +206,92 @@ void wifi_log(const char* lvl, const char* msg) {
 }
 
 void wifi_link_reconnect() {
-    String ssid, pass, base, ca;
-    if (ota_net_config(&ssid, &pass, &base, &ca)) {
-        String host = base; if (host.endsWith("/")) host.remove(host.length() - 1);
-        g_uri = "wss://" + host.substring(8) + "/api/torqva/device/link";
+    g_reconnect_req = true;                     // the link task re-reads the configuration (address and network) on its next cycle
+}
+
+// ---- Wi-Fi scan (asynchronous: the control loop never waits). One scan at most every 10 s, shown as at most 12 networks, strongest first, one entry per name.
+namespace {
+struct ScanNet { char ssid[33]; int rssi; int ch; const char* auth; };
+ScanNet g_nets[12];
+int g_net_n = 0, g_net_emit = 0;
+bool g_scan_pending = false, g_scan_collected = false;
+uint32_t g_scan_t0 = 0;
+
+const char* auth_name(wifi_auth_mode_t a) {
+    switch (a) {
+        case WIFI_AUTH_OPEN: return "OPEN";
+        case WIFI_AUTH_WEP: return "WEP";
+        case WIFI_AUTH_WPA_PSK: return "WPA";
+        case WIFI_AUTH_WPA2_PSK: return "WPA2";
+        case WIFI_AUTH_WPA_WPA2_PSK: return "WPA/WPA2";
+        case WIFI_AUTH_WPA2_ENTERPRISE: return "WPA2-ENT";
+        case WIFI_AUTH_WPA3_PSK: return "WPA3";
+        case WIFI_AUTH_WPA2_WPA3_PSK: return "WPA2/WPA3";
+        default: return "OTHER";
     }
-    g_reconnect_req = true;
+}
+void json_safe(char* dst, size_t cap, const char* src) {
+    size_t j = 0;
+    for (size_t i = 0; src && src[i] && j + 1 < cap; i++) {
+        const unsigned char c = (unsigned char)src[i];
+        dst[j++] = (c < 0x20 || c == '"' || c == '\\' || c == 0x7f) ? '?' : (char)c;
+    }
+    dst[j] = 0;
+}
+void emit(const char* line) { wifi_link_send(line); usb_out_line(line); }
+void emit_end(int ok, const char* why) {
+    char line[160];
+    snprintf(line, sizeof(line), "{\"t\":\"wifi_scan_end\",\"seq\":0,\"ts\":%lu,\"n\":%d,\"ok\":%d,\"why\":\"%s\"}", (unsigned long)millis(), g_net_n, ok, why);
+    emit(line);
+}
+}  // namespace
+
+bool wifi_scan_start() {
+    if (g_scan_pending) return false;
+    static uint32_t last = 0;
+    if (last && (uint32_t)(millis() - last) < 10000u) return false;
+    if (WiFi.getMode() == WIFI_OFF) WiFi.mode(WIFI_STA);
+    if (WiFi.scanNetworks(true, false, false, 120) == WIFI_SCAN_FAILED) return false;           // async; hidden networks are not listed (enter the name by hand)
+    last = millis(); g_scan_t0 = last; g_scan_pending = true; g_scan_collected = false; g_net_n = 0; g_net_emit = 0;
+    return true;
+}
+
+void wifi_scan_poll() {
+    if (!g_scan_pending) return;
+    const int n = WiFi.scanComplete();
+    if (n == WIFI_SCAN_RUNNING) {
+        if ((uint32_t)(millis() - g_scan_t0) > 15000u) { g_scan_pending = false; WiFi.scanDelete(); emit_end(0, "SCAN_TIMEOUT"); }
+        return;
+    }
+    if (!g_scan_collected) {
+        if (n < 0) { g_scan_pending = false; emit_end(0, "SCAN_FAILED"); return; }
+        g_net_n = 0;
+        for (int i = 0; i < n; i++) {
+            String s = WiFi.SSID(i);
+            if (s.length() == 0 || s.length() > 32) continue;                                     // hidden / malformed names are not listed
+            const int rssi = WiFi.RSSI(i);
+            int dup = -1;
+            for (int k = 0; k < g_net_n; k++) if (strcmp(g_nets[k].ssid, s.c_str()) == 0) { dup = k; break; }
+            if (dup >= 0 && g_nets[dup].rssi >= rssi) continue;                                    // one entry per name: the strongest
+            int slot = dup;
+            if (slot < 0) {
+                if (g_net_n < 12) slot = g_net_n++;
+                else { int w = 0; for (int k = 1; k < 12; k++) if (g_nets[k].rssi < g_nets[w].rssi) w = k; if (g_nets[w].rssi >= rssi) continue; slot = w; }
+            }
+            json_safe(g_nets[slot].ssid, sizeof(g_nets[slot].ssid), s.c_str());
+            g_nets[slot].rssi = rssi; g_nets[slot].ch = WiFi.channel(i); g_nets[slot].auth = auth_name(WiFi.encryptionType(i));
+        }
+        for (int a = 0; a < g_net_n; a++) for (int b = a + 1; b < g_net_n; b++) if (g_nets[b].rssi > g_nets[a].rssi) { ScanNet t = g_nets[a]; g_nets[a] = g_nets[b]; g_nets[b] = t; }
+        WiFi.scanDelete();
+        g_scan_collected = true; g_net_emit = 0;
+    }
+    for (int burst = 0; burst < 3 && g_net_emit < g_net_n; burst++, g_net_emit++) {                // a few lines per call: the link queue is small
+        char line[240];
+        snprintf(line, sizeof(line), "{\"t\":\"wifi_net\",\"seq\":0,\"ts\":%lu,\"i\":%d,\"n\":%d,\"ssid\":\"%s\",\"rssi\":%d,\"ch\":%d,\"auth\":\"%s\"}",
+                 (unsigned long)millis(), g_net_emit, g_net_n, g_nets[g_net_emit].ssid, g_nets[g_net_emit].rssi, g_nets[g_net_emit].ch, g_nets[g_net_emit].auth);
+        emit(line);
+    }
+    if (g_net_emit >= g_net_n) { emit_end(1, ""); g_scan_pending = false; g_scan_collected = false; }
 }
 
 #else
@@ -206,4 +300,6 @@ void wifi_link_send(const char*) {}
 bool wifi_link_up() { return false; }
 void wifi_log(const char*, const char*) {}
 void wifi_link_reconnect() {}
+bool wifi_scan_start() { return false; }
+void wifi_scan_poll() {}
 #endif

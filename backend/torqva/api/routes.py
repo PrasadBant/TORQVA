@@ -271,6 +271,8 @@ def create_router(service: SimulationService, auth: TokenAuth) -> APIRouter:
     add_device_routes(r, service, need, audit, auth)
     from torqva.api.firmware_routes import add_firmware_routes
     add_firmware_routes(r, service, need, audit)
+    from torqva.api.provisioning_routes import add_provisioning_routes
+    add_provisioning_routes(r, service, need, audit)
 
     @r.get("/devices")
     def devices(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:

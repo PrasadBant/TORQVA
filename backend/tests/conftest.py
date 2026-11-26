@@ -17,6 +17,7 @@ for _k in ("TORQVA_DEVICE_PORT", "TORQVA_FORCE_UNLOCK"):
 os.environ["TORQVA_AUTOCONNECT"] = "0"
 os.environ["TORQVA_COMMISSIONING_FILE"] = os.path.join(_ISOLATED, "commissioning.json")
 os.environ["TORQVA_DEVICE_KEYS_FILE"] = os.path.join(_ISOLATED, "device_keys.json")
+os.environ["TORQVA_PROVISIONING_HISTORY"] = os.path.join(_ISOLATED, "wifi_provisioning_history.json")      # tests never touch the operator's real job history
 
 from torqva.analysis.detection import BaselineDetector, ThermalTracker
 from torqva.analysis.diagnostics import DiagnosticsModel
@@ -75,8 +76,20 @@ def anyio_backend(request):
 
 
 @pytest.fixture(autouse=True)
+def _reset_device_operation_lock():
+    """The device operation lock is process-wide. A test that leaves a deployment or job unfinished must not block the next test."""
+    from torqva.device.operation_lock import DEVICE_OPERATIONS
+    DEVICE_OPERATIONS._active = None
+    DEVICE_OPERATIONS._quarantine = None
+    yield
+    DEVICE_OPERATIONS._active = None
+    DEVICE_OPERATIONS._quarantine = None
+
+
+@pytest.fixture(autouse=True)
 def _isolated_commissioning_file(tmp_path, monkeypatch):
     """Tests never read or write the operator's real commissioning record."""
     monkeypatch.setenv("TORQVA_AUTOCONNECT", "0")                     # tests never scan or open real ports
     monkeypatch.setenv("TORQVA_COMMISSIONING_FILE", str(tmp_path / "commissioning.json"))
     monkeypatch.setenv("TORQVA_DEVICE_KEYS_FILE", str(tmp_path / "device_keys.json"))
+    monkeypatch.setenv("TORQVA_PROVISIONING_HISTORY", str(tmp_path / "wifi_provisioning_history.json"))

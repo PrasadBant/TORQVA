@@ -158,7 +158,7 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
 
         {tab === 'compare' && (
           <TabPanel tab="compare" idBase="c2-tab">
-            {!hasSim ? <Card title="Action comparison" id="c-cmp"><Empty>No simulation is running.</Empty></Card>
+            {!hasSim ? <Card title="Action comparison" id="c-cmp"><Empty action={<button type="button" className="tq-btn tq-primary" onClick={() => go('scenario')}>Configure a scenario <ArrowRight size={14} aria-hidden="true" /></button>}>No simulation is running. Predictions require a current simulated state and a persisted anomaly.</Empty></Card>
               : !post ? <Card title="Action comparison" id="c-cmp"><Empty>predictions are conditional on a fault-hypothesis ranking, and there is none yet in this run. They become available once an anomaly has persisted.</Empty></Card> : (
                 <Card title="Action comparison" id="c-cmp" icon={LineChart} sub="Reduce-speed targets compared with continuing and stopping"
                   right={<span className="tq-an-right">{pending ? <Pill tone="wait">calculating…</Pill> : isStale ? <Pill tone="warn">stale</Pill> : res ? <Pill tone="ok">{`computed at t = ${fmt(res.basis.t, 0)} s`}</Pill> : null}<ProvBadge kind="PREDICTED" /></span>}
@@ -167,7 +167,7 @@ export function SimPredictionsPage({ d, go, wb, setWb, stale, role }) {
                     <button type="button" className="tq-btn" onClick={() => request(valid)}><RefreshCw size={14} aria-hidden="true" /> Recalculate</button></div>}
                   <div className="tq-toolbar"><span className="tq-toolbar-label">Signal</span>
                     <div className="tq-seg" role="group" aria-label="Signal to compare">{Object.entries(SIG).map(([k, [n]]) => <button key={k} type="button" className="tq-btn" aria-pressed={signal === k} onClick={() => setSignal(k)}>{n.split(' (')[0]}</button>)}</div></div>
-                  <div className="tq-cands" data-testid="candidates">
+                  <div className="tq-cands tq-prediction-comparison" data-testid="candidates">
                     {LABELS.map((l, i) => {
                       const t = targets[i]; const p = forTarget(t);
                       const waiting = t !== '' && !p;

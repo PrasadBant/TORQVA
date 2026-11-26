@@ -21,6 +21,7 @@ import './styles/monitoring.css';
 import './styles/analysis.css';
 import './styles/assurance.css';
 import './styles/twin-sim.css';
+import './styles/layout.css';
 
 // The analyst's path through the product, top to bottom: watch the motor, diagnose and decide, verify and learn, then the engineering tools.
 // Labels are the product names only; internal layer identifiers never appear in the interface.
@@ -376,7 +377,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     interventions: <Suspense fallback={pageFallback}><SimInterventionsPage {...ctx} /></Suspense>,
     workflow: <Suspense fallback={pageFallback}><WorkflowPage mode="SIMULATION" d={d} role={user.role} stale={stale} go={go} /></Suspense>,
     recovery: S(<PhysicalRecoveryPage stream={device} go={go} role={user.role} d={d} physicalMode={false} simView={S(<RecoveryPage {...ctx} />)} />),
-    learning: S(<PhysicalLearningPage stream={device} go={go} role={user.role} d={d} physicalMode={false} simView={S(<LearningPage {...ctx}>{S(<Attestation role={user.role} />)}</LearningPage>)} />),
+    learning: S(<PhysicalLearningPage stream={device} go={go} role={user.role} d={d} physicalMode={false} simView={S(<LearningPage {...ctx}>{S(<Attestation role={user.role} hasSim={d.status?.t !== undefined && d.status?.t !== null} />)}</LearningPage>)} />),
     evaluation: S(<PhysicalEvaluation physicalMode={false} simView={<Evaluation loading={!evalState.run && !evalState.error} evalRun={evalState.run} evalError={evalState.error} c2c4={c2c4.data} c2c4Error={c2c4.error} />} />),
     device: hardwareManager(<DevicePage stream={device} role={user.role} go={go} simMode embedded />, S(<DevicesPage {...ctx} rows={audit.rows} auditError={audit.error} />)),
     lab: (<><PageHead title="Lab" sub="Recording sessions and matched experiments." />{S(<Lab role={user.role} isPhys={physicalMode} />)}</>),
@@ -392,7 +393,10 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
     <AlertPanel tone="warn" icon={FlaskConical} title="SIMULATION ONLY" testid={testid}
       action={<button type="button" className="tq-btn" onClick={() => changeMode('SIMULATION')}><FlaskConical size={14} aria-hidden="true" />Switch to Simulation mode</button>}>
       {t} uses simulated data and is not available in physical mode. Nothing here can command the physical motor.</AlertPanel></>);
-  const physLiveNow = !!(device.data?.handshake && device.data?.origin === 'physical_device');
+  // useDeviceStream exposes the reconciled REST/WebSocket snapshot as `snap`.
+  // Reading the old `data` name kept every physical intelligence page on its
+  // disconnected capability fallback even while fresh hardware telemetry was live.
+  const physLiveNow = !!(device.snap?.handshake && device.snap?.origin === 'physical_device' && device.snap?.telemetry_fresh);
   const phys = (layer, fallback) => (physLiveNow ? fallback : <PhysicalAiPage stream={device} layer={layer} go={go} />);
   const physDiag = (layer, fallbackComponent) => (
     physLiveNow
@@ -506,7 +510,7 @@ export default function TorqvaApp({ pollMs = 1500, stepSeconds = 5, wsFactory })
             </div>
             <main className="tq-main">
               <h1 className="tq-sr">{NAV.find((n) => n[0] === view)[1]}</h1>
-              <NavContext.Provider value={{ icon: current.Icon, condition: view === 'overview' ? null : physicalMode ? physHealth(device.snap) : simHealth(d, running, stale) }}><div className="tq-view" key={`${appMode}-${view}`}>{!physicalMode && JOURNEY_VIEWS.has(view) && <JourneyBar d={d} view={view} go={go} />}{pages[view]}</div></NavContext.Provider>
+              <NavContext.Provider value={{ icon: current.Icon, condition: view === 'overview' ? null : physicalMode ? physHealth(device.snap) : simHealth(d, running, stale), progress: !physicalMode && JOURNEY_VIEWS.has(view) ? <JourneyBar d={d} view={view} go={go} /> : null }}><div className="tq-view" data-page={view} data-mode={appMode} key={`${appMode}-${view}`}>{pages[view]}</div></NavContext.Provider>
             </main>
           </div>
         </div>
