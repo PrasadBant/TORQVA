@@ -154,6 +154,7 @@
 /* Firmware tools and current device state share a desktop workspace. */
 .tq-firmware-workspace { display: grid; grid-template-columns: minmax(250px, .7fr) minmax(0, 1.7fr); gap: 18px; align-items: start; }
 .tq-firmware-workspace > * { min-width: 0; }
+.tq-firmware-workspace > [data-testid=fw-history] { grid-column: 1 / -1; }
 .tq-firmware-workspace [aria-labelledby=fw-dev] .tq-metric { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding-block: 8px; }
 .tq-firmware-workspace [aria-labelledby=fw-dev] .tq-metric dd { text-align: left; justify-content: flex-start; flex-wrap: wrap; }
 [data-page=firmware] [aria-labelledby=fw-editor] > header { display: grid; grid-template-columns: minmax(250px, .65fr) minmax(0, 1.35fr); align-items: start; }

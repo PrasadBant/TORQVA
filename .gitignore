@@ -67,3 +67,6 @@ htmlcov/
 coverage/
 playwright-report/
 test-results/
+
+frontend/layout-review/
+frontend/quality-review/

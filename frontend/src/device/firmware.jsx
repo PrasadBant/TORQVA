@@ -6,7 +6,7 @@ import { Cpu, Upload, ShieldCheck, ListChecks, Rocket, History, HardDrive, Alert
 import { api } from '../shared/api.js';
 import { Card, Empty, ErrorBox, Pill, PageHead, AlertPanel, MetricList, CheckList, StepTracker, DataTable, Disclosure, LinkButton, Tabs, TabPanel, fmt } from '../components/components.jsx';
 import { WifiProvisioningCard } from './wifiProvisioning.jsx';
-import { FirmwareAssistantPanel, FirmwareRuntimeDiagnostics, SourceWorkspace, WirelessControlCard, WirelessSerialMonitor } from './wirelessWorkspace.jsx';
+import { FirmwareRuntimeDiagnostics, SourceWorkspace, WirelessControlCard, WirelessSerialMonitor } from './wirelessWorkspace.jsx';
 
 const kb = (n) => (n == null ? '—' : n >= 1048576 ? `${fmt(n / 1048576, 2)} MB` : `${fmt(n / 1024, 1)} KB`);
 const when = (s) => (s ? new Date(s * 1000).toLocaleString() : '—');
@@ -252,7 +252,7 @@ function UpdateDevice({ rec, detail, s, admin, onDeployed }) {
         {admin && d.connected && d.session_active && d.ota?.cap && (
           <div className="tq-row tq-mt">
             <button type="button" className="tq-btn tq-small" disabled={busy} onClick={slotRollback} data-testid="fw-slot-rollback">
-              <RotateCcw size={13} aria-hidden="true" /> Switch to Previous OTA Slot
+              <RotateCcw size={13} aria-hidden="true" /> Rollback OTA Slot
             </button>
           </div>
         )}
@@ -366,7 +366,7 @@ export function FirmwarePage({ role, go }) {
   const rec = rel.find((r) => r.id === sel) || null;
   const cfg = s?.config;
   const tabs = [
-    { key: 'overview', label: 'Overview' }, { key: 'development', label: 'Development' }, { key: 'build', label: 'Build' },
+    { key: 'overview', label: 'Overview' }, { key: 'development', label: 'Development & Build' },
     { key: 'deployment', label: 'Deployment' }, { key: 'library', label: 'Firmware Library', count: rel.length },
     { key: 'console', label: 'Console & Diagnostics' }, { key: 'devices', label: 'Device Management' }, { key: 'security', label: 'Security & Audit' },
   ];
@@ -376,20 +376,19 @@ export function FirmwarePage({ role, go }) {
       {err && <ErrorBox error={err} />}
       {cfg && (cfg.signature_verification !== 'AVAILABLE' || cfg.device_url_problem || cfg.storage !== 'OK') && (
         <p className="tq-callout warn" role="note" data-testid="fw-config">Backend not ready for deployments: {[cfg.signature_verification !== 'AVAILABLE' && `signature verification unavailable (${cfg.signature_detail})`, cfg.device_url_problem, cfg.storage !== 'OK' && cfg.storage_detail].filter(Boolean).join('; ')}.</p>)}
-      {cfg?.key_fingerprint && <p className="tq-small tq-muted" data-testid="fw-key">Release key {cfg.key_fingerprint} · device download URL {cfg.device_url}</p>}
       <Tabs tabs={tabs} value={tab} onChange={setTab} label="Firmware engineering workspaces" idBase="firmware-workspace" />
       <TabPanel tab={tab} idBase="firmware-workspace">
         {tab === 'overview' && <div className="tq-firmware-workspace tq-mt"><DeviceStatus s={s} /><Progress dep={s?.current} device={s?.device} go={go} /><HistoryCard rows={hist} /></div>}
-        {(tab === 'development' || tab === 'build') && <div className="tq-mt"><SourceWorkspace admin={admin} deviceId={s?.device?.device_id} onCompiled={(r) => { setSel(r.release?.id || r.id); load(); }} onDeployed={load} /></div>}
-        {tab === 'deployment' && <><div className="tq-grid tq-grid-wide tq-mt"><Validation rec={rec} /><UpdateDevice rec={rec} detail={detail} s={s} admin={admin} onDeployed={load} /></div><div className="tq-mt"><UsbDeployment rec={rec} s={s} admin={admin} /></div><div className="tq-mt"><Progress dep={s?.current} device={s?.device} go={go} /></div></>}
+        {tab === 'development' && <div className="tq-mt"><SourceWorkspace admin={admin} deviceId={s?.device?.device_id} onCompiled={(r) => { setSel(r.release?.id || r.id); load(); }} onDeployed={() => { load(); setTab('overview'); }} /></div>}
+        {tab === 'deployment' && <><div className="tq-mt"><UpdateDevice rec={rec} detail={detail} s={s} admin={admin} onDeployed={() => { load(); setTab('overview'); }} /></div><div className="tq-mt"><UsbDeployment rec={rec} s={s} admin={admin} /></div></>}
         {tab === 'library' && <><div className="tq-mt"><UploadCard admin={admin} max={cfg?.max_image_bytes} onUploaded={(r) => { setSel(r.id); load(); }} /></div><div className="tq-mt"><Releases rows={rel} selected={sel} onSelect={setSel} admin={admin} deviceId={s?.device?.device_id} onRolledBack={load} /></div><div className="tq-grid tq-grid-wide tq-mt"><Validation rec={rec} /><ReleaseMetadata rec={rec} admin={admin} onSaved={(out) => { setDetail(out); setRel((rows) => rows.map((r) => r.id === out.id ? out : r)); }} /></div></>}
-        {tab === 'console' && <><div className="tq-grid tq-grid-wide tq-mt"><WirelessSerialMonitor /><FirmwareRuntimeDiagnostics device={s?.device} /></div><div className="tq-mt"><FirmwareAssistantPanel defaultTask="crash_analysis" /></div></>}
-        {tab === 'devices' && <div className="tq-mt"><WifiProvisioningCard admin={admin} snap={s?.device} onDone={load} /><div className="tq-mt" /><WirelessControlCard admin={admin} operator={admin || role === 'operator'} snap={s?.device} onRefreshed={load} /></div>}
-        {tab === 'security' && <div className="tq-grid tq-grid-wide tq-mt"><Card title="Firmware trust configuration" icon={ShieldCheck}><MetricList label="Firmware security" items={[
+        {tab === 'console' && <div className="tq-grid tq-grid-wide tq-mt"><WirelessSerialMonitor /><FirmwareRuntimeDiagnostics device={s?.device} /></div>}
+        {tab === 'devices' && <div className="tq-mt"><WifiProvisioningCard admin={admin} snap={s?.device} onDone={load} /><div className="tq-mt"><WirelessControlCard part="wifi" admin={admin} operator={admin || role === 'operator'} snap={s?.device} onRefreshed={load} /></div></div>}
+        {tab === 'security' && <div className="tq-mt"><Card title="Firmware trust configuration" icon={ShieldCheck}><MetricList label="Firmware security" items={[
           { key: 'sig', label: 'Signature verification', value: cfg?.signature_verification || null, missingText: 'UNAVAILABLE' }, { key: 'key', label: 'Trusted key fingerprint', value: cfg?.key_fingerprint || null, missingText: 'UNAVAILABLE' },
           { key: 'url', label: 'Authenticated OTA endpoint', value: cfg?.device_url || null, missingText: 'UNAVAILABLE' }, { key: 'store', label: 'Artifact storage', value: cfg?.storage || null, missingText: 'UNAVAILABLE' },
           { key: 'role', label: 'Deployment authority', value: admin ? 'Admin — explicit authorization required' : `${role} — deployment unavailable` },
-        ]} /></Card><HistoryCard rows={hist} /></div>}
+        ]} /></Card></div>}
       </TabPanel>
     </>
   );

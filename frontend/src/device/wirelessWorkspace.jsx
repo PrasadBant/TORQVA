@@ -425,7 +425,8 @@ export function SourceWorkspace({ admin, deviceId, onCompiled, onDeployed }) {
 }
 
 /* ------------------------------------------------------------------ 2. Discovery, Manual IP, Wi-Fi Manager & Remote Restart */
-export function WirelessControlCard({ admin, operator, snap, onRefreshed }) {
+/** `part`: 'all' (default), 'discovery' (live info, mDNS, manual IP, restart: Hardware Manager) or 'wifi' (legacy direct Wi-Fi form only, for boards that cannot stage; Firmware Manager). */
+export function WirelessControlCard({ admin, operator, snap, onRefreshed, part = 'all' }) {
   const [discovered, setDiscovered] = useState([]);
   const [scanning, setScanning] = useState(false);
   const [manualIp, setManualIp] = useState('');
@@ -498,16 +499,20 @@ export function WirelessControlCard({ admin, operator, snap, onRefreshed }) {
 
   const net = snap?.net_info;
   const connected = snap?.connection === 'CONNECTED' || snap?.connection === 'STALE';
+  const showDiscovery = part !== 'wifi';
+  const showWifi = part !== 'discovery';
+  // Firmware Manager already offers staged Wi-Fi changes: only a board that cannot stage needs the legacy form.
+  if (part === 'wifi' && (!admin || snap?.wifi_state?.supported)) return null;
 
   return (
     <Card
-      title="Wireless Discovery, Wi-Fi & Device Control"
+      title={part === 'wifi' ? 'Direct Wi-Fi update (older firmware)' : part === 'discovery' ? 'Wireless Discovery & Live Link' : 'Wireless Discovery, Wi-Fi & Device Control'}
       id="dev-wireless-mgr"
       icon={Wifi}
       testid="wireless-control-card"
-      sub="mDNS discovery (_torqva._tcp), manual IP probe fallback, live Wi-Fi diagnostics, credentials, and safe remote restart"
+      sub={part === 'wifi' ? 'Only for boards whose firmware cannot stage a network change' : part === 'discovery' ? 'mDNS discovery (_torqva._tcp), manual IP probe fallback, live Wi-Fi diagnostics and safe remote restart' : 'mDNS discovery (_torqva._tcp), manual IP probe fallback, live Wi-Fi diagnostics, credentials, and safe remote restart'}
       right={
-        admin && (
+        admin && showDiscovery && (
           <button
             type="button"
             className="tq-btn tq-small"
@@ -520,8 +525,8 @@ export function WirelessControlCard({ admin, operator, snap, onRefreshed }) {
         )
       }
     >
-      <div className="tq-grid tq-grid-wide">
-        <div>
+      <div className={showDiscovery && showWifi ? 'tq-grid tq-grid-wide' : undefined}>
+        {showDiscovery && <div>
           <h4 className="tq-mon-subhead">Live Wireless Info</h4>
           <MetricList label="Network telemetry" items={[
             { key: 'ip', label: 'Device IP', value: net?.ip || snap?.transport?.remote || null, missingText: 'UNAVAILABLE' },
@@ -564,10 +569,10 @@ export function WirelessControlCard({ admin, operator, snap, onRefreshed }) {
               {probeRes.reachable ? `Reachable (${probeRes.ip}, ${probeRes.latency_ms} ms${probeRes.device_id ? `, id ${probeRes.device_id}` : ''})` : `Unreachable: ${probeRes.error || 'no response'}`}
             </p>
           )}
-        </div>
+        </div>}
 
-        <div>
-          <h4 className="tq-mon-subhead">Wi-Fi Network Manager (Authenticated NVS Update)</h4>
+        {showWifi && <div>
+          {part === 'all' && <h4 className="tq-mon-subhead">Wi-Fi Network Manager (Authenticated NVS Update)</h4>}
           {!admin ? (
             <Empty>Admin access required to update device Wi-Fi settings.</Empty>
           ) : snap?.wifi_state?.supported ? (
@@ -596,7 +601,7 @@ export function WirelessControlCard({ admin, operator, snap, onRefreshed }) {
           )}
           {msg && <p className="tq-callout ok tq-mt tq-small">{msg}</p>}
           <ErrorBox error={err} />
-        </div>
+        </div>}
       </div>
     </Card>
   );

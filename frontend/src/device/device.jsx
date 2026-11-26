@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Usb, Unplug, Cpu, HeartPulse, Gauge, Zap, Thermometer, Plug, Move3d, Activity, Waves, Radio, Wifi } from 'lucide-react';
 import { api } from '../shared/api.js';
 import { Card, Empty, ErrorBox, Pill, fmt, title, PageHead, CardLink, Disclosure, MetricList } from '../components/components.jsx';
-import { WirelessControlCard, WirelessSerialMonitor } from './wirelessWorkspace.jsx';
+import { WirelessControlCard } from './wirelessWorkspace.jsx';
 
 function ConnPill({ snap }) {
   const c = snap?.connection || 'DISCONNECTED';
@@ -52,15 +52,14 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
             <span className="tq-mon-connicon" aria-hidden="true">{!connected ? <Unplug size={20} /> : snap?.transport?.kind === 'wifi' ? <Wifi size={20} /> : <Usb size={20} />}</span>
             <div>
               <strong data-testid="conn-head">{headWord}</strong>
-              <span>{snap?.transport?.kind === 'wifi' ? `Wi-Fi link from ${snap.transport.remote}` : snap?.port ? `Port ${snap.port}` : 'No port open'}{snap?.firmware ? ` · firmware ${snap.firmware}` : ''}{snap?.device_profile ? ` · profile ${snap.device_profile}` : ''}</span>
+              <span>{snap?.transport?.kind === 'wifi' ? `Wi-Fi link from ${snap.transport.remote}` : snap?.port ? <>Port <span className="tq-num">{snap.port}</span></> : 'No port open'}{snap?.firmware ? ` · firmware ${snap.firmware}` : ''}{snap?.device_profile ? ` · profile ${snap.device_profile}` : ''}</span>
             </div>
+            <ConnPill snap={snap} />
           </div>
           <dl className="tq-kv">
             <dt>State</dt><dd data-testid="state-label"><strong>{snap?.state_label || 'DISCONNECTED'}</strong></dd>
             <dt>Connection method</dt><dd data-testid="conn-method">{via || 'none'}</dd>
-            <dt>Link state</dt><dd><ConnPill snap={snap} /></dd>
             <dt>Device authenticated (per-device key)</dt><dd data-testid="conn-auth">{snap?.session?.active ? <Pill tone="ok">yes</Pill> : <Pill tone="off">no</Pill>}</dd>
-            <dt>Last device frame</dt><dd>{connected && snap?.last_rx_unix ? ago(snap.last_rx_unix) : 'none'}</dd>
             <dt>Live updates (WebSocket only; says nothing about USB)</dt><dd>{ws === 'open' ? <Pill tone="ok">connected</Pill> : <Pill tone="warn">{ws === 'idle' ? 'off' : ws}</Pill>}</dd>
           </dl>
           {wl && (wl.enabled || wl.events?.length > 0) && (
@@ -118,8 +117,6 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
             { key: 'fw', label: 'Firmware', value: snap?.firmware || null },
             { key: 'fwmode', label: 'Firmware mode', value: snap?.firmware_mode || null },
             { key: 'proto', label: 'Wire protocol', value: snap?.wire_protocol ?? null },
-            { key: 'port', label: 'Serial port', value: snap?.port || null },
-            { key: 'transport', label: 'Transport', value: snap?.transport_label || null },
           ]} />
         </Card>
 
@@ -160,8 +157,7 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
         {!events.length ? <Empty>No events yet.</Empty> : (
           <ul className="tq-feed">{events.slice(0, 12).map((e) => (<li key={e.k}><Pill tone={/error|disconnected|fault|timed|unknown|rejected/.test(e.name) ? 'crit' : 'info'}>{title(e.name)}{e.total > 1 ? ` ×${e.total}` : ''}</Pill><span className="tq-muted">{clock(e.ts)} · {JSON.stringify(e.data).slice(0, 90)}</span></li>))}</ul>)}
       </Card>
-      <div className="tq-mt"><WirelessControlCard admin={admin} operator={role === 'operator' || role === 'admin'} snap={snap} onRefreshed={stream.refresh} /></div>
-      <div className="tq-mt"><WirelessSerialMonitor /></div>
+      <div className="tq-mt"><WirelessControlCard part="discovery" admin={admin} operator={role === 'operator' || role === 'admin'} snap={snap} onRefreshed={stream.refresh} /></div>
       <p className="tq-small tq-muted tq-mt">Trust boundary: {snap?.usb_trust_boundary || 'USB serial is unauthenticated; it is treated as inside the host computer\'s physical trust boundary.'}</p>
     </>
   );
