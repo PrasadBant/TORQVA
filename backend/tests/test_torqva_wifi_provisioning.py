@@ -588,3 +588,31 @@ def test_http_status_unknown_job_recovery_and_gateway_cert(client):
     assert c.post("/api/torqva/provisioning/gateway-cert", headers=H("v"), json={"host": "192.168.9.9"}).status_code == 403
     bad = c.post("/api/torqva/provisioning/gateway-cert", headers=H("a"), json={"host": "evil.example"})
     assert bad.status_code == 422 and bad.json()["detail"]["code"] == "BAD_HOST"
+
+
+def test_nvs_blob_with_a_stale_duplicate_copy_parses_to_the_newest_one():
+    """A reset while the board saved a blob can leave an older written copy of the chunk and index next to the newest: the parser must not call it corrupt."""
+    import io
+    import struct
+    from esp_idf_nvs_partition_gen.nvs_partition_gen import Page, nvs_close, nvs_open, write_entry
+    from torqva.device import nvs as nvsmod
+
+    buf = io.BytesIO()
+    n = nvs_open(buf, nvsmod.NVS_SIZE - nvsmod.PAGE_SIZE, Page.VERSION2)
+    write_entry(n, "ns", "namespace", "", "")
+    write_entry(n, "blob", "data", "hex2bin", "aa" * 40)
+    nvs_close(n)
+    img = bytearray(buf.getvalue())
+    base = next(b for b in range(0, len(img), nvsmod.PAGE_SIZE) if struct.unpack_from("<I", img, b)[0] != 0xFFFFFFFF)
+    first = nvsmod.FIRST_ENTRY_OFFSET
+    es = nvsmod.ENTRY_SIZE
+    # entries 1..4 are the chunk (header + 2 data entries) and its index: copy them to entries 5..8 and mark those written
+    for k in range(4):
+        src = base + first + (1 + k) * es
+        dst = base + first + (5 + k) * es
+        img[dst:dst + es] = img[src:src + es]
+    for slot in range(5, 9):
+        bit = slot * 2
+        img[base + 32 + bit // 8] &= ~(1 << (bit % 8)) & 0xFF            # written = 0b10: clear the low bit of the pair
+    entries = nvsmod.parse_partition(bytes(img))
+    assert entries[("ns", "blob")].value == "aa" * 40

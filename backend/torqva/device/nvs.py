@@ -167,8 +167,19 @@ def parse_partition(image: bytes) -> Dict[Tuple[str, str], NvsEntry]:
                 raise NvsError(f"string {item['key']!r} is not UTF-8") from exc
             encoding = "string"
         else:                                                        # TYPE_BLOB_IDX
-            chunks = [c for c in items if c["type"] == TYPE_BLOB_DATA and c["ns"] == item["ns"] and c["key"] == item["key"]
-                      and c["base"] == item["base"] and item["chunk_start"] <= c["chunk"] < item["chunk_start"] + item["chunk_count"]]
+            # An interrupted rewrite (a reset while the board saved a blob) can leave an older written copy of an index or of a chunk next to the newest
+            # one. The newest copy wins, as it does for the firmware's own lookups: the last index for a key, and for each chunk the latest copy written
+            # before that index (data is always written before its index).
+            pos = items.index(item)
+            if any(later["type"] == TYPE_BLOB_IDX and later["ns"] == item["ns"] and later["key"] == item["key"] for later in items[pos + 1:]):
+                continue                                             # a newer index for this blob exists: this one is stale
+            chunks = []
+            for ci in range(item["chunk_start"], item["chunk_start"] + item["chunk_count"]):
+                cands = [i for i, c in enumerate(items) if c["type"] == TYPE_BLOB_DATA and c["ns"] == item["ns"] and c["key"] == item["key"] and c["chunk"] == ci]
+                before = [i for i in cands if i < pos]
+                pick = (before or cands or [None])[-1]
+                if pick is not None:
+                    chunks.append(items[pick])
             if len(chunks) != item["chunk_count"]:
                 raise NvsError(f"blob {item['key']!r} is missing chunks ({len(chunks)} of {item['chunk_count']})")
             blob = b"".join(c["payload"] for c in sorted(chunks, key=lambda c: c["chunk"]))
