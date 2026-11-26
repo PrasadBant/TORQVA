@@ -141,7 +141,10 @@ export function WifiProvisioningCard({ admin, snap, onDone }) {
   const canGo = canSwitch || canStart;
   // One action: a board that is already on Wi-Fi gets the safe staged switch (automatic return to the old network on failure); otherwise the USB setup runs.
   const connect = (e) => { if (e && e.preventDefault) e.preventDefault(); return canSwitch ? changeNetwork() : configure(e); };
-  const why = canGo ? null : !ssid ? 'Choose or type a network name.' : !pwOk ? 'Enter the Wi-Fi password (at least 8 characters).' : running ? 'A Wi-Fi job is running.'
+  const known = [...networks.map((n) => n.ssid), cur?.configured_ssid, cur?.ssid].filter(Boolean);
+  // Network names are case sensitive: "Oneplus 12" is not "OnePlus 12". Point at the real name instead of letting the board fail on a typo.
+  const lookalike = ssid && !known.includes(ssid) ? known.find((k) => k.toLowerCase() === ssid.trim().toLowerCase()) : null;
+  const why = canGo ? null : (running || status?.busy_operation) ? (running ? `${label(job.state)}: wait for the current Wi-Fi job to finish (the board restores its previous network by itself).` : `Another device operation is running (${status.busy_operation}). Connect is available when it finishes.`) : !ssid ? 'Choose or type a network name.' : !pwOk ? 'Enter the Wi-Fi password (at least 8 characters).' : running ? 'A Wi-Fi job is running.'
     : onWifi ? (cur?.staging_supported ? (cur?.trial ? 'A trial network is already active.' : 'Another device operation is running.') : 'This firmware cannot stage a change: plug the board in over USB.')
     : !usbReady ? 'The board is not ready for USB setup (see the notice above).' : !form.port ? 'No USB port found: plug the board in, or pick the port under More options.' : !confirm ? 'Tick the motor-power confirmation.' : null;
 
@@ -279,6 +282,7 @@ export function WifiProvisioningCard({ admin, snap, onDone }) {
               <Wifi size={14} aria-hidden="true" /> {busy ? 'Connecting…' : 'Connect'}
             </button>
           </div>
+          {lookalike && <p className="tq-callout warn tq-small" role="alert" data-testid="wifi-prov-lookalike">Network names are case sensitive. Did you mean <button type="button" className="tq-linkbtn" onClick={() => { setForm((f) => ({ ...f, ssid: lookalike })); setChoice('@manual'); }}>{lookalike}</button>?</p>}
           {why && <p className="tq-small tq-muted" data-testid="wifi-prov-why">{why}</p>}
           <details>
             <summary className="tq-small">More options</summary>
