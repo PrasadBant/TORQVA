@@ -62,4 +62,11 @@ describe('wireless device link', () => {
     expect(screen.getByTestId('conn-method')).toHaveTextContent('none');
     expect(screen.getByTestId('wifi-link-details')).toHaveTextContent('closed by the device');
   });
+
+  it('shows the real readiness state and reason, never plain "connected" for a link that cannot take commands', async () => {
+    const flapping = { ...wifi, readiness: { state: 'COMMUNICATION_FAILURE', label: 'Communication failure', ready: false, reasons: ['the Wi-Fi link dropped 4 times in the last 120 s'] } };
+    await act(async () => { render(<DevicePage stream={stream(flapping)} role="viewer" embedded />); });
+    const r = screen.getByTestId('conn-readiness');
+    expect(r).toHaveTextContent('Communication failure'); expect(r).toHaveTextContent('commands are not routed yet'); expect(r).toHaveTextContent('dropped 4 times');
+  });
 });

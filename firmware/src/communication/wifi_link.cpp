@@ -6,6 +6,8 @@
 #include <ESPmDNS.h>
 #include <esp_websocket_client.h>
 #include <freertos/queue.h>
+#include <esp_system.h>
+#include <errno.h>
 #include "ota_esp32.h"
 #include "usb_out.h"
 
@@ -35,6 +37,15 @@ char g_rx[kRx + 1];
 size_t g_rx_len = 0;
 uint32_t g_dropped = 0;
 
+// Link diagnostics, reported in net_info so a drop can be explained over Wi-Fi alone (no USB log needed): why the last link ended, for how long it lasted,
+// the signal at that moment, the slowest send, and why this boot happened (power-on versus brown-out, watchdog or software reset).
+enum CloseCause : uint8_t { CC_NONE = 0, CC_SEND_FAIL = 1, CC_WS_ERROR = 2, CC_PEER_CLOSED = 3, CC_NOT_CONNECTED = 4, CC_RECONNECT_REQ = 5, CC_TRIAL = 6 };
+volatile uint8_t g_close_cause = CC_NONE;
+volatile int32_t g_close_err = 0;                      // transport errno (or the TLS error) reported by the WebSocket client for the last error
+volatile bool g_ws_error = false;
+volatile uint32_t g_links = 0, g_last_up_s = 0, g_max_send_ms = 0;
+volatile int g_close_rssi = 0;
+
 void start_mdns() {
     if (g_mdns_ok) return;
     String host = String("torqva-") + TORQVA_DEVICE_ID;
@@ -49,11 +60,12 @@ void start_mdns() {
 }
 
 void send_net_info() {
-    char buf[260];
+    char buf[300];
     const int w = snprintf(buf, sizeof(buf),
-        "{\"t\":\"net_info\",\"seq\":0,\"ts\":%lu,\"ip\":\"%s\",\"ssid\":\"%s\",\"rssi\":%d,\"mac\":\"%s\",\"heap\":%lu,\"up_s\":%lu}",
+        "{\"t\":\"net_info\",\"seq\":0,\"ts\":%lu,\"ip\":\"%s\",\"ssid\":\"%s\",\"rssi\":%d,\"mac\":\"%s\",\"heap\":%lu,\"up_s\":%lu,\"rr\":%d,\"lc\":%u,\"le\":%ld,\"lu\":%lu,\"ln\":%lu,\"lr\":%d,\"sm\":%lu}",
         (unsigned long)millis(), WiFi.localIP().toString().c_str(), WiFi.SSID().c_str(),
-        (int)WiFi.RSSI(), WiFi.macAddress().c_str(), (unsigned long)ESP.getFreeHeap(), (unsigned long)(millis() / 1000));
+        (int)WiFi.RSSI(), WiFi.macAddress().c_str(), (unsigned long)ESP.getFreeHeap(), (unsigned long)(millis() / 1000),
+        (int)esp_reset_reason(), (unsigned)g_close_cause, (long)g_close_err, (unsigned long)g_last_up_s, (unsigned long)g_links, g_close_rssi, (unsigned long)g_max_send_ms);
     if (w > 0 && (size_t)w < sizeof(buf)) wifi_link_send(buf);
 }
 
@@ -76,7 +88,11 @@ void on_event(void*, esp_event_base_t, int32_t id, void* data) {
     auto* d = static_cast<esp_websocket_event_data_t*>(data);
     switch (id) {
         case WEBSOCKET_EVENT_CONNECTED: g_rx_len = 0; g_up = true; break;
-        case WEBSOCKET_EVENT_DISCONNECTED: case WEBSOCKET_EVENT_CLOSED: case WEBSOCKET_EVENT_ERROR: g_up = false; g_closed = true; break;
+        case WEBSOCKET_EVENT_ERROR:
+            g_ws_error = true;
+            g_close_err = (int32_t)errno;                       // the WebSocket task's errno at the moment of the error (this IDF has no error_handle)
+            g_up = false; g_closed = true; break;
+        case WEBSOCKET_EVENT_DISCONNECTED: case WEBSOCKET_EVENT_CLOSED: g_up = false; g_closed = true; break;
         case WEBSOCKET_EVENT_DATA:
             if (d->op_code != 0x1 && d->op_code != 0x0) break;                   // text (and its continuation) only; ping / pong / close are the client's own
             if (d->payload_offset == 0) g_rx_len = 0;
@@ -136,6 +152,7 @@ void link_task(void*) {
                     while (!g_up && !g_closed && millis() - t0 < kWsConnectWaitMs) delay(50);
                     if (g_up) {
                         connected_at = millis();
+                        g_links++; g_ws_error = false; g_max_send_ms = 0;
                         start_mdns();
                         xQueueReset(g_q);                 // nothing queued while the link was down is sent late
                         wifi_log("INFO", "Wi-Fi TLS link connected");
@@ -143,13 +160,22 @@ void link_task(void*) {
                         uint32_t last_net = millis();
                         while (g_up && !g_closed && !g_reconnect_req && esp_websocket_client_is_connected(h)) {
                             ota_wifi_trial_tick(millis());
-                            if (xQueueReceive(g_q, item, pdMS_TO_TICKS(50)) == pdTRUE)
-                                if (esp_websocket_client_send_text(h, item, (int)strlen(item), pdMS_TO_TICKS(1000)) < 0) break;
+                            if (xQueueReceive(g_q, item, pdMS_TO_TICKS(50)) == pdTRUE) {
+                                const uint32_t s0 = millis();
+                                const int sent = esp_websocket_client_send_text(h, item, (int)strlen(item), pdMS_TO_TICKS(1000));
+                                const uint32_t took = millis() - s0;
+                                if (took > g_max_send_ms) g_max_send_ms = took;
+                                if (sent < 0) { g_close_cause = CC_SEND_FAIL; break; }
+                            }
                             if ((uint32_t)(millis() - last_net) >= 5000) {
                                 last_net = millis();
                                 send_net_info();
                             }
                         }
+                        g_last_up_s = (millis() - connected_at) / 1000;
+                        g_close_rssi = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+                        if (g_reconnect_req) g_close_cause = CC_RECONNECT_REQ;
+                        else if (g_close_cause != CC_SEND_FAIL) g_close_cause = g_ws_error ? CC_WS_ERROR : (g_closed ? CC_PEER_CLOSED : CC_NOT_CONNECTED);
                         if (g_reconnect_req) {
                             g_reconnect_req = false;
                             WiFi.disconnect(true);

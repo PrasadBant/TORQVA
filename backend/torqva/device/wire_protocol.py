@@ -140,7 +140,8 @@ def parse_frame(line: "bytes | str") -> Dict[str, Any]:
     if t == "log":
         return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "lvl": _str(o, "lvl", 12) if "lvl" in o else "INFO", "msg": _str(o, "msg", 256)}
     if t == "net_info":
-        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "ip": _str(o, "ip", 48), "ssid": _str(o, "ssid", 64), "rssi": _num(o, "rssi", -127, 20), "mac": _str(o, "mac", 24), "heap": _uint(o, "heap"), "up_s": _uint(o, "up_s")}
+        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "ip": _str(o, "ip", 48), "ssid": _str(o, "ssid", 64), "rssi": _num(o, "rssi", -127, 20), "mac": _str(o, "mac", 24), "heap": _uint(o, "heap"), "up_s": _uint(o, "up_s"),
+                **({"rr": _uint(o, "rr", 20), "lc": _uint(o, "lc", 20), "le": _num(o, "le", -2147483648, 2147483647), "lu": _uint(o, "lu"), "ln": _uint(o, "ln"), "lr": _num(o, "lr", -127, 20), "sm": _uint(o, "sm")} if "rr" in o else {})}
     if t == "wifi_state":                                        # staged Wi-Fi support and trial state (additive; firmware lib/torqva_core/communication/wifi_trial.h)
         wst, trial = o.get("wst"), o.get("trial")
         if any(v not in (0, 1) or isinstance(v, bool) for v in (wst, trial)):

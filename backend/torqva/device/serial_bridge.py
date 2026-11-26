@@ -57,6 +57,18 @@ MAX_COMMANDS_KEPT = 200
 # --------------------------------------------------------------------------------------------------------------- transports
 # --------------------------------------------------------------------------------------------------------------- event hub (bounded)
 # --------------------------------------------------------------------------------------------------------------- the bridge
+_RESET = {1: "power-on", 2: "external reset", 3: "software reset", 4: "panic/crash", 5: "interrupt watchdog", 6: "task watchdog", 7: "watchdog", 8: "deep sleep", 9: "brown-out (supply dipped)", 10: "SDIO"}
+_CLOSE = {0: "", 1: "send failed or timed out", 2: "WebSocket error", 3: "closed by the backend", 4: "connection lost (not connected)", 5: "reconnect requested", 6: "trial ended"}
+
+
+def net_link_diagnostics(f):
+    """The board's own account of its Wi-Fi link (additive net_info fields): why this boot happened and why the last link ended."""
+    if "rr" not in f:
+        return {}
+    return {"reset_reason": _RESET.get(f["rr"], "code %s" % f["rr"]), "link_close_cause": _CLOSE.get(f["lc"], "code %s" % f["lc"]), "link_errno": f["le"], "last_link_s": f["lu"],
+            "links_since_boot": f["ln"], "rssi_at_close": f["lr"], "max_send_ms": f["sm"]}
+
+
 class DeviceBridge:
     def __init__(self, hub: Optional[EventHub] = None, policy: Optional[PhysicalControlPolicy] = None, expected_device_id: Optional[str] = None,
                  clock: Callable[[], float] = time.monotonic, wall: Callable[[], float] = time.time):
@@ -289,7 +301,7 @@ class DeviceBridge:
             self.hub.publish("serial_log", entry)
             return
         if f["t"] == "net_info":
-            info = {"ip": f["ip"], "ssid": f["ssid"], "rssi": f["rssi"], "mac": f["mac"], "heap": f["heap"], "uptime_s": f["up_s"], "updated_at": self._wall()}
+            info = {"ip": f["ip"], "ssid": f["ssid"], "rssi": f["rssi"], "mac": f["mac"], "heap": f["heap"], "uptime_s": f["up_s"], "updated_at": self._wall(), **net_link_diagnostics(f)}
             with self._lock:
                 self.device_net_info = info
             self.hub.publish("net_info", info)
@@ -966,6 +978,8 @@ class DeviceBridge:
                 s["transport_label"] = "USB (Direct)"
                 s["usb_trust_boundary"] = "Direct USB device connection active."
             s["estop_input"] = None
+            from torqva.device.readiness import compute as _readiness
+            s["readiness"] = _readiness(s)
             return s
 
     def command_list(self) -> List[Dict[str, Any]]:

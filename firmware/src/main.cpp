@@ -330,7 +330,7 @@ static void oled_draw(const Device::DisplayInfo& d) {
     g_oled.drawStr(0, 53, l);
     if (d.acc_valid) snprintf(l, sizeof(l), "|a| %.2f g (total)", d.acc_mag_g); else snprintf(l, sizeof(l), "Accel: n/a");
     g_oled.drawStr(0, 62, l);
-    g_oled.sendBuffer();
+    // The caller transfers the frame tile row by tile row (see oled_task): one sendBuffer() is ~600 ms of bit-banged I2C.
 }
 #endif
 
@@ -547,7 +547,7 @@ void setup() {
     // Over-the-air update: its own task (Wi-Fi + TLS on the other core, lower priority). It never touches a motor output; the Device refuses motion while it runs
     // and while a new image is unconfirmed, and the first-boot self-test decides whether the new image is kept.
 #if TORQVA_OLED
-    xTaskCreatePinnedToCore(oled_task, "oled", 4096, nullptr, 1, nullptr, 0);
+    xTaskCreatePinnedToCore(oled_task, "oled", 4096, nullptr, 1, nullptr, 1);   // not on the core that runs Wi-Fi, TLS and the link task
 #endif
     wifi_link_start(g_dev, g_mu);                      // no-op unless TORQVA_WIFI_LINK and the network is provisioned; the device connects out only
     ota_platform_start(g_dev, g_mu, g_ina_ok, TORQVA_OTA_LED_BENCH ? false : g_ds.getDeviceCount() > 0, cfg.auth_enabled && strcmp(TORQVA_DEVICE_ID, "UNPROVISIONED") != 0, outputs_off);
@@ -562,7 +562,13 @@ static void oled_task(void*) {
         Device::DisplayInfo di;
         bool ok = false;
         if (xSemaphoreTake(g_mu, pdMS_TO_TICKS(5)) == pdTRUE) { g_dev->display_info(&di, millis()); xSemaphoreGive(g_mu); ok = true; }
-        if (ok) oled_draw(di);
+        if (ok) {
+            oled_draw(di);
+            for (uint8_t row = 0; row < 8; row++) {                     // 8 tile rows of ~75 ms each, yielding in between so no task is ever held for long
+                g_oled.updateDisplayArea(0, row, 16, 1);
+                vTaskDelay(pdMS_TO_TICKS(10));
+            }
+        }
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 }

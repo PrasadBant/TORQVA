@@ -35,7 +35,9 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
   const act = (fn) => async () => { setBusy(true); setErr(null); try { await fn(); } catch (e) { setErr(e); } finally { setBusy(false); stream.refresh(); } };
   const connected = snap && snap.connection && snap.connection !== 'DISCONNECTED' && snap.connection !== 'ERROR';
   const c = snap?.counters || {};
-  const headTone = snap?.connection === 'ERROR' ? 'crit' : !connected ? 'off' : o.physical ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'warn';
+  const rdy = snap?.readiness;
+  // Telemetry arriving is not the same as being able to command the device: a Wi-Fi link that is not command-ready is never drawn green.
+  const headTone = snap?.connection === 'ERROR' || rdy?.state === 'COMMUNICATION_FAILURE' ? 'crit' : !connected ? 'off' : o.physical ? (snap.telemetry_fresh && (rdy ? rdy.ready : true) ? 'ok' : 'warn') : 'warn';
   const via = transportOf(snap);
   const baseWord = snap?.connection === 'ERROR' ? 'Connection error' : !connected ? 'Disconnected' : snap?.connection === 'CONNECTING' ? (override ? 'Connected (direct mode)' : 'Connecting') : !snap.handshake && !override ? 'No handshake' : !o.physical && !override ? 'Connected (firmware simulation)' : snap.telemetry_fresh ? 'Connected' : 'Connected · telemetry stale';
   const headWord = via && connected ? `${baseWord} — ${via}` : baseWord;
@@ -56,6 +58,11 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
             </div>
             <ConnPill snap={snap} />
           </div>
+          {rdy && connected && (
+            <p className={`tq-callout ${rdy.ready ? 'ok' : rdy.state === 'COMMUNICATION_FAILURE' ? 'crit' : 'warn'} tq-small`} role="status" data-testid="conn-readiness">
+              <strong>{rdy.label}</strong>{rdy.ready ? ' — commands are routed over this link.' : ' — commands are not routed yet.'}
+              {rdy.reasons?.length > 0 && <> {rdy.reasons.join(' ')}</>}
+            </p>)}
           <dl className="tq-kv">
             <dt>State</dt><dd data-testid="state-label"><strong>{snap?.state_label || 'DISCONNECTED'}</strong></dd>
             <dt>Connection method</dt><dd data-testid="conn-method">{via || 'none'}</dd>
