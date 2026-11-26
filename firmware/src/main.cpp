@@ -400,6 +400,10 @@ static void control_task(void*) {
     }
 }
 
+#if TORQVA_OLED
+static void oled_task(void*);
+#endif
+
 void setup() {
     outputs_off();                                     // FIRST: motor off before anything can fail
     { const char* volatile keep = TORQVA_FW_ID; (void)keep; }  // takes its address so the linker keeps the identity string in the image
@@ -542,9 +546,27 @@ void setup() {
     xTaskCreatePinnedToCore(control_task, "control", 6144, nullptr, configMAX_PRIORITIES - 2, nullptr, 1);
     // Over-the-air update: its own task (Wi-Fi + TLS on the other core, lower priority). It never touches a motor output; the Device refuses motion while it runs
     // and while a new image is unconfirmed, and the first-boot self-test decides whether the new image is kept.
+#if TORQVA_OLED
+    xTaskCreatePinnedToCore(oled_task, "oled", 4096, nullptr, 1, nullptr, 0);
+#endif
     wifi_link_start(g_dev, g_mu);                      // no-op unless TORQVA_WIFI_LINK and the network is provisioned; the device connects out only
     ota_platform_start(g_dev, g_mu, g_ina_ok, TORQVA_OTA_LED_BENCH ? false : g_ds.getDeviceCount() > 0, cfg.auth_enabled && strcmp(TORQVA_DEVICE_ID, "UNPROVISIONED") != 0, outputs_off);
 }
+
+#if TORQVA_OLED
+// The OLED is driven by bit-banged (software) I2C: one full redraw blocks its caller for ~600 ms. It used to run inside loop(), which stopped draining the
+// telemetry queue for that long and dropped about half of the device's frames. It now has its own low-priority task; loop() never waits for the display.
+static void oled_task(void*) {
+    g_oled.begin();
+    for (;;) {
+        Device::DisplayInfo di;
+        bool ok = false;
+        if (xSemaphoreTake(g_mu, pdMS_TO_TICKS(5)) == pdTRUE) { g_dev->display_info(&di, millis()); xSemaphoreGive(g_mu); ok = true; }
+        if (ok) oled_draw(di);
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
+#endif
 
 void loop() {
     // Communications on the Arduino loop task (core 1 by default; control task has higher priority).
@@ -565,17 +587,6 @@ void loop() {
             if (n < sizeof(line) - 1) line[n++] = c; else { n = 0; discarding = true; }   // overlong line: drop it AND its remainder
         }
     }
-#if TORQVA_OLED
-    static uint32_t last_oled = 0; static bool oled_started = false;
-    if (!oled_started) { g_oled.begin(); oled_started = true; }
-    if ((uint32_t)(millis() - last_oled) >= 500) {
-        last_oled = millis();
-        Device::DisplayInfo di;
-        bool ok = false;
-        if (xSemaphoreTake(g_mu, pdMS_TO_TICKS(5)) == pdTRUE) { g_dev->display_info(&di, millis()); xSemaphoreGive(g_mu); ok = true; }
-        if (ok) oled_draw(di);
-    }
-#endif
     wifi_scan_poll();                                  // emits a finished scan's results (no-op without Wi-Fi or without a scan); never waits
     ota_wifi_trial_tick(millis());                     // a staged network that was never committed is dropped here, and the previous one is used again
     {
