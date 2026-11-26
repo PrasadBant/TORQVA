@@ -255,7 +255,20 @@ class EsptoolFlash:
 
     def open(self) -> str:
         esptool = _load_esptool()
-        self.esp = esptool.cmds.detect_chip(port=self.port, baud=FLASH_BAUD)
+        rom = esptool.cmds.detect_chip(port=self.port)
+        # Reading flash is a stub-loader command: the chip's built-in ROM loader does not implement it (it answers with a dropped serial stream).
+        # The command line esptool loads the stub first for the same reason.
+        self.esp = rom.run_stub()
+        try:
+            self.esp.change_baud(FLASH_BAUD)
+        except Exception:                                                  # noqa: BLE001 - a slower link still works
+            pass
+        try:
+            size = esptool.cmds.detect_flash_size(self.esp)
+            if size:
+                self.esp.flash_set_parameters(esptool.util.flash_size_bytes(size))
+        except Exception:                                                  # noqa: BLE001 - the write path sets the default size below
+            pass
         return str(getattr(self.esp, "CHIP_NAME", ""))
 
     def read(self, offset: int, size: int) -> bytes:
