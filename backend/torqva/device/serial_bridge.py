@@ -58,7 +58,7 @@ MAX_COMMANDS_KEPT = 200
 # --------------------------------------------------------------------------------------------------------------- event hub (bounded)
 # --------------------------------------------------------------------------------------------------------------- the bridge
 _RESET = {1: "power-on", 2: "external reset", 3: "software reset", 4: "panic/crash", 5: "interrupt watchdog", 6: "task watchdog", 7: "watchdog", 8: "deep sleep", 9: "brown-out (supply dipped)", 10: "SDIO"}
-_CLOSE = {0: "", 1: "send failed or timed out", 2: "WebSocket error", 3: "closed by the backend", 4: "connection lost (not connected)", 5: "reconnect requested", 6: "trial ended"}
+_CLOSE = {0: "", 1: "send failed or timed out", 2: "WebSocket error", 3: "WebSocket dropped (transport error or peer close; not proven to be the backend)", 4: "connection lost (not connected)", 5: "reconnect requested", 6: "trial ended"}
 
 
 def net_link_diagnostics(f):

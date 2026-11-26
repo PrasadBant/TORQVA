@@ -59,6 +59,13 @@ export function SignalBars({ bars = 0, rssi }) {
 
 const TONE = { PAIRED_WIRELESS: 'ok', COMMITTED: 'ok', WIRELESS_PENDING: 'warn', ROLLED_BACK: 'warn', INTERRUPTED: 'warn', FAILED: 'crit' };
 const when = (s) => (s ? new Date(s * 1000).toLocaleString() : '—');
+// Levenshtein distance, for "did you mean" on a mistyped network name ("OnePuls 12" -> "OnePlus 12").
+const editDistance = (a, b) => {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+};
 const label = (s) => String(s || '').replace(/_/g, ' ').toLowerCase().replace(/^./, (c) => c.toUpperCase());
 
 function NowCard({ cur, trialLeft }) {
@@ -143,7 +150,7 @@ export function WifiProvisioningCard({ admin, snap, onDone }) {
   const connect = (e) => { if (e && e.preventDefault) e.preventDefault(); return canSwitch ? changeNetwork() : configure(e); };
   const known = [...networks.map((n) => n.ssid), cur?.configured_ssid, cur?.ssid].filter(Boolean);
   // Network names are case sensitive: "Oneplus 12" is not "OnePlus 12". Point at the real name instead of letting the board fail on a typo.
-  const lookalike = ssid && !known.includes(ssid) ? known.find((k) => k.toLowerCase() === ssid.trim().toLowerCase()) : null;
+  const lookalike = ssid && !known.includes(ssid) ? (known.find((k) => k.toLowerCase() === ssid.trim().toLowerCase()) || known.find((k) => editDistance(k.toLowerCase(), ssid.trim().toLowerCase()) <= 2)) : null;
   const why = canGo ? null : (running || status?.busy_operation) ? (running ? `${label(job.state)}: wait for the current Wi-Fi job to finish (the board restores its previous network by itself).` : `Another device operation is running (${status.busy_operation}). Connect is available when it finishes.`) : !ssid ? 'Choose or type a network name.' : !pwOk ? 'Enter the Wi-Fi password (at least 8 characters).' : running ? 'A Wi-Fi job is running.'
     : onWifi ? (cur?.staging_supported ? (cur?.trial ? 'A trial network is already active.' : 'Another device operation is running.') : 'This firmware cannot stage a change: plug the board in over USB.')
     : !usbReady ? 'The board is not ready for USB setup (see the notice above).' : !form.port ? 'No USB port found: plug the board in, or pick the port under More options.' : !confirm ? 'Tick the motor-power confirmation.' : null;
@@ -282,7 +289,7 @@ export function WifiProvisioningCard({ admin, snap, onDone }) {
               <Wifi size={14} aria-hidden="true" /> {busy ? 'Connecting…' : 'Connect'}
             </button>
           </div>
-          {lookalike && <p className="tq-callout warn tq-small" role="alert" data-testid="wifi-prov-lookalike">Network names are case sensitive. Did you mean <button type="button" className="tq-linkbtn" onClick={() => { setForm((f) => ({ ...f, ssid: lookalike })); setChoice('@manual'); }}>{lookalike}</button>?</p>}
+          {lookalike && <p className="tq-callout warn tq-small" role="alert" data-testid="wifi-prov-lookalike">Network names must match exactly (including capitals). Did you mean <button type="button" className="tq-linkbtn" onClick={() => { setForm((f) => ({ ...f, ssid: lookalike })); setChoice('@manual'); }}>{lookalike}</button>?</p>}
           {why && <p className="tq-small tq-muted" data-testid="wifi-prov-why">{why}</p>}
           <details>
             <summary className="tq-small">More options</summary>

@@ -197,16 +197,27 @@ def encode_partition(entries: Iterable[NvsEntry], size: int = NVS_SIZE) -> bytes
     in-memory call is given ``size - PAGE_SIZE`` to produce the same bytes the CLI
     would. Entries are grouped by namespace, in the order given.
     """
-    from esp_idf_nvs_partition_gen.nvs_partition_gen import Page, nvs_close, nvs_open, write_entry
+    from esp_idf_nvs_partition_gen.nvs_partition_gen import Page, nvs_close, nvs_open
 
     buf = io.BytesIO()
     nvs = nvs_open(buf, size - PAGE_SIZE, Page.VERSION2)
+    # Each namespace must be opened exactly once: the generator gives every "namespace" entry a NEW index, so re-opening one (the board's Wi-Fi stack
+    # interleaves nvs.net80211 and phy keys) would file the later keys under the wrong namespace. Group by namespace, keeping first-appearance order.
+    entries = list(entries)
+    order: List[str] = []
+    for e in entries:
+        if e.namespace not in order:
+            order.append(e.namespace)
+    entries = [e for ns in order for e in entries if e.namespace == ns]
     current = None
     for e in entries:
         if e.namespace != current:
-            write_entry(nvs, e.namespace, "namespace", "", "")
+            nvs.write_namespace(e.namespace)
             current = e.namespace
-        write_entry(nvs, e.key, "data", e.encoding, e.value)
+        # The generator's module-level write_entry() wrapper injects "hardcoded" Wi-Fi entries the first time it sees sta.ssid / sta.pswd
+        # (sta.apinfo = ff.., sta.pmk = 00.., sta.apsw = 0000), overwriting what the board's Wi-Fi stack saved. The NVS object's own writer has no side effects:
+        # exactly the given entries are written.
+        nvs.write_entry(e.key, e.value, e.encoding)
     nvs_close(nvs)
     image = buf.getvalue()
     if len(image) != size:

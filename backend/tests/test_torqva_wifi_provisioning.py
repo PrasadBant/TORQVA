@@ -616,3 +616,22 @@ def test_nvs_blob_with_a_stale_duplicate_copy_parses_to_the_newest_one():
         img[base + 32 + bit // 8] &= ~(1 << (bit % 8)) & 0xFF            # written = 0b10: clear the low bit of the pair
     entries = nvsmod.parse_partition(bytes(img))
     assert entries[("ns", "blob")].value == "aa" * 40
+
+
+def test_encode_round_trips_interleaved_namespaces_and_never_injects_wifi_extras():
+    """Real board NVS interleaves nvs.net80211 and phy keys, and holds the Wi-Fi stack's own sta.ssid / sta.pswd. Re-encoding must reproduce exactly the
+    given entries: no namespace re-opened under a new index, and none of the generator wrapper's 'hardcoded' sta.apinfo / sta.pmk / sta.apsw entries."""
+    from torqva.device.nvs import NvsEntry, encode_partition, parse_partition, NVS_SIZE
+
+    entries = [
+        NvsEntry("torqva_ota", "ssid", "string", "BenchNet"),
+        NvsEntry("nvs.net80211", "opmode", "u8", "1"),
+        NvsEntry("nvs.net80211", "sta.ssid", "hex2bin", "08000000" + "42656e63684e6574" + "00" * 24),
+        NvsEntry("phy", "cal_version", "u32", "1"),
+        NvsEntry("nvs.net80211", "sta.pswd", "hex2bin", "61" * 8 + "00" * 57),
+        NvsEntry("nvs.net80211", "sta.apinfo", "hex2bin", "12" * 700),
+        NvsEntry("torqva_ota", "pass", "string", "not-a-real-pass"),
+    ]
+    back = parse_partition(encode_partition(entries, NVS_SIZE))
+    assert {k: (v.encoding, v.value) for k, v in back.items()} == {(e.namespace, e.key): (e.encoding, e.value) for e in entries}
+    assert ("nvs.net80211", "sta.pmk") not in back and ("torqva", "pass") not in back

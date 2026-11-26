@@ -198,6 +198,14 @@ describe('status, recovery and certificate guidance', () => {
     expect(screen.getByTestId('wifi-prov-ssid').value).toBe('OnePlus 12');
   });
 
+  it('a mistyped name close to a known network is flagged ("OnePuls 12" -> "OnePlus 12")', async () => {
+    server({ status: { ...READY, current_network: { ...WIFI_NOW, configured_ssid: 'OnePlus 12' } } });
+    mount({ snap: { device_id: 'RIG-1', connection: 'CONNECTED', transport: { kind: 'wifi' } } });
+    await waitFor(() => expect(screen.getByTestId('wifi-now').textContent).toMatch(/HomeNet/));
+    type('wifi-prov-ssid', 'OnePuls 12');
+    expect(screen.getByTestId('wifi-prov-lookalike').textContent).toMatch(/OnePlus 12/);
+  });
+
   it('Connect on a board that is already on Wi-Fi uses the staged switch and needs no USB confirmation', async () => {
     server({ status: { ...READY, current_network: WIFI_NOW }, job: { ...RUNNING, kind: 'network_switch', state: 'STAGING' } });
     mount({ snap: { device_id: 'RIG-1', connection: 'CONNECTED', transport: { kind: 'wifi' } } });
