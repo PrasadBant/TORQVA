@@ -173,6 +173,32 @@ describe('status, recovery and certificate guidance', () => {
     expect(calls.some((c) => c.path === '/device/wifi')).toBe(false);                  // the old immediate-overwrite route is never used
   });
 
+  it('one Connect button: USB setup when the board is on USB, the staged switch when it is on Wi-Fi', async () => {
+    server(); mount({ snap: {} });
+    await waitFor(() => expect(screen.getByTestId('wifi-prov-port').value).toBe('COM7'));
+    expect(screen.getByTestId('wifi-prov-connect').disabled).toBe(true);
+    expect(screen.getByTestId('wifi-prov-why').textContent).toMatch(/network name/i);
+    type('wifi-prov-ssid', 'HomeNet'); type('wifi-prov-password', 'password123');
+    expect(screen.getByTestId('wifi-prov-why').textContent).toMatch(/confirmation/i);
+    fireEvent.click(screen.getByTestId('wifi-prov-confirm'));
+    expect(screen.getByTestId('wifi-prov-connect').disabled).toBe(false);
+    fireEvent.click(screen.getByTestId('wifi-prov-connect'));
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.path === '/provisioning/jobs')).toBeTruthy());
+    expect(calls.some((c) => c.path === '/provisioning/network-switch')).toBe(false);
+  });
+
+  it('Connect on a board that is already on Wi-Fi uses the staged switch and needs no USB confirmation', async () => {
+    server({ status: { ...READY, current_network: WIFI_NOW }, job: { ...RUNNING, kind: 'network_switch', state: 'STAGING' } });
+    mount({ snap: { device_id: 'RIG-1', connection: 'CONNECTED', transport: { kind: 'wifi' } } });
+    await waitFor(() => expect(screen.getByTestId('wifi-now').textContent).toMatch(/HomeNet/));
+    expect(screen.queryByTestId('wifi-prov-confirm')).toBeNull();
+    type('wifi-prov-ssid', 'NewNet'); type('wifi-prov-password', 'password123');
+    await waitFor(() => expect(screen.getByTestId('wifi-prov-connect').disabled).toBe(false));
+    fireEvent.click(screen.getByTestId('wifi-prov-connect'));
+    await waitFor(() => expect(calls.find((c) => c.path === '/provisioning/network-switch')).toBeTruthy());
+    expect(calls.some((c) => c.method === 'POST' && c.path === '/provisioning/jobs')).toBe(false);
+  });
+
   it('Change Network is refused in the UI when the firmware cannot stage, and says what to do', async () => {
     server({ status: { ...READY, current_network: { ...WIFI_NOW, staging_supported: false } } });
     mount({ snap: { device_id: 'RIG-1', connection: 'CONNECTED', transport: { kind: 'wifi' } } });

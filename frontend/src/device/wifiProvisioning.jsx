@@ -138,6 +138,13 @@ export function WifiProvisioningCard({ admin, snap, onDone }) {
   const canStart = admin && !running && !busy && usbReady && !onWifi && form.port && ssid && pwOk && confirm;
   const canSwitch = admin && !running && !busy && onWifi && !!cur?.staging_supported && !cur?.trial && !status?.busy_operation && ssid && pwOk;
 
+  const canGo = canSwitch || canStart;
+  // One action: a board that is already on Wi-Fi gets the safe staged switch (automatic return to the old network on failure); otherwise the USB setup runs.
+  const connect = (e) => { if (e && e.preventDefault) e.preventDefault(); return canSwitch ? changeNetwork() : configure(e); };
+  const why = canGo ? null : !ssid ? 'Choose or type a network name.' : !pwOk ? 'Enter the Wi-Fi password (at least 8 characters).' : running ? 'A Wi-Fi job is running.'
+    : onWifi ? (cur?.staging_supported ? (cur?.trial ? 'A trial network is already active.' : 'Another device operation is running.') : 'This firmware cannot stage a change: plug the board in over USB.')
+    : !usbReady ? 'The board is not ready for USB setup (see the notice above).' : !form.port ? 'No USB port found: plug the board in, or pick the port under More options.' : !confirm ? 'Tick the motor-power confirmation.' : null;
+
   const doScan = async () => {
     setScanning(true); setScanMsg(null); setErr(null);
     try {
@@ -186,7 +193,7 @@ export function WifiProvisioningCard({ admin, snap, onDone }) {
   const tone = job?.state === 'FAILED' ? 'crit' : (job?.state === 'PAIRED_WIRELESS' || job?.state === 'COMMITTED') ? 'ok' : (['WIRELESS_PENDING', 'ROLLED_BACK', 'INTERRUPTED'].includes(job?.state)) ? 'warn' : 'info';
 
   return (
-    <Card title="Configure Wi-Fi" icon={Wifi} sub="Plug the board in over USB, choose your network and click Configure & Connect" testid="wifi-provisioning"
+    <Card title="Configure Wi-Fi" icon={Wifi} sub="Choose your network, enter the password and click Connect" testid="wifi-provisioning"
       right={<Pill tone={usbReady ? 'ok' : 'off'}>{usbReady ? 'Ready' : status ? 'Not ready' : 'Checking…'}</Pill>}>
       {!admin ? <Empty>Admin authorization is required to configure Wi-Fi.</Empty> : <div className="wifi-prov">
         <NowCard cur={cur} trialLeft={cur?.trial_left_s ?? 0} />
@@ -207,20 +214,8 @@ export function WifiProvisioningCard({ admin, snap, onDone }) {
             <button type="button" className="tq-btn tq-small" onClick={reissueCert} data-testid="wifi-cert-reissue">Reissue certificate</button> then restart the HTTPS gateway (<code>npm run dev:lan</code>).
           </p>)}
 
-        <form className="tq-form" onSubmit={configure} autoComplete="off">
+        <form className="tq-form" onSubmit={connect} autoComplete="off">
           <div className="wifi-grid">
-            <label>Device
-              <input type="text" value={form.device_id} onChange={set('device_id')} maxLength={32} data-testid="wifi-prov-device" />
-            </label>
-            <label>USB port
-              <span className="wifi-inline">
-                <select value={form.port} onChange={set('port')} data-testid="wifi-prov-port" aria-label="USB port">
-                  <option value="">Select a port…</option>
-                  {ports.map((p) => <option key={p.device} value={p.device}>{p.device} — {p.description}{LIKELY_ESP32.test(p.description || '') ? ' (likely ESP32)' : ''}</option>)}
-                </select>
-                <button type="button" className="tq-btn tq-small" onClick={refresh} aria-label="Rescan ports"><RefreshCw size={13} aria-hidden="true" /></button>
-              </span>
-            </label>
             <label className="wifi-span">Wi-Fi network
               <span className="wifi-inline">
                 <select value={manual && networks.length ? '@manual' : choice} onChange={(e) => setChoice(e.target.value)} data-testid="wifi-prov-network" aria-label="Available networks" disabled={!networks.length}>
@@ -258,23 +253,46 @@ export function WifiProvisioningCard({ admin, snap, onDone }) {
           </div>
           <details>
             <summary className="tq-small">Advanced</summary>
+            <div className="wifi-grid">
+            <label>Device
+              <input type="text" value={form.device_id} onChange={set('device_id')} maxLength={32} data-testid="wifi-prov-device" />
+            </label>
+            <label>USB port
+              <span className="wifi-inline">
+                <select value={form.port} onChange={set('port')} data-testid="wifi-prov-port" aria-label="USB port">
+                  <option value="">Select a port…</option>
+                  {ports.map((p) => <option key={p.device} value={p.device}>{p.device} — {p.description}{LIKELY_ESP32.test(p.description || '') ? ' (likely ESP32)' : ''}</option>)}
+                </select>
+                <button type="button" className="tq-btn tq-small" onClick={refresh} aria-label="Rescan ports"><RefreshCw size={13} aria-hidden="true" /></button>
+              </span>
+            </label>
+            </div>
             <label>Backend HTTPS address (leave empty to detect automatically)
               <input type="text" value={form.base_url} onChange={set('base_url')} maxLength={128} placeholder={status?.default_backend_url || 'https://192.168.1.10:8443'} data-testid="wifi-prov-base" />
             </label>
             <p className="tq-small tq-muted">Detected: {status?.default_backend_url || 'unavailable'}</p>
             <label className="tq-check"><input type="checkbox" checked={form.erase_damaged_nvs} onChange={set('erase_damaged_nvs')} data-testid="wifi-prov-rebuild" /> If the board's saved settings are unreadable, rebuild them (unreadable saved settings are lost)</label>
           </details>
-          <label className="tq-check"><input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} data-testid="wifi-prov-confirm" /> Motor power is disconnected; I authorize TORQVA to restart this board (USB setup)</label>
+          {!onWifi && <label className="tq-check"><input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} data-testid="wifi-prov-confirm" /> Motor power is disconnected; I authorize TORQVA to restart this board (USB setup)</label>}
           <div className="wifi-actions">
-            <button type="submit" className="tq-btn tq-primary" disabled={!canStart} data-testid="wifi-prov-start" title={onWifi ? 'The board is on Wi-Fi: use Change Network' : undefined}>
-              <Usb size={14} aria-hidden="true" /> Configure &amp; Connect
+            <button type="submit" className="tq-btn tq-primary" disabled={!canGo} data-testid="wifi-prov-connect">
+              <Wifi size={14} aria-hidden="true" /> {busy ? 'Connecting…' : 'Connect'}
             </button>
-            <button type="button" className="tq-btn" disabled={!canSwitch} onClick={changeNetwork} data-testid="wifi-prov-change"
-              title={!onWifi ? 'Available when the board is connected over Wi-Fi' : !cur?.staging_supported ? 'This firmware cannot stage a network change; use Configure & Connect over USB' : 'Try a new network; the current one is kept until it is verified'}>
-              Change Network
-            </button>
-            <button type="button" className="tq-btn" disabled={busy || running || !form.port} onClick={reconnect} data-testid="wifi-prov-reconnect">Reconnect</button>
           </div>
+          {why && <p className="tq-small tq-muted" data-testid="wifi-prov-why">{why}</p>}
+          <details>
+            <summary className="tq-small">More options</summary>
+            <div className="wifi-actions">
+              <button type="button" className="tq-btn" disabled={!canStart} onClick={configure} data-testid="wifi-prov-start" title="Write the network over USB">
+                <Usb size={14} aria-hidden="true" /> Configure &amp; Connect (USB)
+              </button>
+              <button type="button" className="tq-btn" disabled={!canSwitch} onClick={changeNetwork} data-testid="wifi-prov-change"
+                title={!onWifi ? 'Available when the board is connected over Wi-Fi' : !cur?.staging_supported ? 'This firmware cannot stage a network change; use USB' : 'Try a new network; the current one is kept until it is verified'}>
+                Change Network
+              </button>
+              <button type="button" className="tq-btn" disabled={busy || running || !form.port} onClick={reconnect} data-testid="wifi-prov-reconnect">Reconnect USB</button>
+            </div>
+          </details>
           {onWifi && cur?.staging_supported && <p className="tq-small tq-muted" role="note">Change Network keeps your working network until the new one is verified, and the board restores it by itself if the new one fails.</p>}
           {onWifi && cur && !cur.staging_supported && <p className="tq-callout warn tq-small" role="note">This firmware cannot stage a network change. Connect the board by USB and use Configure &amp; Connect.</p>}
         </form>
