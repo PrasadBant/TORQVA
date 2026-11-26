@@ -25,6 +25,7 @@ constexpr size_t kLine = 320;                 // device lines are < 320 bytes (D
 constexpr size_t kRx = 1024;                  // the backend's own limit per message is 1024 bytes (device_link.py)
 constexpr uint32_t kWifiWaitMs = 20000;
 constexpr uint32_t kWsConnectWaitMs = 15000;
+constexpr uint32_t kSendWaitMs = 3000;       // one send attempt may wait this long for the WebSocket client's lock
 constexpr uint32_t kBackoffMinMs = 1000, kBackoffMaxMs = 30000, kStableMs = 30000;
 
 Device* g_dev = nullptr;
@@ -161,11 +162,18 @@ void link_task(void*) {
                         while (g_up && !g_closed && !g_reconnect_req && esp_websocket_client_is_connected(h)) {
                             ota_wifi_trial_tick(millis());
                             if (xQueueReceive(g_q, item, pdMS_TO_TICKS(50)) == pdTRUE) {
+                                // Measured on the bench: every drop was "send failed or timed out" at a good signal (-50 dBm), with single sends taking up to ~840 ms
+                                // while the WebSocket client's own task held its lock. One slow send is not a dead link: retry the SAME line with a longer wait, and only
+                                // close when the socket is really gone or three attempts in a row fail.
                                 const uint32_t s0 = millis();
-                                const int sent = esp_websocket_client_send_text(h, item, (int)strlen(item), pdMS_TO_TICKS(1000));
+                                bool delivered = false;
+                                for (int attempt = 0; attempt < 3 && !delivered; attempt++) {
+                                    if (esp_websocket_client_send_text(h, item, (int)strlen(item), pdMS_TO_TICKS(kSendWaitMs)) >= 0) delivered = true;
+                                    else if (g_closed || !esp_websocket_client_is_connected(h)) break;
+                                }
                                 const uint32_t took = millis() - s0;
                                 if (took > g_max_send_ms) g_max_send_ms = took;
-                                if (sent < 0) { g_close_cause = CC_SEND_FAIL; break; }
+                                if (!delivered) { g_close_cause = CC_SEND_FAIL; break; }
                             }
                             if ((uint32_t)(millis() - last_net) >= 5000) {
                                 last_net = millis();

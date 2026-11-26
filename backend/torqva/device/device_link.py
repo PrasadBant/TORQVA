@@ -107,6 +107,9 @@ class WsTransport(Transport):
         self.gone("closed by the backend")
 
 
+STALE_LINK_S = 1.5                                       # silence after which a link is considered dead when the same address dials again
+
+
 class DeviceLinkManager:
     """Admission of device links and their bookkeeping (the bridge keeps the device state itself)."""
 
@@ -122,6 +125,13 @@ class DeviceLinkManager:
     def _event(self, kind: str, **kw: Any) -> None:
         self.history.append({"at": time.time(), "kind": kind, **kw})
         del self.history[:-50]
+
+    @staticmethod
+    def _stale(b: Any, m: Any) -> bool:
+        """The current link has been silent for longer than a live device ever is (it sends about 18 lines per second): its socket died on the device's side."""
+        last = getattr(m, "last_rx", None)
+        clock = getattr(b, "_clock", time.monotonic)
+        return last is not None and clock() - last > STALE_LINK_S
 
     def admit(self, remote: str) -> Tuple[bool, str]:
         """Called before the link is attached. Returns (ok, reason)."""
@@ -145,6 +155,13 @@ class DeviceLinkManager:
                         b.autoconnect.paused, self.paused_usb = True, True
                     disconnect_reason = "handing the LED bench device over to its Wi-Fi link" if b.device_profile() == "ota_led_bench" else "yielding unhandshaken USB port to incoming Wi-Fi link"
                     self._event("handover", remote=remote, reason="USB -> Wi-Fi (LED bench device)" if b.device_profile() == "ota_led_bench" else "USB (unhandshaken) -> Wi-Fi")
+                elif kind == "wifi" and getattr(tr, "remote", None) == remote and self._stale(b, m):
+                    # The SAME device address is dialling again: its previous socket is gone on the device's side but this side has not noticed yet (a dead link is
+                    # only seen on the next read or write). Refusing the new link here kept a healthy board out until the old one timed out. The old link is closed and
+                    # the new one is admitted; it still has to pass the full authentication and starts a NEW session (the firmware stops the drive on a new session,
+                    # and nothing is replayed). A different address is still refused: exactly one device link at a time.
+                    disconnect_reason = "replaced by a new link from the same device address (the old one was silent)"
+                    self._event("superseded", remote=remote, reason="same-address redial: stale link closed")
                 else:
                     self._event("refused", remote=remote, reason=f"LINK_BUSY ({kind})")
                     return False, f"LINK_BUSY: a device is connected over {kind}"
