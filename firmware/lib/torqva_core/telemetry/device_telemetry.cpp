@@ -54,6 +54,11 @@ void Device::emit_frames(const HalIn& in) {
                          cfg_version(), cfg_.direct_mode ? (uint8_t)0 : last_in_.estop_state};
         queue_line(b, encode_status(b, sizeof(b), f));
     }
+    if (cfg_.wifi_stage_supported && (uint32_t)(in.now_ms - last_wifi_state_ms_) >= 2000) {
+        last_wifi_state_ms_ = in.now_ms;
+        const size_t w = encode_wifi_state(b, sizeof(b), seq_++, in.now_ms, true, wifi_trial_, wifi_left_s_, wifi_act_);
+        if (w) queue_line(b, w);
+    }
     if ((uint32_t)(in.now_ms - last_ota_info_ms_) >= kStatusPeriodMs) {
         last_ota_info_ms_ = in.now_ms;
         const char* blk = ota_block_reason(in.now_ms);

@@ -130,6 +130,8 @@ def parse_frame(line: "bytes | str") -> Dict[str, Any]:
         return {"t": t, "dn": _hex(o, "dn", 32), "proof": _hex(o, "proof", 64)}
     if t == "auth_ok":
         return {"t": t, "sid": _hex(o, "sid", 16), "ttl": _uint(o, "ttl", 600000)}
+    if t == "id_ok":                                             # standby-link identity proof (no session effect; firmware auth.cpp "id_ch")
+        return {"t": t, "dn": _hex(o, "dn", 32), "proof": _hex(o, "proof", 64), "dev": _str(o, "dev", 64, False)}
     if t == "auth_err":
         return {"t": t, "reason": _str(o, "reason", 24)}
     if t == "ota":                                               # over-the-air update progress (additive to protocol 1; lib/torqva_core/ota.h)
@@ -140,7 +142,33 @@ def parse_frame(line: "bytes | str") -> Dict[str, Any]:
     if t == "log":
         return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "lvl": _str(o, "lvl", 12) if "lvl" in o else "INFO", "msg": _str(o, "msg", 256)}
     if t == "net_info":
-        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "ip": _str(o, "ip", 48), "ssid": _str(o, "ssid", 64), "rssi": _num(o, "rssi", -127, 20), "mac": _str(o, "mac", 24), "heap": _uint(o, "heap"), "up_s": _uint(o, "up_s")}
+        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "ip": _str(o, "ip", 48), "ssid": _str(o, "ssid", 64), "rssi": _num(o, "rssi", -127, 20), "mac": _str(o, "mac", 24), "heap": _uint(o, "heap"), "up_s": _uint(o, "up_s"),
+                **({"rr": _uint(o, "rr", 20), "lc": _uint(o, "lc", 20), "le": _num(o, "le", -2147483648, 2147483647), "lu": _uint(o, "lu"), "ln": _uint(o, "ln"), "lr": _num(o, "lr", -127, 20), "sm": _uint(o, "sm")} if "rr" in o else {})}
+    if t == "link_diag":                                         # the board's own Wi-Fi link measurements (additive; firmware src/communication/wifi_link.cpp)
+        sh = o.get("sh")
+        if not isinstance(sh, list) or len(sh) != 5 or any(isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= UINT32 for v in sh):
+            raise FrameError("BAD_FIELD", "sh")
+        out = {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "sh": list(sh)}
+        for k, hi in (("ps", 2), ("nd", 16), ("wdr", 255), ("wdn", UINT32), ("mh", UINT32), ("pq", 64), ("tq", 64), ("td", UINT32), ("pd", UINT32), ("rd", UINT32),
+                      ("fr", UINT32), ("sa", UINT32), ("rx", UINT32), ("cc", 65535), ("lu", UINT32), ("sl", 65535), ("so", 65535)):
+            out[k] = _uint(o, k, hi)
+        for k, hi in (("ph", 16), ("pa", UINT32), ("st", UINT32), ("sx", UINT32), ("lw", UINT32), ("dr", UINT32), ("as", UINT32)):    # additive in 3.2.1: link-task phase / phase age, TCP stalls / longest stall
+            if k in o:
+                out[k] = _uint(o, k, hi)
+        return out
+    if t == "wifi_state":                                      # staged Wi-Fi support and trial state (additive; firmware lib/torqva_core/communication/wifi_trial.h)
+        wst, trial = o.get("wst"), o.get("trial")
+        if any(v not in (0, 1) or isinstance(v, bool) for v in (wst, trial)):
+            raise FrameError("BAD_FIELD", "wst")
+        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "wst": wst, "trial": trial, "left": _uint(o, "left", 600), "act": _str(o, "act", 64)}
+    if t == "wifi_net":                                          # one network of a scan (seq 0: not part of the telemetry sequence)
+        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "i": _uint(o, "i", 63), "n": _uint(o, "n", 64), "ssid": _str(o, "ssid", 64, False),
+                "rssi": _num(o, "rssi", -127, 0), "ch": _uint(o, "ch", 14), "auth": _str(o, "auth", 16, False)}
+    if t == "wifi_scan_end":
+        ok = o.get("ok")
+        if ok not in (0, 1) or isinstance(ok, bool):
+            raise FrameError("BAD_FIELD", "ok")
+        return {"t": t, "seq": _uint(o, "seq"), "ts": _uint(o, "ts"), "n": _uint(o, "n", 64), "ok": ok, "why": _str(o, "why", 24)}
     if t == "ota_info":                                          # this boot's OTA capability and the device's own eligibility verdict
         cap, pend, busy = o.get("cap"), o.get("pend"), o.get("busy")
         if any(v not in (0, 1) or isinstance(v, bool) for v in (cap, pend, busy)):

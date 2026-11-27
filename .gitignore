@@ -53,6 +53,7 @@ graphify-out/
 firmware/.pio/
 backend/data/commissioning.json
 backend/data/device_keys.json
+backend/data/wifi_provisioning_history.json*
 
 # OTA: the generated release-signing PUBLIC key header (per deployment) and any signing material
 firmware/src/ota_pubkey.h
@@ -66,3 +67,6 @@ htmlcov/
 coverage/
 playwright-report/
 test-results/
+
+frontend/layout-review/
+frontend/quality-review/

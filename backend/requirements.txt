@@ -8,3 +8,5 @@ numpy>=1.26.0
 cryptography>=42.0.0  # firmware release signature verification (ECDSA P-256, torqva/firmware.py); also the test-only certificates of the secure-transport tests
 python-multipart>=0.0.9  # firmware upload (multipart/form-data)
 pyserial>=3.5  # USB serial bridge (opened only on an explicit admin connect request)
+esptool>=4.8,<5  # Wi-Fi provisioning: in-process NVS read/write over USB (API verified on 4.11-4.14; 5.x changed it)
+esp-idf-nvs-partition-gen>=0.3.0  # Wi-Fi provisioning: builds the NVS image in memory

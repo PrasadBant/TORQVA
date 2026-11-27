@@ -1,174 +1,59 @@
-"""Unified TORQVA wireless provisioning utility (offline host setup + explicit hardware flash).
+"""TORQVA wireless provisioning utility (offline host setup + explicit hardware write).
 
-Automates Step 2 of hardware bring-up without embedding secrets into the repository:
-  1. Detects the reachable LAN IPv4 address (prefers physical Wi-Fi / Ethernet over virtual adapters).
-  2. Provisions a 32-byte per-device authentication key (`device_keys.json` + NVS `torqva.authkey`).
-  3. Generates or reuses an ECDSA P-256 firmware release signing key pair outside the repo and writes
-     the public key header (`firmware/src/ota_pubkey.h`, git-ignored).
-  4. Generates or reuses a bench TLS CA + server certificate for the detected/selected LAN IP.
-  5. Collects Wi-Fi SSID/password interactively via getpass (never logged or saved to repo), merges
-     `torqva` + `torqva_ota` NVS CSVs, builds `nvs.bin` (`0x5000` bytes for `0x9000`), and deletes
-     temporary CSVs immediately after use.
-  6. Only inspects or flashes a physical serial port when explicitly authorized (`--flash` with
-     `--motor-power-disconnected`).
+This script is a thin command-line front end. The NVS planning, merging, writing and verification live in ONE place, backend/torqva/device/provisioning.py, shared with the
+website's "Configure Wi-Fi" panel, so there is no second implementation that could behave differently:
+
+  * the board's current NVS partition is READ and parsed first; every entry TORQVA does not own (saved runtime limits, the OTA last-known-good record, ...) is kept;
+  * the existing device authentication key is reused (a different key in NVS and in the key store is refused, never silently replaced; --rotate-key is the only way
+    to change an identity);
+  * the partition table is checked against the pinned layout before anything is written, only 0x9000..0xE000 is written, and the result is read back and verified;
+  * the image is built in memory: no CSV or .bin containing the Wi-Fi password or the device key is written to disk when flashing.
+
+Steps:
+  1. Detect the reachable LAN IPv4 address.
+  2. Create or reuse the bench TLS CA and a gateway certificate for that address (backend/torqva/device/pki.py), plus the release signing key pair (public key header
+     written to firmware/src/ota_pubkey.h, git-ignored).
+  3. With --flash (and --motor-power-disconnected): read -> merge -> write -> verify the board's NVS over the given serial port, then restart it.
+
+This script cannot know whether the board's firmware supports staged network changes, so it always writes the network directly. Use the website (USB, with the board
+connected) to get staged writes that keep the previous network as a fallback.
 """
 from __future__ import annotations
 
 import argparse
-import datetime
 import getpass
-import hashlib
-import ipaddress
-import os
-import shutil
-import socket
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
+from typing import Optional
 
 REPO = Path(__file__).resolve().parents[2]
 BACKEND = REPO / "backend"
 sys.path.insert(0, str(BACKEND))
 
 from torqva.access.device_keys import KeyStore  # noqa: E402
+from torqva.device import pki  # noqa: E402
+from torqva.device.nvs import encode_partition, parse_partition  # noqa: E402
+from torqva.device.provisioning import (  # noqa: E402
+    EsptoolFlash,
+    ProvisioningError,
+    default_secrets_dir,
+    detect_lan_ip,
+    plan_network_config,
+    resolve_identity,
+    validate_base_url,
+    validate_wifi,
+    write_network_config,
+)
 
-
-def default_secrets_dir() -> Path:
-    base = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / ".config"))
-    return base / "Torqva" / "secrets"
-
-
-def detect_lan_ip() -> str:
-    """Detect the primary LAN IPv4 address for device-to-backend HTTPS communication."""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        parsed = ipaddress.IPv4Address(ip)
-        if not parsed.is_loopback and not parsed.is_unspecified:
-            return str(parsed)
-    except OSError:
-        pass
-    return ""
-
-
-def _esptool_path() -> Path:
-    return Path.home() / ".platformio" / "packages" / "tool-esptoolpy" / "esptool.py"
-
-
-def inspect_board(port: str, baud: int = 460800) -> str:
-    esptool = _esptool_path()
-    if not esptool.exists():
-        raise RuntimeError(f"esptool.py not found at {esptool}")
-    proc = subprocess.run(
-        [sys.executable, str(esptool), "--port", port, "--baud", str(baud), "flash_id"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr or proc.stdout or f"esptool failed on {port}")
-    return proc.stdout
+__all__ = ["default_secrets_dir", "detect_lan_ip", "ensure_tls_certs", "ensure_signing_keys", "build_nvs_image", "main"]
 
 
 def ensure_tls_certs(secrets_dir: Path, lan_ip: str) -> dict:
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import ec
-    from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
-
-    tls_dir = secrets_dir / "tls"
-    tls_dir.mkdir(parents=True, exist_ok=True)
-    ca_path = tls_dir / "bench_ca.pem"
-    ca_key_path = tls_dir / "bench_ca_key.pem"
-    cert_path = tls_dir / "gateway_cert.pem"
-    key_path = tls_dir / "gateway_key.pem"
-    now = datetime.datetime.now(datetime.timezone.utc)
-    pem_bytes = lambda k: k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
-
-    if ca_path.exists() and ca_key_path.exists():
-        ca = x509.load_pem_x509_certificate(ca_path.read_bytes())
-        ca_key = serialization.load_pem_private_key(ca_key_path.read_bytes(), password=None)
-    else:
-        ca_key = ec.generate_private_key(ec.SECP256R1())
-        ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "TORQVA Bench OTA CA")])
-        ca = (
-            x509.CertificateBuilder()
-            .subject_name(ca_name)
-            .issuer_name(ca_name)
-            .public_key(ca_key.public_key())
-            .serial_number(x509.random_serial_number())
-            .not_valid_before(now - datetime.timedelta(minutes=5))
-            .not_valid_after(now + datetime.timedelta(days=825))
-            .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
-            .add_extension(x509.KeyUsage(False, False, False, False, False, True, True, False, False), critical=True)
-            .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), critical=False)
-            .sign(ca_key, hashes.SHA256())
-        )
-        ca_path.write_bytes(ca.public_bytes(serialization.Encoding.PEM))
-        ca_key_path.write_bytes(pem_bytes(ca_key))
-
-    srv_key = ec.generate_private_key(ec.SECP256R1())
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, lan_ip)]))
-        .issuer_name(ca.subject)
-        .public_key(srv_key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - datetime.timedelta(minutes=5))
-        .not_valid_after(now + datetime.timedelta(days=397))
-        .add_extension(x509.SubjectAlternativeName([x509.DNSName(lan_ip), x509.IPAddress(ipaddress.IPv4Address(lan_ip))]), critical=False)
-        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
-        .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
-        .add_extension(x509.KeyUsage(True, False, False, False, True, False, False, False, False), critical=True)
-        .add_extension(x509.SubjectKeyIdentifier.from_public_key(srv_key.public_key()), critical=False)
-        .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False)
-        .sign(ca_key, hashes.SHA256())
-    )
-    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-    key_path.write_bytes(pem_bytes(srv_key))
-    return {"ca": ca_path, "cert": cert_path, "key": key_path}
+    return pki.ensure_tls_certs(secrets_dir, lan_ip)
 
 
 def ensure_signing_keys(secrets_dir: Path, export_header: bool = True) -> dict:
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric import ec
-
-    sig_dir = secrets_dir / "signing"
-    sig_dir.mkdir(parents=True, exist_ok=True)
-    priv_path = sig_dir / "release_signing_key.pem"
-    pub_path = sig_dir / "release_public_key.pem"
-
-    if priv_path.exists() and pub_path.exists():
-        pub_pem = pub_path.read_bytes()
-        pub_key = serialization.load_pem_public_key(pub_pem)
-    else:
-        priv_key = ec.generate_private_key(ec.SECP256R1())
-        priv_path.write_bytes(
-            priv_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
-        )
-        pub_key = priv_key.public_key()
-        pub_pem = pub_key.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
-        pub_path.write_bytes(pub_pem)
-
-    hdr_path = REPO / "firmware" / "src" / "ota_pubkey.h"
-    if export_header:
-        lines = pub_pem.decode("ascii").strip().splitlines()
-        body = "\n".join(f'    "{ln}\\n"' for ln in lines)
-        hdr_path.write_text(
-            "// Generated by scripts/setup/provision_wireless.py. Release-signing PUBLIC key (not a secret). git-ignored.\n"
-            f"#pragma once\nstatic const char TORQVA_OTA_PUBKEY_PEM[] =\n{body};\n",
-            encoding="utf-8",
-        )
-    der = pub_key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
-    return {
-        "priv": priv_path,
-        "pub": pub_path,
-        "header": hdr_path,
-        "fingerprint": hashlib.sha256(der).hexdigest()[:16],
-    }
+    return pki.ensure_signing_keys(secrets_dir, REPO / "firmware" / "src" / "ota_pubkey.h" if export_header else None)
 
 
 def build_nvs_image(
@@ -181,56 +66,28 @@ def build_nvs_image(
     keys_file: Path,
     out_bin: Path,
     rotate_device_key: bool = False,
+    existing_nvs: Optional[bytes] = None,
 ) -> Path:
-    if len(ssid) == 0 or len(ssid) > 32:
-        raise ValueError("SSID must be 1-32 characters")
-    if len(password) > 64:
-        raise ValueError("Wi-Fi password must be <= 64 characters")
-    if not base_url.startswith("https://"):
-        raise ValueError("base_url must begin with https://")
+    """Offline image for inspection or a manual write. With ``existing_nvs`` (a dump of the board's partition) every unrelated entry is merged in; without it the image is
+    for a BLANK board. Re-provisioning network trust preserves an established device identity: only ``rotate_device_key`` replaces it. The file contains secrets: keep it
+    private and delete it after use."""
+    problems = validate_wifi(ssid, password) + validate_base_url(base_url)
+    if problems:
+        raise ValueError("; ".join(problems))
     ca_text = ca_pem_path.read_text(encoding="ascii").strip()
     if "-----BEGIN CERTIFICATE-----" not in ca_text or "PRIVATE KEY" in ca_text:
         raise ValueError("invalid CA certificate PEM")
-    if len(ca_text) > 3900:
-        raise ValueError("CA PEM exceeds 3900 bytes NVS string limit")
-
-    ks = KeyStore(str(keys_file))
-    key_bytes = ks.provision(device_id, rotate=rotate_device_key)
-
-    def _q(v: str) -> str:
-        return '"' + v.replace('"', '""') + '"'
-
-    csv_text = "\n".join([
-        "key,type,encoding,value",
-        "torqva,namespace,,",
-        f"authkey,data,hex2bin,{key_bytes.hex()}",
-        "torqva_ota,namespace,,",
-        f"ssid,data,string,{_q(ssid)}",
-        f"pass,data,string,{_q(password)}",
-        f"base,data,string,{_q(base_url.rstrip('/'))}",
-        f"ca,data,string,{_q(ca_text)}",
-        "",
-    ])
-
-    tmp_dir = Path(tempfile.mkdtemp(prefix="torqva_nvs_"))
-    try:
-        csv_path = tmp_dir / "nvs_merged.csv"
-        csv_path.write_text(csv_text, encoding="utf-8")
-        res = subprocess.run(
-            [sys.executable, "-m", "esp_idf_nvs_partition_gen", "generate", str(csv_path), str(out_bin), "0x5000"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if res.returncode != 0 or not out_bin.exists():
-            raise RuntimeError(res.stderr or res.stdout or "esp_idf_nvs_partition_gen failed")
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+    if len(ca_text) > pki.MAX_CA_PEM:
+        raise ValueError(f"CA PEM exceeds {pki.MAX_CA_PEM} bytes NVS string limit")
+    existing = parse_partition(existing_nvs) if existing_nvs else {}
+    key, identity = resolve_identity(existing, KeyStore(str(keys_file)), device_id, rotate_device_key)
+    plan = plan_network_config(existing, device_key=key, identity=identity, ssid=ssid, password=password, base_url=base_url, ca_pem=ca_text, stage_capable=False)
+    out_bin.write_bytes(encode_partition(plan.entries))
     return out_bin
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--device-id", default="RIG-1")
     ap.add_argument("--port", default="COM7")
     ap.add_argument("--ip", default=detect_lan_ip(), help="Reachable host LAN IPv4 (auto-detected default)")
@@ -238,9 +95,10 @@ def main() -> int:
     ap.add_argument("--secrets-dir", default=str(default_secrets_dir()))
     ap.add_argument("--keys-file", default=str(BACKEND / "data" / "device_keys.json"))
     ap.add_argument("--ssid", default="", help="Wi-Fi SSID (prompted interactively if omitted)")
-    ap.add_argument("--rotate-key", action="store_true")
-    ap.add_argument("--inspect-only", action="store_true")
-    ap.add_argument("--flash", action="store_true", help="Flash NVS to --port (requires --motor-power-disconnected)")
+    ap.add_argument("--rotate-key", action="store_true", help="replace the device authentication key (an identity change: the board and the backend must both take the new key)")
+    ap.add_argument("--erase-damaged-nvs", action="store_true", help="if the board's NVS cannot be read, rebuild it from scratch (unreadable saved settings are lost)")
+    ap.add_argument("--inspect-only", action="store_true", help="connect to --port and print the chip; writes nothing")
+    ap.add_argument("--flash", action="store_true", help="read-merge-write-verify the board's NVS over --port (requires --motor-power-disconnected)")
     ap.add_argument("--motor-power-disconnected", action="store_true", help="Explicit confirmation that motor supply is disconnected")
     a = ap.parse_args()
 
@@ -257,7 +115,11 @@ def main() -> int:
         return 2
 
     if a.inspect_only:
-        print(inspect_board(a.port))
+        flash = EsptoolFlash(a.port)
+        try:
+            print(f"chip: {flash.open()}")
+        finally:
+            flash.close()
         return 0
 
     tls = ensure_tls_certs(secrets_dir, a.ip)
@@ -269,7 +131,7 @@ def main() -> int:
 
     if not a.flash:
         print("Provisioning artifacts generated (dry-run; serial port untouched).")
-        print("Pass --flash --motor-power-disconnected to generate NVS interactively and flash.")
+        print("Pass --flash --motor-power-disconnected to read, merge, write and verify the board's NVS.")
         return 0
 
     if not a.motor_power_disconnected:
@@ -278,26 +140,29 @@ def main() -> int:
 
     ssid = a.ssid.strip() or input("Wi-Fi SSID: ").strip()
     pw = getpass.getpass("Wi-Fi password (hidden): ")
-    tmp_bin_dir = Path(tempfile.mkdtemp(prefix="torqva_nvs_bin_"))
+    problems = validate_wifi(ssid, pw) + validate_base_url(base_url)
+    if problems:
+        print("refusing: " + "; ".join(problems), file=sys.stderr)
+        return 2
+    ca_pem, detail = pki.read_trust_anchor(secrets_dir)
+    if ca_pem is None:
+        print(f"refusing: {detail}", file=sys.stderr)
+        return 2
+
+    flash = EsptoolFlash(a.port)
     try:
-        nvs_bin = build_nvs_image(
-            device_id=a.device_id,
-            ssid=ssid,
-            password=pw,
-            base_url=base_url,
-            ca_pem_path=tls["ca"],
-            keys_file=Path(a.keys_file),
-            out_bin=tmp_bin_dir / "nvs.bin",
-            rotate_device_key=a.rotate_key,
-        )
-        esptool = _esptool_path()
-        res = subprocess.run(
-            [sys.executable, str(esptool), "--chip", "esp32s3", "--port", a.port, "--baud", "460800", "write_flash", "0x9000", str(nvs_bin)],
-            check=False,
-        )
-        return res.returncode
+        result = write_network_config(
+            flash, device_id=a.device_id, keystore=KeyStore(str(Path(a.keys_file))), ssid=ssid, password=pw, base_url=base_url, ca_pem=ca_pem,
+            stage_capable=False, rotate_key=a.rotate_key, erase_damaged=a.erase_damaged_nvs, phase=lambda name, detail: print(f"[{name}] {detail}"))
+        flash.reset()
+    except ProvisioningError as exc:
+        print(f"refusing/failed [{exc.code}]: {exc.message}", file=sys.stderr)
+        return 1
     finally:
-        shutil.rmtree(tmp_bin_dir, ignore_errors=True)
+        flash.close()
+    print(f"Done: identity {result['identity']}; {result['existing_entries']} existing NVS entries read"
+          f"{' (damaged partition rebuilt)' if result['rebuilt'] else ' and preserved except the TORQVA-managed keys'}; the written image was read back and verified; board restarted.")
+    return 0
 
 
 if __name__ == "__main__":

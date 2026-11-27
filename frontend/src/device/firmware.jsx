@@ -4,8 +4,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Cpu, Upload, ShieldCheck, ListChecks, Rocket, History, HardDrive, AlertTriangle, CheckCircle2, XCircle, RotateCcw, Clock, FileUp } from 'lucide-react';
 import { api } from '../shared/api.js';
-import { Card, Empty, ErrorBox, Pill, PageHead, AlertPanel, MetricList, CheckList, StepTracker, DataTable, Disclosure, LinkButton, fmt } from '../components/components.jsx';
-import { SourceWorkspace, WirelessSerialMonitor } from './wirelessWorkspace.jsx';
+import { Card, Empty, ErrorBox, Pill, PageHead, AlertPanel, MetricList, CheckList, StepTracker, DataTable, Disclosure, LinkButton, Tabs, TabPanel, fmt } from '../components/components.jsx';
+import { WifiProvisioningCard } from './wifiProvisioning.jsx';
+import { FirmwareRuntimeDiagnostics, SourceWorkspace, WirelessControlCard, WirelessSerialMonitor } from './wirelessWorkspace.jsx';
 
 const kb = (n) => (n == null ? '—' : n >= 1048576 ? `${fmt(n / 1048576, 2)} MB` : `${fmt(n / 1024, 1)} KB`);
 const when = (s) => (s ? new Date(s * 1000).toLocaleString() : '—');
@@ -109,13 +110,14 @@ function UploadCard({ admin, max, onUploaded }) {
   const [prog, setProg] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [notice, setNotice] = useState(null);
   const [over, setOver] = useState(false);
   const input = useRef(null);
   const pick = async (f) => { setErr(null); setProg(null); setFile(f || null); setProblems(await preCheck(f, max)); };
   const sigFile = async (f) => { if (f) setSig((await f.text()).trim()); };
   const submit = async () => {
-    setBusy(true); setErr(null); setProg({ sent: 0, total: file.size });
-    try { const r = await api.fwUpload(file, { signature: sig, version, notes, description: desc }, (sent, total) => setProg({ sent, total })); onUploaded(r); setFile(null); setSig(''); setVersion(''); setNotes(''); setDesc(''); }
+    setBusy(true); setErr(null); setNotice(null); setProg({ sent: 0, total: file.size });
+    try { const r = await api.fwUpload(file, { signature: sig, version, notes, description: desc }, (sent, total) => setProg({ sent, total })); setNotice(r.already_exists ? r.reuse_message : `Firmware ${r.version} was validated and saved.`); onUploaded(r); setFile(null); setSig(''); setVersion(''); setNotes(''); setDesc(''); }
     catch (e) { setErr(e); } finally { setBusy(false); }
   };
   if (!admin) return <Card title="Upload firmware" id="fw-up" icon={Upload}><Empty>Uploading firmware requires the admin role.</Empty></Card>;
@@ -143,6 +145,7 @@ function UploadCard({ admin, max, onUploaded }) {
         <span className="tq-muted tq-small">An upload is not an update: it only stores and validates the release.</span>
       </div>
       <ErrorBox error={err} />
+      {notice && <AlertPanel tone="info" title={notice} testid="fw-upload-result"><p>Select the saved release in the library to review validation, deployment history, or explicitly authorize redeployment.</p></AlertPanel>}
     </Card>
   );
 }
@@ -166,6 +169,9 @@ function Validation({ rec }) {
 function Releases({ rows, selected, onSelect, admin, deviceId, onRolledBack }) {
   const [rbBusy, setRbBusy] = useState(null);
   const [rbErr, setRbErr] = useState(null);
+  const [search, setSearch] = useState('');
+  const [favorites, setFavorites] = useState(false);
+  const shown = rows.filter((r) => !r.archived && (!favorites || r.favorite) && (!search.trim() || [r.name, r.version, r.original_filename, ...(r.tags || [])].join(' ').toLowerCase().includes(search.trim().toLowerCase())));
   const rollbackTo = async (r) => {
     setRbBusy(r.id); setRbErr(null);
     try { await api.fwRollback({ release_id: r.id, device_id: deviceId || '' }); if (onRolledBack) onRolledBack(); }
@@ -174,10 +180,15 @@ function Releases({ rows, selected, onSelect, admin, deviceId, onRolledBack }) {
   return (
     <Card title="Available firmware releases" id="fw-rel" icon={HardDrive} testid="fw-releases">
       <ErrorBox error={rbErr} />
-      <DataTable caption="Firmware releases" rows={rows} rowKey={(r) => r.id} empty="No release uploaded yet." stack
+      <div className="tq-row" style={{ gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, version, filename or tag" aria-label="Search firmware library" style={{ flex: '1 1 260px' }} />
+        <label className="tq-check"><input type="checkbox" checked={favorites} onChange={(e) => setFavorites(e.target.checked)} /> Favorites only</label>
+      </div>
+      <DataTable caption="Firmware releases" rows={shown} rowKey={(r) => r.id} empty="No matching firmware releases." stack
         rowClass={(r) => (r.id === selected ? 'tq-as-active-row' : undefined)}
         columns={[
-          { key: 'v', label: 'Version', render: (r) => <button type="button" className="tq-linkbtn" onClick={() => onSelect(r.id)} aria-pressed={r.id === selected}>{r.version}</button> },
+          { key: 'v', label: 'Firmware', render: (r) => <button type="button" className="tq-linkbtn" onClick={() => onSelect(r.id)} aria-label={r.version} aria-pressed={r.id === selected}>{r.favorite ? '★ ' : ''}{r.name || r.version}<span className="tq-muted tq-small"> · {r.version}</span></button> },
+          { key: 'tags', label: 'Tags', render: (r) => (r.tags || []).join(', ') || '—' },
           { key: 'up', label: 'Uploaded', render: (r) => `${when(r.uploaded_at)} · ${r.uploaded_by}` },
           { key: 'st', label: 'Release status', render: (r) => <Pill tone={r.deployable ? 'ok' : 'crit'}>{r.status}</Pill> },
           { key: 'chip', label: 'Compatibility', render: (r) => r.checks?.chip?.status || '—' },
@@ -197,6 +208,31 @@ function Releases({ rows, selected, onSelect, admin, deviceId, onRolledBack }) {
   );
 }
 
+function ReleaseMetadata({ rec, admin, onSaved }) {
+  const [form, setForm] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => { setForm(rec ? { name: rec.name || rec.version, description: rec.description || '', notes: rec.notes || '', tags: (rec.tags || []).join(', '), favorite: !!rec.favorite, archived: !!rec.archived } : null); setSaved(false); setErr(null); }, [rec?.id]);
+  if (!rec || !form) return <Card title="Release metadata"><Empty>Select a firmware release to edit its library metadata.</Empty></Card>;
+  const submit = async (e) => {
+    e.preventDefault(); setBusy(true); setErr(null); setSaved(false);
+    try { const out = await api.fwUpdateRelease(rec.id, { ...form, tags: form.tags.split(',').map((x) => x.trim()).filter(Boolean) }); setSaved(true); onSaved(out); }
+    catch (error) { setErr(error); } finally { setBusy(false); }
+  };
+  return <Card title="Release metadata" sub={`Signed identity fields for ${rec.version} remain immutable`} testid="fw-release-metadata">
+    {!admin ? <Empty>Admin access is required to edit release metadata.</Empty> : <form className="tq-form" onSubmit={submit}>
+      <label>Custom firmware name<input value={form.name} maxLength={100} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></label>
+      <label>Description<textarea rows={2} value={form.description} maxLength={500} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
+      <label>Release notes<textarea rows={3} value={form.notes} maxLength={2000} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></label>
+      <label>Tags (comma separated)<input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="production, stable, rig-1" /></label>
+      <div className="tq-row"><label className="tq-check"><input type="checkbox" checked={form.favorite} onChange={(e) => setForm({ ...form, favorite: e.target.checked })} /> Favorite</label><label className="tq-check"><input type="checkbox" checked={form.archived} onChange={(e) => setForm({ ...form, archived: e.target.checked })} /> Archive</label></div>
+      <button className="tq-btn tq-primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save metadata'}</button>
+      {saved && <p className="tq-callout ok tq-small">Metadata saved. Firmware bytes, signature and version were not changed.</p>}<ErrorBox error={err} />
+    </form>}
+  </Card>;
+}
+
 function UpdateDevice({ rec, detail, s, admin, onDeployed }) {
   const d = s?.device || {};
   const [busy, setBusy] = useState(false);
@@ -206,6 +242,8 @@ function UpdateDevice({ rec, detail, s, admin, onDeployed }) {
   const ready = admin && rec && detail?.id === rec.id && d.connected && d.session_active && d.ota?.cap && !active && why.length === 0;
   useEffect(() => { setErr(null); }, [rec?.id]);
   const go = async () => { setBusy(true); setErr(null); try { onDeployed(await api.fwDeploy({ release_id: rec.id, device_id: d.device_id })); } catch (e) { setErr(e); } finally { setBusy(false); } };
+  const reinstall = async () => { setBusy(true); setErr(null); try { onDeployed(await api.fwDeploy({ release_id: rec.id, device_id: d.device_id, reinstall: true })); } catch (e) { setErr(e); } finally { setBusy(false); } };
+  const restoreLkg = async () => { setBusy(true); setErr(null); try { onDeployed(await api.fwRestoreLastKnownGood({ release_id: rec?.id || '000000000000', device_id: d.device_id || '' })); } catch (e) { setErr(e); } finally { setBusy(false); } };
   const slotRollback = async () => { setBusy(true); setErr(null); try { await api.fwRollback({ slot_rollback: true, device_id: d.device_id || '' }); onDeployed(); } catch (e) { setErr(e); } finally { setBusy(false); } };
   return (
     <Card title="Update device" id="fw-upd" icon={Rocket} testid="fw-update">
@@ -214,7 +252,7 @@ function UpdateDevice({ rec, detail, s, admin, onDeployed }) {
         {admin && d.connected && d.session_active && d.ota?.cap && (
           <div className="tq-row tq-mt">
             <button type="button" className="tq-btn tq-small" disabled={busy} onClick={slotRollback} data-testid="fw-slot-rollback">
-              <RotateCcw size={13} aria-hidden="true" /> Switch to Previous OTA Slot
+              <RotateCcw size={13} aria-hidden="true" /> Rollback OTA Slot
             </button>
           </div>
         )}
@@ -235,6 +273,8 @@ function UpdateDevice({ rec, detail, s, admin, onDeployed }) {
         {admin ? (<>
           <div className="tq-row tq-mt" style={{ gap: '0.5rem', flexWrap: 'wrap' }}>
             <button type="button" className="tq-btn tq-primary" onClick={go} disabled={!ready || busy} data-testid="fw-deploy"><Rocket size={14} aria-hidden="true" /> {busy ? 'Preparing update…' : 'Upload wirelessly'}</button>
+            {rec.version === d.firmware && <button type="button" className="tq-btn" onClick={reinstall} disabled={busy || active || !d.connected || !d.session_active} data-testid="fw-reinstall"><RotateCcw size={14} aria-hidden="true" /> Reinstall Current</button>}
+            <button type="button" className="tq-btn" onClick={restoreLkg} disabled={busy || active || !d.connected || !d.session_active} data-testid="fw-restore-lkg"><History size={14} aria-hidden="true" /> Restore Last Known Good</button>
             {d.connected && d.session_active && d.ota?.cap && (
               <button type="button" className="tq-btn" disabled={busy || active} onClick={slotRollback} data-testid="fw-slot-rollback">
                 <RotateCcw size={14} aria-hidden="true" /> Rollback OTA Slot
@@ -246,6 +286,24 @@ function UpdateDevice({ rec, detail, s, admin, onDeployed }) {
       </>)}
     </Card>
   );
+}
+
+function UsbDeployment({ rec, s, admin }) {
+  const [cap, setCap] = useState(null); const [confirm, setConfirm] = useState(false); const [rollback, setRollback] = useState(false);
+  const [job, setJob] = useState(null); const [err, setErr] = useState(null); const d = s?.device || {}; const port = d.transport?.kind === 'usb' ? d.transport?.port : '';
+  useEffect(() => { api.fwUsbStatus().then(setCap).catch(setErr); }, []);
+  useEffect(() => { if (!job || ['VERIFIED', 'VERIFICATION_FAILED', 'FAILED'].includes(job.state)) return undefined; const timer = setInterval(() => api.fwUsbJob(job.id).then(setJob).catch(setErr), 1000); return () => clearInterval(timer); }, [job?.id, job?.state]);
+  const start = async () => { setErr(null); try { setJob(await api.fwUsbStart({ release_id: rec.id, device_id: d.device_id || '', port, confirm_physical: confirm, allow_rollback: rollback })); } catch (e) { setErr(e); } };
+  return <Card title="USB firmware recovery" icon={HardDrive} sub="Writes only a validated stored application image; transfer completion is not verification" testid="fw-usb-deploy" right={<Pill tone={cap?.available ? 'ok' : 'off'}>{cap?.available ? 'Available' : 'Infrastructure required'}</Pill>}>
+    {!cap?.available ? <Empty>{cap?.detail || 'Checking USB flashing infrastructure…'}</Empty> : !admin ? <Empty>Admin authorization is required.</Empty> : <>
+      <MetricList label="USB target" items={[{ key: 'port', label: 'Authenticated owned port', value: port || null, missingText: 'UNAVAILABLE' }, { key: 'dev', label: 'Device identity', value: d.device_id || null, missingText: 'UNAVAILABLE' }, { key: 'rel', label: 'Selected release', value: rec ? `${rec.name || rec.version} (${rec.version})` : null, missingText: 'UNAVAILABLE' }]} />
+      <label className="tq-check"><input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} /> I confirm motor power is disconnected and authorize physical USB recovery</label>
+      <label className="tq-check"><input type="checkbox" checked={rollback} onChange={(e) => setRollback(e.target.checked)} /> Explicitly authorize reinstall or older compatible firmware</label>
+      <button type="button" className="tq-btn tq-primary" disabled={!rec || !port || !confirm || !!job && !['VERIFIED', 'VERIFICATION_FAILED', 'FAILED'].includes(job.state)} onClick={start}>Start USB Flash</button>
+      {job && <div className="tq-mt"><Pill tone={job.state === 'VERIFIED' ? 'ok' : job.state.includes('FAILED') ? 'crit' : 'wait'}>{job.state}</Pill><progress max={100} value={job.progress || 0} /><p className="tq-small">{job.detail}</p><pre style={{ maxHeight: 180, overflow: 'auto', whiteSpace: 'pre-wrap' }}>{(job.logs || []).join('\n')}</pre></div>}
+      <ErrorBox error={err} />
+    </>}
+  </Card>;
 }
 
 function Progress({ dep, device, go }) {
@@ -289,6 +347,7 @@ function HistoryCard({ rows }) {
 
 export function FirmwarePage({ role, go }) {
   const admin = role === 'admin';
+  const [tab, setTab] = useState('overview');
   const [s, setS] = useState(null);
   const [rel, setRel] = useState([]);
   const [hist, setHist] = useState([]);
@@ -306,27 +365,31 @@ export function FirmwarePage({ role, go }) {
   useEffect(() => { if (!sel) { setDetail(null); return; } api.fwRelease(sel).then(setDetail).catch(() => setDetail(null)); }, [sel, s?.device?.ota?.blk, s?.device?.firmware, s?.current?.state]);
   const rec = rel.find((r) => r.id === sel) || null;
   const cfg = s?.config;
+  const tabs = [
+    { key: 'overview', label: 'Overview' }, { key: 'development', label: 'Development & Build' },
+    { key: 'deployment', label: 'Deployment' }, { key: 'library', label: 'Firmware Library', count: rel.length },
+    { key: 'console', label: 'Console & Diagnostics' }, { key: 'devices', label: 'Device Management' }, { key: 'security', label: 'Security & Audit' },
+  ];
   return (
     <>
-      <PageHead title="Firmware Manager" sub="Compile, validate and install signed firmware on the ESP32-S3 over Wi-Fi." />
+      <PageHead title="Firmware Manager" sub="Develop, validate and install signed ESP32-S3 firmware over supported USB or authenticated Wi-Fi transports." />
       {err && <ErrorBox error={err} />}
       {cfg && (cfg.signature_verification !== 'AVAILABLE' || cfg.device_url_problem || cfg.storage !== 'OK') && (
         <p className="tq-callout warn" role="note" data-testid="fw-config">Backend not ready for deployments: {[cfg.signature_verification !== 'AVAILABLE' && `signature verification unavailable (${cfg.signature_detail})`, cfg.device_url_problem, cfg.storage !== 'OK' && cfg.storage_detail].filter(Boolean).join('; ')}.</p>)}
-      {cfg?.key_fingerprint && <p className="tq-small tq-muted" data-testid="fw-key">Release key {cfg.key_fingerprint} · device download URL {cfg.device_url}</p>}
-      <div className="tq-mt">
-        <DeviceStatus s={s} />
-      </div>
-      <div className="tq-mt">
-        <SourceWorkspace admin={admin} deviceId={s?.device?.device_id} onCompiled={(r) => { setSel(r.id); load(); }} onDeployed={() => load()} />
-      </div>
-      <div className="tq-grid tq-grid-wide tq-mt">
-        <Validation rec={rec} />
-        <UpdateDevice rec={rec} detail={detail} s={s} admin={admin} onDeployed={() => load()} />
-      </div>
-      <div className="tq-mt"><Releases rows={rel} selected={sel} onSelect={setSel} admin={admin} deviceId={s?.device?.device_id} onRolledBack={() => load()} /></div>
-      <div className="tq-mt"><Progress dep={s?.current} device={s?.device} go={go} /></div>
-      <div className="tq-mt"><WirelessSerialMonitor /></div>
-      <div className="tq-mt"><HistoryCard rows={hist} /></div>
+      <Tabs tabs={tabs} value={tab} onChange={setTab} label="Firmware engineering workspaces" idBase="firmware-workspace" />
+      <TabPanel tab={tab} idBase="firmware-workspace">
+        {tab === 'overview' && <div className="tq-firmware-workspace tq-mt"><DeviceStatus s={s} /><Progress dep={s?.current} device={s?.device} go={go} /><HistoryCard rows={hist} /></div>}
+        {tab === 'development' && <div className="tq-mt"><SourceWorkspace admin={admin} deviceId={s?.device?.device_id} onCompiled={(r) => { setSel(r.release?.id || r.id); load(); }} onDeployed={() => { load(); setTab('overview'); }} /></div>}
+        {tab === 'deployment' && <><div className="tq-mt"><UpdateDevice rec={rec} detail={detail} s={s} admin={admin} onDeployed={() => { load(); setTab('overview'); }} /></div><div className="tq-mt"><UsbDeployment rec={rec} s={s} admin={admin} /></div></>}
+        {tab === 'library' && <><div className="tq-mt"><UploadCard admin={admin} max={cfg?.max_image_bytes} onUploaded={(r) => { setSel(r.id); load(); }} /></div><div className="tq-mt"><Releases rows={rel} selected={sel} onSelect={setSel} admin={admin} deviceId={s?.device?.device_id} onRolledBack={load} /></div><div className="tq-grid tq-grid-wide tq-mt"><Validation rec={rec} /><ReleaseMetadata rec={rec} admin={admin} onSaved={(out) => { setDetail(out); setRel((rows) => rows.map((r) => r.id === out.id ? out : r)); }} /></div></>}
+        {tab === 'console' && <div className="tq-grid tq-grid-wide tq-mt"><WirelessSerialMonitor /><FirmwareRuntimeDiagnostics device={s?.device} /></div>}
+        {tab === 'devices' && <div className="tq-mt"><WifiProvisioningCard admin={admin} snap={s?.device} onDone={load} /><div className="tq-mt"><WirelessControlCard part="wifi" admin={admin} operator={admin || role === 'operator'} snap={s?.device} onRefreshed={load} /></div></div>}
+        {tab === 'security' && <div className="tq-mt"><Card title="Firmware trust configuration" icon={ShieldCheck}><MetricList label="Firmware security" items={[
+          { key: 'sig', label: 'Signature verification', value: cfg?.signature_verification || null, missingText: 'UNAVAILABLE' }, { key: 'key', label: 'Trusted key fingerprint', value: cfg?.key_fingerprint || null, missingText: 'UNAVAILABLE' },
+          { key: 'url', label: 'Authenticated OTA endpoint', value: cfg?.device_url || null, missingText: 'UNAVAILABLE' }, { key: 'store', label: 'Artifact storage', value: cfg?.storage || null, missingText: 'UNAVAILABLE' },
+          { key: 'role', label: 'Deployment authority', value: admin ? 'Admin — explicit authorization required' : `${role} — deployment unavailable` },
+        ]} /></Card></div>}
+      </TabPanel>
     </>
   );
 }

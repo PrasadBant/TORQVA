@@ -6,6 +6,13 @@ import { getToken } from '../access/token.js';
 const defaultWs = (import.meta.env && import.meta.env.MODE === 'test') ? null : (url) => new WebSocket(url);
 const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
 
+function deviceWebSocketUrl() {
+  const configured = (import.meta.env && import.meta.env.VITE_WS_BASE_URL) || '';
+  if (configured) return `${configured.replace(/\/$/, '')}/api/torqva/ws`;
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  return `${proto}://${window.location.host}/api/torqva/ws`;
+}
+
 /** Live device state: REST snapshot + read-only WebSocket with reconnection. Telemetry is only ever "live" while the server says it is fresh AND frames keep arriving.
  * When the backend cannot be reached (and the socket is not delivering), the last snapshot is kept but reported as NOT fresh: its values are the last ones
  * received, never live. A rejected session (HTTP 401, or the socket closed with 4401) calls onAuthLost. */
@@ -55,9 +62,8 @@ export function useDeviceStream(enabled, wsFactory = defaultWs, pollMs = 3000, o
     let sock = null; let retry = 0; let timer = null;
     const open = () => {
       if (!wsFactory || !alive.current) return;
-      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
       setWs('connecting');
-      try { sock = wsFactory(`${proto}://${window.location.host}/api/torqva/ws`); } catch { setWs('closed'); return; }
+      try { sock = wsFactory(deviceWebSocketUrl()); } catch { setWs('closed'); return; }
       sock.onopen = () => { try { sock.send(JSON.stringify({ type: 'auth', token: getToken() })); } catch { /* socket closed before auth */ } };
       sock.onmessage = (ev) => {
         let m; try { m = plainify(JSON.parse(ev.data)); } catch { return; }          // malformed frames are ignored, never trusted; prose in product language

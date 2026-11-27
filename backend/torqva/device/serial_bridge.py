@@ -57,6 +57,40 @@ MAX_COMMANDS_KEPT = 200
 # --------------------------------------------------------------------------------------------------------------- transports
 # --------------------------------------------------------------------------------------------------------------- event hub (bounded)
 # --------------------------------------------------------------------------------------------------------------- the bridge
+_RESET = {1: "power-on", 2: "external reset", 3: "software reset", 4: "panic/crash", 5: "interrupt watchdog", 6: "task watchdog", 7: "watchdog", 8: "deep sleep", 9: "brown-out (supply dipped)", 10: "SDIO"}
+_CLOSE = {0: "", 1: "send failed or timed out (the WebSocket client aborted the connection)", 2: "WebSocket error",
+          3: "WebSocket dropped (transport error or peer close; not proven to be the backend)", 4: "connection lost (not connected)", 5: "reconnect requested",
+          6: "trial ended", 7: "TCP stalled: no send-buffer room for 8 s"}
+_PHASE = {0: "starting", 1: "joining Wi-Fi", 2: "connecting TLS WebSocket", 3: "link up", 4: "closing the WebSocket", 5: "waiting to retry"}
+
+
+def net_link_diagnostics(f):
+    """The board's own account of its Wi-Fi link (additive net_info fields): why this boot happened and why the last link ended."""
+    if "rr" not in f:
+        return {}
+    return {"reset_reason": _RESET.get(f["rr"], "code %s" % f["rr"]), "link_close_cause": _CLOSE.get(f["lc"], "code %s" % f["lc"]), "link_errno": f["le"], "last_link_s": f["lu"],
+            "links_since_boot": f["ln"], "rssi_at_close": f["lr"], "max_send_ms": f["sm"]}
+
+
+_PS = {0: "off", 1: "modem sleep (min)", 2: "modem sleep (max)"}
+_WIFI_REASON = {0: "", 2: "authentication expired", 3: "deauthenticated (AP left)", 4: "disassociated (inactivity)", 6: "not authenticated", 7: "not associated",
+                8: "station left the network", 15: "4-way handshake timeout (wrong password?)", 23: "802.1X authentication failed", 200: "beacon timeout (AP lost)",
+                201: "network not found", 202: "authentication failed", 203: "association failed", 204: "handshake timeout"}
+SEND_BUCKETS = ("<20 ms", "20-99 ms", "100-299 ms", "300-999 ms", ">=1000 ms")
+
+
+def link_diag_view(f: Dict[str, Any]) -> Dict[str, Any]:
+    """The board's link measurements (link_diag frame) as named, device-reported values. Nothing is estimated here."""
+    return {"power_save": _PS.get(f["ps"], "code %s" % f["ps"]), "tcp_nodelay_sockets": f["nd"], "wifi_disconnect_reason": _WIFI_REASON.get(f["wdr"], "code %s" % f["wdr"]),
+            "wifi_disconnect_code": f["wdr"], "wifi_disconnects": f["wdn"], "min_free_heap": f["mh"], "prio_queue_peak": f["pq"], "tele_queue_peak": f["tq"],
+            "telemetry_dropped": f["td"], "priority_dropped": f["pd"], "rx_dropped": f["rd"], "frames_sent": f["fr"], "avg_send_ms": f["sa"],
+            "send_histogram": dict(zip(SEND_BUCKETS, f["sh"])), "max_rx_handling_ms": f["rx"], "last_close_code": f["cc"], "link_uptime_s": f["lu"],
+            "link_task_stack_free": f["sl"], "oled_task_stack_free": f["so"],
+            **({"link_phase": _PHASE.get(f["ph"], "code %s" % f["ph"]), "link_phase_s": f["pa"]} if "ph" in f else {}),
+            **({"tcp_stalls": f["st"], "longest_stall_ms": f["sx"]} if "st" in f else {}),
+            **({"send_lock_waits": f["lw"]} if "lw" in f else {}), **({"wifi_driver_resets": f["dr"]} if "dr" in f else {}), **({"absent_network_scans": f["as"]} if "as" in f else {}), "updated_at": time.time()}
+
+
 class DeviceBridge:
     def __init__(self, hub: Optional[EventHub] = None, policy: Optional[PhysicalControlPolicy] = None, expected_device_id: Optional[str] = None,
                  clock: Callable[[], float] = time.monotonic, wall: Callable[[], float] = time.time):
@@ -95,6 +129,9 @@ class DeviceBridge:
         self.ds18b20_warning: Optional[str] = None
         self.serial_logs: Deque[Dict[str, Any]] = collections.deque(maxlen=2000)
         self.device_net_info: Dict[str, Any] = {}
+        self.wifi_state: Optional[Dict[str, Any]] = None            # the latest "wifi_state" frame (+ _at): staged-network support, trial state, committed network name
+        self._wifi_scan: Dict[str, Any] = {"state": "idle", "networks": [], "request": None, "why": "", "started_at": None, "finished_at": None}
+        self._sys_ids: Dict[int, Optional[Dict[str, Any]]] = {}      # ids of authenticated system frames (wifi stage / commit / scan) -> their acknowledgement once it arrives
         self._direct_mode: bool = True
         self._universal_mode: bool = True
 
@@ -231,6 +268,8 @@ class DeviceBridge:
                     self.hub.publish("command_unknown_outcome", rec.public())
         if tr is not None:
             tr.close()                                                                             # release the port
+            if self.link is not None:
+                self.link.record("transport_ended", {"transport": getattr(tr, "kind", "usb"), "port": getattr(tr, "port", None), "reason": reason})
         if was:
             self.hub.publish("device_disconnected", {"reason": reason})
             self._ota_link(False, reason)
@@ -273,6 +312,8 @@ class DeviceBridge:
                     self.model.counters["unknown_type"] += 1
             self._protocol_error(e.code)
             return
+        if f["t"] == "id_ok":
+            return                                                 # the board answers a standby link's identity challenge on every transport; only the standby copy counts
         if f["t"] in ("auth_ch", "auth_ok", "auth_err"):
             self._on_auth_frame(f, now)
             return
@@ -286,10 +327,32 @@ class DeviceBridge:
             self.hub.publish("serial_log", entry)
             return
         if f["t"] == "net_info":
-            info = {"ip": f["ip"], "ssid": f["ssid"], "rssi": f["rssi"], "mac": f["mac"], "heap": f["heap"], "uptime_s": f["up_s"], "updated_at": self._wall()}
+            info = {"ip": f["ip"], "ssid": f["ssid"], "rssi": f["rssi"], "mac": f["mac"], "heap": f["heap"], "uptime_s": f["up_s"], "updated_at": self._wall(), **net_link_diagnostics(f)}
             with self._lock:
+                if "link" in self.device_net_info:
+                    info["link"] = self.device_net_info["link"]
                 self.device_net_info = info
             self.hub.publish("net_info", info)
+            if self.link is not None:
+                self.link.record("net_info", info)
+            return
+        if f["t"] == "link_diag":
+            diag = link_diag_view(f)
+            with self._lock:
+                self.device_net_info = {**self.device_net_info, "link": diag}
+            if self.link is not None:
+                self.link.record("link_diag", diag)
+            return
+        if f["t"] == "wifi_net":
+            with self._lock:
+                if self._wifi_scan["state"] == "running" and len(self._wifi_scan["networks"]) < 64:
+                    self._wifi_scan["networks"].append({"ssid": f["ssid"], "rssi": int(f["rssi"]), "channel": f["ch"], "security": f["auth"],
+                                                        "frequency_mhz": 2484 if f["ch"] == 14 else 2407 + 5 * f["ch"], "band": "2.4 GHz"})
+            return
+        if f["t"] == "wifi_scan_end":
+            with self._lock:
+                if self._wifi_scan["state"] == "running":
+                    self._wifi_scan.update({"state": "done" if f["ok"] == 1 else "failed", "why": f["why"], "finished_at": self._wall()})
             return
         if f["t"] == "ack":
             cid = f.get("id")
@@ -321,6 +384,9 @@ class DeviceBridge:
             return
         if "restart" in events:
             self._on_device_restart()
+        if f["t"] == "wifi_state" and "duplicate" not in events:
+            with self._lock:
+                self.wifi_state = {"supported": f["wst"] == 1, "trial": f["trial"] == 1, "left_s": f["left"], "active_ssid": f["act"], "_at": now}
         if f["t"] in ("ota", "ota_info") and "duplicate" not in events:      # counted in the shared sequence like every frame, then handed to the Firmware Manager
             self._on_ota_frame(f, now)
         if f["t"] == "fast":
@@ -398,6 +464,11 @@ class DeviceBridge:
                 if a.get("status") != "ACCEPTED":
                     log.warning("HEARTBEAT NON-ACCEPTED: %s", a)
                 return                                              # acknowledgement of a periodic heartbeat, not a user command
+            if a["id"] in self._sys_ids:                           # acknowledgement of an authenticated system frame (wifi stage / commit / scan)
+                self._sys_ids[a["id"]] = {"status": a.get("status"), "reason": a.get("reason") or ""}
+                if self._wifi_scan.get("request") == a["id"] and a.get("status") == "REJECTED":
+                    self._wifi_scan.update({"state": "failed", "why": a.get("reason") or "REJECTED", "finished_at": self._wall()})
+                return
             exp = self.model.expected_device_id
             if exp is not None and a.get("dev") != exp:
                 self.model.counters["malformed"] += 1
@@ -622,6 +693,10 @@ class DeviceBridge:
                 self._auth = {"state": "active", "sid": sid, "sk": sk, "expires": now + a["ttl"] / 1000.0 - 1.0, "restarts": a["restarts"], "dev": dev}
                 self._next_seq = max(self._next_seq, int(time.time() * 10) & 0x7FFFFFFF)
                 self.hub.publish("session_established", {"sid": sid})
+                if self.link is not None:
+                    since = self.model.connecting_since
+                    self.link.record("session_active", {"transport": getattr(self._transport, "kind", "usb"), "port": getattr(self._transport, "port", None),
+                                                        "s_since_connect": round(now - since, 2) if since is not None else None})
                 return
             else:
                 self.model.counters["malformed"] += 1
@@ -810,6 +885,76 @@ class DeviceBridge:
             return False, "the device link refused the write"
         return True, ""
 
+    # ---- authenticated Wi-Fi system frames: staged network change, commit and scan (firmware lib/torqva_core/shared/device.cpp handle_wifi_frame)
+    def _auth_frame(self, t: str, canon: Callable[[int, int, str], str], extra: Dict[str, Any], user: str, role: Role,
+                    before_send: Optional[Callable[[int], None]] = None) -> "tuple[bool, str, Optional[int]]":
+        """Sends one HMAC-authenticated frame over the live session. Returns (sent, reason, id). The password inside `extra` is never logged."""
+        if role != Role.ADMIN:
+            return False, "ADMIN_REQUIRED", None
+        if not self.connected or self.model.conn not in (Conn.CONNECTED, Conn.STALE):
+            return False, "device not connected", None
+        with self._lock:
+            a = self._auth
+            seq = self._next_seq
+            self._next_seq += 1
+            cid = self._next_id
+            self._next_id = (self._next_id + 1) & UINT32 or 1
+            sid, sk = a.get("sid", ""), a.get("sk")
+            if not sid or not sk or not self.session_active():
+                return False, "no authenticated session", None
+            mac = hmac.new(sk, canon(cid, seq, sid).encode(), hashlib.sha256).hexdigest()[:32]
+            self._sys_ids[cid] = None
+            while len(self._sys_ids) > 64:
+                self._sys_ids.pop(next(iter(self._sys_ids)))
+            if before_send is not None:
+                before_send(cid)
+        if not self._send_line({"t": t, "id": cid, "seq": seq, "sid": sid, **extra, "m": mac}):
+            with self._lock:
+                self._sys_ids.pop(cid, None)
+            return False, "the device link refused the write", None
+        return True, "", cid
+
+    def sys_ack(self, cid: Optional[int]) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            return None if cid is None else self._sys_ids.get(cid)
+
+    def request_wifi_stage(self, ssid: str, password: str, base_url: str, trial_s: int, user: str, role: Role) -> "tuple[bool, str, Optional[int]]":
+        """Try a NEW network without overwriting the working one. The device drops this link and returns over the new network; it restores the old one on its own unless
+        a wifi_commit arrives (over the new network) before the trial ends."""
+        if not ssid or len(ssid.encode()) > 32 or not (8 <= len(password.encode()) <= 63) or len(base_url) > 128 or not (trial_s == 0 or 30 <= trial_s <= 600):
+            return False, "invalid Wi-Fi parameters", None
+        if any(ord(c) < 32 or c in (chr(34), chr(92)) for c in ssid + base_url) or any(ord(c) < 32 for c in password):
+            return False, "invalid control characters in Wi-Fi configuration", None
+        if base_url and not base_url.startswith("https://"):
+            return False, "backend base URL must use https://", None
+        ok, why, cid = self._auth_frame("wifi_stage", lambda c, q, sid: f"wstage|{c}|{q}|{sid}|{ssid}|{base_url}|{trial_s}",
+                                        {"ssid": ssid, "pass": password, "base": base_url, "tr": trial_s}, user, role)
+        if ok:
+            self._append_log("INFO", f"Wi-Fi trial requested by {user} (SSID={ssid})")
+        return ok, why, cid
+
+    def request_wifi_commit(self, user: str, role: Role) -> "tuple[bool, str, Optional[int]]":
+        ok, why, cid = self._auth_frame("wifi_commit", lambda c, q, sid: f"wcommit|{c}|{q}|{sid}", {}, user, role)
+        if ok:
+            self._append_log("INFO", f"Wi-Fi commit requested by {user}")
+        return ok, why, cid
+
+    def request_wifi_scan(self, user: str, role: Role) -> "tuple[bool, str, Optional[int]]":
+        def arm(cid: int) -> None:
+            self._wifi_scan = {"state": "running", "networks": [], "request": cid, "why": "", "started_at": self._wall(), "finished_at": None}
+        ok, why, cid = self._auth_frame("wifi_scan", lambda c, q, sid: f"wscan|{c}|{q}|{sid}", {}, user, role, before_send=arm)
+        return ok, why, cid
+
+    def wifi_scan_result(self) -> Dict[str, Any]:
+        with self._lock:
+            sc = self._wifi_scan
+            return {"state": sc["state"], "why": sc["why"], "networks": [dict(n) for n in sc["networks"]], "started_at": sc["started_at"], "finished_at": sc["finished_at"]}
+
+    def console_seen(self, transport_kind: str, since_wall: float) -> bool:
+        """Has the device's own log console produced a line over `transport_kind` since `since_wall`?"""
+        with self._lock:
+            return any(e.get("transport") == transport_kind and e.get("ts_unix", 0) >= since_wall for e in self.serial_logs)
+
     def request_ota(self, rel: str, ver: str, tok: str, rollback: bool = False) -> "tuple[bool, str]":
         """Sends the update request to the connected device. Returns (sent, reason)."""
         if not re.fullmatch(r"[0-9a-f]{12}", rel or "") or not re.fullmatch(r"[0-9a-f]{32}", tok or "") or not re.fullmatch(r"\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?", ver or ""):
@@ -862,6 +1007,8 @@ class DeviceBridge:
             s["transport"] = None if tr is None else {"kind": getattr(tr, "kind", "usb"), "remote": getattr(tr, "remote", None), "port": getattr(tr, "port", None), "since": getattr(tr, "since", None)}
             s["wifi_link"] = self.link.status() if getattr(self, "link", None) is not None else None
             s["net_info"] = dict(self.device_net_info) if self.device_net_info else None
+            ws = self.wifi_state
+            s["wifi_state"] = None if ws is None else {**{k: v for k, v in ws.items() if not k.startswith("_")}, "age_s": round(self._clock() - ws["_at"], 1)}
             s["physical_control_enabled"] = True
             s["control_limits"] = {"max_duty_pct": self.policy.max_duty_pct, "max_rpm": self.policy.max_rpm, "direction": "forward only (the firmware never drives LPWM)"}
             tr_kind = getattr(tr, "kind", "usb") if tr is not None else "usb"
@@ -872,6 +1019,8 @@ class DeviceBridge:
                 s["transport_label"] = "USB (Direct)"
                 s["usb_trust_boundary"] = "Direct USB device connection active."
             s["estop_input"] = None
+            from torqva.device.readiness import compute as _readiness
+            s["readiness"] = _readiness(s)
             return s
 
     def command_list(self) -> List[Dict[str, Any]]:

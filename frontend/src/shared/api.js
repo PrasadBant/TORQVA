@@ -12,6 +12,9 @@ export class ApiError extends Error {
 export const READ_TIMEOUT_MS = 20000;
 
 const RAW = /^\/simulation\/workbench\/receipts/;
+// Network names, device ids and job text come from the user's router and the board, not from TORQVA's analysis layers. An SSID such as "C4 Lab" must never be
+// reworded into product language, so provisioning responses and their error messages are shown exactly as received.
+const VERBATIM = /^\/provisioning\//;
 
 async function req(path, { method = 'GET', body } = {}) {
   const ctl = method === 'GET' && typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -33,11 +36,12 @@ async function req(path, { method = 'GET', body } = {}) {
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
     const d = j.detail;
-    throw new ApiError(res.status, plainText(typeof d === 'string' ? d : d && typeof d.message === 'string' ? d.message : d ? JSON.stringify(d) : `HTTP ${res.status}`));
+    const text = typeof d === 'string' ? d : d && typeof d.message === 'string' ? d.message : d ? JSON.stringify(d) : `HTTP ${res.status}`;
+    throw new ApiError(res.status, VERBATIM.test(path) ? text : plainText(text));
   }
   // Prose from the backend is shown in product language (no internal layer ids). Decision summaries are kept exactly as recorded:
   // they carry a SHA-256 digest and are exported as JSON, so their text must match the record byte for byte.
-  return RAW.test(path) ? res.json() : res.json().then(plainify);
+  return RAW.test(path) || VERBATIM.test(path) ? res.json() : res.json().then(plainify);
 }
 
 /** Source or firmware upload (multipart) with real upload progress via XMLHttpRequest. */
@@ -72,6 +76,9 @@ export const api = {
   fwStatus: () => req('/firmware/status'),
   fwReleases: () => req('/firmware/releases'),
   fwRelease: (id) => req(`/firmware/releases/${encodeURIComponent(id)}`),
+  fwUpdateRelease: (id, body) => req(`/firmware/releases/${encodeURIComponent(id)}`, { method: 'PATCH', body }),
+  fwLastKnownGood: (deviceId = '') => req(`/firmware/last-known-good?device_id=${encodeURIComponent(deviceId)}`),
+  fwRestoreLastKnownGood: (body) => req('/firmware/last-known-good/restore', { method: 'POST', body }),
   fwDeployments: () => req('/firmware/deployments'),
   fwDeploy: (body) => req('/firmware/deployments', { method: 'POST', body }),
   fwRollback: (body) => req('/firmware/rollback', { method: 'POST', body }),
@@ -83,6 +90,21 @@ export const api = {
   fwCompileUpload: (file, fields, onProgress) => uploadSourceOrFirmware('/firmware/compile/upload', file, fields, onProgress),
   fwCompileJobs: () => req('/firmware/compile'),
   fwCompileJob: (id) => req(`/firmware/compile/${encodeURIComponent(id)}`),
+  fwCancelCompile: (id) => req(`/firmware/compile/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+  fwAssistantStatus: () => req('/firmware/assistant/status'),
+  fwAssistantAnalyze: (body) => req('/firmware/assistant/analyze', { method: 'POST', body }),
+  fwUsbStatus: () => req('/firmware/usb/status'),
+  fwUsbStart: (body) => req('/firmware/usb/jobs', { method: 'POST', body }),
+  fwUsbJob: (id) => req(`/firmware/usb/jobs/${encodeURIComponent(id)}`),
+  // Wi-Fi provisioning over USB. The password travels only in the POST body and is never part of a URL or a response.
+  provStatus: () => req('/provisioning/status'),
+  provStart: (body) => req('/provisioning/jobs', { method: 'POST', body }),
+  provJob: (id) => req(`/provisioning/jobs/${encodeURIComponent(id)}`),
+  provHistory: () => req('/provisioning/history?limit=15'),
+  provScan: () => req('/provisioning/scan', { method: 'POST' }),
+  provSwitch: (body) => req('/provisioning/network-switch', { method: 'POST', body }),
+  provRecoveryClear: () => req('/provisioning/recovery/clear', { method: 'POST', body: { confirm: true } }),
+  provGatewayCert: () => req('/provisioning/gateway-cert', { method: 'POST', body: {} }),
   deviceDiscover: () => req('/device/discover'),
   deviceConnectIp: (body) => req('/device/connect-ip', { method: 'POST', body }),
   deviceWifi: () => req('/device/wifi'),

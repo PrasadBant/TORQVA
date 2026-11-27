@@ -13,7 +13,13 @@ void wifi_link_start(torqva::Device* dev, SemaphoreHandle_t mu);
 void wifi_link_send(const char* line);
 // True while the WebSocket is connected (not the same as authenticated: the backend decides that through the device handshake).
 bool wifi_link_up();
+// Call from loop(): emits net_info + link_diag every 5 s over USB and Wi-Fi, independent of the link task (whose phase it reports).
+void wifi_link_poll();
 // Emits a structured wireless + USB log line.
 void wifi_log(const char* lvl, const char* msg);
 // Forces a Wi-Fi / WebSocket reconnect after credential update.
 void wifi_link_reconnect();
+// Starts one asynchronous scan (false: one is running, one ran within the last 10 s, or this build has no Wi-Fi). wifi_scan_poll() (call from the main loop) emits the
+// results as "wifi_net" lines followed by one "wifi_scan_end" line over Wi-Fi and USB. Neither call waits.
+bool wifi_scan_start();
+void wifi_scan_poll();

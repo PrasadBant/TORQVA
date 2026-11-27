@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node ../scripts/development/dev.mjs",
+    "dev:lan": "node ../scripts/development/dev.mjs --lan",
     "dev:sim": "node ../scripts/development/dev.mjs --sim",
     "dev:ui": "vite",
     "build": "vite build",
@@ -12,7 +13,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.344.0",
+    "monaco-editor": "^0.52.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "recharts": "^2.12.2",

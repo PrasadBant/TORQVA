@@ -4,7 +4,7 @@ import { api } from '../shared/api.js';
 import { Card, ErrorBox, Pill, fmt, title } from '../components/components.jsx';
 import { STATE_TONE, ago, isLive, readingOf, transportOf } from '../telemetry/devicePresentation.js';
 
-/** Motor Control: the ONLY physical control surface. State first, STOP second, availability and the operating controls after.
+/** Motor Control: the ONLY physical control surface. Connection and STOP first, followed by state and operating controls.
  *  Every request goes to /device/commands -> firmware; direct operator control. */
 export function MotionPanel({ stream, role, go }) {
   const { snap, commands } = stream;
@@ -64,7 +64,7 @@ export function MotionPanel({ stream, role, go }) {
   return (
     <Card title="Direct Manual Control" id="p-motion" icon={SlidersHorizontal} className="tq-mon-motion" sub="Direct operator motor control."
       right={<Pill tone={running ? 'ok' : motor === 'STOPPED' ? 'info' : 'off'}>{motor}</Pill>}>
-      {/* 1. MOTOR STATE FIRST */}
+      {/* Connection status precedes the primary controls. */}
       <div className="tq-row tq-small">
         <Pill tone={stream.unreachable ? 'crit' : stream.ws === 'open' ? 'ok' : 'off'}>
           {stream.unreachable ? 'Backend unreachable' : stream.ws === 'open' ? 'Backend live stream' : stream.ws === 'connecting' ? 'Connecting to backend stream' : 'Backend status checks'}
@@ -72,6 +72,23 @@ export function MotionPanel({ stream, role, go }) {
         <Pill tone={fresh ? 'ok' : 'off'}>{transportOf(snap) || 'ESP32 link unavailable'}</Pill>
         {fresh && snap.last_rx_unix != null && <span>Last received {ago(snap.last_rx_unix)}</span>}
       </div>
+      {/* 2. STOP: enabled whenever the device is connected, for every signed-in role */}
+      <div className="tq-motion-stop-bar">
+        <button
+          type="button"
+          className="tq-btn tq-danger tq-stop-prominent"
+          disabled={!connected || stopBusy}
+          onClick={sendStop}
+          data-testid="btn-stop"
+          aria-label="Stop motor"
+        >
+          <Octagon size={18} aria-hidden="true" />
+          <span>STOP MOTOR</span>
+        </button>
+      </div>
+      {connected ? <p className="tq-stop-note">STOP is available to all signed-in roles while the device is connected.</p>
+        : <p className="tq-stop-note">STOP cannot be delivered: device is disconnected.</p>}
+
       <div className="tq-motor-state-box" data-testid="motor-state">
         <div className="tq-motor-state-header">
           <span className="tq-motor-state-label">Motor State</span>
@@ -104,23 +121,6 @@ export function MotionPanel({ stream, role, go }) {
       </div>
 
       {motor === 'STOPPED' && snap.stop_reason && snap.stop_reason !== 'NONE' && <p>Stopped by {title(snap.stop_reason)}</p>}
-      {/* 2. STOP: enabled whenever the device is connected, for every signed-in role */}
-      <div className="tq-motion-stop-bar">
-        <button
-          type="button"
-          className="tq-btn tq-danger tq-stop-prominent"
-          disabled={!connected || stopBusy}
-          onClick={sendStop}
-          data-testid="btn-stop"
-          aria-label="Stop motor"
-        >
-          <Octagon size={18} aria-hidden="true" />
-          <span>STOP MOTOR</span>
-        </button>
-      </div>
-      {connected ? <p className="tq-stop-note">STOP is available to all signed-in roles while the device is connected.</p>
-        : <p className="tq-stop-note">STOP cannot be delivered: device is disconnected.</p>}
-
       <div className="tq-motion-controls-grid">
         {/* CARD 1: DUTY CYCLE (OPEN LOOP) FIRST */}
         <div className="tq-control-card">

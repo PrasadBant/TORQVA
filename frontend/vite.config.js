@@ -3,8 +3,14 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: { output: { manualChunks: { react: ['react', 'react-dom'], icons: ['lucide-react'] } } },
+    chunkSizeWarningLimit: 2500,   // the Monaco editor is lazy-loaded and is the one intentionally large chunk
+  },
   server: {
+    host: process.env.TORQVA_FRONTEND_BIND || '0.0.0.0',
     port: 5173,
+    strictPort: true,
     // The browser E2E scripts write many screenshots into e2e-shots/; they are not source, so the dev server does not watch them.
     watch: { ignored: ['**/e2e-shots/**'] },
     proxy: {

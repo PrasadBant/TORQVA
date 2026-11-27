@@ -17,6 +17,8 @@ from pydantic import BaseModel, Field
 from torqva.access.auth import Principal
 from torqva.device.firmware.compiler import CompilerError, FirmwareCompiler, docker_status
 from torqva.device.firmware.firmware import FirmwareError, FirmwareManager
+from torqva.device.firmware.assistant import AssistantError, FirmwareAssistant
+from torqva.device.firmware.usb_flasher import UsbFlasher
 from torqva.models.schemas import Role
 
 MAX_UPLOAD_READ = 8 * 1024 * 1024          # read at most this much from a request, whatever the configured image limit
@@ -26,6 +28,30 @@ MAX_SOURCE_UPLOAD = 10 * 1024 * 1024
 class DeployIn(BaseModel):
     release_id: str = Field(pattern=r"^[0-9a-f]{12}$")
     device_id: str = Field(default="", max_length=64)
+    reinstall: bool = False
+
+
+class ReleaseMetadataIn(BaseModel):
+    name: str = Field(default="", max_length=100)
+    description: str = Field(default="", max_length=500)
+    notes: str = Field(default="", max_length=2000)
+    tags: list[str] = Field(default_factory=list, max_length=12)
+    favorite: bool = False
+    archived: bool = False
+
+
+class AssistantIn(BaseModel):
+    task: str = Field(max_length=40)
+    context: str = Field(max_length=40000)
+    consent_external: bool = False
+
+
+class UsbFlashIn(BaseModel):
+    release_id: str = Field(pattern=r"^[0-9a-f]{12}$")
+    device_id: str = Field(max_length=64)
+    port: str = Field(max_length=64)
+    confirm_physical: bool = False
+    allow_rollback: bool = False
 
 
 class RollbackIn(BaseModel):
@@ -61,6 +87,41 @@ def add_firmware_routes(r, service, need: Callable, audit: Callable) -> None:
     if getattr(service, "compiler", None) is None:
         service.compiler = FirmwareCompiler(fm)
     comp: FirmwareCompiler = service.compiler
+    if getattr(service, "firmware_assistant", None) is None:
+        service.firmware_assistant = FirmwareAssistant()
+    assistant: FirmwareAssistant = service.firmware_assistant
+    if getattr(service, "usb_flasher", None) is None:
+        service.usb_flasher = UsbFlasher(fm)
+    usb: UsbFlasher = service.usb_flasher
+
+    @r.get("/firmware/usb/status")
+    def firmware_usb_status(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        return usb.status()
+
+    @r.post("/firmware/usb/jobs")
+    def firmware_usb_start(body: UsbFlashIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+        try: job = usb.start(body.release_id, body.device_id, body.port, p.user, body.confirm_physical, body.allow_rollback)
+        except FirmwareError as e: raise _http(e)
+        audit(p, "firmware_usb_flash_requested", job=job["id"], release=job["release"], device=job["device_id"], port=job["port"])
+        return job
+
+    @r.get("/firmware/usb/jobs/{job_id}")
+    def firmware_usb_job(job_id: str, p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        try: return usb.get(job_id)
+        except FirmwareError as e: raise _http(e)
+
+    @r.get("/firmware/assistant/status")
+    def firmware_assistant_status(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        return assistant.status()
+
+    @r.post("/firmware/assistant/analyze")
+    def firmware_assistant_analyze(body: AssistantIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+        try:
+            result = assistant.analyze(body.task, body.context, body.consent_external)
+        except AssistantError as e:
+            raise HTTPException(status_code=e.status, detail={"code": e.code, "message": e.detail})
+        audit(p, "firmware_ai_analysis", task=body.task, characters=min(len(body.context), 40000), model=result["model"])
+        return result
 
     @r.get("/firmware/docker")
     def firmware_docker(p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
@@ -140,6 +201,13 @@ def add_firmware_routes(r, service, need: Callable, audit: Callable) -> None:
         except CompilerError as e:
             raise _chttp(e)
 
+    @r.post("/firmware/compile/{job_id}/cancel")
+    def firmware_compile_cancel(job_id: str, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+        try: job = comp.cancel_job(job_id)
+        except CompilerError as e: raise _chttp(e)
+        audit(p, "firmware_compile_cancelled", job=job_id)
+        return job
+
     @r.post("/firmware/rollback")
     def firmware_rollback(body: RollbackIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
         try:
@@ -173,6 +241,15 @@ def add_firmware_routes(r, service, need: Callable, audit: Callable) -> None:
         rec["eligibility"] = fm.eligibility(fm.release(rid), dev.get("device_id") or "")
         return rec
 
+    @r.patch("/firmware/releases/{rid}")
+    def firmware_release_metadata(rid: str, body: ReleaseMetadataIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+        try:
+            rec = fm.update_metadata(rid, p.user, body.name, body.description, body.notes, body.tags, body.favorite, body.archived)
+        except FirmwareError as e:
+            raise _http(e)
+        audit(p, "firmware_metadata_updated", release=rid, favorite=body.favorite, archived=body.archived, tags=len(body.tags))
+        return rec
+
     @r.post("/firmware/releases")
     async def firmware_upload(file: UploadFile = File(...), signature: str = Form(""), version: str = Form(""), notes: str = Form(""), description: str = Form(""),
                               p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
@@ -183,21 +260,37 @@ def add_firmware_routes(r, service, need: Callable, audit: Callable) -> None:
         if len(data) > fm.max_bytes:
             raise HTTPException(status_code=413, detail={"code": "TOO_LARGE", "message": f"larger than the inactive OTA partition ({fm.max_bytes} bytes)"})
         try:
-            rec = fm.upload(data, signature[:200], p.user, version.strip()[:24], notes, description)
+            rec = fm.upload(data, signature[:200], p.user, version.strip()[:24], notes, description, file.filename or "")
         except FirmwareError as e:
             audit(p, "firmware_upload_rejected", file=name[:64], code=e.code)
             raise _http(e)
-        audit(p, "firmware_uploaded", release=rec["id"], version=rec["version"], sha256=rec["sha256"], deployable=rec["deployable"])
+        audit(p, "firmware_reused" if rec.get("already_exists") else "firmware_uploaded", release=rec["id"], version=rec["version"], sha256=rec["sha256"], deployable=rec["deployable"])
         return rec
 
     @r.post("/firmware/deployments")
     def firmware_deploy(body: DeployIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
         try:
-            dep = fm.deploy(body.release_id, body.device_id, p.user)
+            dep = fm.deploy(body.release_id, body.device_id, p.user, reinstall=body.reinstall)
         except FirmwareError as e:
             audit(p, "firmware_deploy_refused", release=body.release_id, device=body.device_id, code=e.code, reason=e.detail[:200])
             raise _http(e)
         audit(p, "firmware_deploy_requested", deployment=dep["id"], release=dep["release"], version=dep["version"], device=dep["device_id"], state=dep["state"])
+        return dep
+
+    @r.get("/firmware/last-known-good")
+    def firmware_last_known_good(device_id: str = Query("", max_length=64), p: Principal = Depends(need(Role.VIEWER))) -> Dict[str, Any]:
+        return {"last_known_good": fm.last_known_good(device_id)}
+
+    @r.post("/firmware/last-known-good/restore")
+    def firmware_restore_last_known_good(body: DeployIn, p: Principal = Depends(need(Role.ADMIN))) -> Dict[str, Any]:
+        lkg = fm.last_known_good(body.device_id)
+        if lkg is None:
+            raise _http(FirmwareError("NO_LAST_KNOWN_GOOD", "no device-confirmed firmware deployment is available for this device", 409))
+        try:
+            dep = fm.deploy(lkg["release"]["id"], body.device_id, p.user, rollback=True)
+        except FirmwareError as e:
+            raise _http(e)
+        audit(p, "firmware_last_known_good_restore", deployment=dep["id"], release=dep["release"], device=dep["device_id"])
         return dep
 
     @r.get("/firmware/deployments")

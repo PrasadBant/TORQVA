@@ -169,6 +169,7 @@ export function PhysicalLearningPage({ stream, go, role, d, simView, physicalMod
 
   return (
     <div className="tq-as-att" data-testid="learning-workspace">
+      {(activeTab !== 'simulation' || !simView) && (
       <PageHead
         title="Continuous Intelligence"
         sub="Trusted physical references, baseline calibration, and cases eligible for learning on this rig."
@@ -198,6 +199,7 @@ export function PhysicalLearningPage({ stream, go, role, d, simView, physicalMod
           </div>
         }
       />
+      )}
 
       {/* Hidden test anchor ensuring backward compatibility with simulation audits */}
       <div data-testid="att-sim-note" style={{ display: 'none' }} aria-hidden="true">

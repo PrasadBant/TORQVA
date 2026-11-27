@@ -22,7 +22,6 @@
 #endif
 #include "drivers/config_pins.h"
 #include "shared/device.h"
-#include "safety/estop.h"
 #include "communication/wifi_link.h"
 #include "communication/ota_esp32.h"
 #include "communication/usb_out.h"                                   // the only USB serial writer: whole lines or nothing, never waits on the host (1.1.2)
@@ -331,7 +330,7 @@ static void oled_draw(const Device::DisplayInfo& d) {
     g_oled.drawStr(0, 53, l);
     if (d.acc_valid) snprintf(l, sizeof(l), "|a| %.2f g (total)", d.acc_mag_g); else snprintf(l, sizeof(l), "Accel: n/a");
     g_oled.drawStr(0, 62, l);
-    g_oled.sendBuffer();
+    // The caller transfers the frame tile row by tile row (see oled_task): one sendBuffer() is ~600 ms of bit-banged I2C.
 }
 #endif
 
@@ -400,6 +399,10 @@ static void control_task(void*) {
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(10));     // 100 Hz
     }
 }
+
+#if TORQVA_OLED
+static void oled_task(void*);
+#endif
 
 void setup() {
     outputs_off();                                     // FIRST: motor off before anything can fail
@@ -496,6 +499,22 @@ void setup() {
             wifi_log("ERROR", "Failed to save Wi-Fi configuration");
         }
     };
+#if defined(TORQVA_WIFI_LINK) && TORQVA_WIFI_LINK
+    // Staged network changes (wifi_trial.h): the working network in NVS is not overwritten until the host commits over the NEW network. They change no motor behaviour.
+    cfg.wifi_stage_supported = true;
+    cfg.on_wifi_stage = [](const char* ssid, const char* pass, const char* base, uint32_t trial_s, void*) -> bool {
+        if (!ota_wifi_stage(String(ssid ? ssid : ""), String(pass ? pass : ""), String(base ? base : ""), trial_s)) return false;
+        wifi_log("WARN", "Wi-Fi trial started; the previous network returns unless the host commits");
+        wifi_link_reconnect();
+        return true;
+    };
+    cfg.on_wifi_commit = [](void*) -> bool {
+        if (!ota_wifi_commit()) return false;
+        wifi_log("INFO", "Wi-Fi configuration committed");
+        return true;
+    };
+    cfg.on_wifi_scan = [](void*) -> bool { return wifi_scan_start(); };
+#endif
     ota_platform_capability(cfg);                      // OTA partitions, compiled-in signing key and NVS provisioning decide whether this boot can update at all
     Limits lim = default_limits();
     if (cfg.direct_mode) {
@@ -527,9 +546,33 @@ void setup() {
     xTaskCreatePinnedToCore(control_task, "control", 6144, nullptr, configMAX_PRIORITIES - 2, nullptr, 1);
     // Over-the-air update: its own task (Wi-Fi + TLS on the other core, lower priority). It never touches a motor output; the Device refuses motion while it runs
     // and while a new image is unconfirmed, and the first-boot self-test decides whether the new image is kept.
+#if TORQVA_OLED
+    xTaskCreatePinnedToCore(oled_task, "oled", 4096, nullptr, 1, nullptr, 1);   // not on the core that runs Wi-Fi, TLS and the link task
+#endif
     wifi_link_start(g_dev, g_mu);                      // no-op unless TORQVA_WIFI_LINK and the network is provisioned; the device connects out only
     ota_platform_start(g_dev, g_mu, g_ina_ok, TORQVA_OTA_LED_BENCH ? false : g_ds.getDeviceCount() > 0, cfg.auth_enabled && strcmp(TORQVA_DEVICE_ID, "UNPROVISIONED") != 0, outputs_off);
 }
+
+#if TORQVA_OLED
+// The OLED is driven by bit-banged (software) I2C: one full redraw blocks its caller for ~600 ms. It used to run inside loop(), which stopped draining the
+// telemetry queue for that long and dropped about half of the device's frames. It now has its own low-priority task; loop() never waits for the display.
+static void oled_task(void*) {
+    g_oled.begin();
+    for (;;) {
+        Device::DisplayInfo di;
+        bool ok = false;
+        if (xSemaphoreTake(g_mu, pdMS_TO_TICKS(5)) == pdTRUE) { g_dev->display_info(&di, millis()); xSemaphoreGive(g_mu); ok = true; }
+        if (ok) {
+            oled_draw(di);
+            for (uint8_t row = 0; row < 8; row++) {                     // 8 tile rows of ~75 ms each, yielding in between so no task is ever held for long
+                g_oled.updateDisplayArea(0, row, 16, 1);
+                vTaskDelay(pdMS_TO_TICKS(10));
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
+#endif
 
 void loop() {
     // Communications on the Arduino loop task (core 1 by default; control task has higher priority).
@@ -550,17 +593,18 @@ void loop() {
             if (n < sizeof(line) - 1) line[n++] = c; else { n = 0; discarding = true; }   // overlong line: drop it AND its remainder
         }
     }
-#if TORQVA_OLED
-    static uint32_t last_oled = 0; static bool oled_started = false;
-    if (!oled_started) { g_oled.begin(); oled_started = true; }
-    if ((uint32_t)(millis() - last_oled) >= 500) {
-        last_oled = millis();
-        Device::DisplayInfo di;
-        bool ok = false;
-        if (xSemaphoreTake(g_mu, pdMS_TO_TICKS(5)) == pdTRUE) { g_dev->display_info(&di, millis()); xSemaphoreGive(g_mu); ok = true; }
-        if (ok) oled_draw(di);
+    wifi_scan_poll();                                  // emits a finished scan's results (no-op without Wi-Fi or without a scan); never waits
+    wifi_link_poll();                                  // network info + link measurements every 5 s (no-op without the Wi-Fi link); never waits
+    ota_wifi_trial_tick(millis());                     // a staged network that was never committed is dropped here, and the previous one is used again
+    {
+        static uint32_t last_wifi_state = 0;
+        if ((uint32_t)(millis() - last_wifi_state) >= 500) {
+            last_wifi_state = millis();
+            bool trial = false; uint32_t left = 0; String act;
+            ota_wifi_state(&trial, &left, &act, millis());
+            if (xSemaphoreTake(g_mu, pdMS_TO_TICKS(5)) == pdTRUE) { g_dev->set_wifi_state(trial, left, act.c_str()); xSemaphoreGive(g_mu); }
+        }
     }
-#endif
     char out[320];
     for (int i = 0; i < 8; i++) {
         bool got;

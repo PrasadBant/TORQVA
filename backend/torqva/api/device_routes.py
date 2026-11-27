@@ -264,6 +264,11 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
         ssid = str(body.get("ssid") or "").strip()
         password = str(body.get("password") or "")
         base_url = str(body.get("base_url") or "").strip()
+        ws = bridge.snapshot().get("wifi_state") or {}
+        if ws.get("supported"):
+            # This overwrites the working network at once and has no way back if the new one fails. A board that can stage a change must use the staged route.
+            raise HTTPException(409, {"code": "USE_STAGED_CHANGE", "message": "This board supports staged network changes, which keep the working network until the new one is verified. "
+                                                                              "Use Configure Wi-Fi (Change Network) instead of the direct update."})
         ok, why = bridge.request_wifi_config(ssid, password, base_url, p.user, p.role)
         if not ok:
             raise HTTPException(409, why)
@@ -983,29 +988,50 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
             await websocket.close(code=4409, reason=why[:120])
             return
         tr = WsTransport(asyncio.get_running_loop(), remote)
-        try:
-            await asyncio.to_thread(bridge.connect, tr)
-        except (RuntimeError, TransportError) as e:
-            await websocket.close(code=4409, reason=str(e)[:120])
-            return
+        if why == dl.STANDBY:
+            tr.mode = "standby"                                    # USB holds the command session: nothing is sent on this link until it is promoted
+        else:
+            try:
+                await asyncio.to_thread(bridge.connect, tr)
+            except (RuntimeError, TransportError) as e:
+                await websocket.close(code=4409, reason=str(e)[:120])
+                return
         links.attached(tr)
         reason = "closed by the device"
 
         async def sender():
             while True:
-                item = await tr.next_write()
+                item = await tr.next_batch(dl.LINK_MAX_MSG - 24)     # several lines per message, always below the board's 1024-byte receive limit
                 if item is None:
                     return
                 await websocket.send_text(item)
 
         async def watchdog():
-            t0 = asyncio.get_running_loop().time()
+            loop = asyncio.get_running_loop()
+            t0 = loop.time()
             while True:
                 await asyncio.sleep(0.5)
+                if links.silent(tr):
+                    return f"no data from the device for {dl.LINK_SILENT_S:.0f} s (dead link)"
+                if tr.mode == "standby":
+                    ch = links.standby_challenge(tr)
+                    if ch is not None:
+                        try:
+                            tr.write(ch.encode("utf-8"))            # the only write a standby link ever gets (identity proof; no session effect)
+                        except TransportError:
+                            pass
+                    if await asyncio.to_thread(links.try_promote, tr):
+                        t0 = loop.time()                           # the authentication deadline starts at promotion
+                    continue
                 current = getattr(bridge, "_transport", None) is tr
                 if not current:
                     return "replaced or disconnected by the backend"
-                if asyncio.get_running_loop().time() - t0 > dl.LINK_AUTH_TIMEOUT_S and not await asyncio.to_thread(bridge.session_active):
+                # The session is renewed about every 10 minutes (a new hello ~30 s before it expires); for the ~0.5 s of that handshake no session is active.
+                # Measured on RIG-1 (27 Nov, 16:27:37): checking "is a session active right now" closed a healthy link at exactly such a renewal. The deadline
+                # is therefore for a CONTINUOUS absence of a session: t0 restarts every time one is active.
+                if await asyncio.to_thread(bridge.session_active):
+                    t0 = loop.time()
+                elif loop.time() - t0 > dl.LINK_AUTH_TIMEOUT_S:
                     return "no authenticated session (device key handshake did not complete)"
 
         async def receiver():
@@ -1013,7 +1039,11 @@ def add_device_routes(r, service, need: Callable, audit: Callable, auth: TokenAu
                 text = await websocket.receive_text()
                 if len(text) > dl.LINK_MAX_MSG:
                     return "message too large"
-                tr.feed(text)
+                tr.last_rx, tr.rx_msgs = time.monotonic(), tr.rx_msgs + 1
+                if tr.mode == "standby":
+                    links.standby_feed(tr, text)
+                else:
+                    tr.feed(text)
 
         tasks = [asyncio.create_task(c) for c in (sender(), watchdog(), receiver())]
         try:

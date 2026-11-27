@@ -18,6 +18,7 @@ import datetime
 import http.server
 import ipaddress
 import re
+import selectors
 import socket
 import ssl
 import threading
@@ -103,6 +104,89 @@ def make_cert(a) -> int:
     return 0
 
 
+def tune_socket(s) -> None:
+    """Low latency and dead-peer detection on one relayed socket: TCP_NODELAY (small WebSocket frames are not held back by Nagle) and TCP keepalive
+    (a board that lost power or left the network is noticed within ~20 s instead of never: the relay would otherwise block on it forever)."""
+    try:
+        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        if hasattr(socket, "SIO_KEEPALIVE_VALS"):                       # Windows: idle 10 s, then probes every 2 s
+            s.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 10000, 2000))
+        elif hasattr(socket, "TCP_KEEPIDLE"):
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10)
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 2)
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
+def relay(dev, up, n) -> "tuple[str, str]":
+    """Relay bytes both ways between the device's TLS socket and the backend's plain socket, on ONE thread.
+
+    The previous relay read the TLS socket on one thread while another wrote to it. An OpenSSL connection must not be used by two threads at once, and
+    CPython does not serialise it. This loop is the only user of `dev`. Non-blocking: an SSL write that cannot complete is retried with the SAME chunk.
+    Returns (which side ended first, how)."""
+    tune_socket(dev); tune_socket(up)
+    dev.setblocking(False); up.setblocking(False)
+    to_dev, to_up = bytearray(), bytearray()
+    dev_chunk = b""                                                     # an SSL write in progress (must be retried unchanged)
+    sel = selectors.DefaultSelector()
+    sel.register(dev, selectors.EVENT_READ); sel.register(up, selectors.EVENT_READ)
+    try:
+        while True:
+            want_dev = selectors.EVENT_READ | (selectors.EVENT_WRITE if (to_dev or dev_chunk) else 0)
+            want_up = selectors.EVENT_READ | (selectors.EVENT_WRITE if to_up else 0)
+            sel.modify(dev, want_dev); sel.modify(up, want_up)
+            ready = sel.select(timeout=None if not dev.pending() else 0)
+            events = {k.fileobj: m for k, m in ready}
+            if dev.pending() or events.get(dev, 0) & selectors.EVENT_READ:
+                try:
+                    while True:
+                        data = dev.recv(65536)
+                        if not data:
+                            return "device", "EOF"
+                        to_up += data; n["up"] += len(data); n["t_up"] = time.monotonic()
+                        if not dev.pending():
+                            break
+                except (ssl.SSLWantReadError, ssl.SSLWantWriteError, BlockingIOError):
+                    pass
+                except OSError as e:
+                    return "device", type(e).__name__
+            if events.get(up, 0) & selectors.EVENT_READ:
+                try:
+                    data = up.recv(65536)
+                    if not data:
+                        return "backend", "EOF"
+                    to_dev += data; n["down"] += len(data); n["t_down"] = time.monotonic()
+                except BlockingIOError:
+                    pass
+                except OSError as e:
+                    return "backend", type(e).__name__
+            if to_up:
+                try:
+                    k = up.send(to_up); del to_up[:k]
+                except BlockingIOError:
+                    pass
+                except OSError as e:
+                    return "backend-write", type(e).__name__
+            if to_dev or dev_chunk:
+                if not dev_chunk:
+                    dev_chunk = bytes(to_dev[:16384]); del to_dev[:len(dev_chunk)]
+                try:
+                    k = dev.send(dev_chunk)
+                    dev_chunk = dev_chunk[k:]
+                except (ssl.SSLWantReadError, ssl.SSLWantWriteError, BlockingIOError):
+                    pass
+                except OSError as e:
+                    return "device-write", type(e).__name__
+    finally:
+        sel.close()
+        try:
+            up.close()
+        except OSError:
+            pass
+
+
 def serve(a) -> int:
     ip, backend = _lan_ip(a.ip), a.backend.rstrip("/")
     if not re.match(r"^http://(127\.0\.0\.1|localhost):\d+$", backend):
@@ -149,51 +233,16 @@ def serve(a) -> int:
                 if v and CR not in v and LF not in v:
                     head.append(f"{h}: {v}")
             up.sendall((CRLF.join(head) + CRLF + CRLF).encode("latin-1"))
-            up.settimeout(None); self.connection.settimeout(None)
             self.close_connection = True
-            # diagnostics (temporary, bench): bytes each way, when each side last sent, which side ended first and how. Counts/times only, never content.
+            # The device sends nothing before the backend's 101 response has been relayed, so nothing is left in self.rfile's buffer: the raw sockets are used.
             t_open = time.monotonic()
-            n = {"up": 0, "down": 0, "t_up": t_open, "t_down": t_open, "end": None}
-
-            def ended(side, how):
-                if n["end"] is None:
-                    n["end"] = (side, how, time.monotonic() - t_open)
-
-            def to_backend():
-                try:
-                    while True:
-                        data = self.rfile.read1(65536)
-                        if not data:
-                            ended("device", "EOF")
-                            break
-                        n["up"] += len(data); n["t_up"] = time.monotonic()
-                        up.sendall(data)
-                except OSError as e:
-                    ended("device", type(e).__name__)
-                finally:
-                    try:
-                        up.shutdown(socket.SHUT_WR)
-                    except OSError:
-                        pass
-            t = threading.Thread(target=to_backend, daemon=True); t.start()
-            try:
-                while True:
-                    data = up.recv(65536)
-                    if not data:
-                        ended("backend", "EOF")
-                        break
-                    n["down"] += len(data); n["t_down"] = time.monotonic()
-                    self.connection.sendall(data)
-            except OSError as e:
-                ended("backend-or-device-write", type(e).__name__)
-            finally:
-                up.close()
-                now = time.monotonic()
-                side, how, at = n["end"] or ("?", "?", now - t_open)
-                sys.stderr.write(f"{self.address_string()} WS {WS_ROUTE} closed after {now - t_open:.1f}s "
-                                 f"(device->backend {n['up']} B, backend->device {n['down']} B incl. the 101 response) "
-                                 f"first end: {side} {how} at {at:.1f}s; last device data {now - n['t_up']:.1f}s before close, "
-                                 f"last backend data {now - n['t_down']:.1f}s before close; opened {datetime.datetime.now() - datetime.timedelta(seconds=now - t_open):%H:%M:%S}" + LF)
+            n = {"up": 0, "down": 0, "t_up": t_open, "t_down": t_open}
+            side, how = relay(self.connection, up, n)
+            now = time.monotonic()
+            sys.stderr.write(f"{self.address_string()} WS {WS_ROUTE} closed after {now - t_open:.1f}s "
+                             f"(device->backend {n['up']} B, backend->device {n['down']} B incl. the 101 response) "
+                             f"first end: {side} {how}; last device data {now - n['t_up']:.1f}s before close, "
+                             f"last backend data {now - n['t_down']:.1f}s before close; opened {datetime.datetime.now() - datetime.timedelta(seconds=now - t_open):%H:%M:%S}" + LF)
 
         def do_GET(self):
             if self.path == WS_ROUTE and self.headers.get("Upgrade", "").lower() == "websocket":

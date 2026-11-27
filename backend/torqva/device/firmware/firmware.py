@@ -28,6 +28,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from torqva.device.operation_lock import DEVICE_OPERATIONS, OperationBusy
+
 CHIP_ESP32S3 = 9
 CANON_PREFIX = "torqva-fw|1"
 DEFAULT_MAX_BYTES = 3264 * 1024              # app1 (ota_1) of default_8MB.csv, the partition table this firmware is built with
@@ -180,12 +182,14 @@ class FirmwareStore:
         self.root = Path(root)
         self.images = self.root / "images"
         self.index_path = self.root / "releases.json"
+        self.artifacts_path = self.root / "artifacts.json"
         self.history_path = self.root / "history.jsonl"
         self.current_path = self.root / "current_deployment.json"
         self.deployments_path = self.root / "deployments.json"
         self.lock = threading.RLock()
         self.load_error = ""
         self.releases: Dict[str, Dict[str, Any]] = {}
+        self.artifacts: Dict[str, Dict[str, Any]] = {}
         self.images.mkdir(parents=True, exist_ok=True)
         if self.index_path.exists():
             try:
@@ -193,11 +197,30 @@ class FirmwareStore:
                 if not isinstance(raw, dict) or not isinstance(raw.get("releases"), dict):
                     raise ValueError("not a release index")
                 for rid, rec in raw["releases"].items():
-                    if not (isinstance(rec, dict) and re.fullmatch(r"[0-9a-f]{12}", rid) and re.fullmatch(r"[0-9a-f]{64}", rec.get("sha256", "")) and rec["sha256"][:12] == rid):
+                    if not (isinstance(rec, dict) and re.fullmatch(r"[0-9a-f]{12}", rid) and re.fullmatch(r"[0-9a-f]{64}", rec.get("sha256", ""))):
                         raise ValueError(f"corrupt release record {rid!r}")
                 self.releases = raw["releases"]
             except (ValueError, OSError) as e:
                 self.load_error = f"firmware release index unreadable: {e}"
+        if not self.load_error:
+            try:
+                if self.artifacts_path.exists():
+                    raw_artifacts = json.loads(self.artifacts_path.read_text(encoding="utf-8"))
+                    if not isinstance(raw_artifacts, dict) or not isinstance(raw_artifacts.get("artifacts"), dict):
+                        raise ValueError("not an artifact index")
+                    self.artifacts = raw_artifacts["artifacts"]
+                else:
+                    # Backward-compatible migration: old releases stored the immutable
+                    # binary identity inline. Preserve every release id and create one
+                    # artifact record per SHA without rewriting signed metadata.
+                    for rec in self.releases.values():
+                        sha = rec.get("sha256", "")
+                        if re.fullmatch(r"[0-9a-f]{64}", sha):
+                            self.artifacts[sha] = {"id": sha, "sha256": sha, "size": rec.get("size", 0), "path": f"images/{sha}.bin"}
+                    if self.artifacts:
+                        self._atomic_write(self.artifacts_path, json.dumps({"artifacts": self.artifacts}, indent=1, sort_keys=True).encode())
+            except (ValueError, OSError) as e:
+                self.load_error = f"firmware artifact index unreadable: {e}"
 
     def _atomic_write(self, path: Path, data: bytes) -> None:
         tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
@@ -219,11 +242,33 @@ class FirmwareStore:
         with self.lock:
             if self.load_error:
                 raise FirmwareError("STORAGE_UNAVAILABLE", self.load_error, 503)
-            self._atomic_write(self.image_path(rec["sha256"]), data)
+            artifact = {"id": rec["sha256"], "sha256": rec["sha256"], "size": len(data), "path": f"images/{rec['sha256']}.bin"}
+            if rec["sha256"] not in self.artifacts:
+                self._atomic_write(self.image_path(rec["sha256"]), data)
+            artifacts = dict(self.artifacts)
+            artifacts[artifact["id"]] = artifact
             releases = dict(self.releases)
             releases[rec["id"]] = rec
             self._atomic_write(self.index_path, json.dumps({"releases": releases}, indent=1, sort_keys=True).encode())
+            self._atomic_write(self.artifacts_path, json.dumps({"artifacts": artifacts}, indent=1, sort_keys=True).encode())
             self.releases = releases
+            self.artifacts = artifacts
+
+    def update_release(self, rid: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Atomically update operator metadata only; signed identity fields remain immutable."""
+        with self.lock:
+            if self.load_error:
+                raise FirmwareError("STORAGE_UNAVAILABLE", self.load_error, 503)
+            current = self.releases.get(rid)
+            if current is None:
+                raise FirmwareError("UNKNOWN_RELEASE", "no such release", 404)
+            rec = dict(current)
+            rec.update(updates)
+            releases = dict(self.releases)
+            releases[rid] = rec
+            self._atomic_write(self.index_path, json.dumps({"releases": releases}, indent=1, sort_keys=True).encode())
+            self.releases = releases
+            return rec
 
     def read_image(self, rec: Dict[str, Any]) -> bytes:
         data = self.image_path(rec["sha256"]).read_bytes()
@@ -308,6 +353,7 @@ class FirmwareManager:
         self.deployments: Dict[str, Dict[str, Any]] = {}
         self.active: Optional[str] = None
         self._last_deploy: Dict[str, float] = {}
+        self._held: Dict[str, Any] = {}                       # deployment id -> device operation lock handle (released in _finish)
         self._uploads: List[float] = []
         self._token_key = secrets.token_bytes(32)                 # per backend process: tokens do not survive a restart
 
@@ -378,7 +424,7 @@ class FirmwareManager:
                "build": info["app"], "signature": signature.strip() if signature else "", "canonical": msg}
         return rec, checks
 
-    def upload(self, data: bytes, signature: str, user: str, version: str = "", notes: str = "", description: str = "") -> Dict[str, Any]:
+    def upload(self, data: bytes, signature: str, user: str, version: str = "", notes: str = "", description: str = "", original_filename: str = "") -> Dict[str, Any]:
         now = self.clock()
         with self.lock:
             self._uploads = [t for t in self._uploads if now - t < 60]
@@ -388,12 +434,23 @@ class FirmwareManager:
         if self.store.load_error:
             raise FirmwareError("STORAGE_UNAVAILABLE", self.store.load_error, 503)
         rec, checks = self.validate(data, signature, version)
-        if rec["id"] in self.store.releases or any(r["sha256"] == rec["sha256"] for r in self.store.releases.values()):
-            raise FirmwareError("DUPLICATE_RELEASE", f"this image is already release {rec['id']}", 409)
+        existing = next((r for r in self.store.releases.values() if r["sha256"] == rec["sha256"]), None)
+        if existing is not None:
+            # Re-upload is a lookup, never a deployment. The immutable artifact stays
+            # deduplicated and every later deployment still receives its own record.
+            out = self.public_release(existing)
+            out.update({"already_exists": True, "reuse_message": "Firmware already exists in your library. You can reuse this saved release without uploading another copy."})
+            self.store.append_history({"kind": "release_reused", "release": existing["id"], "version": existing["version"], "sha256": existing["sha256"], "by": user, "at": self.wall()})
+            return out
         if any(r["version"] == rec["version"] for r in self.store.releases.values()):
             raise FirmwareError("DUPLICATE_VERSION", f"a release with version {rec['version']} already exists; build a new version", 409)
         deployable = all(c["status"] == "VERIFIED" for c in checks.values())
+        # Release identity is independent from the content-addressed artifact. Existing
+        # installations retain their legacy ids through the migration above.
+        rec["artifact_id"] = rec["sha256"]
+        rec["id"] = secrets.token_hex(6)
         rec.update({"checks": checks, "deployable": deployable, "uploaded_by": user, "uploaded_at": self.wall(), "notes": notes[:2000], "description": description[:500],
+                    "name": Path(original_filename).stem[:100] or rec["version"], "original_filename": original_filename[:255], "tags": [], "favorite": False, "archived": False,
                     "status": "APPROVED" if deployable else "NOT DEPLOYABLE"})
         self.store.add(rec, data)
         self.store.append_history({"kind": "release_uploaded", "release": rec["id"], "version": rec["version"], "sha256": rec["sha256"], "by": user, "at": rec["uploaded_at"],
@@ -407,6 +464,31 @@ class FirmwareManager:
 
     def releases(self) -> List[Dict[str, Any]]:
         return sorted((self.public_release(r) for r in self.store.releases.values()), key=lambda r: r["uploaded_at"], reverse=True)
+
+    def update_metadata(self, rid: str, user: str, name: str, description: str, notes: str, tags: List[str], favorite: bool, archived: bool) -> Dict[str, Any]:
+        rec = self.release(rid)
+        clean_tags = []
+        for raw in tags:
+            tag = re.sub(r"\s+", " ", str(raw).strip())[:32]
+            if tag and tag.lower() not in {x.lower() for x in clean_tags}:
+                clean_tags.append(tag)
+        if len(clean_tags) > 12:
+            raise FirmwareError("TOO_MANY_TAGS", "at most 12 tags are allowed")
+        updates = {"name": re.sub(r"\s+", " ", name.strip())[:100] or rec.get("version", rid),
+                   "description": description.strip()[:500], "notes": notes.strip()[:2000], "tags": clean_tags,
+                   "favorite": bool(favorite), "archived": bool(archived), "metadata_updated_at": self.wall(), "metadata_updated_by": user}
+        out = self.store.update_release(rid, updates)
+        self.store.append_history({"kind": "release_metadata_updated", "release": rid, "version": out["version"], "by": user,
+                                   "at": updates["metadata_updated_at"], "fields": ["name", "description", "notes", "tags", "favorite", "archived"]})
+        return self.public_release(out)
+
+    def last_known_good(self, device_id: str = "") -> Optional[Dict[str, Any]]:
+        confirmed = [d for d in self.deployments.values() if d.get("state") == "CONFIRMED" and (not device_id or d.get("device_id") == device_id)]
+        if not confirmed:
+            return None
+        dep = max(confirmed, key=lambda d: d.get("requested_at", 0))
+        rec = self.store.releases.get(dep.get("release"))
+        return None if rec is None else {"release": self.public_release(rec), "deployment": self.public_deployment(dep)}
 
     def release(self, rid: str) -> Dict[str, Any]:
         rec = self.store.releases.get(rid)
@@ -422,11 +504,12 @@ class FirmwareManager:
         return {"connected": snap.get("connection") == "CONNECTED", "connection": snap.get("connection"), "handshake": bool(snap.get("handshake")),
                 "device_id": snap.get("device_id"), "firmware": snap.get("firmware"), "chip": "ESP32-S3" if snap.get("handshake") else None,
                 "transport": snap.get("transport"),
+                "net_info": snap.get("net_info"), "wifi_state": snap.get("wifi_state"), "runtime": snap.get("runtime"), "reset_reason": snap.get("reset_reason"),
                 "session_active": bool((snap.get("session") or {}).get("active")), "safety_state": snap.get("safety_state"), "drive": snap.get("drive"),
                 "ota": None if not info else {k: v for k, v in info.items() if not k.startswith("_")}, "ota_age_s": info_age,
                 "profile": None if not info else (info.get("prof") or ""), "profile_label": None if not info else PROFILES.get(info.get("prof") or "", info.get("prof"))}
 
-    def eligibility(self, rec: Optional[Dict[str, Any]], device_id: str = "", allow_rollback: bool = False) -> List[str]:
+    def eligibility(self, rec: Optional[Dict[str, Any]], device_id: str = "", allow_rollback: bool = False, allow_reinstall: bool = False) -> List[str]:
         """Every reason the release cannot be deployed to the connected device now (empty = eligible). Device-side checks are repeated by the firmware."""
         d = self.device()
         why: List[str] = []
@@ -451,8 +534,8 @@ class FirmwareManager:
             why.append(f"the device refuses an update now: {o['blk']}")
         if d["safety_state"] == "EMERGENCY_STOP":
             why.append("a safety trip is latched (an update never clears it)")
-        if d["connected"] and d["drive"] not in (None, "IDLE"):
-            why.append("the motor drive is not idle")
+        if d["connected"] and d["drive"] != "IDLE":
+            why.append("the motor drive is not confirmed idle" if d["drive"] is None else "the motor drive is not idle")
         if self.active and self.deployments[self.active]["state"] not in TERMINAL:
             why.append("another deployment is in progress")
         if rec is not None:
@@ -467,33 +550,40 @@ class FirmwareManager:
             c = version_compare(rec["version"], installed) if installed else None
             if installed and c is None:
                 why.append(f"the installed version {installed!r} cannot be compared")
-            elif not allow_rollback and c is not None and c <= 0:
+            elif not allow_rollback and not allow_reinstall and c is not None and c <= 0:
                 why.append(f"{rec['version']} is not newer than the installed {installed} (no reinstall or downgrade)")
+            elif allow_reinstall and c is not None and c != 0:
+                why.append(f"reinstallation requires the currently running version {installed}, but the selected release is {rec['version']}")
         return why
 
     # ---- deployment
-    def deploy(self, rid: str, device_id: str, user: str, rollback: bool = False) -> Dict[str, Any]:
+    def deploy(self, rid: str, device_id: str, user: str, rollback: bool = False, reinstall: bool = False) -> Dict[str, Any]:
         rec = self.release(rid)
         now = self.clock()
         with self.lock:
             last = self._last_deploy.get(device_id, -1e9)
             if now - last < DEPLOY_MIN_INTERVAL_S:
                 raise FirmwareError("RATE_LIMITED", f"one deployment per device every {int(DEPLOY_MIN_INTERVAL_S)} s", 429)
-            why = self.eligibility(rec, device_id, allow_rollback=rollback)
+            why = self.eligibility(rec, device_id, allow_rollback=rollback, allow_reinstall=reinstall)
             if why:
                 raise FirmwareError("NOT_ELIGIBLE", "; ".join(why), 409)
+            try:
+                held = DEVICE_OPERATIONS.try_acquire("wireless_deploy")
+            except OperationBusy as busy:
+                raise FirmwareError("BUSY", f"{busy.active} is running; wait for it to finish", 409) from busy
             dep_id = secrets.token_hex(6)
             token = hmac.new(self._token_key, f"{dep_id}|{rid}".encode(), hashlib.sha256).hexdigest()[:32]
             d = self.device()
             dep = {"id": dep_id, "release": rid, "version": rec["version"], "sha256": rec["sha256"], "device_id": device_id, "from_version": d["firmware"], "requested_by": user,
                    "requested_at": self.wall(), "state": "REQUESTED", "reason": "", "bytes": 0, "total": rec["size"], "events": [], "token": token,
-                   "token_expires": now + TOKEN_TTL_S, "downloads": 0, "updated": now, "rebooting_since": None, "rollback": rollback}
+                   "token_expires": now + TOKEN_TTL_S, "downloads": 0, "updated": now, "rebooting_since": None, "rollback": rollback, "reinstall": reinstall}
             self.deployments[dep_id] = dep
+            self._held[dep_id] = held
             self.active = dep_id
             self._last_deploy[device_id] = now
-        self._event(dep, "REQUESTED", f"by {user}{' (manual rollback)' if rollback else ''}")
+        self._event(dep, "REQUESTED", f"by {user}{' (manual rollback)' if rollback else ' (reinstall)' if reinstall else ''}")
         self.store.append_history({"kind": "deployment_requested", "deployment": dep_id, "release": rid, "version": rec["version"], "sha256": rec["sha256"], "device": device_id,
-                                   "from_version": dep["from_version"], "by": user, "at": dep["requested_at"], "rollback": rollback})
+                                   "from_version": dep["from_version"], "by": user, "at": dep["requested_at"], "rollback": rollback, "reinstall": reinstall})
         try:
             ok, why = self.bridge.request_ota(rid, rec["version"], token, rollback=rollback)
         except TypeError:
@@ -523,6 +613,8 @@ class FirmwareManager:
         if state == "CONFIRMED" and dep.get("total"):
             dep["bytes"] = dep["total"]
         dep["state"], dep["reason"], dep["updated"] = state, reason, self.clock()
+        if state in TERMINAL and dep["id"] in self._held:
+            self._held.pop(dep["id"]).release()               # the board is free for other operations again
         self._event(dep, state, reason)
         self.store.append_history({"kind": "deployment_result", "deployment": dep["id"], "release": dep["release"], "version": dep["version"], "device": dep["device_id"],
                                    "result": state, "reason": reason, "at": self.wall()})

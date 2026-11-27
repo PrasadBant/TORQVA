@@ -3,7 +3,7 @@
 Serves only the TORQVA API (`/api/torqva/*`, including the read-only device WebSocket `/api/torqva/ws`). The earlier monitoring backend (unauthenticated `/api/ingest`,
 `/api/motor`, device-command polling, the TCP 5001 telemetry server and its WebSocket) belonged to the retired standalone firmware and was removed.
 
-Run:  python -m uvicorn main:app --host 127.0.0.1 --port 8000   (set TORQVA_TOKENS first: the API fails closed without tokens)
+Run: python -m uvicorn main:app --host 0.0.0.0 --port 8000 (set TORQVA_TOKENS and restrict the host firewall to the trusted LAN).
 """
 import logging
 import os
@@ -76,7 +76,7 @@ def root():
     index_file = os.path.join(_dist_dir, "index.html")
     if os.path.isfile(index_file):
         return FileResponse(index_file)
-    return RedirectResponse("http://localhost:5173/")
+    return RedirectResponse(os.environ.get("TORQVA_FRONTEND_PUBLIC_URL", "http://localhost:5173/"))
 
 @app.get("/favicon.svg", include_in_schema=False)
 def favicon():

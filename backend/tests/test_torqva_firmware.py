@@ -5,6 +5,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import struct
 import sys
 import time
@@ -167,7 +168,8 @@ def test_an_admin_uploads_a_valid_signed_image_and_every_check_is_verified(api, 
     r = upload(c, data, sign(keys["good"], data))
     assert r.status_code == 200, r.text
     rec = r.json()
-    assert rec["version"] == "3.1.0" and rec["size"] == len(data) and rec["sha256"] == hashlib.sha256(data).hexdigest() and rec["id"] == rec["sha256"][:12]
+    assert rec["version"] == "3.1.0" and rec["size"] == len(data) and rec["sha256"] == hashlib.sha256(data).hexdigest()
+    assert rec["artifact_id"] == rec["sha256"] and re.fullmatch(r"[0-9a-f]{12}", rec["id"])
     assert {k: v["status"] for k, v in rec["checks"].items()} == {"image": "VERIFIED", "chip": "VERIFIED", "partition": "VERIFIED", "integrity": "VERIFIED", "signature": "VERIFIED"}
     assert rec["deployable"] and rec["status"] == "APPROVED" and rec["uploaded_by"] == "adam"
     stored = Path(svc.firmware.store.image_path(rec["sha256"]))
@@ -237,15 +239,75 @@ def test_upload_is_admin_only(api, keys):
     assert c.post("/api/torqva/firmware/releases", files={"file": ("f.bin", data)}).status_code == 401
 
 
-def test_duplicate_images_and_versions_are_refused(api, keys):
+def test_duplicate_images_are_reused_and_conflicting_versions_are_refused(api, keys):
     svc, c = api
     data = esp_image("3.1.0")
     assert upload(c, data, sign(keys["good"], data)).status_code == 200
     r = upload(c, data, sign(keys["good"], data))
-    assert r.status_code == 409 and r.json()["detail"]["code"] == "DUPLICATE_RELEASE"
+    assert r.status_code == 200
+    assert r.json()["already_exists"] is True
+    assert "reuse this saved release" in r.json()["reuse_message"]
+    assert len(svc.firmware.store.artifacts) == 1
+    assert len(svc.firmware.store.releases) == 1
     again = esp_image("3.1.0", size_hint=5000)                                               # different bytes, same version
     r = upload(c, again, sign(keys["good"], again))
     assert r.status_code == 409 and r.json()["detail"]["code"] == "DUPLICATE_VERSION"
+
+
+def test_release_metadata_is_editable_audited_and_persistent(api, keys):
+    svc, c = api
+    data = esp_image("3.2.0")
+    rid = upload(c, data, sign(keys["good"], data), name="factory.bin").json()["id"]
+    body = {"name": "Factory Stable", "description": "Verified rig firmware", "notes": "Keep for recovery", "tags": ["stable", "rig-1", "stable"], "favorite": True, "archived": False}
+    r = c.patch(f"/api/torqva/firmware/releases/{rid}", headers=H("a"), json=body)
+    assert r.status_code == 200 and r.json()["name"] == "Factory Stable" and r.json()["tags"] == ["stable", "rig-1"] and r.json()["favorite"] is True
+    reloaded = FirmwareManager(None, root=str(svc.firmware.store.root), public_key=keys["pub"], base_url="https://ota.bench.lan")
+    assert reloaded.release(rid)["description"] == "Verified rig firmware"
+    assert any(x["kind"] == "release_metadata_updated" and x["release"] == rid for x in svc.firmware.store.history())
+
+
+def test_ai_and_usb_capabilities_fail_closed_when_not_configured(api, monkeypatch):
+    svc, c = api
+    for key in ("TORQVA_AI_BASE_URL", "TORQVA_AI_API_KEY", "TORQVA_AI_MODEL", "TORQVA_USB_FLASH_ENABLED"):
+        monkeypatch.delenv(key, raising=False)
+    ai = c.get("/api/torqva/firmware/assistant/status", headers=H("v"))
+    assert ai.status_code == 200 and ai.json()["available"] is False
+    denied = c.post("/api/torqva/firmware/assistant/analyze", headers=H("a"), json={"task": "code_review", "context": "void setup(){}", "consent_external": True})
+    assert denied.status_code == 503 and denied.json()["detail"]["code"] == "AI_UNAVAILABLE"
+    usb = c.get("/api/torqva/firmware/usb/status", headers=H("v"))
+    assert usb.status_code == 200 and usb.json()["available"] is False
+
+
+def test_mocked_a_b_a_c_b_deployments_are_independent_and_lkg_is_confirmed(tmp_path, keys):
+    class Bridge:
+        def __init__(self):
+            self.fw = "1.0.0"; self.ota_info = {"cap": 1, "why": "", "run": "ota_0", "psz": 3342336, "pend": 0, "last": "", "lver": "", "blk": "", "busy": 0, "prof": "", "_at": 100.0}
+        def snapshot(self):
+            return {"connection": "CONNECTED", "handshake": True, "device_id": "RIG-1", "firmware": self.fw, "transport": {"kind": "mock"}, "session": {"active": True}, "safety_state": "OK", "drive": "IDLE"}
+        def request_ota(self, *args, **kwargs): return True, ""
+    clock = [100.0]
+    bridge = Bridge()
+    fm = FirmwareManager(bridge, root=str(tmp_path / "fw"), public_key=keys["pub"], base_url="https://ota.bench.lan", clock=lambda: clock[0], wall=lambda: 1700000000 + clock[0])
+    releases = {}
+    for version in ("1.1.0", "1.2.0", "1.3.0"):
+        data = esp_image(version, size_hint=4200 + len(releases) * 100)
+        releases[version] = fm.upload(data, sign(keys["good"], data), "tester")["id"]
+    attempts = []
+    for version in ("1.1.0", "1.2.0", "1.1.0", "1.3.0", "1.2.0"):
+        rollback = version_compare(version, bridge.fw) <= 0
+        dep = fm.deploy(releases[version], "RIG-1", "tester", rollback=rollback)
+        attempts.append(dep["id"])
+        for state in ("AUTHORIZED", "PREPARING", "WIFI", "MANIFEST", "DOWNLOADING", "VERIFYING", "READY", "REBOOTING"):
+            fm.on_device_frame({"t": "ota", "st": state, "rel": releases[version], "ver": version, "b": fm.release(releases[version])["size"], "n": fm.release(releases[version])["size"], "why": ""})
+        bridge.fw = version
+        fm.on_device_frame({"t": "ota", "st": "CONFIRMED", "rel": "", "ver": version, "b": 0, "n": 0, "why": ""})
+        assert fm.deployment(dep["id"])["state"] == "CONFIRMED"
+        clock[0] += fwm.DEPLOY_MIN_INTERVAL_S + 1
+        bridge.ota_info["_at"] = clock[0]
+    assert len(set(attempts)) == 5 and len(fm.deployments) == 5
+    assert fm.last_known_good("RIG-1")["release"]["version"] == "1.2.0"
+    restored = FirmwareManager(bridge, root=str(tmp_path / "fw"), public_key=keys["pub"], base_url="https://ota.bench.lan", clock=lambda: clock[0], wall=lambda: 1700000000 + clock[0])
+    assert len(restored.deployments) == 5 and restored.last_known_good("RIG-1")["release"]["version"] == "1.2.0"
 
 
 def test_a_corrupt_release_index_fails_closed(tmp_path, keys):
@@ -307,6 +369,17 @@ def test_no_device_means_not_eligible_and_nothing_is_sent(api, keys):
     rec, _ = deployable(c, keys)
     r = deploy(c, rec)
     assert r.status_code == 409 and "device not connected" in r.json()["detail"]["message"]
+
+
+def test_connected_device_with_unknown_drive_state_cannot_be_updated(api, keys):
+    svc, c = api
+    rec, _ = deployable(c, keys)
+    connect_device(svc)
+    original = svc.bridge.snapshot
+    svc.bridge.snapshot = lambda: {**original(), "drive": None}
+    r = deploy(c, rec)
+    assert r.status_code == 409
+    assert "motor drive is not confirmed idle" in r.json()["detail"]["message"]
 
 
 @pytest.mark.parametrize("setup,expected", [

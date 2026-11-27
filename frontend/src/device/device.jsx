@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Usb, Unplug, Cpu, HeartPulse, Gauge, Zap, Thermometer, Plug, Move3d, Activity, Waves, Radio, Wifi } from 'lucide-react';
 import { api } from '../shared/api.js';
 import { Card, Empty, ErrorBox, Pill, fmt, title, PageHead, CardLink, Disclosure, MetricList } from '../components/components.jsx';
-import { WirelessControlCard, WirelessSerialMonitor } from './wirelessWorkspace.jsx';
+import { WirelessControlCard } from './wirelessWorkspace.jsx';
 
 function ConnPill({ snap }) {
   const c = snap?.connection || 'DISCONNECTED';
@@ -21,6 +21,29 @@ const SENSOR_WORDS = { valid: 'Reading valid', unavailable: 'Not reported by thi
 const sensorTone = (v) => (v === 'valid' ? 'ok' : v === 'unavailable' ? 'off' : 'warn');
 
 /* ------------------------------------------------------------------ Device connection */
+// The board's own measurements of its Wi-Fi link (net_info + link_diag frames). Only device-reported values; nothing here is estimated.
+export function LinkDiag({ n }) {
+  const l = n.link || {};
+  const hist = Object.entries(l.send_histogram || {});
+  return (
+    <dl className="tq-kv" data-testid="wifi-link-diag">
+      <dt>Signal (RSSI)</dt><dd className="tq-num">{n.rssi} dBm{n.ip ? ` · IP ${n.ip}` : ''}</dd>
+      <dt>Last firmware reset</dt><dd>{n.reset_reason || '—'}</dd>
+      <dt>Last link end (board)</dt><dd>{n.link_close_cause || '—'}{l.last_close_code ? ` · close code ${l.last_close_code}` : ''}{n.last_link_s != null ? ` · lasted ${n.last_link_s} s` : ''}</dd>
+      <dt>Links since boot</dt><dd className="tq-num">{n.links_since_boot ?? '—'}</dd>
+      <dt>Wi-Fi disconnects</dt><dd>{l.wifi_disconnects ?? '—'}{l.wifi_disconnect_reason ? ` · last: ${l.wifi_disconnect_reason}` : ''}</dd>
+      {l.link_phase && <><dt>Board link task</dt><dd>{l.link_phase} for {l.link_phase_s} s</dd></>}
+      {l.tcp_stalls != null && <><dt>TCP stalls waited out</dt><dd className="tq-num">{l.tcp_stalls} · longest {l.longest_stall_ms} ms</dd></>}
+      <dt>Wi-Fi power save</dt><dd>{l.power_save || '—'} · TCP no-delay {l.tcp_nodelay_sockets ? 'on' : 'off'}</dd>
+      <dt>Send time (this link)</dt><dd className="tq-num">avg {l.avg_send_ms ?? '—'} ms · max {n.max_send_ms ?? '—'} ms · {l.frames_sent ?? 0} messages</dd>
+      {hist.length > 0 && <><dt>Send time histogram</dt><dd className="tq-num">{hist.map(([k, v]) => `${k}: ${v}`).join(' · ')}</dd></>}
+      <dt>Dropped (telemetry / priority / inbound)</dt><dd className="tq-num">{l.telemetry_dropped ?? 0} / {l.priority_dropped ?? 0} / {l.rx_dropped ?? 0}</dd>
+      <dt>Queue peaks (priority / telemetry)</dt><dd className="tq-num">{l.prio_queue_peak ?? '—'} / 16 · {l.tele_queue_peak ?? '—'} / 24</dd>
+      <dt>Heap (free / minimum)</dt><dd className="tq-num">{n.heap ?? '—'} / {l.min_free_heap ?? '—'} B</dd>
+      <dt>Stack left (link / OLED task)</dt><dd className="tq-num">{l.link_task_stack_free ?? '—'} / {l.oled_task_stack_free ?? '—'} B</dd>
+    </dl>);
+}
+
 export function DevicePage({ stream, role, go, simMode = false, embedded = false }) {
   const { snap, events, ws, error } = stream;
   const [ports, setPorts] = useState([]);
@@ -35,7 +58,9 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
   const act = (fn) => async () => { setBusy(true); setErr(null); try { await fn(); } catch (e) { setErr(e); } finally { setBusy(false); stream.refresh(); } };
   const connected = snap && snap.connection && snap.connection !== 'DISCONNECTED' && snap.connection !== 'ERROR';
   const c = snap?.counters || {};
-  const headTone = snap?.connection === 'ERROR' ? 'crit' : !connected ? 'off' : o.physical ? (snap.telemetry_fresh ? 'ok' : 'warn') : 'warn';
+  const rdy = snap?.readiness;
+  // Telemetry arriving is not the same as being able to command the device: a Wi-Fi link that is not command-ready is never drawn green.
+  const headTone = snap?.connection === 'ERROR' || rdy?.state === 'COMMUNICATION_FAILURE' ? 'crit' : !connected ? 'off' : o.physical ? (snap.telemetry_fresh && (rdy ? rdy.ready : true) ? 'ok' : 'warn') : 'warn';
   const via = transportOf(snap);
   const baseWord = snap?.connection === 'ERROR' ? 'Connection error' : !connected ? 'Disconnected' : snap?.connection === 'CONNECTING' ? (override ? 'Connected (direct mode)' : 'Connecting') : !snap.handshake && !override ? 'No handshake' : !o.physical && !override ? 'Connected (firmware simulation)' : snap.telemetry_fresh ? 'Connected' : 'Connected · telemetry stale';
   const headWord = via && connected ? `${baseWord} — ${via}` : baseWord;
@@ -52,26 +77,36 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
             <span className="tq-mon-connicon" aria-hidden="true">{!connected ? <Unplug size={20} /> : snap?.transport?.kind === 'wifi' ? <Wifi size={20} /> : <Usb size={20} />}</span>
             <div>
               <strong data-testid="conn-head">{headWord}</strong>
-              <span>{snap?.transport?.kind === 'wifi' ? `Wi-Fi link from ${snap.transport.remote}` : snap?.port ? `Port ${snap.port}` : 'No port open'}{snap?.firmware ? ` · firmware ${snap.firmware}` : ''}{snap?.device_profile ? ` · profile ${snap.device_profile}` : ''}</span>
+              <span>{snap?.transport?.kind === 'wifi' ? `Wi-Fi link from ${snap.transport.remote}` : snap?.port ? <>Port <span className="tq-num">{snap.port}</span></> : 'No port open'}{snap?.firmware ? ` · firmware ${snap.firmware}` : ''}{snap?.device_profile ? ` · profile ${snap.device_profile}` : ''}</span>
             </div>
+            <ConnPill snap={snap} />
           </div>
+          {rdy && connected && (
+            <p className={`tq-callout ${rdy.ready ? 'ok' : rdy.state === 'COMMUNICATION_FAILURE' ? 'crit' : 'warn'} tq-small`} role="status" data-testid="conn-readiness">
+              <strong>{rdy.label}</strong>{rdy.ready ? ' — commands are routed over this link.' : ' — commands are not routed yet.'}
+              {rdy.reasons?.length > 0 && <> {rdy.reasons.join(' ')}</>}
+            </p>)}
           <dl className="tq-kv">
             <dt>State</dt><dd data-testid="state-label"><strong>{snap?.state_label || 'DISCONNECTED'}</strong></dd>
             <dt>Connection method</dt><dd data-testid="conn-method">{via || 'none'}</dd>
-            <dt>Link state</dt><dd><ConnPill snap={snap} /></dd>
             <dt>Device authenticated (per-device key)</dt><dd data-testid="conn-auth">{snap?.session?.active ? <Pill tone="ok">yes</Pill> : <Pill tone="off">no</Pill>}</dd>
-            <dt>Last device frame</dt><dd>{connected && snap?.last_rx_unix ? ago(snap.last_rx_unix) : 'none'}</dd>
             <dt>Live updates (WebSocket only; says nothing about USB)</dt><dd>{ws === 'open' ? <Pill tone="ok">connected</Pill> : <Pill tone="warn">{ws === 'idle' ? 'off' : ws}</Pill>}</dd>
+            {wl?.enabled && snap?.transport?.kind !== 'wifi' && rdy?.wifi_standby && (
+              <><dt>Wi-Fi standby (ready to unplug USB?)</dt>
+                <dd data-testid="wifi-standby"><Pill tone={rdy.wifi_standby.ready ? 'ok' : rdy.wifi_standby.state === 'NONE' ? 'off' : 'warn'}>{rdy.wifi_standby.ready ? 'ready' : rdy.wifi_standby.state.toLowerCase()}</Pill> <span className="tq-small tq-muted">{rdy.wifi_standby.reason}</span></dd></>)}
           </dl>
           {wl && (wl.enabled || wl.events?.length > 0) && (
             <details className="tq-disclosure" data-testid="wifi-link-details">
               <summary>Advanced details: Wi-Fi device link</summary>
               <dl className="tq-kv">
                 <dt>Wi-Fi device links</dt><dd>{wl.enabled ? 'accepted by this backend' : 'off (TORQVA_DEVICE_LINK is not set)'}</dd>
-                <dt>Active link</dt><dd>{wl.active ? `from ${wl.remote}, since ${clock(wl.since)}` : 'none'}</dd>
+                <dt>Active link</dt><dd>{wl.active ? `from ${wl.remote}, since ${clock(wl.since)}${wl.silent_s != null ? ` · last data ${wl.silent_s} s ago` : ''}` : 'none'}</dd>
+                <dt>Standby link</dt><dd data-testid="wifi-standby-link">{wl.standby ? `from ${wl.standby.remote}, since ${clock(wl.standby.since)} · claims ${wl.standby.claimed_device_id || '—'} · ${wl.standby.authenticated ? `key proven (${wl.standby.verified_device_id})` : 'key not proven yet'} ·${wl.standby.messages} messages · last ${wl.standby.silent_s} s ago` : 'none'}</dd>
+                <dt>Standby promotions (USB → Wi-Fi)</dt><dd className="tq-num">{wl.promotions ?? 0}</dd>
                 <dt>Connection attempts</dt><dd className="tq-num">{wl.attempts}</dd>
                 {wl.usb_autoconnect_paused && <><dt>USB auto-connect</dt><dd>paused while the Wi-Fi link lasts</dd></>}
               </dl>
+              {snap?.net_info?.link && <LinkDiag n={snap.net_info} />}
               {wl.events?.length > 0 && <ol className="tq-mon-events">{wl.events.slice().reverse().map((e, i) => <li key={i}>{clock(e.at)} · {e.kind}{e.remote ? ` · ${e.remote}` : ''}{e.reason ? ` · ${e.reason}` : ''}</li>)}</ol>}
             </details>)}
           {!snap?.handshake && !override && <p className="tq-callout">No device handshake. {simMode ? <>The application is in <strong>SIMULATION</strong>; physical</> : 'Physical'}-device telemetry is unavailable and physical motor controls are disabled.</p>}
@@ -118,8 +153,6 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
             { key: 'fw', label: 'Firmware', value: snap?.firmware || null },
             { key: 'fwmode', label: 'Firmware mode', value: snap?.firmware_mode || null },
             { key: 'proto', label: 'Wire protocol', value: snap?.wire_protocol ?? null },
-            { key: 'port', label: 'Serial port', value: snap?.port || null },
-            { key: 'transport', label: 'Transport', value: snap?.transport_label || null },
           ]} />
         </Card>
 
@@ -160,8 +193,7 @@ export function DevicePage({ stream, role, go, simMode = false, embedded = false
         {!events.length ? <Empty>No events yet.</Empty> : (
           <ul className="tq-feed">{events.slice(0, 12).map((e) => (<li key={e.k}><Pill tone={/error|disconnected|fault|timed|unknown|rejected/.test(e.name) ? 'crit' : 'info'}>{title(e.name)}{e.total > 1 ? ` ×${e.total}` : ''}</Pill><span className="tq-muted">{clock(e.ts)} · {JSON.stringify(e.data).slice(0, 90)}</span></li>))}</ul>)}
       </Card>
-      <div className="tq-mt"><WirelessControlCard admin={admin} operator={role === 'operator' || role === 'admin'} snap={snap} onRefreshed={stream.refresh} /></div>
-      <div className="tq-mt"><WirelessSerialMonitor /></div>
+      <div className="tq-mt"><WirelessControlCard part="discovery" admin={admin} operator={role === 'operator' || role === 'admin'} snap={snap} onRefreshed={stream.refresh} /></div>
       <p className="tq-small tq-muted tq-mt">Trust boundary: {snap?.usb_trust_boundary || 'USB serial is unauthenticated; it is treated as inside the host computer\'s physical trust boundary.'}</p>
     </>
   );

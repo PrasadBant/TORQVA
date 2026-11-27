@@ -98,6 +98,11 @@ def test_compiler_workspace_security_and_zip_validation(tmp_path):
     job_dir = Path(tmp_path / "jobs" / job["id"])
     assert (job_dir / "src" / "user_sketch.cpp").exists()
     assert not any("PRIVATE" in p.read_text(errors="ignore") for p in job_dir.rglob("*.h"))
+    cancelled = comp.cancel_job(job["id"])
+    assert cancelled["state"] == "CANCELLED" and "cancelled" in cancelled["error"]
+    with pytest.raises(CompilerError) as exc:
+        comp.cancel_job(job["id"])
+    assert exc.value.code == "NOT_CANCELLABLE"
 
 
 def test_compiler_diagnostic_and_memory_parsers():
@@ -274,6 +279,21 @@ def test_unified_provision_wireless_builds_nvs_tls_and_signing_keys(tmp_path):
     )
     assert nvs_out.exists() and nvs_out.stat().st_size == 0x5000
     assert keys_file.exists()
+
+    # Updating Wi-Fi/CA material reuses the established authentication key;
+    # an identity rotation must never happen as an incidental side effect.
+    original_keys = keys_file.read_bytes()
+    second_nvs = tmp_path / "nvs-second.bin"
+    pw_mod.build_nvs_image(
+        device_id="RIG-1",
+        ssid="TestBenchNet",
+        password="new-password-456",
+        base_url="https://192.168.1.50:8443",
+        ca_pem_path=tls["ca"],
+        keys_file=keys_file,
+        out_bin=second_nvs,
+    )
+    assert second_nvs.exists() and keys_file.read_bytes() == original_keys
 
     # Refuses --flash without --motor-power-disconnected
     rc = subprocess.run(

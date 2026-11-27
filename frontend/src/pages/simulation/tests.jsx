@@ -265,6 +265,7 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale, go }) {
 
         {tab === 'available' && (
           <TabPanel tab="available" idBase="c4-tab">
+            <div>
             <Card title="Available tests" id="c-catalog" icon={FlaskConical} sub="Add tests to a sequence below" right={<ProvBadge kind="SIMULATED" />}>
               <div className="tq-catalog" data-testid="test-catalog">
                 {cards.map(([k, x]) => {
@@ -315,6 +316,7 @@ export function SimTestsPage({ d, role, c2c4, wb, setWb, stale, go }) {
               </div>
               <ErrorBox error={err} />
             </Card>
+            </div>
           </TabPanel>)}
 
         {tab === 'results' && (

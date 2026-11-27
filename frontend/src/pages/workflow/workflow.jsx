@@ -279,7 +279,9 @@ function AgainFold({ folded, children }) {
 
 function Configuration({ physical, ctx, patterns, chosen, setSel, policy, setPolicy, hasRecord, ctl, role, stale, running, busy, onRun, error, onRefresh }) {
   const failing = chosen ? chosen.prerequisites.filter((p) => !p.ok).map((p) => (p.detail ? `${p.check} — ${p.detail}` : p.check)) : [];
-  const why = [!ctl && `Running a workflow requires the operator or admin role (you are ${role || 'signed in without a role'}).`, stale && 'The backend is not answering, so the motor state is not current.'].filter(Boolean);
+  const why = [!ctl && `Running a workflow requires the operator or admin role (you are ${role || 'signed in without a role'}).`, stale && 'The backend is not answering, so the motor state is not current.',
+    chosen && !chosen.available && failing.length === 0 && 'The backend reports that the selected test pattern is not currently available.',
+    failing.length > 0 && `Resolve the failing prerequisite${failing.length === 1 ? '' : 's'} before starting: ${failing.join('; ')}.`].filter(Boolean);
   return (
     <Card title={hasRecord ? 'Start another workflow' : 'Motor status and test selection'} id="wf-config" icon={FlaskConical}
       sub={hasRecord ? 'Steps 1–2 for a new run. The record above stays until the new run answers.' : 'Confirm the motor can be tested, then choose a test pattern.'}
@@ -290,7 +292,7 @@ function Configuration({ physical, ctx, patterns, chosen, setSel, policy, setPol
         <span className="tq-an-ctx-item"><span>Mode</span><strong>{physical ? <><Usb size={13} aria-hidden="true" /> Physical</> : <><FlaskConical size={13} aria-hidden="true" /> Simulation</>}</strong></span>
         <span className="tq-an-ctx-item"><span>Data source</span><strong><SourceTag kind={physical ? 'PHYSICAL' : 'SIMULATED'} /></strong></span>
         {physical ? <span className="tq-muted tq-small tq-an-ctx-note">Physical device: prerequisites are read from the device's own status; no simulator data is shown here.</span> : !ctx ? (
-          <span className="tq-muted tq-small tq-an-ctx-note">No simulation is running. Start a scenario on the Overview or Live Monitor page.</span>) : (<>
+          <span className="tq-muted tq-small tq-an-ctx-note">No simulation is running. Start a scenario in Scenario Studio.</span>) : (<>
           {ctx.session && <span className="tq-an-ctx-item"><span>Session</span><strong className="tq-num">{ctx.session}</strong></span>}
           {ctx.t != null && <span className="tq-an-ctx-item"><span>Simulation time</span><strong className="tq-num">t = {fmt(ctx.t, 0)} s</strong></span>}
           <span className="tq-an-ctx-item"><span>Setpoint</span><strong className="tq-num">{rpm(ctx.setpoint_rpm)} rpm</strong></span>
@@ -340,14 +342,15 @@ function Configuration({ physical, ctx, patterns, chosen, setSel, policy, setPol
           <button type="button" className="tq-btn" aria-pressed={policy === 'auto_when_permitted'} onClick={() => setPolicy('auto_when_permitted')} disabled={busy}>Execute automatically when every gate permits</button>
         </div>
         <button type="button" className="tq-btn tq-primary tq-wf-go" onClick={onRun} data-testid="wf-run"
-          disabled={!chosen || !ctl || stale || busy}>
+          disabled={!chosen || !chosen.available || failing.length > 0 || !ctl || stale || busy}
+          aria-describedby={why.length ? 'wf-run-blocked' : undefined}>
           {running ? <Loader2 size={15} className="tq-spin" aria-hidden="true" /> : <Play size={15} aria-hidden="true" />} {running ? 'Running diagnostic workflow…' : 'Run Diagnostic Workflow'}</button>
       </div>
       <p className="tq-muted tq-small">
         {policy === 'auto_when_permitted' ? 'Executes the recommended REDUCE SPEED or STOP directly.'
           : 'TORQVA shows which action, RPM and evidence you are authorizing.'}
       </p>
-      {why.length > 0 && <p className="tq-callout warn tq-small">{why.join(' ')}</p>}
+      {why.length > 0 && <p id="wf-run-blocked" className="tq-callout warn tq-small">{why.join(' ')}</p>}
       </AgainFold>
     </Card>
   );
