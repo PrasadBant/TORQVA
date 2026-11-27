@@ -635,3 +635,23 @@ def test_encode_round_trips_interleaved_namespaces_and_never_injects_wifi_extras
     back = parse_partition(encode_partition(entries, NVS_SIZE))
     assert {k: (v.encoding, v.value) for k, v in back.items()} == {(e.namespace, e.key): (e.encoding, e.value) for e in entries}
     assert ("nvs.net80211", "sta.pmk") not in back and ("torqva", "pass") not in back
+
+
+def test_unplug_is_requested_only_after_the_wifi_standby_link_is_verified(tmp_path):
+    """The cable-pull instruction comes after Wi-Fi was seen working with USB still connected (standby link), never before."""
+    rig = build_rig(tmp_path, usb_unplug_after=None)
+    b = rig["bridge"]
+    b.standby_when_usb, b.unplug_on_standby = True, True
+    job = start(rig)
+    assert job["state"] == "PAIRED_WIRELESS", job
+    assert job["checks"].get("wifi_standby") is True
+    text = " ".join(str(x) for x in job["logs"])
+    assert text.index("Keep USB connected") < text.index("Unplug the USB cable now")
+
+
+def test_without_a_standby_link_the_user_is_never_told_to_unplug(tmp_path):
+    rig = build_rig(tmp_path, usb_unplug_after=None)                  # no standby link appears and nobody unplugs
+    job = start(rig)
+    assert job["state"] == "WIRELESS_PENDING"
+    assert "Unplug the USB cable now" not in " ".join(str(x) for x in job["logs"])
+    assert not job["checks"].get("wifi_standby")

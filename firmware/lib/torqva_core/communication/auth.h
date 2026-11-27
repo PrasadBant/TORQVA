@@ -7,6 +7,8 @@
 //   device -> {"t":"auth_ok","sid":"<16 hex>","ttl":<ms>}                      sid = HMAC(key,"sid|cn|dn")[0..8], session key sk = HMAC(key,"sk|cn|dn")
 //   command carries "sid", "seq" (> every earlier seq of the session) and "m" = HMAC(sk, canonical)[0..16] over  id|type|p|p2|p3|ttl|seq|age|sid  (numbers as %lu / %.3f)
 //
+//   standby identity (no session effect):  host -> {"t":"id_ch","cn":"<32 hex>"}   device -> {"t":"id_ok","dn":"<32 hex>","proof":HMAC(key,"idp|cn|dn|device_id"),"dev":"<id>"}
+//
 // NOT provided: confidentiality. USB serial remains inside the host's physical trust boundary; this does not make the link private.
 // A reboot, a new hello, an expired ttl or a failed proof all end the session; nothing is ever carried over. One guess per hello (a failed proof clears the pending challenge).
 #pragma once

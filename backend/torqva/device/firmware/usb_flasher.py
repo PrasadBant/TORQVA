@@ -81,7 +81,8 @@ class UsbFlasher:
         try:
             job.update({"state": "RELEASING_PORT", "detail": "releasing TORQVA serial ownership before invoking esptool"})
             if self.fm.bridge is not None and hasattr(self.fm.bridge, "disconnect"): self.fm.bridge.disconnect()
-            cmd = [sys.executable, "-m", "esptool", "--chip", "esp32s3", "--port", job["port"], "--baud", "460800", "write-flash", "--flash-mode", "keep", "--flash-freq", "keep", "--flash-size", "keep", "0x10000", str(self.fm.store.image_path(rec["sha256"]))]
+            # underscore spellings: the only ones esptool 4.x accepts, and still accepted (as aliases) by esptool 5.x
+            cmd = [sys.executable, "-m", "esptool", "--chip", "esp32s3", "--port", job["port"], "--baud", "460800", "write_flash", "--flash_mode", "keep", "--flash_freq", "keep", "--flash_size", "keep", "0x10000", str(self.fm.store.image_path(rec["sha256"]))]
             job.update({"state": "TRANSFERRING", "detail": "esptool is writing the signed application image"})
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, shell=False)
             job["process"] = proc

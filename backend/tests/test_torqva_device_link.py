@@ -57,11 +57,22 @@ class WsDevice:
                                "blk": "", "busy": 0, **({"prof": prof} if prof else {})})); self.seq += 1
 
     def recv(self, t):
+        """Like the firmware (wifi_link.cpp feed_lines): one message may carry several newline-separated lines."""
+        pending = getattr(self, "_pending", [])
         for _ in range(50):
-            m = json.loads(self.ws.receive_text())
+            if not pending:
+                pending.extend(x for x in self.ws.receive_text().split("\n") if x)
+            m = json.loads(pending.pop(0))
             if m.get("t") == t:
+                self._pending = pending
                 return m
         raise AssertionError(f"no {t}")
+
+    def prove_identity(self):
+        """Answer the backend's standby identity challenge the way the firmware does (auth.cpp id_ch): keyed, no session effect."""
+        cn = self.recv("id_ch")["cn"]
+        dn = secrets.token_hex(16)
+        self.frame(json.dumps({"t": "id_ok", "dn": dn, "proof": hmac.new(self.key, f"idp|{cn}|{dn}|{self.dev}".encode(), hashlib.sha256).hexdigest(), "dev": self.dev}))
 
     def handshake(self):
         cn = self.recv("hello")["cn"]
@@ -186,9 +197,25 @@ def test_led_bench_usb_hands_over_to_wifi_but_production_usb_is_not_displaced(ap
                 assert wait(lambda: b.session_active())
                 assert b.snapshot()["transport"]["kind"] == "wifi" and b._transport is not usb
         else:
-            assert refusal(c) == 4409
-            assert b._transport is usb
-            b.disconnect("next case")
+            # Production USB keeps the command session; the board's Wi-Fi link waits as STANDBY (nothing is sent on it, so no second session starts) and
+            # takes over, with its own new authenticated session, when the USB session ends.
+            with c.websocket_connect(LINK) as ws:
+                d = WsDevice(ws); d.boot(prof=prof)
+                assert wait(lambda: b.link.standby is not None and b.link.standby.standby_dev == "RIG-1")
+                assert b.snapshot()["readiness"]["wifi_standby"]["state"] == "AUTHENTICATING"      # a claimed id alone is not trusted
+                d.prove_identity()
+                assert wait(lambda: b.link.standby.id_verified_dev == "RIG-1")
+                # the board reports its own Wi-Fi address over the USB session; standby is "ready" only for a link from that address
+                usb.feed(json.dumps({"t": "net_info", "seq": 0, "ts": 5, "ip": b.link.standby.remote, "ssid": "bench", "rssi": -50, "mac": "aa", "heap": 1, "up_s": 5}))
+                assert wait(lambda: b.device_net_info.get("ip") == b.link.standby.remote)
+                assert b._transport is usb and not b.session_active()
+                assert b.snapshot()["readiness"]["wifi_standby"]["state"] == "READY"
+                b.disconnect("USB cable pulled")
+                assert wait(lambda: getattr(b._transport, "kind", None) == "wifi", 5.0)
+                assert b.link.standby is None and b.link.promotions == 1
+                d.boot(prof=prof); assert d.handshake()
+                assert wait(lambda: b.session_active())
+            assert wait(lambda: not b.connected, 5.0)
         wait(lambda: not b.connected)
 
 
@@ -201,3 +228,24 @@ def test_a_replayed_or_gapped_sequence_over_wifi_is_counted_like_on_usb(app):
         d.frame(line); d.frame(line)                                               # duplicate
         d.frame(status(d.seq + 5, blk=""))                                         # gap
         assert wait(lambda: b.snapshot()["counters"]["duplicates"] >= 1 and b.snapshot()["counters"]["gaps"] >= 1)
+
+
+def test_a_session_renewal_gap_does_not_close_the_link_but_a_lasting_absence_does(app, monkeypatch):
+    """Measured on RIG-1 (27 Nov): the watchdog closed a healthy link during the ~0.5 s of a routine session renewal. Only a CONTINUOUS absence of a
+    session for LINK_AUTH_TIMEOUT_S may close it."""
+    svc, c = app
+    b = svc.bridge
+    monkeypatch.setattr(dl, "LINK_AUTH_TIMEOUT_S", 1.5)
+    with c.websocket_connect(LINK) as ws:
+        d = WsDevice(ws); d.boot(); assert d.handshake()
+        assert wait(lambda: b.session_active())
+        real = b.session_active
+        gap = {"until": 0.0}
+        monkeypatch.setattr(b, "session_active", lambda: False if time.time() < gap["until"] else real())
+        for _ in range(3):                                         # three renewal-like gaps of 0.8 s, each shorter than the deadline
+            gap["until"] = time.time() + 0.8
+            time.sleep(1.4)
+            d.frame(status(d.seq, blk="")); d.seq += 1             # the board keeps talking (the link is alive)
+            assert getattr(b._transport, "kind", None) == "wifi", "a renewal gap closed the link"
+        gap["until"] = time.time() + 10.0                          # now a lasting absence: the link must be closed
+        assert wait(lambda: b._transport is None, 6.0)

@@ -65,6 +65,26 @@ def test_net_info_link_diagnostics_are_validated_and_named():
                        "rr": 9, "lc": 1, "le": 104, "lu": 23, "ln": 7, "lr": -71, "sm": 1004})
     f = parse_frame(line)
     d = net_link_diagnostics(f)
-    assert d["reset_reason"].startswith("brown-out") and d["link_close_cause"] == "send failed or timed out" and d["links_since_boot"] == 7 and d["link_errno"] == 104
+    assert d["reset_reason"].startswith("brown-out") and d["link_close_cause"].startswith("send failed or timed out") and d["links_since_boot"] == 7 and d["link_errno"] == 104
     old = parse_frame(json.dumps({"t": "net_info", "seq": 0, "ts": 5, "ip": "1.2.3.4", "ssid": "x", "rssi": -60, "mac": "AA", "heap": 1, "up_s": 2}))
     assert net_link_diagnostics(old) == {}                                         # an older firmware still validates
+
+
+def test_wifi_standby_is_ready_only_for_a_live_link_from_this_boards_own_address():
+    sb = {"remote": "10.0.0.5", "claimed_device_id": "RIG-1", "silent_s": 0.3, "alive": True, "authenticated": True, "verified_device_id": "RIG-1"}
+    usb = {"kind": "usb", "port": "COM7"}
+    view = lambda **kw: rd.compute(snap(transport=usb, device_id="RIG-1", **kw), NOW)["wifi_standby"]
+    assert view(wifi_link={"events": []})["state"] == "NONE"
+    assert view(wifi_link={"events": [], "standby": {**sb, "alive": False, "silent_s": 9}})["state"] == "SILENT"
+    assert view(wifi_link={"events": [], "standby": {**sb, "claimed_device_id": None}})["state"] == "WAITING"
+    assert view(wifi_link={"events": [], "standby": {**sb, "claimed_device_id": "RIG-2"}}, net_info={"ip": "10.0.0.5"})["state"] == "MISMATCH"
+    assert view(wifi_link={"events": [], "standby": sb})["state"] == "WAITING"                       # no Wi-Fi address reported over USB yet
+    spoof = view(wifi_link={"events": [], "standby": sb}, net_info={"ip": "10.0.0.9"})               # another host on the LAN claiming RIG-1
+    assert spoof["state"] == "MISMATCH" and not spoof["ready"] and "10.0.0.9" in spoof["reason"]
+    ok = view(wifi_link={"events": [], "standby": sb}, net_info={"ip": "10.0.0.5"})
+    assert ok["state"] == "READY" and ok["ready"]
+
+    unproven = view(wifi_link={"events": [], "standby": {**sb, "authenticated": False, "verified_device_id": None}}, net_info={"ip": "10.0.0.5"})
+    assert unproven["state"] == "AUTHENTICATING" and not unproven["ready"]                         # right address and claimed id, but no keyed proof yet
+    other = view(wifi_link={"events": [], "standby": {**sb, "verified_device_id": "RIG-2"}}, net_info={"ip": "10.0.0.5"})
+    assert other["state"] == "MISMATCH"

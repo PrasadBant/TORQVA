@@ -248,3 +248,26 @@ def test_current_network_details_for_the_status_panel(rig):
     assert cur["connected"] and cur["transport"] == "wifi" and cur["device_id"] == DEVICE
     assert cur["ssid"] == "HomeNet" and cur["configured_ssid"] == "HomeNet" and cur["staging_supported"] is True
     assert cur["bars"] == 4 and cur["rssi"] == -55 and cur["band"] == "2.4 GHz" and cur["trial"] is False and cur["session_active"] and cur["telemetry_fresh"]
+
+
+def test_a_board_back_on_its_old_network_as_a_proven_standby_link_counts_as_rolled_back(tmp_path):
+    """Measured on RIG-1 (27 Nov): during the trial USB took the command session; when the board came back on its old network its Wi-Fi link was a STANDBY
+    link that proved the device key. The job must recognise that (it used to report 'has not come back')."""
+    rig = build(tmp_path, networks={"HomeNet": {"password": "password1", "gateway_ok": True}})          # the staged network does not exist
+    b = rig["bridge"]
+    real_stage, real_snap = b.request_wifi_stage, b.snapshot
+    staged = {"on": False}
+
+    def stage(*a, **k):
+        staged["on"] = True
+        return real_stage(*a, **k)
+
+    def snap():
+        s = real_snap()
+        if staged["on"] and (s.get("transport") or {}).get("kind") == "wifi" and not (s.get("wifi_state") or {}).get("trial"):
+            s = {**s, "transport": {"kind": "usb", "port": "COM10"}, "readiness": {"wifi_standby": {"state": "READY", "ready": True}}}
+        return s
+    b.request_wifi_stage, b.snapshot = stage, snap
+    job = switch(rig)
+    assert job["state"] == "ROLLED_BACK", job
+    assert b.commit_calls == 0 and b.committed_ssid == "HomeNet"

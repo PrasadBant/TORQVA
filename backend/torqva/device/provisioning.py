@@ -817,7 +817,7 @@ class WifiProvisioner:
             # USB pairing verified; release the lock before the optional wireless wait (unplugging the cable must not block other work).
             held.release()
             job["wait_until"] = self.wall() + self.wireless_timeout_s
-            self._set(job, secrets, "WIRELESS_WAIT", "USB pairing verified. Unplug the USB data cable; the board joins Wi-Fi and TORQVA confirms the wireless link")
+            self._set(job, secrets, "WIRELESS_WAIT", "USB pairing verified. Keep USB connected: waiting for the board's Wi-Fi link to be verified before you unplug")
             if self._wait_wireless(job, secrets):
                 if job["staged"]:
                     self._set(job, secrets, "COMMITTING", "paired and telemetry is fresh; committing the new network on the board")
@@ -912,9 +912,24 @@ class WifiProvisioner:
         job["checks"]["telemetry_fresh"] = True
         self._log(job, secrets, f"verified device {job['device_id']} over USB")
 
+    def _standby_ready(self) -> bool:
+        return bool(((self.bridge.snapshot().get("readiness") or {}).get("wifi_standby") or {}).get("ready"))
+
     def _wait_wireless(self, job: Dict[str, Any], secrets: Dict[str, Any]) -> bool:
         since_wall = self.wall()
-        ok, why = self.verifier.wait(lambda: self.verifier.wireless_ok(job["device_id"], job["ssid"], since_wall - 5.0), self.wireless_timeout_s, 2.0)
+        wireless = lambda: self.verifier.wireless_ok(job["device_id"], job["ssid"], since_wall - 5.0)
+        # Phase 1, USB still plugged in: the board's Wi-Fi link arrives as a STANDBY link (USB keeps the session). Only once it is live, from the board's own
+        # address, is the user told to unplug, so the cable is never pulled before Wi-Fi is known to work.
+        ok, why = self.verifier.wait(lambda: (True, "") if (wireless()[0] or self._standby_ready()) else (False, "waiting for the board's Wi-Fi link"),
+                                     self.wireless_timeout_s, 2.0)
+        if ok and not wireless()[0]:
+            job["checks"]["wifi_standby"] = True
+            job["wait_until"] = self.wall() + self.wireless_timeout_s
+            self._set(job, secrets, "WIRELESS_WAIT", "Wi-Fi verified while USB is connected (standby link from this board). Unplug the USB cable now: "
+                                                     "the board continues over Wi-Fi and authenticates there")
+            ok, why = self.verifier.wait(wireless, self.wireless_timeout_s, 2.0)
+        elif ok:
+            ok, why = True, ""
         if not ok:
             self._log(job, secrets, f"wireless pairing not verified: {why}")
             return False

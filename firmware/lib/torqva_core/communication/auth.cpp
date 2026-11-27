@@ -68,11 +68,27 @@ void SessionAuth::end() {
 int SessionAuth::handle(const char* line, uint32_t now_ms, char* out, size_t n, char sid_out[33]) {
     char t[12];
     if (!line || !str_field(line, "t", t, sizeof(t))) return 0;
-    const bool hello = strcmp(t, "hello") == 0, auth = strcmp(t, "auth") == 0;
-    if (!hello && !auth) return 0;
+    const bool hello = strcmp(t, "hello") == 0, auth = strcmp(t, "auth") == 0, idch = strcmp(t, "id_ch") == 0;
+    if (!hello && !auth && !idch) return 0;
     if (strlen(line) > 200) { reply_err(out, n, "LINE_TOO_LONG"); return 1; }
     if (!cfg_.enabled || !cfg_.rand32) { reply_err(out, n, "NO_KEY"); return 1; }
     const char* dev = cfg_.device_id ? cfg_.device_id : "";
+
+    if (idch) {
+        // Identity proof for a STANDBY link (the backend's second, unused transport). Stateless: it neither ends nor starts a session and leaves any pending
+        // challenge alone, so proving the Wi-Fi link while USB holds the session cannot cause SESSION_REPLACED. Domain-separated ("idp"), so the proof is
+        // useless for the session handshake ("dev" / "cli").
+        char cn[33];
+        if (!str_field(line, "cn", cn, sizeof(cn)) || strlen(cn) != 32 || !is_hex(cn, 32)) { reply_err(out, n, "BAD_ID_CH"); return 1; }
+        uint8_t raw[16]; char dn[33];
+        for (int i = 0; i < 4; i++) { const uint32_t r = cfg_.rand32(); raw[4 * i] = (uint8_t)(r >> 24); raw[4 * i + 1] = (uint8_t)(r >> 16); raw[4 * i + 2] = (uint8_t)(r >> 8); raw[4 * i + 3] = (uint8_t)r; }
+        to_hex(raw, 16, dn);
+        char msg[120], proof[65];
+        snprintf(msg, sizeof(msg), "idp|%s|%s|%s", cn, dn, dev);
+        hmac_hex(cfg_.key, msg, 32, proof);
+        snprintf(out, n, "{\"t\":\"id_ok\",\"dn\":\"%s\",\"proof\":\"%s\",\"dev\":\"%s\"}", dn, proof, dev);
+        return 1;
+    }
 
     if (hello) {
         char cn[33];

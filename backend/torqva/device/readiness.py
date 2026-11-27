@@ -54,8 +54,35 @@ def compute(snap: Dict[str, Any], now: Optional[float] = None) -> Dict[str, Any]
     hb_ok = isinstance(hb, (int, float)) and hb < HB_FRESH_MS
     reasons: List[str] = []
 
+    sb = link.get("standby") or None
+
+    def standby_view() -> Dict[str, Any]:
+        """Is it safe to pull the USB cable? Only when a live Wi-Fi standby link from THIS device is attached (claimed id, verified again on promotion)."""
+        if not sb:
+            return {"state": "NONE", "ready": False, "reason": "no Wi-Fi standby link is attached"}
+        expected = snap.get("device_id")
+        if not sb.get("alive"):
+            return {"state": "SILENT", "ready": False, "reason": f"the standby link has been silent for {sb.get('silent_s')} s"}
+        if not sb.get("authenticated"):
+            why = f" ({sb.get('identity_failures')} failed proofs)" if sb.get("identity_failures") else ""
+            return {"state": "AUTHENTICATING", "ready": False, "reason": "the standby link is up; waiting for the board's keyed identity proof" + why}
+        if expected and sb.get("verified_device_id") != expected:
+            return {"state": "MISMATCH", "ready": False, "reason": f"the standby link proved device {sb.get('verified_device_id')}, the USB session is {expected}"}
+        if not sb.get("claimed_device_id"):
+            return {"state": "WAITING", "ready": False, "reason": "the standby link is up; waiting for the device's status frame"}
+        if expected and sb.get("claimed_device_id") != expected:
+            return {"state": "MISMATCH", "ready": False, "reason": f"the standby link claims device {sb.get('claimed_device_id')}, the USB session is {expected}"}
+        # The claimed id is not authenticated (any host that reaches the gateway could send it). The board's own Wi-Fi address, reported over the USB session,
+        # must be the address the standby link comes from.
+        usb_ip = (snap.get("net_info") or {}).get("ip")
+        if not usb_ip or usb_ip == "0.0.0.0":
+            return {"state": "WAITING", "ready": False, "reason": "waiting for the board to report its Wi-Fi address over USB"}
+        if usb_ip != sb.get("remote"):
+            return {"state": "MISMATCH", "ready": False, "reason": f"the standby link comes from {sb.get('remote')}, but the board reports its Wi-Fi address as {usb_ip}"}
+        return {"state": "READY", "ready": True, "reason": "Wi-Fi standby link is live and proved this board's key; it takes over (with a new authenticated session) when the USB session ends"}
+
     def out(state: str, ready: bool) -> Dict[str, Any]:
-        return {"state": state, "label": LABELS[state], "ready": ready, "reasons": reasons, "wifi_drops_recent": _recent_drops(events, now)}
+        return {"state": state, "label": LABELS[state], "ready": ready, "reasons": reasons, "wifi_drops_recent": _recent_drops(events, now), "wifi_standby": standby_view()}
 
     if snap.get("error") and (snap.get("connection") == "ERROR" or not tr):
         reasons.append(str((snap.get("error") or {}).get("message") or "the device reported an error"))

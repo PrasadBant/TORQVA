@@ -139,6 +139,8 @@ class FakeBridge:
         self.commit_calls = 0
         self.stage_reject: Optional[str] = None
         self.last_net: Optional[Dict[str, Any]] = None
+        self.standby_when_usb = False                                    # the backend reports a live Wi-Fi standby link while USB is attached
+        self.unplug_on_standby = False
         # Where the board starts: no link at all (the usual USB-provisioning start), already on its committed Wi-Fi network, or on USB.
         self.joined_at = 0.0 if start_on == "wifi" else float("inf")
         self.usb_attached = start_on == "usb"
@@ -216,6 +218,13 @@ class FakeBridge:
                                 "ota": {"cap": 1, "why": ""} if kind else None, "net_info": self.last_net, "wifi_state": None}
         if kind == "usb":
             snap["transport"] = {"kind": "usb", "port": "COM7"}
+            # Standby Wi-Fi link while USB holds the session (device_link.py): live once the board could join its network. A user who is told it is
+            # ready unplugs the cable a moment later (unplug_on_standby).
+            ssid, pw = self._effective()
+            ready = self.standby_when_usb and self._can_join(ssid, pw) and self.networks[ssid].get("gateway_ok", True)
+            snap["readiness"] = {"wifi_standby": {"state": "READY" if ready else "NONE", "ready": ready}}
+            if ready and self.unplug_on_standby and self.unplug_at is None:
+                self.unplug_at = self.clock() + 2.0
         elif kind == "wifi":
             snap["transport"] = {"kind": "wifi", "remote": "192.168.1.77"}
             ssid, _ = self._effective()

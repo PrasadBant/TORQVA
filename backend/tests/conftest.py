@@ -18,6 +18,7 @@ os.environ["TORQVA_AUTOCONNECT"] = "0"
 os.environ["TORQVA_COMMISSIONING_FILE"] = os.path.join(_ISOLATED, "commissioning.json")
 os.environ["TORQVA_DEVICE_KEYS_FILE"] = os.path.join(_ISOLATED, "device_keys.json")
 os.environ["TORQVA_PROVISIONING_HISTORY"] = os.path.join(_ISOLATED, "wifi_provisioning_history.json")      # tests never touch the operator's real job history
+os.environ["TORQVA_LINK_LOG"] = os.path.join(_ISOLATED, "link_log")      # and never write their simulated device links into the bench link log (.tmp/link_log)
 
 from torqva.analysis.detection import BaselineDetector, ThermalTracker
 from torqva.analysis.diagnostics import DiagnosticsModel

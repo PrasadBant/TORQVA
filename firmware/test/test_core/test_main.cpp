@@ -278,6 +278,25 @@ static void mac_for(const uint8_t sk[32], uint32_t id, const char* type, float p
     hmac_sha256(sk, 32, canon, strlen(canon), d); to_hex(d, 16, out);
 }
 
+void test_standby_identity_proof_is_keyed_and_never_touches_the_session() {
+    SessionAuth a; uint8_t key[32]; make_auth(a, key); char sid[33]; uint8_t sk[32];
+    TEST_ASSERT_TRUE(handshake(a, key, 1000, 60000, sid, sk));
+    char out[256], line[160], dn[40], proof[65], msg[200], want[65];
+    snprintf(line, sizeof(line), "{\"t\":\"id_ch\",\"cn\":\"%s\"}", CN);
+    TEST_ASSERT_EQUAL(1, a.handle(line, 2000, out, sizeof(out), sid));
+    TEST_ASSERT_TRUE(a.active());                                                          // the live session is untouched (no SESSION_REPLACED)
+    char mac[33]; mac_for(sk, 9, "STOP", 0.0f, 1, sid, mac);
+    TEST_ASSERT_NULL(a.verify_command(9, "STOP", 0.0f, 0.0f, 0.0f, 5000, 1, 0, sid, mac, 2100));   // and still accepts its commands
+    const char* p = strstr(out, "\"dn\":\""); TEST_ASSERT_NOT_NULL(p); memcpy(dn, p + 6, 32); dn[32] = 0;
+    p = strstr(out, "\"proof\":\""); TEST_ASSERT_NOT_NULL(p); memcpy(proof, p + 9, 64); proof[64] = 0;
+    snprintf(msg, sizeof(msg), "idp|%s|%s|RIG-1", CN, dn); hex_proof(key, msg, 32, want);
+    TEST_ASSERT_EQUAL_STRING(want, proof);                                                 // the host can verify it with the device key
+    snprintf(msg, sizeof(msg), "dev|%s|%s|RIG-1", CN, dn); hex_proof(key, msg, 32, want);
+    TEST_ASSERT_TRUE(strcmp(want, proof) != 0);                                            // domain-separated from the session handshake proof
+    snprintf(line, sizeof(line), "{\"t\":\"id_ch\",\"cn\":\"nothex\"}");
+    TEST_ASSERT_EQUAL(1, a.handle(line, 2200, out, sizeof(out), sid)); TEST_ASSERT_NOT_NULL(strstr(out, "BAD_ID_CH"));
+}
+
 void test_session_handshake_succeeds_only_with_the_right_key_and_is_one_guess_per_challenge() {
     SessionAuth a; uint8_t key[32]; make_auth(a, key); char sid[33]; uint8_t sk[32];
     TEST_ASSERT_TRUE(handshake(a, key, 1000, 60000, sid, sk)); TEST_ASSERT_TRUE(a.active()); TEST_ASSERT_EQUAL(16, (int)strlen(sid));
@@ -740,6 +759,7 @@ int main(int, char**) {
     RUN_TEST(test_adxl345_decodes_raw_bytes_to_g_and_reports_gravity_in_the_magnitude);
     RUN_TEST(test_adxl345_implausible_data_is_invalid_and_zeros_are_not_presented_as_a_reading);
     RUN_TEST(test_sha256_and_hmac_match_the_published_vectors);
+    RUN_TEST(test_standby_identity_proof_is_keyed_and_never_touches_the_session);
     RUN_TEST(test_session_handshake_succeeds_only_with_the_right_key_and_is_one_guess_per_challenge);
     RUN_TEST(test_commands_need_a_valid_mac_a_fresh_counter_and_an_unexpired_session);
     RUN_TEST(test_a_new_hello_ends_the_old_session_and_wrong_ttl_is_refused);

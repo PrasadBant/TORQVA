@@ -187,7 +187,17 @@ class NetworkSwitcher:
             if ws.get("active_ssid") == job["ssid"]:                             # the commit did land after all
                 ok, why = p.verifier.wireless_ok(job["device_id"], job["ssid"], net_after=t0)
                 return (ok, why)
-            return p.verifier.wireless_ok(job["device_id"], prev or None, net_after=t0)
+            ok, why = p.verifier.wireless_ok(job["device_id"], prev or None, net_after=t0)
+            if ok:
+                return ok, why
+            # USB may hold the command session meanwhile: then the board's Wi-Fi link is a STANDBY link. A live standby link that proved this board's key
+            # (device_link.py identity proof), from the address the board reports on the previous network, is the board back on that network.
+            snap = p.bridge.snapshot()
+            sb = (snap.get("readiness") or {}).get("wifi_standby") or {}
+            ni = snap.get("net_info") or {}
+            if sb.get("ready") and snap.get("device_id") == job["device_id"] and (prev is None or ni.get("ssid") == prev) and float(ni.get("updated_at") or 0) >= t0:
+                return True, ""
+            return ok, why
 
         ok, why = p.verifier.wait(back, wait_s, 2.0)
         ws = p.bridge.snapshot().get("wifi_state") or {}

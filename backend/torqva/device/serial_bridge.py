@@ -58,7 +58,10 @@ MAX_COMMANDS_KEPT = 200
 # --------------------------------------------------------------------------------------------------------------- event hub (bounded)
 # --------------------------------------------------------------------------------------------------------------- the bridge
 _RESET = {1: "power-on", 2: "external reset", 3: "software reset", 4: "panic/crash", 5: "interrupt watchdog", 6: "task watchdog", 7: "watchdog", 8: "deep sleep", 9: "brown-out (supply dipped)", 10: "SDIO"}
-_CLOSE = {0: "", 1: "send failed or timed out", 2: "WebSocket error", 3: "WebSocket dropped (transport error or peer close; not proven to be the backend)", 4: "connection lost (not connected)", 5: "reconnect requested", 6: "trial ended"}
+_CLOSE = {0: "", 1: "send failed or timed out (the WebSocket client aborted the connection)", 2: "WebSocket error",
+          3: "WebSocket dropped (transport error or peer close; not proven to be the backend)", 4: "connection lost (not connected)", 5: "reconnect requested",
+          6: "trial ended", 7: "TCP stalled: no send-buffer room for 8 s"}
+_PHASE = {0: "starting", 1: "joining Wi-Fi", 2: "connecting TLS WebSocket", 3: "link up", 4: "closing the WebSocket", 5: "waiting to retry"}
 
 
 def net_link_diagnostics(f):
@@ -67,6 +70,25 @@ def net_link_diagnostics(f):
         return {}
     return {"reset_reason": _RESET.get(f["rr"], "code %s" % f["rr"]), "link_close_cause": _CLOSE.get(f["lc"], "code %s" % f["lc"]), "link_errno": f["le"], "last_link_s": f["lu"],
             "links_since_boot": f["ln"], "rssi_at_close": f["lr"], "max_send_ms": f["sm"]}
+
+
+_PS = {0: "off", 1: "modem sleep (min)", 2: "modem sleep (max)"}
+_WIFI_REASON = {0: "", 2: "authentication expired", 3: "deauthenticated (AP left)", 4: "disassociated (inactivity)", 6: "not authenticated", 7: "not associated",
+                8: "station left the network", 15: "4-way handshake timeout (wrong password?)", 23: "802.1X authentication failed", 200: "beacon timeout (AP lost)",
+                201: "network not found", 202: "authentication failed", 203: "association failed", 204: "handshake timeout"}
+SEND_BUCKETS = ("<20 ms", "20-99 ms", "100-299 ms", "300-999 ms", ">=1000 ms")
+
+
+def link_diag_view(f: Dict[str, Any]) -> Dict[str, Any]:
+    """The board's link measurements (link_diag frame) as named, device-reported values. Nothing is estimated here."""
+    return {"power_save": _PS.get(f["ps"], "code %s" % f["ps"]), "tcp_nodelay_sockets": f["nd"], "wifi_disconnect_reason": _WIFI_REASON.get(f["wdr"], "code %s" % f["wdr"]),
+            "wifi_disconnect_code": f["wdr"], "wifi_disconnects": f["wdn"], "min_free_heap": f["mh"], "prio_queue_peak": f["pq"], "tele_queue_peak": f["tq"],
+            "telemetry_dropped": f["td"], "priority_dropped": f["pd"], "rx_dropped": f["rd"], "frames_sent": f["fr"], "avg_send_ms": f["sa"],
+            "send_histogram": dict(zip(SEND_BUCKETS, f["sh"])), "max_rx_handling_ms": f["rx"], "last_close_code": f["cc"], "link_uptime_s": f["lu"],
+            "link_task_stack_free": f["sl"], "oled_task_stack_free": f["so"],
+            **({"link_phase": _PHASE.get(f["ph"], "code %s" % f["ph"]), "link_phase_s": f["pa"]} if "ph" in f else {}),
+            **({"tcp_stalls": f["st"], "longest_stall_ms": f["sx"]} if "st" in f else {}),
+            **({"send_lock_waits": f["lw"]} if "lw" in f else {}), **({"wifi_driver_resets": f["dr"]} if "dr" in f else {}), **({"absent_network_scans": f["as"]} if "as" in f else {}), "updated_at": time.time()}
 
 
 class DeviceBridge:
@@ -246,6 +268,8 @@ class DeviceBridge:
                     self.hub.publish("command_unknown_outcome", rec.public())
         if tr is not None:
             tr.close()                                                                             # release the port
+            if self.link is not None:
+                self.link.record("transport_ended", {"transport": getattr(tr, "kind", "usb"), "port": getattr(tr, "port", None), "reason": reason})
         if was:
             self.hub.publish("device_disconnected", {"reason": reason})
             self._ota_link(False, reason)
@@ -288,6 +312,8 @@ class DeviceBridge:
                     self.model.counters["unknown_type"] += 1
             self._protocol_error(e.code)
             return
+        if f["t"] == "id_ok":
+            return                                                 # the board answers a standby link's identity challenge on every transport; only the standby copy counts
         if f["t"] in ("auth_ch", "auth_ok", "auth_err"):
             self._on_auth_frame(f, now)
             return
@@ -303,8 +329,19 @@ class DeviceBridge:
         if f["t"] == "net_info":
             info = {"ip": f["ip"], "ssid": f["ssid"], "rssi": f["rssi"], "mac": f["mac"], "heap": f["heap"], "uptime_s": f["up_s"], "updated_at": self._wall(), **net_link_diagnostics(f)}
             with self._lock:
+                if "link" in self.device_net_info:
+                    info["link"] = self.device_net_info["link"]
                 self.device_net_info = info
             self.hub.publish("net_info", info)
+            if self.link is not None:
+                self.link.record("net_info", info)
+            return
+        if f["t"] == "link_diag":
+            diag = link_diag_view(f)
+            with self._lock:
+                self.device_net_info = {**self.device_net_info, "link": diag}
+            if self.link is not None:
+                self.link.record("link_diag", diag)
             return
         if f["t"] == "wifi_net":
             with self._lock:
@@ -656,6 +693,10 @@ class DeviceBridge:
                 self._auth = {"state": "active", "sid": sid, "sk": sk, "expires": now + a["ttl"] / 1000.0 - 1.0, "restarts": a["restarts"], "dev": dev}
                 self._next_seq = max(self._next_seq, int(time.time() * 10) & 0x7FFFFFFF)
                 self.hub.publish("session_established", {"sid": sid})
+                if self.link is not None:
+                    since = self.model.connecting_since
+                    self.link.record("session_active", {"transport": getattr(self._transport, "kind", "usb"), "port": getattr(self._transport, "port", None),
+                                                        "s_since_connect": round(now - since, 2) if since is not None else None})
                 return
             else:
                 self.model.counters["malformed"] += 1

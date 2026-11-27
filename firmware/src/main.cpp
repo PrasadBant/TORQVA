@@ -594,6 +594,7 @@ void loop() {
         }
     }
     wifi_scan_poll();                                  // emits a finished scan's results (no-op without Wi-Fi or without a scan); never waits
+    wifi_link_poll();                                  // network info + link measurements every 5 s (no-op without the Wi-Fi link); never waits
     ota_wifi_trial_tick(millis());                     // a staged network that was never committed is dropped here, and the previous one is used again
     {
         static uint32_t last_wifi_state = 0;

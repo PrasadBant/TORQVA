@@ -69,4 +69,18 @@ describe('wireless device link', () => {
     const r = screen.getByTestId('conn-readiness');
     expect(r).toHaveTextContent('Communication failure'); expect(r).toHaveTextContent('commands are not routed yet'); expect(r).toHaveTextContent('dropped 4 times');
   });
+
+  it('on USB, shows whether the Wi-Fi standby link is ready before the cable is pulled, and the board-reported link measurements', async () => {
+    const sb = { remote: '10.177.25.41', since: 1793814828, claimed_device_id: 'RIG-1', silent_s: 0.2, messages: 120, invalid_lines: 0, alive: true };
+    const onUsb = { ...usb, wifi_link: { enabled: true, active: false, standby: sb, promotions: 0, attempts: 2, events: [] },
+      readiness: { state: 'USB_CONNECTED', label: 'USB connected', ready: true, reasons: [], wifi_standby: { state: 'READY', ready: true, reason: 'Wi-Fi standby link is live' } },
+      net_info: { rssi: -52, ip: '10.177.25.41', reset_reason: 'power-on', link_close_cause: '', links_since_boot: 1, max_send_ms: 14,
+        link: { power_save: 'off', tcp_nodelay_sockets: 1, avg_send_ms: 4, frames_sent: 300, send_histogram: { '<20 ms': 298, '20-99 ms': 2, '100-299 ms': 0, '300-999 ms': 0, '>=1000 ms': 0 },
+          telemetry_dropped: 0, priority_dropped: 0, rx_dropped: 0, wifi_disconnects: 0 } } };
+    await act(async () => { render(<DevicePage stream={stream(onUsb)} role="viewer" embedded />); });
+    expect(screen.getByTestId('wifi-standby')).toHaveTextContent('ready');
+    expect(screen.getByTestId('wifi-standby-link')).toHaveTextContent('claims RIG-1');
+    const d = screen.getByTestId('wifi-link-diag');
+    expect(d).toHaveTextContent('-52 dBm'); expect(d).toHaveTextContent('avg 4 ms · max 14 ms'); expect(d).toHaveTextContent('<20 ms: 298'); expect(d).toHaveTextContent('off · TCP no-delay on');
+  });
 });
